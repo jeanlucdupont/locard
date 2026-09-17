@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from forensic_assistant.model import NormalizedEvent
+from forensic_assistant.database.context import insert_context
+from forensic_assistant.database.migrations import upgrade
 
 
 def now():
@@ -15,10 +17,20 @@ def connect(path):
     db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version not in (0, 1):
+    if version == 1:
+        db.close()
+        raise ValueError("V0 database requires migration. Run: locard --db <database-path> migrate")
+    if version not in (0, 2):
         db.close()
         raise ValueError(f"Unsupported database schema version: {version}")
-    db.executescript(Path(__file__).with_name("schema.sql").read_text())
+    db.execute("PRAGMA foreign_keys=ON")
+    if version == 0:
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
+            db.close()
+            raise ValueError("Unversioned nonempty database; refusing to modify it")
+        db.executescript(Path(__file__).with_name("schema.sql").read_text())
+        with db:
+            upgrade(db)
     return db
 
 
@@ -28,9 +40,15 @@ def register_source(db, sha, size, path):
 
 
 def insert_events(db, events):
+    events = list(events)
     # Identifiers come exclusively from the fixed dataclass, never user input.
     names = [f.name for f in fields(NormalizedEvent)]
     sql = "INSERT INTO events (" + ",".join(names) + ") VALUES (" + ",".join("?" for _ in names) + ") ON CONFLICT(id) DO NOTHING"
     before = db.total_changes
     db.executemany(sql, [tuple(getattr(e, name) for name in names) for e in events])
-    return db.total_changes - before
+    inserted = db.total_changes - before
+    # On duplicate ingestion derive context from the preserved row, not a later input.
+    if events:
+        preserved = [db.execute("SELECT * FROM events WHERE id=?", (e.id,)).fetchone() for e in events]
+        insert_context(db, preserved)
+    return inserted

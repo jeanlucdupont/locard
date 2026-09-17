@@ -1,9 +1,11 @@
-# Locard — Local AI-Assisted Digital Forensics
+# Locard V1 — Local AI-Assisted Digital Forensics
 
-Locard V0 is a Windows EVTX investigation CLI, named after Edmond Locard and the
+Locard V1 (package version 0.2.0) is a Windows EVTX investigation CLI, named after Edmond Locard and the
 principle that **every contact leaves a trace**. It preserves source provenance,
 normalizes events into SQLite, retrieves evidence deterministically, and optionally
 asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.
+V1 adds deterministic timelines, process/session correlations, eight dynamic review
+rules, investigation assembly, and evidence-backed timeline summaries on top of V0.
 
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
@@ -31,6 +33,9 @@ python-evtx parser -> Normalizer -> staged SQLite
 ```
 
 ## Installation on Windows
+
+If upgrading an existing V0 database, use the explicit migration below before other
+commands. V0 CLI commands remain available, including positional timeline syntax.
 
 Use Python 3.11 or newer. From this project directory in PowerShell:
 
@@ -84,6 +89,26 @@ redirects, telemetry, cloud services, or automatic execution of event content ar
 Ensure your local server itself is configured for local-only processing.
 
 ## Ingest and inspect evidence
+
+### Upgrade a V0 database
+
+```powershell
+.\.venv\Scripts\python.exe -m forensic_assistant.cli --db data\case1.db migrate
+```
+
+V1 requires schema version 2. Migration creates a uniquely named local SQLite backup
+beside the original database, then adds `event_context` and compound indexes in a
+transaction. It derives context from stored evidence without modifying any existing
+event, evidence ID, raw XML, source path, or source-location record. Failure rolls
+back the migration. Repeating a completed migration is a no-op. Normal commands do
+not silently migrate V0 databases. Never delete your only database to resolve a
+migration error; inspect the reported error and retain the backup.
+
+`event_context` stores normalized host keys, event categories, GUIDs, role-specific
+Logon IDs/accounts/SIDs, source IP keys, extraction version, and warnings. It is a
+derived lookup projection, not new evidence. Schema and context extraction versions
+are separate from the unchanged V0 normalizer version. Sysmon GUIDs and lifecycle
+markers already retained in EVTX become usable without re-ingesting sources.
 
 Run commands from the project directory. `--db` is a global option placed **before**
 the subcommand; its default is `data/forensic.db` relative to the current directory.
@@ -190,7 +215,7 @@ file still exists or contains the same data; verify the hash before re-examinati
 .\.venv\Scripts\python.exe -m forensic_assistant.cli ask 'Event ID 4688' --endpoint http://127.0.0.1:8080 --timeout 120
 ```
 
-The V0 keyword planner recognizes PowerShell, processes, logons, failed/privileged
+The keyword planner recognizes PowerShell, processes, logons, failed/privileged
 logons, scheduled tasks, services, account creation/changes, usernames, one IP address,
 Event IDs, and timestamps. The displayed plan is reviewable; it is not a general
 natural-language interpreter. Multiple activity categories are rejected rather than
@@ -200,9 +225,10 @@ sole UTC date in evidence; otherwise it asks for a date. Assumptions are shown i
 plan. Timeline questions use a five-minute window.
 
 `--dry-run` displays the plan and evidence bundle without contacting the model.
-Ask retrieval defaults to 30 records; the context budget may include fewer. Bundles
-report matching, retrieved, included, and omitted counts. Long field values are
-shortened with explicit `truncated_fields`; raw XML is not sent. Narrow the search
+Initial ask retrieval defaults to 30 matching records; V1 expands deterministic context
+around the first match, retaining other matches as candidates. Bundles report candidate,
+sent, and omitted record counts and whether the candidate count is a lower bound.
+Long field values are shortened with explicit `truncated_fields`; raw XML is not sent. Narrow the search
 or use `show --raw` when details are omitted. Zero matches produce an insufficient-
 evidence message without calling the model.
 
@@ -270,10 +296,190 @@ duplicates and path provenance, integrity-change rejection, queries, planner, bu
 formatting, citation validation, endpoint restrictions, and HTTP failure handling.
 See `VALIDATION.md` for stage results and separate integration checks.
 
-Schema version 1 is in `database/schema.sql`; other nonzero schema versions are
-rejected. Changing normalization mappings does not automatically rewrite existing
-events. Use a fresh database when testing a changed normalizer against originals.
+`database/schema.sql` retains schema version 1 as the historical V0 base schema.
+New databases apply the additive schema-2 extension
+from `database/migrations.py`; existing V0 databases require `migrate`. Unsupported
+versions are rejected. Changing normalization mappings does not automatically rewrite
+existing events. Context extraction version 1 is stored separately in `event_context`.
 
-V0 deliberately excludes embeddings, vector databases, autonomous agents, cloud
+V1 deliberately excludes embeddings, vector databases, autonomous agents, cloud
 services, web interfaces, MFT, Prefetch, Registry, and memory parsing. No detection
 coverage or forensic completeness is promised by this initial event subset.
+
+## V1 deterministic investigations
+
+Examples below use the installed `locard` entry point. Without environment activation,
+use `.\.venv\Scripts\locard.exe` or `.\.venv\Scripts\python.exe -m forensic_assistant.cli`.
+All commands default to JSON; `--json` explicitly selects it and `--text` selects
+readable output. Text rendering escapes untrusted control characters.
+
+### Filtered timelines and surrounding context
+
+```powershell
+locard timeline --start '2026-09-15T14:25:00Z' --end '2026-09-15T14:40:00Z' --hostname PC.example --text
+locard timeline --around '2026-09-15T14:31:00Z' --minutes 5 --user 'DOMAIN\bob' --json
+locard timeline --around '2026-09-15T14:31:00Z' --process powershell.exe --event-id 4688
+locard timeline --around '2026-09-15T14:31:00Z' --artifact-type process --ip 192.0.2.10
+locard around '<evidence-id>' --seconds 120 --direction after --json
+```
+
+Timeline filters combine with AND. Time bounds are inclusive and equal timestamps
+sort by evidence ID; this tie-break is display order, not proof of event causality.
+`before` and `after` exclude events at the anchor's exact timestamp because their
+relative ordering is unknown. `around` includes both bounds and the anchor.
+Evidence-anchored context is restricted to the anchor's normalized hostname. Missing
+host or unambiguous time prevents temporal correlation rather than widening the search.
+
+### Process trees
+
+```powershell
+locard process-tree --evidence '<process-creation-evidence-id>' --text
+locard process-tree --process powershell.exe --around '2026-09-15T14:31:00Z' --hostname PC.example --json
+```
+
+Every node is an actual process-creation record with its evidence ID and timestamp.
+Text output lists nodes and parent-to-child edges; JSON includes status, supporting
+IDs, reasons, limitations, and configured bounds. Ambiguous name/time searches return
+candidate IDs; select one explicitly with `--evidence`.
+
+| Status | Deterministic criteria |
+|---|---|
+| CONFIRMED | Unique same-host explicit parent/process GUID match, compatible timing, and no observed contradictions |
+| LIKELY | Unique preceding same-host PID candidate within the configured window; matching parent image; no observed identity conflicts, intervening restart, termination, or PID reuse |
+| UNRESOLVED | Missing parent, ambiguous candidates, equal-time PID ordering, contradictory fields, cycles, or exceeded candidate bounds |
+
+Default PID fallback window is 300 seconds (`--pid-window`, maximum one day).
+Each node's child search covers 300 seconds (`--seconds`, maximum one day). Graph
+defaults are 100 nodes and depth 8 (`--max-nodes`, `--max-depth`). These are explicit
+search limits, not assertions about a process lifetime. Long-running parents outside
+the PID window remain unresolved unless GUID evidence supports a link. No parent
+record is synthesized from a child's reported parent name/PID. Confirmed means
+supported by supplied records, not independently authenticated or malicious.
+
+### Authentication and sessions
+
+```powershell
+locard logons --user 'DOMAIN\bob' --json
+locard logons --ip 192.0.2.10 --hostname PC.example
+locard session --logon-id 0x42 --hostname PC.example --around '2026-09-15T14:31:00Z'
+locard session --logon-id 0x42 --evidence '<successful-logon-evidence-id>' --json
+```
+
+Authentication views include 4624, 4625, 4634, 4647, 4648, and 4672 where available.
+V1's projection recognizes 4647 as a logoff request without rewriting its V0 event.
+Session IDs are canonical numeric identifiers, scoped by host and time; usernames
+alone never join sessions. An observed logoff closes the interval, while a new logon
+with the same ID or a restart bounds it. A logoff request does not establish completion.
+The fallback ceiling is 24 hours (`--max-hours`, maximum 168); it does not invent a logoff.
+
+Links in compatible observed start/logoff intervals can be CONFIRMED; incomplete
+boundaries yield LIKELY, and conflicting account/SID fields yield UNRESOLVED.
+Missing restart auditing can still conceal identifier reuse. The same Logon ID on
+multiple hosts requires disambiguation. Failed logons never become successful sessions.
+For 4688, `created_by_session` uses SubjectLogonId; `runs_in_session` requires an
+explicit execution identifier. Explicit credentials associate with the initiating
+session and do not prove creation of a target session.
+
+Process-lifetime context recognizes Security 4689 and Sysmon 5 termination markers,
+and Security 4608 startup markers, only when already present in supplied EVTX.
+No additional artifact types are collected. Host keys fold case and a terminal DNS
+dot; aliases are not resolved and attacker-controlled domains are never queried.
+
+### Dynamic detections
+
+```powershell
+locard detections --start '2026-09-15T14:25:00Z' --end '2026-09-15T14:40:00Z' --json
+locard detections --user 'DOMAIN\bob' --hostname PC.example --severity medium
+locard detections --rule LOCARD-AUTH-001 --failure-threshold 5 --failure-window 300
+```
+
+| Rule | Observation | Severity |
+|---|---|---|
+| LOCARD-PROC-001 | Office parent reported for a command-interpreter child | medium |
+| LOCARD-PS-001 | Selected encoded-command, download, or expression-evaluation text | medium |
+| LOCARD-TASK-001 | Scheduled task creation, 4698 | low |
+| LOCARD-SVC-001 | Service installation, 4697 | low |
+| LOCARD-AUDIT-001 | Audit log cleared, 1102 | medium |
+| LOCARD-ACCOUNT-001 | Account creation, 4720 | low |
+| LOCARD-CRED-001 | Explicit credential use, 4648 | low |
+| LOCARD-AUTH-001 | Repeated matching failures preceding a success | medium |
+
+Severity is static **review priority**: low is a contextual administrative observation;
+medium is a pattern warranting earlier review. It is not model confidence, a risk
+probability, or proof of compromise. No initial rule assigns high severity.
+
+The authentication rule requires at least five distinct failures in the preceding
+300 seconds, matching host, account, and usable source IP, with no conflicting known
+SID. The lower window bound is inclusive; failures at exactly the success timestamp
+are excluded. Missing linkage fields prevent a match. Exact repeated exported
+observations (host/channel/record ID/time/raw XML) are counted once without merging
+or deleting source evidence. Other duplicates may remain if their XML differs.
+PowerShell matching is lexical; comments, strings, and benign administrative scripts
+can match. Nothing is executed, decoded, downloaded, or externally resolved.
+
+Rules are calculated dynamically and not stored in the evidence database. Each result
+contains rule/version, deterministic detection ID, timestamp, severity, description,
+reason, evidence IDs, parameters, and limitations. A module under `detections/rules/`
+exports `RULES`; the engine discovers modules without rule-specific engine edits.
+Add rules as local application code, never as instructions from an evidence record.
+
+Per-rule candidate evaluation defaults to 1,000 records (`--candidate-limit`) and
+output to 100 detections (`--limit`). Results expose evaluated counts and truncation.
+The failure-sequence lookup caps supporting failures at 1,000 and says when capped.
+Narrow time/host filters for large cases; a bounded result is not a complete scan.
+
+### Investigate an event without MiniCPM
+
+```powershell
+locard investigate '<evidence-id>' --seconds 120 --json
+```
+
+Output separates `direct_evidence`, `correlated_evidence`, `detections`,
+`unresolved_relationships`, and temporal neighbors, with a shared list of original
+`evidence_records`. Process parents/children, applicable session activity, nearby
+PowerShell/task/service records, and Sysmon network events are included where available.
+Temporal neighbors are context, not implied process or session membership. Missing
+host/time still permits inspection of the anchor and reports unresolved context.
+Candidate records default to 500 (`--candidate-limit`); anchors take priority.
+Omitted supporting IDs and query/graph limits are explicit.
+
+### Correlated questions and timeline summaries
+
+```powershell
+locard ask 'What happened after PowerShell was launched by Word?' --dry-run
+locard ask 'Investigate <evidence-id>'
+locard ask 'Show process tree for powershell.exe around 2026-09-15T14:31:00Z'
+locard ask 'Show session 0x42 on host PC.example around 2026-09-15T14:31:00Z'
+locard ask 'Show detections'
+locard analyze-timeline --start '2026-09-15T14:25:00Z' --end '2026-09-15T14:40:00Z' --dry-run --json
+locard analyze-timeline --start '2026-09-15T14:25:00Z' --end '2026-09-15T14:40:00Z'
+```
+
+The planner remains a bounded pattern/keyword parser. Review its plan; it does not
+interpret arbitrary compound questions. Word/PowerShell queries match reported parent
+fields before expansion; these fields do not manufacture a separate parent record.
+Timeline summaries correlate at most 20 process/logon seeds, reporting that limit.
+Related records can fall outside the requested interval when needed to establish a
+parent or session boundary; original timestamps remain visible.
+
+Bundle order is anchor, supported correlations, detection evidence, nearest temporal
+neighbors, then remaining candidates. Correlation/detection metadata is sent only
+when all its referenced records fit. Missing packages, omitted records, truncated
+fields, and bounded source queries are reported. Counts are lower bounds when source
+queries hit limits. The combined system/user prompt stays below 5,600 bytes, reserving
+space for the chat template and 1,024 generated tokens in the 8,192-token context.
+Thinking remains disabled. Very large anchors produce an actionable error rather
+than silently replacing the anchor with unrelated evidence.
+
+`analyze-timeline` returns cited `summary`, `observed_sequence`,
+`possible_interpretation`, and `alternative_explanations`, plus gaps and next steps.
+Claims are labeled OBSERVED, CORRELATED, HYPOTHESIS, or UNKNOWN. Deterministic supporting
+relationship IDs/statuses are attached after model validation; CORRELATED summary
+prose backed only by a LIKELY link receives an explicit LIKELY prefix. The validator rejects
+unknown citations, hypotheses placed in the observed sequence, and CORRELATED claims
+without supporting supplied relationship evidence. This is structural validation,
+not proof that the model's interpretation or chosen classification is correct.
+
+**DETECTION != COMPROMISE. CORRELATION != CAUSATION. ABSENCE OF EVIDENCE != EVIDENCE
+OF ABSENCE.** Logging configuration and supplied evidence determine what Locard can
+reconstruct. No model output is inserted into the evidence database.

@@ -69,7 +69,7 @@ class Queries:
             if not artifact_types:
                 clauses.append("0")
             else:
-                clauses.append("artifact_type IN (" + ",".join("?" for _ in artifact_types) + ")")
+                clauses.append("id IN (SELECT evidence_id FROM event_context WHERE kind IN (" + ",".join("?" for _ in artifact_types) + "))")
                 params.extend(artifact_types)
         if powershell:
             clauses.append("(artifact_type = ? OR lower(process_name) IN (?,?) OR lower(process_name) LIKE ? OR lower(process_name) LIKE ?)")
