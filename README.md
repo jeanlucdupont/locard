@@ -8,27 +8,8 @@ asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
 
-```text
-EVTX (read-only)
-  |
-  v
-python-evtx parser -> Normalizer -> staged SQLite
-                                      |
-                             verify source SHA-256
-                                      |
-                                      v
-                                   SQLite
-                                      |
-                   +------------------+-----------------+
-                   |                                    |
-          deterministic CLI queries            Evidence Retriever
-          search / timeline / show                      |
-                                                        v
-                                            MiniCPM5 / local llama.cpp
-                                                        |
-                                                        v
-                                            Citation-checked analysis
-```
+<img width="1054" height="1897" alt="locard" src="https://github.com/user-attachments/assets/4e9b9aac-0b74-4fb8-9eb7-b7435626647b" />
+
 
 ## Installation on Windows
 
