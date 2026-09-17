@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "locard-forensics"
+version = "0.1.0"
+description = "Local AI-assisted Windows EVTX forensic analysis"
+requires-python = ">=3.11"
+dependencies = ["python-evtx==0.8.1", "defusedxml==0.7.1"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+locard = "forensic_assistant.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["forensic_assistant*"]
+
+[tool.setuptools.package-data]
+forensic_assistant = ["database/schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
