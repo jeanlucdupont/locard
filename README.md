@@ -1,5 +1,8 @@
 # Locard V2 — Local AI-Assisted Digital Forensics
 
+<img width="377" height="512" alt="image" src="https://github.com/user-attachments/assets/ca1df9e4-91a3-4be4-aefa-bab5921f6758" />
+
+
 Locard V2 (package version 0.3.0, schema 3) is a local Windows forensic investigation CLI, named after Edmond Locard and the
 principle that **every contact leaves a trace**. It preserves source provenance,
 normalizes events into SQLite, retrieves evidence deterministically, and optionally
@@ -11,7 +14,7 @@ EVTX ingestion and V1 process/session correlations, eight rules, and investigati
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
 
-<img width="1054" height="1897" alt="locard" src="https://github.com/user-attachments/assets/4e9b9aac-0b74-4fb8-9eb7-b7435626647b" />
+<img width="527" height="948" alt="locard" src="https://github.com/user-attachments/assets/4e9b9aac-0b74-4fb8-9eb7-b7435626647b" />
 
 
 ## V2 evidence architecture and workflow
