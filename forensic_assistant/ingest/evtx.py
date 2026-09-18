@@ -62,6 +62,8 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None):
     if batch_size < 1:
         raise ValueError("Batch size must be positive")
     path = Path(path).resolve()
+    import importlib.metadata
+    parser_metadata={'parser_name':'python-evtx','parser_version':importlib.metadata.version('python-evtx')} if reader is records else {}
     with db:
         run_id = db.execute("INSERT INTO ingestion_runs(source_file,started_utc,status) VALUES (?, ?, ?)",
                             (str(path), now(), "running")).lastrowid
@@ -98,14 +100,14 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None):
                             batch.append(event)
                             if len(batch) >= batch_size:
                                 with stage:
-                                    insert_events(stage, batch)
+                                    insert_events(stage, batch,**parser_metadata)
                                 batch.clear()
                         except Exception as exc:
                             report("normalize", f"{type(exc).__name__}: {exc}", record.offset, record.record_id)
                 except Exception as exc:
                     report("parse", f"File iteration stopped: {type(exc).__name__}: {exc}")
                 with stage:
-                    insert_events(stage, batch)
+                    insert_events(stage, batch,**parser_metadata)
                 if digest(path) != before or path.stat().st_size != size:
                     report("integrity", "Source changed during ingestion; staged records rejected")
                     status = "changed"
@@ -114,7 +116,7 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None):
                         register_source(db, before, size, str(path))
                         cursor = stage.execute("SELECT * FROM events ORDER BY record_offset")
                         while rows := cursor.fetchmany(batch_size):
-                            count = insert_events(db, [NormalizedEvent(**dict(row)) for row in rows])
+                            count = insert_events(db, [NormalizedEvent(**dict(row)) for row in rows],**parser_metadata)
                             inserted += count
                             duplicates += len(rows) - count
                         db.execute("UPDATE ingestion_runs SET file_sha256=? WHERE id=?", (before, run_id))

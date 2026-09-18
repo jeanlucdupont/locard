@@ -40,12 +40,23 @@ def retrieve_question(queries, question, date_hint=None, limit=30):
     if not question.strip() or len(question.encode()) > 1000:
         raise ValueError("Question must contain 1..1000 UTF-8 bytes")
     db, lower = queries.db, question.lower()
-    evidence = re.search(r"EVTX:[a-f0-9]{64}:Offset:\d+", question)
+    evidence = re.search(r"(?:EVTX|MFT):[a-f0-9]{64}:Offset:\d+|PREFETCH:[a-f0-9]{64}:File|REGISTRY:[a-f0-9]{64}:(?:KeyOffset|ValueOffset):\d+", question)
     if evidence:
         return {"operation": "investigate", "evidence_id": evidence.group()}, investigate(db, evidence.group())
     stamps = re.findall(STAMP, question)
     if len(stamps) == 2:
         return {"operation": "timeline", "start": stamps[0], "end": stamps[1]}, timeline_context(db, *stamps)
+    artifact=re.search(r'\b(mft|prefetch|registry)\b',lower)
+    path=re.search(r'\bpath\s+[\"\']([^\"\']+)[\"\']|\bpath\s+(\S+)',question,re.I)
+    if artifact or path:
+        from forensic_assistant.retrieval.evidence import EvidenceQueries
+        filters={}
+        if artifact:filters['artifact']=artifact.group(1)
+        if path:filters['path']=path.group(1) or path.group(2)
+        process=re.search(r'\b([\w.-]+\.exe)\b',question,re.I)
+        if process and not path:filters['process']=process.group(1)
+        result=EvidenceQueries(db).timeline_around(stamps[0],limit=limit,**filters) if stamps else EvidenceQueries(db).search(limit=limit,**filters)
+        return {'operation':'artifact_search','filters':filters,'notes':['Explicit artifact/path pattern; no semantic search']},enrich_result(db,result)
     logon = re.search(r"\b(?:logon[- ]?id|session)\s*[:=]?\s*(0x[0-9a-f]+|\d+)\b", question, re.I)
     if logon:
         host = re.search(r"\bhost(?:name)?\s+([\w.-]+)", question, re.I)
@@ -79,6 +90,7 @@ def retrieve_question(queries, question, date_hint=None, limit=30):
         if result.total != 1:
             raise ValueError("Process-tree question has no unique anchor; use an evidence ID")
         return {"operation": "process_tree", "process": name}, investigate(db, result.records[0]["id"])
-    plan = plan_question(question, queries, date_hint)
-    result = plan.execute(queries, limit)
+    from forensic_assistant.retrieval.evidence import EvidenceQueries
+    plan = plan_question(question, EvidenceQueries(db), date_hint)
+    result = plan.execute(EvidenceQueries(db), limit)
     return plan.as_dict(), enrich_result(db, result)

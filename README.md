@@ -1,11 +1,12 @@
-# Locard V1 — Local AI-Assisted Digital Forensics
+# Locard V2 — Local AI-Assisted Digital Forensics
 
-Locard V1 (package version 0.2.0) is a Windows EVTX investigation CLI, named after Edmond Locard and the
+Locard V2 (package version 0.3.0, schema 3) is a local Windows forensic investigation CLI, named after Edmond Locard and the
 principle that **every contact leaves a trace**. It preserves source provenance,
 normalizes events into SQLite, retrieves evidence deterministically, and optionally
 asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.
-V1 adds deterministic timelines, process/session correlations, eight dynamic review
-rules, investigation assembly, and evidence-backed timeline summaries on top of V0.
+V2 adds offline NTFS MFT, Prefetch, and Registry evidence, a common timeline,
+conservative cross-artifact correlations, and four review rules. It preserves V0
+EVTX ingestion and V1 process/session correlations, eight rules, and investigations.
 
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
@@ -13,9 +14,186 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 <img width="1054" height="1897" alt="locard" src="https://github.com/user-attachments/assets/4e9b9aac-0b74-4fb8-9eb7-b7435626647b" />
 
 
-## Installation on Windows
+## V2 evidence architecture and workflow
 
-If upgrading an existing V0 database, use the explicit migration below before other
+Schema 3 retains `events` and `event_context` unchanged. `evidence_records` is the
+common registry; MFT records/names, Prefetch details/references/volumes, and Registry
+hives/keys/values/views have separate tables. `evidence_timestamps` and
+`evidence_objects` are derived lookup projections. An artifact may have many
+timestamp observations or none; it is never fabricated into an EVTX event.
+
+Acquire offline files using appropriate forensic acquisition procedures. Locard
+parses supplied copies; it does not acquire live hives, unlock files, mount images,
+recover deleted content, or replay Registry transaction logs. Missing companion
+hives are allowed. `ingest` retains its original EVTX-only behavior. New commands
+validate signatures rather than relying on filenames:
+
+```powershell
+locard --db data\case.db ingest-mft 'C:\Evidence\filesystem\$MFT' --hostname PC01 --volume-root C:
+locard --db data\case.db ingest-prefetch C:\Evidence\Prefetch --hostname PC01 --volume-root C:
+locard --db data\case.db ingest-registry C:\Evidence\Registry --hostname PC01
+locard --db data\case.db ingest-all C:\Evidence --hostname PC01 --json
+locard --db data\case.db search --path payload.exe --json
+locard --db data\case.db search --artifact registry --json
+locard --db data\case.db search --process powershell.exe
+locard --db data\case.db timeline --start 2026-09-15T14:30:00Z --end 2026-09-15T14:32:00Z --json
+locard --db data\case.db show '<evidence-id>' --raw --json
+locard --db data\case.db investigate '<evidence-id>' --json
+locard --db data\case.db ask 'Inspect Prefetch powershell.exe' --dry-run
+```
+
+Use the active environment's `locard` command or replace it with
+`.\.venv\Scripts\python.exe -m forensic_assistant.cli`. Replace placeholder IDs
+with complete IDs from search results. `--db` precedes the subcommand.
+`--hostname`, `--user`, and `--volume-root` on ingestion are analyst assertions,
+stored separately from raw evidence. Apply a directory-wide assertion only when
+every contained source shares that context. Conflicting assertions remain visible
+and prevent corroboration. Filenames, folders, and the analyst's live environment
+never supply missing host, user, timezone, or drive information.
+
+`search` counts evidence records. `timeline` counts timestamp observations and can
+show one MFT record repeatedly under distinct SI/FN fields. Stable ordering is UTC,
+evidence ID, then timestamp slot. Search combines filters with AND; `--start` and
+`--end` supply time bounds. `--artifact` selects a source; the existing
+`--artifact-type` timeline option still selects EVTX categories. Registry value
+search may use its containing key's time, explicitly marked inherited; unified
+timeline rows belong to the key. `around` and `investigate` accept
+`--timestamp-slot` from `show` when an anchor has multiple distinct timestamps.
+Investigation still retrieves object relationships without choosing an arbitrary
+MFT/Prefetch timestamp for temporal neighbors.
+
+### Stable IDs and provenance
+
+| Source | Evidence ID locator | Preserved representation |
+|---|---|---|
+| EVTX | `EVTX:<sha256>:Offset:<offset>` (unchanged) | Original XML and existing fields |
+| MFT | `MFT:<sha256>:Offset:<physical-byte-offset>` | Raw record, physical slot, header/attribute details, all exposed filenames |
+| Prefetch | `PREFETCH:<sha256>:File` | Original file bytes, format/metrics, referenced paths and volumes |
+| Registry key | `REGISTRY:<sha256>:KeyOffset:<absolute-nk-offset>` | Key path, parent linkage, raw integer last-write |
+| Registry value | `REGISTRY:<sha256>:ValueOffset:<absolute-vk-offset>` | Raw bytes, typed safe decoding, containing key linkage |
+
+Registry offsets point to the `nk`/`vk` signature, not the preceding cell-size field.
+MFT identity uses physical position, independent of a corrupt or stale header record
+number. SHA-256 includes the complete supplied file. Moving an identical source
+does not change IDs; changed content creates a new source namespace. First-ingested
+`source_file` remains immutable, and `source_locations` records every observed path
+for identical file bytes. Parser/extractor versions, locators, warnings, and source
+context accompany JSON evidence. Historical EVTX parser versions that were never
+recorded remain unknown; migration does not invent them.
+
+### Artifact semantics and limits
+
+- **MFT:** Allocated and unallocated records, sequence numbers, parent references,
+  multiple filenames, sizes, and attribute metadata are retained. SI and FN
+  creation/modification/MFT-change/access timestamps remain separate, with original
+  FILETIME integers and 100 ns precision. Parent sequence mismatch, missing parents,
+  cycles, depth limits, and multiple paths remain explicit. Paths are volume-relative
+  until an unambiguous analyst drive assertion is supplied. Attribute-list extension
+  records remain separate; external/nonresident content is not reconstructed.
+  Metadata timestamps alone do not establish download, execution, or user action.
+- **Prefetch:** Validated formats 17, 23, 26, 30, and 31 retain executable name,
+  identifier, run count, exposed execution slots, referenced filenames, and volume
+  metadata. The identifier is not a content hash. Retained execution history is
+  incomplete; count interpretation varies, files can be deleted, and Prefetch may
+  be disabled or behave differently on servers. Absence does not prove non-execution.
+  The Python binding does not expose standalone directory tables; Locard reports
+  that limitation and preserves original bytes rather than inventing directories.
+- **Registry:** Structural signatures identify SYSTEM, SOFTWARE, SAM, SECURITY,
+  NTUSER, and USRCLASS where possible; ambiguous/minimal hives remain UNKNOWN.
+  Keys and values retain distinct identities. Last-write belongs to the key,
+  never individual value creation. Binary/undecodable values use safe base64;
+  expansion strings remain unexpanded. Dirty/corrupt snapshots are flagged;
+  logs, deleted-cell recovery, SAM/SECURITY decryption, and transaction replay are
+  outside V2. Versioned local extractors cover Run/RunOnce, service ImagePath and
+  ServiceDll, Winlogon, startup folders, profiles, USB/device, RDP, and selected
+  recent-text locations. They retain key/value links and do not assert execution
+  or that a particular ControlSet was active.
+
+Path comparison preserves originals, normalizes case/slashes and unambiguous NT
+prefixes, and distinguishes absolute, device, volume-relative, and unexpanded paths.
+It never expands environment variables, resolves short names, follows the local
+filesystem, or guesses ambiguous unquoted executable paths. Prefetch device paths
+can be compared using an explicit drive assertion only when exactly one volume
+provides an unambiguous device prefix. Search includes original normalized paths;
+MFT absolute-path search also honors an unambiguous drive assertion.
+
+### Correlation, detections, and model context
+
+| Status | Deterministic meaning |
+|---|---|
+| CONFIRMED | Explicit identity/linkage, such as a key containing a value; not a causation claim |
+| CORROBORATED | Independent observations share an exact absolute path, known same host, and compatible timestamp fields |
+| POSSIBLE | Partial object/name agreement with missing path, host, or timing support |
+| UNRESOLVED | Conflicting host/path assertions, competing matches, incomplete object data, or candidate cap |
+
+V1 process/session status semantics, including LIKELY, are preserved. Cross-artifact
+matching never claims process or content identity from basename or path equality.
+Default windows are 2 seconds for EVTX/Prefetch, 120 seconds for MFT SI creation,
+and 300 seconds when Registry key last-write is involved. Time distance uses integer
+nanoseconds. Equal timestamps cannot establish a "followed by" relationship.
+Cross-artifact queries use indexed basenames and at most 100 candidates by default;
+truncation prevents a unique corroboration claim. Multiple compatible observations
+are retained as unresolved instead of selecting a convenient match.
+
+Four rules extend the existing eight: `LOCARD-X-001` Prefetch execution corroboration,
+`LOCARD-X-002` nearby MFT SI creation metadata for the process image,
+`LOCARD-X-003` a process already flagged by an Office/PowerShell rule preceding a
+persistence key last-write whose value references that same image, and
+`LOCARD-X-004` persistence references matching common user/temporary-path patterns.
+These are observations for review; path patterns do not prove actual writability.
+Findings expose all supporting IDs, including Registry value and key evidence.
+
+Bundles prioritize the anchor, direct process/session links, exact object links,
+cross-artifact corroboration, detections, closest temporal observations, then other
+context. They retain the 5600-byte combined prompt bound and 1024 output-token limit
+for the 8192-token local model. Counts distinguish candidate, selected, and omitted
+evidence by artifact type; completely omitted classes and truncated fields are
+explicit. Registry value packages require their key evidence. The model receives
+timestamp meanings and engine-assigned statuses; it cannot upgrade those statuses.
+
+For example, an EVTX event may report Word as PowerShell's parent, MFT metadata may
+describe a nearby `payload.exe` creation time, Prefetch may independently record
+PowerShell execution, and a Run key may contain a payload reference. Locard can
+present compatible observations and their gaps. Those facts do not establish that
+Word downloaded malware and installed persistence; each causal step needs evidence.
+
+### Parser validation and trust boundary
+
+| Package | Pinned version | Upstream license |
+|---|---|---|
+| [dissect.ntfs](https://pypi.org/project/dissect.ntfs/3.16/) | 3.16 | AGPL-3.0-or-later |
+| dissect.cstruct / dissect.util | 4.7 / 3.24 | Apache-2.0 |
+| [libscca-python](https://pypi.org/project/libscca-python/20260527/) | 20260527 | LGPL-3.0-or-later |
+| [libregf-python](https://pypi.org/project/libregf-python/20260526/) | 20260526 | LGPL-3.0-or-later |
+
+The originally proposed `mft==0.7.0` binding failed the provenance gate: it exposes
+the declared record number and skips zero-filled slots without exposing reliable
+physical offsets. Locard substituted Dissect, whose record decoder preserves
+physical framing, update-sequence fixups, original integers, and multiple attributes.
+The rejected package is not a dependency. Dissect is copyleft, not permissively
+licensed; this dependency choice must be retained in any distribution/license
+assessment. No existing project license conflicted with local use. Native libyal
+bindings remain upstream alpha releases; acceptance here is limited to the pinned
+Windows/Python environment and tested formats, not a blanket correctness claim.
+
+New artifact parsers run in separate processes with a 2 GiB memory ceiling,
+default 300-second timeout (`--parser-timeout`, maximum 3600), 8 GiB staging limit,
+and bounded diagnostics. Failure to establish the memory limit rejects parsing.
+Staging is disk-backed; inserts are batched, then published transactionally only
+after the original file's SHA-256 and size still match. Parser crashes/timeouts
+reject the stage; localized parse errors yield explicit partial runs with offsets.
+Sources are opened read-only. Resource containment is not a security sandbox for
+native-library vulnerabilities. Input/output limits may reject legitimate unusually
+large records; errors disclose these limits rather than silently reinterpret bytes.
+
+Sources, SQLite databases, native wheels, model weights, temporary stages, and
+validation captures are excluded from Git. Only synthetic fixture builders are in
+tests. See `VALIDATION.md` for the parser gate, accumulated tests, public-sample
+checks, and disk-backed benchmark.
+
+## Windows setup
+
+If upgrading an existing V0 or V1 database, use the explicit migration below before other
 commands. V0 CLI commands remain available, including positional timeline syntax.
 
 Use Python 3.11 or newer. From this project directory in PowerShell:
@@ -31,10 +209,13 @@ If a different Python 3.11+ version is installed, select it instead. No activati
 script is necessary. The implementation environment already has a populated
 `.venv`; virtual environments are machine-specific and should be recreated when moved.
 
-Runtime dependencies are pinned in `requirements.txt`: `python-evtx==0.8.1` and
-`defusedxml==0.7.1`. SQLite, CLI, hashing, HTTP, and time handling use Python's standard
-library. `pytest` is a development dependency. Parser upstream:
-<https://github.com/williballenthin/python-evtx>.
+Runtime dependencies are pinned in `requirements.txt` and `pyproject.toml`.
+The V2 parser and licensing table below identifies the additional packages.
+SQLite, CLI, hashing, HTTP, and time handling use Python's standard library.
+`pytest` is a development dependency. EVTX parser upstream:
+<https://github.com/williballenthin/python-evtx>. Native parser wheels were validated
+on Windows AMD64 with Python 3.12.14; other Python/platform combinations need
+compatible wheels or a separately validated native build.
 
 Installation downloads packages, but application operation does not require Internet
 access. To prepare installation on an isolated workstation, build a wheelhouse on
@@ -71,18 +252,19 @@ Ensure your local server itself is configured for local-only processing.
 
 ## Ingest and inspect evidence
 
-### Upgrade a V0 database
+### Upgrade a V0 or V1 database
 
 ```powershell
 .\.venv\Scripts\python.exe -m forensic_assistant.cli --db data\case1.db migrate
 ```
 
-V1 requires schema version 2. Migration creates a uniquely named local SQLite backup
-beside the original database, then adds `event_context` and compound indexes in a
-transaction. It derives context from stored evidence without modifying any existing
+V2 requires schema version 3. Migration creates a uniquely named local SQLite backup
+beside the original database, then adds the common evidence registry, artifact tables,
+timestamp/object projections, and indexes in a transaction. A V0 database also
+receives V1's `event_context` projection. It derives context without modifying any existing
 event, evidence ID, raw XML, source path, or source-location record. Failure rolls
 back the migration. Repeating a completed migration is a no-op. Normal commands do
-not silently migrate V0 databases. Never delete your only database to resolve a
+not silently migrate V0/V1 databases. Never delete your only database to resolve a
 migration error; inspect the reported error and retain the backup.
 
 `event_context` stores normalized host keys, event categories, GUIDs, role-specific
@@ -278,13 +460,14 @@ formatting, citation validation, endpoint restrictions, and HTTP failure handlin
 See `VALIDATION.md` for stage results and separate integration checks.
 
 `database/schema.sql` retains schema version 1 as the historical V0 base schema.
-New databases apply the additive schema-2 extension
-from `database/migrations.py`; existing V0 databases require `migrate`. Unsupported
+New databases apply the additive schema-2 and schema-3 extensions
+from `database/migrations.py` and `database/artifacts.py`; existing V0/V1 databases require `migrate`. Unsupported
 versions are rejected. Changing normalization mappings does not automatically rewrite
 existing events. Context extraction version 1 is stored separately in `event_context`.
 
-V1 deliberately excludes embeddings, vector databases, autonomous agents, cloud
-services, web interfaces, MFT, Prefetch, Registry, and memory parsing. No detection
+V2 deliberately excludes embeddings, vector databases, autonomous agents, cloud
+services, web interfaces, memory parsing, USN Journal, Amcache, SRUM, browser history,
+LNK/Jump Lists, packet capture, and external enrichment. No detection
 coverage or forensic completeness is promised by this initial event subset.
 
 ## V1 deterministic investigations

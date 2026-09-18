@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 from forensic_assistant.database.context import insert_context
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 STATEMENTS = (
     """CREATE TABLE event_context (
     evidence_id TEXT PRIMARY KEY REFERENCES events(id), host_key TEXT, timestamp_utc TEXT,
@@ -50,9 +50,9 @@ def migrate(path):
         if version == SCHEMA_VERSION:
             db.rollback()
             return {"status": "current", "schema_version": version, "backup": None}
-        if version != 1:
-            raise ValueError(f"Cannot migrate schema version {version}; expected V0 schema 1")
-        backup = source.with_name(source.name + ".v0-backup-" + uuid.uuid4().hex + ".sqlite")
+        if version not in (1, 2):
+            raise ValueError(f"Cannot migrate schema version {version}; expected schema 1 or 2")
+        backup = source.with_name(source.name + f".schema{version}-backup-" + uuid.uuid4().hex + ".sqlite")
         # Exclusive creation prevents overwriting anything, including another backup.
         with backup.open("xb"):
             pass
@@ -63,9 +63,14 @@ def migrate(path):
         finally:
             destination.close()
             reader.close()
-        upgrade(db)
+        if version == 1:
+            upgrade(db)
+        from forensic_assistant.database.artifacts import upgrade3
+        upgrade3(db)
+        if db.execute('PRAGMA foreign_key_check').fetchone() or db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+            raise ValueError('Schema-3 integrity validation failed')
         db.commit()
-        return {"status": "migrated", "schema_version": 2, "backup": str(backup)}
+        return {"status": "migrated", "schema_version": 3, "backup": str(backup)}
     except Exception as exc:
         db.rollback()
         raise ValueError(f"Migration rolled back: {exc}. Backup: {backup or 'not created'}") from exc

@@ -14,6 +14,7 @@ from forensic_assistant.llm.client import LLMError
 from forensic_assistant.correlation.temporal import nearby
 from forensic_assistant.retrieval.presentation import render_timeline
 from forensic_assistant import v1_cli
+from forensic_assistant import v2_cli
 from forensic_assistant.correlation.models import get_event
 
 
@@ -24,11 +25,11 @@ def emit(value):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Locard — local evidence-first Windows forensics")
-    parser.add_argument("--version", action="version", version="Locard V1 (" + __version__ + ")")
+    parser.add_argument("--version", action="version", version="Locard V2 (" + __version__ + ")")
     parser.add_argument("--db", default=Config.database)
     commands = parser.add_subparsers(dest="command", required=True)
     v1_cli.configure(commands)
-    commands.add_parser("migrate", help="Back up and explicitly migrate a V0 database")
+    commands.add_parser("migrate", help="Back up and explicitly migrate a V0/V1 database")
     ingest = commands.add_parser("ingest", help="Recursively ingest EVTX files")
     ingest.add_argument("path")
     search = commands.add_parser("search", help="Deterministic evidence search")
@@ -52,7 +53,7 @@ def main(argv=None):
     for command in (search, timeline):
         command.add_argument("--limit", type=int, default=100)
         command.add_argument("--offset", type=int, default=0)
-        command.add_argument("--raw", action="store_true", help="Include original XML")
+        command.add_argument("--raw", action="store_true", help="Include original XML or available artifact bytes/details")
     around.add_argument("--limit", type=int, default=100)
     around.add_argument("--offset", type=int, default=0)
     around.add_argument("--raw", action="store_true")
@@ -71,12 +72,19 @@ def main(argv=None):
     ask_parser.add_argument("--limit", type=int, default=30)
     ask_parser.add_argument("--timeout", type=float, default=Config.timeout)
     ask_parser.add_argument("--dry-run", action="store_true", help="Show plan and evidence without contacting the model")
+    v2_cli.configure(commands)
     args = parser.parse_args(argv)
     try:
         if args.command == "migrate":
             emit(migrate(args.db))
             return 0
         with closing(connect(args.db)) as db:
+            v2_result = v2_cli.dispatch(db,args)
+            if v2_result is not None:
+                result,code=v2_result
+                if getattr(args,'text',False):print(v2_cli.render(result))
+                else:emit(result)
+                return code
             v1_result = v1_cli.dispatch(db, args)
             if v1_result is not None:
                 if not args.raw:

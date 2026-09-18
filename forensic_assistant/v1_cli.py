@@ -70,7 +70,11 @@ def dispatch(db, args):
                                 max_candidates=args.candidate_limit, endpoint=args.endpoint,
                                 timeout=args.timeout, dry_run=args.dry_run)
     if args.command == "investigate":
-        return investigate(db, args.evidence_id, seconds=args.seconds, max_candidates=args.candidate_limit)
+        result=investigate(db, args.evidence_id, seconds=args.seconds, max_candidates=args.candidate_limit,timestamp_slot=args.timestamp_slot)
+        if args.raw:
+            from forensic_assistant.retrieval.evidence import get_evidence
+            result['evidence_records']=[get_evidence(db,r['id'],raw=True) for r in result['evidence_records']]
+        return result
     if args.command == "detections":
         return detections(db, start=args.start, end=args.end, username=args.user, hostname=args.hostname,
                           severity=args.severity, rule_id=args.rule, limit=args.limit, candidate_limit=args.candidate_limit,

@@ -35,7 +35,9 @@ def plan_question(question, queries, date_hint=None):
     else:
         time = re.search(r"(?<![\w:])(\d{1,2}):(\d\d)(?::(\d\d))?(?![\w:])", remaining)
         if time:
-            dates = [r[0] for r in queries.db.execute("SELECT DISTINCT substr(timestamp_utc,1,10) FROM events WHERE timestamp_utc IS NOT NULL ORDER BY 1 LIMIT 2")]
+            from forensic_assistant.retrieval.evidence import EvidenceQueries
+            table='evidence_timestamps' if isinstance(queries,EvidenceQueries) else 'events'
+            dates = [r[0] for r in queries.db.execute('SELECT DISTINCT substr(timestamp_utc,1,10) FROM '+table+' WHERE timestamp_utc IS NOT NULL ORDER BY 1 LIMIT 2')]
             explicit_date = re.search(r"\b\d{4}-\d\d-\d\d\b", remaining)
             chosen = date_hint or (explicit_date.group() if explicit_date else None)
             if chosen is None:

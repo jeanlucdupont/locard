@@ -33,6 +33,15 @@ def detections(db, *, start=None, end=None, username=None, hostname=None, severi
     for rule in all_rules:
         if (rule_id and rule.rule_id != rule_id) or (severity and rule.severity != severity):
             continue
+        if getattr(rule,'sources',None):
+            from forensic_assistant.retrieval.evidence import EvidenceQueries
+            candidates=EvidenceQueries(db).search(artifact=rule.sources[0],evidence_kind=rule.kinds[0],start=start,end=end,username=username,hostname=hostname,limit=candidate_limit)
+            coverage.append({'rule_id':rule.rule_id,'candidate_count':candidates.total,'evaluated_count':len(candidates.records),'truncated':candidates.truncated})
+            for event in candidates.records:
+                if event['artifact_type'] not in rule.kinds:continue
+                finding=rule.evaluate(db,event,parameters)
+                if finding:results.append(finding)
+            continue
         where = "c.kind IN (" + ",".join("?" for _ in rule.kinds) + ")"
         params = list(rule.kinds)
         if start:
@@ -47,10 +56,17 @@ def detections(db, *, start=None, end=None, username=None, hostname=None, severi
         candidates = select(db, where, params, limit=candidate_limit)
         coverage.append({"rule_id": rule.rule_id, "candidate_count": candidates.total,
                          "evaluated_count": len(candidates.records), "truncated": candidates.truncated})
+        cross_coverage=[]
+        evaluation_parameters={**parameters,'_cross_coverage':cross_coverage}
         for event in unique_observations(candidates.records):
-            finding = rule.evaluate(db, event, parameters)
+            finding = rule.evaluate(db, event, evaluation_parameters)
             if finding:
                 results.append(finding)
+        if cross_coverage:
+            coverage[-1]['cross_artifact_queries']=len(cross_coverage)
+            coverage[-1]['cross_artifact_candidates']=sum(c['candidate_count'] for c in cross_coverage)
+            coverage[-1]['cross_artifact_truncated']=any(c['truncated'] for c in cross_coverage)
+            coverage[-1]['truncated'] |= coverage[-1]['cross_artifact_truncated']
     results.sort(key=lambda d: (d["timestamp"] is None, d["timestamp"] or "", d["rule_id"], d["detection_id"]))
     return {"detections": results[:limit], "total_evaluated_detections": len(results),
             "truncated": len(results) > limit or any(item["truncated"] for item in coverage),

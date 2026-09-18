@@ -1,2 +1,7 @@
 python-evtx==0.8.1
 defusedxml==0.7.1
+dissect.ntfs==3.16
+dissect.cstruct==4.7
+dissect.util==3.24
+libscca-python==20260527
+libregf-python==20260526

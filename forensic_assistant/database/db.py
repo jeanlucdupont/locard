@@ -17,10 +17,10 @@ def connect(path):
     db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version == 1:
+    if version in (1, 2):
         db.close()
-        raise ValueError("V0 database requires migration. Run: locard --db <database-path> migrate")
-    if version not in (0, 2):
+        raise ValueError("V0/V1 database requires migration. Run: locard --db <database-path> migrate")
+    if version not in (0, 3):
         db.close()
         raise ValueError(f"Unsupported database schema version: {version}")
     db.execute("PRAGMA foreign_keys=ON")
@@ -31,6 +31,8 @@ def connect(path):
         db.executescript(Path(__file__).with_name("schema.sql").read_text())
         with db:
             upgrade(db)
+            from forensic_assistant.database.artifacts import upgrade3
+            upgrade3(db)
     return db
 
 
@@ -39,7 +41,7 @@ def register_source(db, sha, size, path):
     db.execute("INSERT INTO source_locations VALUES (?, ?) ON CONFLICT DO NOTHING", (sha, str(path)))
 
 
-def insert_events(db, events):
+def insert_events(db, events,*,parser_name=None,parser_version=None):
     events = list(events)
     # Identifiers come exclusively from the fixed dataclass, never user input.
     names = [f.name for f in fields(NormalizedEvent)]
@@ -51,4 +53,6 @@ def insert_events(db, events):
     if events:
         preserved = [db.execute("SELECT * FROM events WHERE id=?", (e.id,)).fetchone() for e in events]
         insert_context(db, preserved)
+        from forensic_assistant.database.artifacts import project_events
+        project_events(db, preserved,parser_name,parser_version)
     return inserted

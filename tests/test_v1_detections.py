@@ -78,7 +78,7 @@ def test_limits_and_rule_metadata():
         add(db, n + 1, 4698)
     result = detections(db, candidate_limit=1)
     assert result["truncated"]
-    assert len(available_rules()) == 8
+    assert len(available_rules()) == 12  # Eight V1 rules plus four V2 rules.
     assert not ids(db, severity="high")
     with pytest.raises(ValueError):
         detections(db, rule_id="unknown")

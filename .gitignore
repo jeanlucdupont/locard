@@ -141,3 +141,7 @@ coverage.xml
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Application artifact adapters are source code, not the excluded evidence folder.
+!/forensic_assistant/artifacts/
+!/forensic_assistant/artifacts/*.py
