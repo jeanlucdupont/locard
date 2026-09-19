@@ -148,6 +148,10 @@ locard --db data\case.db investigate '<evidence-id>' --json
 locard --db data\case.db ask 'Inspect Prefetch powershell.exe' --dry-run
 ```
 
+Here is another representation of the architecture
+<img width="4152" height="2544" alt="locard-runtime" src="https://github.com/user-attachments/assets/b3f50f35-5431-4607-9385-04b83ce7191a" />
+
+
 Use the active environment's `locard` command or replace it with
 `.\.venv\Scripts\python.exe -m forensic_assistant.cli`. Replace placeholder IDs
 with complete IDs from search results. `--db` precedes the subcommand.
