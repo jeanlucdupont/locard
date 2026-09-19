@@ -16,6 +16,7 @@ EVTX ingestion and V1 process/session correlations, eight rules, and investigati
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
 
+```mermaid
 flowchart TD
 
 subgraph group_interface["CLI Interface"]
@@ -115,6 +116,7 @@ class node_evtx_ingest,node_artifact_ingest,node_parser_worker,node_mft_parser,n
 class node_evidence_storage,node_sqlite,node_context_fields toneMint
 class node_evidence_queries,node_timeline_queries,node_investigations,node_cross_correlation,node_session_correlation,node_detection_engine toneRose
 class node_llm_ask,node_llm_context,node_analyst,node_local_llama toneIndigo
+```
 
 ## V2 evidence architecture and workflow
 
