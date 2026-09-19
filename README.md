@@ -1,9 +1,18 @@
-# Locard V2 — Local AI-Assisted Digital Forensics
+# Locard V3 — Local AI-Assisted Digital Forensics
+
+Locard V3 (`0.4.0`, schema 3) adds optional, CPU-based local semantic retrieval and
+hybrid evidence selection. Existing deterministic commands remain available without
+embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
+
+**SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not create evidence.**
+
+Project source license: **Apache-2.0**. See [LICENSE](LICENSE) and
+[third-party licensing](THIRD_PARTY_NOTICES.md).
 
 <img width="377" height="512" alt="image" src="https://github.com/user-attachments/assets/ca1df9e4-91a3-4be4-aefa-bab5921f6758" />
 
 
-Locard V2 (package version 0.3.0, schema 3) is a local Windows forensic investigation CLI, named after Edmond Locard and the
+Locard is a local Windows forensic investigation CLI, named after Edmond Locard and the
 principle that **every contact leaves a trace**. It preserves source provenance,
 normalizes events into SQLite, retrieves evidence deterministically, and optionally
 asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.

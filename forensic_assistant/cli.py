@@ -25,7 +25,7 @@ def emit(value):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Locard — local evidence-first Windows forensics")
-    parser.add_argument("--version", action="version", version="Locard V2 (" + __version__ + ")")
+    parser.add_argument("--version", action="version", version="Locard V3 (" + __version__ + ")")
     parser.add_argument("--db", default=Config.database)
     commands = parser.add_subparsers(dest="command", required=True)
     v1_cli.configure(commands)
@@ -73,12 +73,22 @@ def main(argv=None):
     ask_parser.add_argument("--timeout", type=float, default=Config.timeout)
     ask_parser.add_argument("--dry-run", action="store_true", help="Show plan and evidence without contacting the model")
     v2_cli.configure(commands)
+    from forensic_assistant.semantic import cli as semantic_cli
+    semantic_cli.configure(commands,ask_parser)
     args = parser.parse_args(argv)
     try:
+        if args.command=='semantic' and args.semantic_command=='setup':
+            from forensic_assistant.semantic.model import setup
+            emit(setup(args.destination,args.model));return 0
         if args.command == "migrate":
             emit(migrate(args.db))
             return 0
+        if args.command=='semantic':
+            from pathlib import Path
+            if not Path(args.db).is_file():raise ValueError('Semantic commands require an existing evidence database')
         with closing(connect(args.db)) as db:
+            if args.command=='semantic':
+                emit(semantic_cli.dispatch(db,args));return 0
             v2_result = v2_cli.dispatch(db,args)
             if v2_result is not None:
                 result,code=v2_result
@@ -97,7 +107,8 @@ def main(argv=None):
             queries = Queries(db)
             if args.command == "ask":
                 emit(ask(queries, args.question, endpoint=args.endpoint, date_hint=args.date,
-                         limit=args.limit, dry_run=args.dry_run, timeout=args.timeout))
+                         limit=args.limit, dry_run=args.dry_run, timeout=args.timeout,
+                         semantic_index=args.semantic_index,embedding_model=args.embedding_model))
                 return 0
             if args.command == "ingest":
                 found = failed = False

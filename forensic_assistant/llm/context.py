@@ -73,6 +73,9 @@ def context_bundle(context, question, budget=PROMPT_BYTES):
         new = [eid for eid in dict.fromkeys(ids) if eid not in sent]
         old_length = len(bundle["EVIDENCE"])
         bundle["EVIDENCE"].extend(compact_record(records[eid]) for eid in new)
+        if context.get('semantic_retrieval'):
+            for item in bundle['EVIDENCE'][old_length:]:
+                item['selection_reasons']=context.get('selection_reasons',{}).get(item['id'],['deterministic_expansion'])
         sent.update(new)
         if section:
             bundle[section].append(item)
@@ -110,8 +113,13 @@ def context_bundle(context, question, budget=PROMPT_BYTES):
         slim = {key: detection[key] for key in ("rule_id", "rule_name", "rule_version", "severity", "evidence_ids", "reason", "limitations")}
         if not package(slim["evidence_ids"], "DETECTIONS", slim):
             metadata["omitted_detections"] += 1
-    for group in ("correlated", "exact_objects", "corroboration", "detections", "temporal", "other"):
-        for eid in context["priorities"].get(group,[]):
+    for group in ("correlated", "exact_objects", "corroboration", "detections", "semantic", "temporal", "other"):
+        ids=context['priorities'].get(group,[])
+        if context.get('semantic_retrieval') and group in ('semantic','temporal','other'):
+            # Round-robin only within weaker tiers; exact evidence keeps priority.
+            queues=[[eid for eid in ids if eid.startswith(kind.upper()+':')] for kind in classes]
+            ids=[q[i] for i in range(max(map(len,queues),default=0)) for q in queues if i<len(q)]
+        for eid in ids:
             package([eid])
     for relation in ordered_relations:
         if relationship_rank(relation)==3:pack_relationship(relation)

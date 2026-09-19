@@ -6,6 +6,9 @@
 !/.gitignore
 !/README.md
 !/VALIDATION.md
+!/LICENSE
+!/THIRD_PARTY_NOTICES.md
+!/V3.md
 !/pyproject.toml
 !/requirements.txt
 !/forensic_assistant/
@@ -142,6 +145,17 @@ coverage.xml
 Thumbs.db
 Desktop.ini
 
-# Application artifact adapters are source code, not the excluded evidence folder.
+# Application adapters are allowed above; reopen their directory only.
 !/forensic_assistant/artifacts/
-!/forensic_assistant/artifacts/*.py
+
+# Sensitive semantic derived data, regardless of location.
+semantic-index/
+*.semantic-index/
+semantic-models/
+embedding-cache/
+*.safetensors
+*.npy
+*.npz
+*.faiss
+*.index
+*.semantic-stage

@@ -1,16 +1,19 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "locard-forensics"
-version = "0.3.0"
+version = "0.4.0"
 description = "Local AI-assisted Windows multi-artifact forensic analysis"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = ["python-evtx==0.8.1", "defusedxml==0.7.1", "dissect.ntfs==3.16", "dissect.cstruct==4.7", "dissect.util==3.24", "libscca-python==20260527", "libregf-python==20260526"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
+semantic = ["sentence-transformers==5.7.0", "faiss-cpu==1.14.3", "torch==2.14.0", "transformers==5.17.0", "numpy==2.5.3", "huggingface-hub==1.32.0", "tokenizers==0.23.2", "safetensors==0.8.0"]
 
 [project.scripts]
 locard = "forensic_assistant.cli:main"

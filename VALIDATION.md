@@ -1,3 +1,73 @@
+# V3 validation — 2026-09-19
+
+V3 retains schema 3 and stable V0/V1/V2 evidence IDs. Baseline: 147 tests passed.
+Stage totals progressed through 150 (representations), 153 (sidecar/hybrid),
+160 (planner/security), 163 (privacy/cache), 165 (filters), and 169 tests after
+invalid-vector rejection checks. Final code suite: 169 passed in 46.15 seconds.
+Full suite with semantic imports blocked: 169 passed in 37.31 seconds.
+The full accumulated
+suite is also executed with imports of torch, NumPy, FAISS, Sentence Transformers,
+Transformers and Hugging Face Hub explicitly blocked.
+
+The real-model offline integration program blocks socket connections and DNS
+resolution before model loading. CPU load, build, search, rebuild, SQL host filters
+and duplicate suppression passed. Same-count content changes and model identity
+mismatches were rejected. Explicit CLI setup downloaded the pinned model and model
+card successfully. Editable package installation reports Locard V3 (0.4.0), and
+pip check reports no broken requirements. MiniCPM was not needed for these tests.
+
+Both BGE-small-en-v1.5 and all-MiniLM-L6-v2 installed on Windows x64 / Python 3.12.
+Both initially retrieved all six simple labeled examples within the top three.
+The broader mixed-artifact fixture includes MFT, Prefetch, Registry, relevant
+EVTX records, and forty repetitive distractor processes. BGE achieved mean
+semantic recall@10 of 1.0; MiniLM achieved 0.667 and missed the Office-interpreter
+and user-directory executable labels. BGE was selected. Precision uses a fixed
+K=10 denominator and is low because each question has only one or two labeled
+positives; these small synthetic labels are not a forensic-accuracy benchmark.
+The evaluation script reports SQL-only, semantic and hybrid results separately,
+including artifact diversity and duplicate IDs. No claim of production recall,
+maliciousness classification, or prompt-injection immunity follows from these tests.
+
+## Scale and resource measurements
+
+- 100,000 mapped representations from 100,000 synthetic evidence records.
+- Duplicate-heavy corpus: 1,000 unique texts, 99,000 exact embedding-cache hits.
+- Complete build: 141.7 seconds on the repeated run; first run 167.7 seconds.
+- Peak process working set: 665,874,432 bytes (approximately 635 MiB), measured
+  with the Windows process-memory API through the completed build/search run.
+- Active generation: approximately 246.2 MB decimal (235 MiB), including
+  153,600,000 bytes of vectors. Previous generations are retained separately.
+- Three end-to-end searches: 11.28, 11.18 and 10.84 seconds. These include full
+  content fingerprinting, integrity checks and SQL filtering; the model was
+  already loaded. Fresh CLI model-load latency is additional.
+- Repeated builds produced identical vector-file and mapping-file SHA-256 hashes
+  on this environment. Build timestamps differ. Cross-platform bit identity is
+  not guaranteed.
+- A separate unique-text run reached 6,000 vectors in 386.7 seconds before being
+  intentionally stopped to evaluate exact-text caching. It was not a completed
+  100,000-unique-text benchmark. The observed rate is about 15.5 vectors/second;
+  a large unique corpus should be expected to take substantially longer than the
+  duplicate-heavy build. Do not report cache throughput as embedding throughput.
+
+All scale/evaluation databases, generated binary fixtures, downloaded weights and
+indexes are outside Git. Source-only generators are provided in tests/v3_scale.py,
+tests/v3_evaluation.py and tests/v3_integration.py. Each takes explicit local paths;
+use an output directory outside the source repository. Incremental indexing is
+not implemented or benchmarked in V3. No original examiner evidence was used.
+
+## Release limitations
+
+Locard source is Apache-2.0; dependencies retain their licenses. Existing AGPL/LGPL
+redistribution obligations remain documented in THIRD_PARTY_NOTICES.md. Semantic
+retrieval is optional, CPU-only, and derived. Long values, collections, chunks,
+candidate pools and MiniCPM bundles have explicit limits. Hybrid hydration rejects
+rows above 2 MiB. Citation validation checks references, not the truth of prose.
+Public release still requires reviewing all staged files/history and excluding
+sensitive local sidecars; V3 does not erase the earlier privacy-audit findings or
+make ignored case directories safe to publish as an archive.
+
+---
+
 # Locard validation
 
 ## V2 validation (package 0.3.0, schema 3)
