@@ -17,7 +17,7 @@ EVTX ingestion and V1 process/session correlations, eight rules, and investigati
 investigative aid, not a replacement for validation by a forensic analyst.**
 
 <img width="527" height="948" alt="locard" src="https://github.com/user-attachments/assets/4e9b9aac-0b74-4fb8-9eb7-b7435626647b" />
-
+**DIAGRAM is not reflecting reality. Scope is bigger than this now**
 
 ## V2 evidence architecture and workflow
 
