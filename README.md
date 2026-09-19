@@ -650,3 +650,10 @@ not proof that the model's interpretation or chosen classification is correct.
 **DETECTION != COMPROMISE. CORRELATION != CAUSATION. ABSENCE OF EVIDENCE != EVIDENCE
 OF ABSENCE.** Logging configuration and supplied evidence determine what Locard can
 reconstruct. No model output is inserted into the evidence database.
+
+**LICENSE**
+Locard Forensic
+Copyright © 2026 Jean-Luc Dupont
+
+Licensed under the Apache License, Version 2.0
+SPDX-License-Identifier: Apache-2.0
