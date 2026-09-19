@@ -149,7 +149,7 @@ locard --db data\case.db ask 'Inspect Prefetch powershell.exe' --dry-run
 ```
 
 Here is another representation of the architecture
-<img width="4152" height="2544" alt="locard-runtime" src="https://github.com/user-attachments/assets/b3f50f35-5431-4607-9385-04b83ce7191a" />
+<img width="4152" height="2544" alt="locard-runtime" src="https://github.com/user-attachments/assets/709b46df-0493-4206-89f5-62d9a924998f" />
 
 
 Use the active environment's `locard` command or replace it with
