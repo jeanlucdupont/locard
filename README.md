@@ -16,6 +16,9 @@ EVTX ingestion and V1 process/session correlations, eight rules, and investigati
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
 
+
+## V2 evidence architecture and workflow
+
 ```mermaid
 flowchart TD
 
@@ -118,7 +121,6 @@ class node_evidence_queries,node_timeline_queries,node_investigations,node_cross
 class node_llm_ask,node_llm_context,node_analyst,node_local_llama toneIndigo
 ```
 
-## V2 evidence architecture and workflow
 
 Schema 3 retains `events` and `event_context` unchanged. `evidence_records` is the
 common registry; MFT records/names, Prefetch details/references/volumes, and Registry
