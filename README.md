@@ -121,6 +121,9 @@ class node_evidence_queries,node_timeline_queries,node_investigations,node_cross
 class node_llm_ask,node_llm_context,node_analyst,node_local_llama toneIndigo
 ```
 
+Here is another representation of the architecture
+<img width="4152" height="2544" alt="locard-runtime (1)" src="https://github.com/user-attachments/assets/54524163-8c67-45b6-ba56-9e4eb93881e5" />
+
 
 Schema 3 retains `events` and `event_context` unchanged. `evidence_records` is the
 common registry; MFT records/names, Prefetch details/references/volumes, and Registry
@@ -148,8 +151,6 @@ locard --db data\case.db investigate '<evidence-id>' --json
 locard --db data\case.db ask 'Inspect Prefetch powershell.exe' --dry-run
 ```
 
-Here is another representation of the architecture
-<img width="4152" height="2544" alt="locard-runtime (1)" src="https://github.com/user-attachments/assets/54524163-8c67-45b6-ba56-9e4eb93881e5" />
 
 
 
