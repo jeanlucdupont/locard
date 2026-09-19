@@ -1,4 +1,4 @@
-# Locard V3 — Local AI-Assisted Digital Forensics
+# Locard Forensic V3 — Local AI-Assisted Digital Forensics
 
 Locard V3 (`0.4.0`, schema 3) adds optional, CPU-based local semantic retrieval and
 hybrid evidence selection. Existing deterministic commands remain available without
@@ -8,6 +8,9 @@ embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
 
 Project source license: **Apache-2.0**. See [LICENSE](LICENSE) and
 [third-party licensing](THIRD_PARTY_NOTICES.md).
+
+**WARNING: This project is not finalized**
+
 
 <img width="377" height="512" alt="image" src="https://github.com/user-attachments/assets/ca1df9e4-91a3-4be4-aefa-bab5921f6758" />
 
@@ -23,10 +26,114 @@ EVTX ingestion and V1 process/session correlations, eight rules, and investigati
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
 
-<img width="527" height="948" alt="locard" src="https://github.com/user-attachments/assets/4e9b9aac-0b74-4fb8-9eb7-b7435626647b" />
-
 
 ## V2 evidence architecture and workflow
+
+```mermaid
+flowchart TD
+
+subgraph group_interface["CLI Interface"]
+  node_cli["Locard CLI<br/>[cli.py]"]
+end
+
+subgraph group_acquisition["Acquisition Parsing"]
+  node_evtx_ingest["EVTX Ingestion<br/>[evtx.py]"]
+  node_artifact_ingest["Artifact Ingestion<br/>[ingest.py]"]
+  node_parser_worker["Parser Worker<br/>[worker.py]"]
+  node_mft_parser["MFT Parser<br/>[mft.py]"]
+  node_prefetch_parser["Prefetch Parser<br/>[prefetch.py]"]
+  node_registry_parser["Registry Parser<br/>[registry.py]"]
+  node_normalization["Event Normalization<br/>[normalize.py]"]
+end
+
+subgraph group_evidence["Evidence Storage"]
+  node_evidence_storage["Evidence Storage<br/>[storage.py]"]
+  node_sqlite[("SQLite Case DB<br/>[db.py]")]
+  node_context_fields["Context Derivation<br/>[context.py]"]
+end
+
+subgraph group_analysis["Forensic Analysis"]
+  node_evidence_queries["Evidence Retrieval<br/>[evidence.py]"]
+  node_timeline_queries["Timeline Queries<br/>[queries.py]"]
+  node_investigations["Investigations<br/>[investigation.py]"]
+  node_cross_correlation["Cross Correlation<br/>[cross_artifact.py]"]
+  node_session_correlation["Session Correlation<br/>[sessions.py]"]
+  node_detection_engine["Detection Engine<br/>[engine.py]"]
+end
+
+subgraph group_assistance["AI Assistance"]
+  node_llm_ask["AI Ask Workflow<br/>[ask.py]"]
+  node_llm_context["Evidence Context<br/>[context.py]"]
+end
+
+node_analyst(("Forensic Analyst"))
+node_local_llama["Local llama.cpp"]
+
+node_analyst -->|"invokes"| node_cli
+node_cli -->|"dispatches"| node_evtx_ingest
+node_cli -->|"dispatches"| node_artifact_ingest
+node_artifact_ingest -->|"runs worker"| node_parser_worker
+node_parser_worker -->|"parses MFT"| node_mft_parser
+node_parser_worker -->|"parses Prefetch"| node_prefetch_parser
+node_parser_worker -->|"parses Registry"| node_registry_parser
+node_evtx_ingest -->|"normalizes events"| node_normalization
+node_parser_worker -->|"stores packs"| node_evidence_storage
+node_normalization -->|"writes events"| node_evidence_storage
+node_evidence_storage -->|"writes records"| node_sqlite
+node_cli -->|"dispatches search"| node_evidence_queries
+node_cli -->|"dispatches timeline"| node_timeline_queries
+node_evidence_queries -->|"queries evidence"| node_sqlite
+node_timeline_queries -->|"queries timestamps"| node_sqlite
+node_context_fields -->|"writes context"| node_sqlite
+node_cli -->|"dispatches investigate"| node_investigations
+node_investigations -->|"retrieves records"| node_evidence_queries
+node_cli -->|"dispatches sessions"| node_session_correlation
+node_session_correlation -->|"reads events"| node_sqlite
+node_cli -->|"dispatches detections"| node_detection_engine
+node_detection_engine -->|"searches candidates"| node_evidence_queries
+node_detection_engine -->|"evaluates relations"| node_cross_correlation
+node_cli -->|"dispatches ask"| node_llm_ask
+node_llm_ask -->|"retrieves evidence"| node_evidence_queries
+node_llm_ask -->|"builds context"| node_llm_context
+node_llm_context -.->|"sends prompt"| node_local_llama
+
+click node_cli "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/cli.py"
+click node_evtx_ingest "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/ingest/evtx.py"
+click node_artifact_ingest "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/ingest.py"
+click node_parser_worker "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/worker.py"
+click node_mft_parser "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/mft.py"
+click node_prefetch_parser "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/prefetch.py"
+click node_registry_parser "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/registry.py"
+click node_normalization "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/ingest/normalize.py"
+click node_evidence_storage "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/storage.py"
+click node_sqlite "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/database/db.py"
+click node_context_fields "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/database/context.py"
+click node_evidence_queries "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/retrieval/evidence.py"
+click node_timeline_queries "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/retrieval/queries.py"
+click node_investigations "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/correlation/investigation.py"
+click node_cross_correlation "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/correlation/cross_artifact.py"
+click node_session_correlation "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/correlation/sessions.py"
+click node_detection_engine "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/detections/engine.py"
+click node_llm_ask "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/llm/ask.py"
+click node_llm_context "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/llm/context.py"
+
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_cli toneBlue
+class node_evtx_ingest,node_artifact_ingest,node_parser_worker,node_mft_parser,node_prefetch_parser,node_registry_parser,node_normalization toneAmber
+class node_evidence_storage,node_sqlite,node_context_fields toneMint
+class node_evidence_queries,node_timeline_queries,node_investigations,node_cross_correlation,node_session_correlation,node_detection_engine toneRose
+class node_llm_ask,node_llm_context,node_analyst,node_local_llama toneIndigo
+```
+
+Here is another representation of the architecture
+<img width="4152" height="2544" alt="locard-runtime (1)" src="https://github.com/user-attachments/assets/54524163-8c67-45b6-ba56-9e4eb93881e5" />
+
 
 Schema 3 retains `events` and `event_context` unchanged. `evidence_records` is the
 common registry; MFT records/names, Prefetch details/references/volumes, and Registry
@@ -53,6 +160,9 @@ locard --db data\case.db show '<evidence-id>' --raw --json
 locard --db data\case.db investigate '<evidence-id>' --json
 locard --db data\case.db ask 'Inspect Prefetch powershell.exe' --dry-run
 ```
+
+
+
 
 Use the active environment's `locard` command or replace it with
 `.\.venv\Scripts\python.exe -m forensic_assistant.cli`. Replace placeholder IDs
@@ -659,3 +769,11 @@ not proof that the model's interpretation or chosen classification is correct.
 **DETECTION != COMPROMISE. CORRELATION != CAUSATION. ABSENCE OF EVIDENCE != EVIDENCE
 OF ABSENCE.** Logging configuration and supplied evidence determine what Locard can
 reconstruct. No model output is inserted into the evidence database.
+
+**LICENSE**
+
+Locard Forensic
+Copyright © 2026 Jean-Luc Dupont
+
+Licensed under the Apache License, Version 2.0
+SPDX-License-Identifier: Apache-2.0

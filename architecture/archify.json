@@ -1,0 +1,475 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Locard runtime architecture",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/jeanlucdupont/locard",
+      "revision": "e14547f9f785a6b11b6c0c618fb00f8f5b4d7547"
+    }
+  },
+  "components": [
+    {
+      "id": "evidence",
+      "type": "external",
+      "label": "Evidence files",
+      "sublabel": "EVTX \u00b7 MFT \u00b7 Prefetch \u00b7 Registry",
+      "pos": [
+        40.0,
+        400
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "forensic_assistant/artifacts/ingest.py",
+          "line": 95,
+          "end_line": 119,
+          "label": "Signature-based discovery"
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "Investigator CLI",
+      "sublabel": "locard \u00b7 JSON / text commands",
+      "pos": [
+        310.0,
+        150
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "pyproject.toml",
+          "line": 15,
+          "end_line": 16,
+          "label": "Installed CLI"
+        },
+        {
+          "path": "forensic_assistant/cli.py",
+          "line": 26,
+          "end_line": 100,
+          "label": "Commands and dispatch"
+        }
+      ]
+    },
+    {
+      "id": "ingestion",
+      "type": "backend",
+      "label": "1 \u00b7 Ingest & normalize",
+      "sublabel": "Hash \u2192 parse \u2192 integrity check",
+      "pos": [
+        310.0,
+        400
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "forensic_assistant/ingest/evtx.py",
+          "line": 61,
+          "end_line": 131,
+          "label": "EVTX in-process staging"
+        },
+        {
+          "path": "forensic_assistant/artifacts/ingest.py",
+          "line": 44,
+          "end_line": 98,
+          "label": "Artifact orchestration"
+        },
+        {
+          "path": "requirements.txt",
+          "line": 1,
+          "end_line": 7,
+          "label": "Parser dependencies"
+        }
+      ]
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "2 \u00b7 Evidence database",
+      "sublabel": "SQLite \u00b7 data/forensic.db",
+      "pos": [
+        580.0,
+        400
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "forensic_assistant/database/db.py",
+          "line": 1,
+          "end_line": 58,
+          "label": "SQLite and EVTX writes"
+        },
+        {
+          "path": "forensic_assistant/database/artifacts.py",
+          "line": 7,
+          "end_line": 70,
+          "label": "Artifact and provenance tables"
+        },
+        {
+          "path": "forensic_assistant/database/migrations.py",
+          "line": 41,
+          "end_line": 73,
+          "label": "Generated migration backups"
+        }
+      ]
+    },
+    {
+      "id": "investigation",
+      "type": "backend",
+      "label": "3 \u00b7 Investigate",
+      "sublabel": "Query \u00b7 correlate \u00b7 detect",
+      "pos": [
+        850.0,
+        400
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "forensic_assistant/v2_cli.py",
+          "line": 26,
+          "end_line": 81,
+          "label": "Unified retrieval"
+        },
+        {
+          "path": "forensic_assistant/correlation/investigation.py",
+          "line": 1,
+          "end_line": 155,
+          "label": "Evidence context assembly"
+        },
+        {
+          "path": "forensic_assistant/detections/engine.py",
+          "line": 1,
+          "end_line": 65,
+          "label": "Deterministic detections"
+        }
+      ]
+    },
+    {
+      "id": "results",
+      "type": "frontend",
+      "label": "4 \u00b7 Review results",
+      "sublabel": "stdout JSON / text \u00b7 optional raw",
+      "pos": [
+        1120.0,
+        400
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "forensic_assistant/cli.py",
+          "line": 21,
+          "end_line": 23,
+          "label": "Escaped JSON output"
+        },
+        {
+          "path": "forensic_assistant/v1_cli.py",
+          "line": 67,
+          "end_line": 124,
+          "label": "Investigation and text output"
+        },
+        {
+          "path": "forensic_assistant/v2_cli.py",
+          "line": 91,
+          "end_line": 101,
+          "label": "Timeline text output"
+        }
+      ]
+    },
+    {
+      "id": "ai",
+      "type": "backend",
+      "label": "Optional AI analysis",
+      "sublabel": "Bounded bundle \u00b7 citation checks",
+      "pos": [
+        850.0,
+        150
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "forensic_assistant/llm/ask.py",
+          "line": 1,
+          "end_line": 26,
+          "label": "Retrieval and answer validation"
+        },
+        {
+          "path": "forensic_assistant/llm/context.py",
+          "line": 36,
+          "end_line": 127,
+          "label": "Selected evidence bundle"
+        },
+        {
+          "path": "forensic_assistant/llm/timeline.py",
+          "line": 1,
+          "end_line": 78,
+          "label": "Timeline model analysis"
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "type": "external",
+      "label": "Local llama.cpp server",
+      "sublabel": "Model identity unverified",
+      "pos": [
+        1120.0,
+        150
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "forensic_assistant/llm/client.py",
+          "line": 13,
+          "end_line": 64,
+          "label": "Loopback HTTP and response"
+        },
+        {
+          "path": "forensic_assistant/config.py",
+          "line": 4,
+          "end_line": 9,
+          "label": "Default loopback endpoint"
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "Artifact parser worker",
+      "sublabel": "dissect.ntfs \u00b7 libscca \u00b7 libregf",
+      "pos": [
+        310.0,
+        680
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "forensic_assistant/artifacts/worker.py",
+          "line": 12,
+          "end_line": 52,
+          "label": "Parsers and staged records"
+        },
+        {
+          "path": "forensic_assistant/artifacts/worker.py",
+          "line": 55,
+          "end_line": 82,
+          "label": "OS memory limit"
+        },
+        {
+          "path": "forensic_assistant/artifacts/ingest.py",
+          "line": 22,
+          "end_line": 41,
+          "label": "Subprocess lifecycle"
+        }
+      ]
+    },
+    {
+      "id": "stage",
+      "type": "database",
+      "label": "Temporary stage.db",
+      "sublabel": "Normalized records \u00b7 parser errors",
+      "pos": [
+        580.0,
+        680
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "forensic_assistant/artifacts/ingest.py",
+          "line": 68,
+          "end_line": 88,
+          "label": "Temporary stage and publication"
+        },
+        {
+          "path": "forensic_assistant/artifacts/worker.py",
+          "line": 17,
+          "end_line": 52,
+          "label": "Worker SQLite writes"
+        },
+        {
+          "path": "forensic_assistant/ingest/evtx.py",
+          "line": 86,
+          "end_line": 123,
+          "label": "EVTX temporary stage"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Locard CLI process \u00b7 SQLite accessed in-process",
+      "wraps": [
+        "cli",
+        "ingestion",
+        "store",
+        "investigation",
+        "ai"
+      ],
+      "pad": 30
+    },
+    {
+      "kind": "security-group",
+      "label": "Separate model process",
+      "wraps": [
+        "model"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "security-group",
+      "label": "Child process \u00b7 2 GiB limit",
+      "wraps": [
+        "worker"
+      ],
+      "pad": 24
+    }
+  ],
+  "connections": [
+    {
+      "id": "evidence-ingestion",
+      "from": "evidence",
+      "to": "ingestion",
+      "label": "read files",
+      "variant": "security"
+    },
+    {
+      "id": "cli-ingestion",
+      "from": "cli",
+      "to": "ingestion",
+      "label": "commands",
+      "variant": "default",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        410,
+        244
+      ]
+    },
+    {
+      "id": "ingestion-store",
+      "from": "ingestion",
+      "to": "store",
+      "label": "publish",
+      "variant": "emphasis"
+    },
+    {
+      "id": "store-investigation",
+      "from": "store",
+      "to": "investigation",
+      "label": "SQL reads",
+      "variant": "emphasis"
+    },
+    {
+      "id": "investigation-results",
+      "from": "investigation",
+      "to": "results",
+      "label": "findings",
+      "variant": "emphasis"
+    },
+    {
+      "id": "investigation-ai",
+      "from": "investigation",
+      "to": "ai",
+      "label": "context",
+      "variant": "default",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "ai-model",
+      "from": "ai",
+      "to": "model",
+      "label": "HTTP / JSON",
+      "variant": "security"
+    },
+    {
+      "id": "ingestion-worker",
+      "from": "ingestion",
+      "to": "worker",
+      "label": "spawn + path",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        410,
+        494
+      ]
+    },
+    {
+      "id": "worker-stage",
+      "from": "worker",
+      "to": "stage",
+      "label": "write records",
+      "variant": "security"
+    },
+    {
+      "id": "stage-store",
+      "from": "stage",
+      "to": "store",
+      "label": "import via parent",
+      "variant": "default",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Verified workflow & dependencies",
+      "items": [
+        "Ingest \u2192 query / investigate \u2192 review; ask and analyze-timeline add optional AI. CLI dispatch: cli.py, v1_cli.py, v2_cli.py.",
+        "EVTX uses python-evtx + defusedxml in-process. Other parsers run in a child process (requirements.txt; ingest/evtx.py; artifacts/worker.py)."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Sensitive evidence crossings",
+      "items": [
+        "Input files \u2192 parsers; worker \u2192 temporary SQLite \u2192 primary DB. Hash/size checks precede publication; partial ingestion is reported (ingest/evtx.py; artifacts/ingest.py).",
+        "Selected fields and question \u2192 loopback HTTP POST /v1/chat/completions; model JSON returns for validation. No DNS, proxies or redirects (llm/client.py). stdout can include raw evidence."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Facts, assumptions & artifacts",
+      "items": [
+        "Database, temporary stages and migration .sqlite backups are generated files; review output goes to stdout (database/migrations.py; cli.py). Model analysis is not evidence (llm/ask.py).",
+        "Grouping is conceptual: file stores are resources, not services. Local server is the client contract; model identity, deployment, disk protection and downstream stdout custody are unverified. SRC links pin verified code."
+      ]
+    }
+  ]
+}

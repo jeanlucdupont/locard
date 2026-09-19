@@ -1,0 +1,71 @@
+name: "Security Scans (CodeQL + Semgrep)"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    # Weekly deep scan, Monday 06:00 UTC — catches new advisories against unchanged code
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # required to upload results to the Security tab
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'python' ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Add custom/extra query packs here if you want deeper coverage, e.g.:
+          # queries: security-extended
+
+      # Python is interpreted, so no build step is needed —
+      # CodeQL's autobuild/manual-build steps are skipped entirely.
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  semgrep:
+    name: Semgrep Scan
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    permissions:
+      security-events: write   # required to upload results to the Security tab
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: semgrep ci --sarif --output=semgrep-results.sarif
+        env:
+          # Uses Semgrep's free "auto" ruleset (includes Python-specific rules,
+          # OWASP Top 10, secrets patterns, etc.). No token needed for public
+          # repos on the free/community tier.
+          SEMGREP_RULES: "auto"
+        continue-on-error: true   # don't block the run if findings exist; let SARIF upload surface them
+
+      - name: Upload Semgrep results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep-results.sarif
