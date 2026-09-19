@@ -1,4 +1,6 @@
-# Locard V2 — Local AI-Assisted Digital Forensics
+# Locard Forensic — Local AI-Assisted Digital Forensics
+
+**WARNING: This project is not finalized**
 
 <img width="377" height="512" alt="image" src="https://github.com/user-attachments/assets/ca1df9e4-91a3-4be4-aefa-bab5921f6758" />
 
