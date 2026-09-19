@@ -16,9 +16,105 @@ EVTX ingestion and V1 process/session correlations, eight rules, and investigati
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
 
-<img width="527" height="948" alt="locard" src="https://github.com/user-attachments/assets/4e9b9aac-0b74-4fb8-9eb7-b7435626647b" />
+flowchart TD
 
-**DIAGRAM is not reflecting reality. Scope is bigger than this now**
+subgraph group_interface["CLI Interface"]
+  node_cli["Locard CLI<br/>[cli.py]"]
+end
+
+subgraph group_acquisition["Acquisition Parsing"]
+  node_evtx_ingest["EVTX Ingestion<br/>[evtx.py]"]
+  node_artifact_ingest["Artifact Ingestion<br/>[ingest.py]"]
+  node_parser_worker["Parser Worker<br/>[worker.py]"]
+  node_mft_parser["MFT Parser<br/>[mft.py]"]
+  node_prefetch_parser["Prefetch Parser<br/>[prefetch.py]"]
+  node_registry_parser["Registry Parser<br/>[registry.py]"]
+  node_normalization["Event Normalization<br/>[normalize.py]"]
+end
+
+subgraph group_evidence["Evidence Storage"]
+  node_evidence_storage["Evidence Storage<br/>[storage.py]"]
+  node_sqlite[("SQLite Case DB<br/>[db.py]")]
+  node_context_fields["Context Derivation<br/>[context.py]"]
+end
+
+subgraph group_analysis["Forensic Analysis"]
+  node_evidence_queries["Evidence Retrieval<br/>[evidence.py]"]
+  node_timeline_queries["Timeline Queries<br/>[queries.py]"]
+  node_investigations["Investigations<br/>[investigation.py]"]
+  node_cross_correlation["Cross Correlation<br/>[cross_artifact.py]"]
+  node_session_correlation["Session Correlation<br/>[sessions.py]"]
+  node_detection_engine["Detection Engine<br/>[engine.py]"]
+end
+
+subgraph group_assistance["AI Assistance"]
+  node_llm_ask["AI Ask Workflow<br/>[ask.py]"]
+  node_llm_context["Evidence Context<br/>[context.py]"]
+end
+
+node_analyst(("Forensic Analyst"))
+node_local_llama["Local llama.cpp"]
+
+node_analyst -->|"invokes"| node_cli
+node_cli -->|"dispatches"| node_evtx_ingest
+node_cli -->|"dispatches"| node_artifact_ingest
+node_artifact_ingest -->|"runs worker"| node_parser_worker
+node_parser_worker -->|"parses MFT"| node_mft_parser
+node_parser_worker -->|"parses Prefetch"| node_prefetch_parser
+node_parser_worker -->|"parses Registry"| node_registry_parser
+node_evtx_ingest -->|"normalizes events"| node_normalization
+node_parser_worker -->|"stores packs"| node_evidence_storage
+node_normalization -->|"writes events"| node_evidence_storage
+node_evidence_storage -->|"writes records"| node_sqlite
+node_cli -->|"dispatches search"| node_evidence_queries
+node_cli -->|"dispatches timeline"| node_timeline_queries
+node_evidence_queries -->|"queries evidence"| node_sqlite
+node_timeline_queries -->|"queries timestamps"| node_sqlite
+node_context_fields -->|"writes context"| node_sqlite
+node_cli -->|"dispatches investigate"| node_investigations
+node_investigations -->|"retrieves records"| node_evidence_queries
+node_cli -->|"dispatches sessions"| node_session_correlation
+node_session_correlation -->|"reads events"| node_sqlite
+node_cli -->|"dispatches detections"| node_detection_engine
+node_detection_engine -->|"searches candidates"| node_evidence_queries
+node_detection_engine -->|"evaluates relations"| node_cross_correlation
+node_cli -->|"dispatches ask"| node_llm_ask
+node_llm_ask -->|"retrieves evidence"| node_evidence_queries
+node_llm_ask -->|"builds context"| node_llm_context
+node_llm_context -.->|"sends prompt"| node_local_llama
+
+click node_cli "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/cli.py"
+click node_evtx_ingest "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/ingest/evtx.py"
+click node_artifact_ingest "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/ingest.py"
+click node_parser_worker "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/worker.py"
+click node_mft_parser "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/mft.py"
+click node_prefetch_parser "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/prefetch.py"
+click node_registry_parser "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/registry.py"
+click node_normalization "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/ingest/normalize.py"
+click node_evidence_storage "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/artifacts/storage.py"
+click node_sqlite "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/database/db.py"
+click node_context_fields "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/database/context.py"
+click node_evidence_queries "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/retrieval/evidence.py"
+click node_timeline_queries "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/retrieval/queries.py"
+click node_investigations "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/correlation/investigation.py"
+click node_cross_correlation "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/correlation/cross_artifact.py"
+click node_session_correlation "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/correlation/sessions.py"
+click node_detection_engine "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/detections/engine.py"
+click node_llm_ask "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/llm/ask.py"
+click node_llm_context "https://github.com/jeanlucdupont/locard/blob/main/forensic_assistant/llm/context.py"
+
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_cli toneBlue
+class node_evtx_ingest,node_artifact_ingest,node_parser_worker,node_mft_parser,node_prefetch_parser,node_registry_parser,node_normalization toneAmber
+class node_evidence_storage,node_sqlite,node_context_fields toneMint
+class node_evidence_queries,node_timeline_queries,node_investigations,node_cross_correlation,node_session_correlation,node_detection_engine toneRose
+class node_llm_ask,node_llm_context,node_analyst,node_local_llama toneIndigo
 
 ## V2 evidence architecture and workflow
 
