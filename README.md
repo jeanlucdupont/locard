@@ -746,7 +746,7 @@ not proof that the model's interpretation or chosen classification is correct.
 OF ABSENCE.** Logging configuration and supplied evidence determine what Locard can
 reconstruct. No model output is inserted into the evidence database.
 
-## LICENSE
+## License
 
 Project source license: **Apache-2.0**. See [LICENSE](LICENSE) and
 [third-party licensing](THIRD_PARTY_NOTICES.md).
