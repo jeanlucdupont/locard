@@ -12,7 +12,7 @@ Project source license: **Apache-2.0**. See [LICENSE](LICENSE) and
 [third-party licensing](THIRD_PARTY_NOTICES.md).
 
 **WARNING: This project is not finalized**
-<img width="1631" height="722" alt="image" src="https://github.com/user-attachments/assets/c0aae37e-2639-4ef1-a4c9-deea7a1c9f69" />
+<img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
 
 
