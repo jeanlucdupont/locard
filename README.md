@@ -27,8 +27,8 @@ embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
 
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
-
-## Architecture and workflow
+## Description
+### Architecture and workflow
 
 ```mermaid
 flowchart TD
@@ -136,7 +136,7 @@ Here is another representation of the architecture
 <img width="4152" height="2544" alt="locard-runtime (1)" src="https://github.com/user-attachments/assets/54524163-8c67-45b6-ba56-9e4eb93881e5" />
 
 
-## How it works
+### How it works
 
 Acquire offline files using appropriate forensic acquisition procedures. Locard
 parses supplied copies; it does not acquire live hives, unlock files, mount images,
@@ -310,7 +310,8 @@ validation captures are excluded from Git. Only synthetic fixture builders are i
 tests. See `VALIDATION.md` for the parser gate, accumulated tests, public-sample
 checks, and disk-backed benchmark.
 
-## Windows setup
+## Setup
+### Windows setup
 
 If upgrading an existing V0 or V1 database, use the explicit migration below before other
 commands. V0 CLI commands remain available, including positional timeline syntax.
@@ -346,7 +347,7 @@ python -m pip wheel --wheel-dir wheelhouse ".[test]"
 .\.venv\Scripts\python.exe -m pip install --no-index --find-links wheelhouse "locard-forensics[test]"
 ```
 
-## Start the local model
+### Start the local model
 
 Run from your llama.cpp directory, adjusting the model path:
 
@@ -369,28 +370,8 @@ Only HTTP loopback addresses are allowed. `localhost` is mapped directly to
 redirects, telemetry, cloud services, or automatic execution of event content are used.
 Ensure your local server itself is configured for local-only processing.
 
-## Ingest and inspect evidence
-
-### Upgrade a V0 or V1 database
-
-```powershell
-.\.venv\Scripts\python.exe -m forensic_assistant.cli --db data\case1.db migrate
-```
-
-V2 requires schema version 3. Migration creates a uniquely named local SQLite backup
-beside the original database, then adds the common evidence registry, artifact tables,
-timestamp/object projections, and indexes in a transaction. A V0 database also
-receives V1's `event_context` projection. It derives context without modifying any existing
-event, evidence ID, raw XML, source path, or source-location record. Failure rolls
-back the migration. Repeating a completed migration is a no-op. Normal commands do
-not silently migrate V0/V1 databases. Never delete your only database to resolve a
-migration error; inspect the reported error and retain the backup.
-
-`event_context` stores normalized host keys, event categories, GUIDs, role-specific
-Logon IDs/accounts/SIDs, source IP keys, extraction version, and warnings. It is a
-derived lookup projection, not new evidence. Schema and context extraction versions
-are separate from the unchanged V0 normalizer version. Sysmon GUIDs and lifecycle
-markers already retained in EVTX become usable without re-ingesting sources.
+## Use
+### Ingest and inspect evidence
 
 Run commands from the project directory. `--db` is a global option placed **before**
 the subcommand; its default is `data/forensic.db` relative to the current directory.
@@ -420,7 +401,7 @@ Checksums are parser checks, not proof of authenticity. Invalid XML is recorded 
 ingestion error and remains recoverable only from the unchanged original file; no
 normalized event is manufactured for XML that could not be parsed.
 
-## Deterministic searches
+### Deterministic searches
 
 ```powershell
 .\.venv\Scripts\python.exe -m forensic_assistant.cli search --event-id 4688
@@ -460,7 +441,7 @@ Output is JSON, with untrusted control characters escaped. Exit status is 0 for
 success (including no matches), 1 for incomplete ingestion/no discovered files, and
 2 for invalid input, database errors, or unavailable/invalid model responses.
 
-## Evidence IDs and source paths
+### Evidence IDs and source paths
 
 ```text
 EVTX:<full source SHA-256>:Offset:<record byte offset>
@@ -485,7 +466,7 @@ content at the same path gets a different hash and distinct IDs. `show` returns 
 observed source paths. Locations are historical observations, not a guarantee that a
 file still exists or contains the same data; verify the hash before re-examination.
 
-## Ask questions
+### Ask questions
 
 ```powershell
 .\.venv\Scripts\python.exe -m forensic_assistant.cli ask 'Show me suspicious PowerShell activity'
