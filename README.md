@@ -28,7 +28,6 @@ embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
 ## Description
 ### Architecture and workflow
 
-```mermaid
 flowchart TD
 
 subgraph group_interface["CLI Interface"]
@@ -128,8 +127,6 @@ class node_evtx_ingest,node_artifact_ingest,node_parser_worker,node_mft_parser,n
 class node_evidence_storage,node_sqlite,node_context_fields toneMint
 class node_evidence_queries,node_timeline_queries,node_investigations,node_cross_correlation,node_session_correlation,node_detection_engine toneRose
 class node_llm_ask,node_llm_context,node_analyst,node_local_llama toneIndigo
-```
-
 Here is another representation of the architecture
 <img width="4152" height="2544" alt="locard-runtime (1)" src="https://github.com/user-attachments/assets/54524163-8c67-45b6-ba56-9e4eb93881e5" />
 
