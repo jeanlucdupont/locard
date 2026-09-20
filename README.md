@@ -16,14 +16,12 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 **SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not create evidence.**
 
 
-## Locard V3 
+## WARNING: This project is not finalized
 
-Locard V3 (`0.4.0`, schema 3) adds optional, CPU-based local semantic retrieval and
+**We are at V3.** Locard V3 (`0.4.0`, schema 3) adds optional, CPU-based local semantic retrieval and
 hybrid evidence selection. Existing deterministic commands remain available without
 embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
 
-
-## WARNING: This project is not finalized
 
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
