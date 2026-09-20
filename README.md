@@ -19,8 +19,6 @@ embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
 
 **SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not create evidence.**
 
-Project source license: **Apache-2.0**. See [LICENSE](LICENSE) and
-[third-party licensing](THIRD_PARTY_NOTICES.md).
 
 ## WARNING: This project is not finalized
 
@@ -775,7 +773,11 @@ not proof that the model's interpretation or chosen classification is correct.
 OF ABSENCE.** Logging configuration and supplied evidence determine what Locard can
 reconstruct. No model output is inserted into the evidence database.
 
-**LICENSE**
+## LICENSE
+
+Project source license: **Apache-2.0**. See [LICENSE](LICENSE) and
+[third-party licensing](THIRD_PARTY_NOTICES.md).
+
 
 Locard Forensic
 Copyright © 2026 Jean-Luc Dupont
