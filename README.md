@@ -2,22 +2,6 @@
 
 <img width="377" height="512" alt="image" src="https://github.com/user-attachments/assets/ca1df9e4-91a3-4be4-aefa-bab5921f6758" />
 
-Locard V3 (`0.4.0`, schema 3) adds optional, CPU-based local semantic retrieval and
-hybrid evidence selection. Existing deterministic commands remain available without
-embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
-
-**SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not create evidence.**
-
-Project source license: **Apache-2.0**. See [LICENSE](LICENSE) and
-[third-party licensing](THIRD_PARTY_NOTICES.md).
-
-**WARNING: This project is not finalized**
-<img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
-
-
-
-
-
 Locard is a local Windows forensic investigation CLI, named after Edmond Locard and the
 principle that **every contact leaves a trace**. It preserves source provenance,
 normalizes events into SQLite, retrieves evidence deterministically, and optionally
@@ -28,6 +12,24 @@ EVTX ingestion and V1 process/session correlations, eight rules, and investigati
 
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
+
+Locard V3 (`0.4.0`, schema 3) adds optional, CPU-based local semantic retrieval and
+hybrid evidence selection. Existing deterministic commands remain available without
+embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
+
+**SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not create evidence.**
+
+Project source license: **Apache-2.0**. See [LICENSE](LICENSE) and
+[third-party licensing](THIRD_PARTY_NOTICES.md).
+
+## WARNING: This project is not finalized
+
+<img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
+
+
+
+
+
 
 
 ## V2 evidence architecture and workflow
