@@ -1,4 +1,4 @@
-# Locard Forensic - Local AI-Assisted Digital Forensics
+# Locard Forensics - Local AI-Assisted Digital Forensics
 
 <img width="377" height="512" alt="image" src="https://github.com/user-attachments/assets/ca1df9e4-91a3-4be4-aefa-bab5921f6758" />
 
