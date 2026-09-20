@@ -643,9 +643,11 @@ unknown citations, hypotheses placed in the observed sequence, and CORRELATED cl
 without supporting supplied relationship evidence. This is structural validation,
 not proof that the model's interpretation or chosen classification is correct.
 
-**DETECTION != COMPROMISE. CORRELATION != CAUSATION. ABSENCE OF EVIDENCE != EVIDENCE
-OF ABSENCE.** Logging configuration and supplied evidence determine what Locard can
+Logging configuration and supplied evidence determine what Locard can
 reconstruct. No model output is inserted into the evidence database.
+
+<img width="523" height="359" alt="image" src="https://github.com/user-attachments/assets/a2c59b56-ed24-49d1-a8de-d3eaa55a14c9" />
+
 
 ## License
 
