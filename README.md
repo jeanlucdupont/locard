@@ -1,4 +1,4 @@
-# Locard Forensic V3 — Local AI-Assisted Digital Forensics
+# Locard Forensic - Local AI-Assisted Digital Forensics
 
 <img width="377" height="512" alt="image" src="https://github.com/user-attachments/assets/ca1df9e4-91a3-4be4-aefa-bab5921f6758" />
 
@@ -13,11 +13,14 @@ EVTX ingestion and V1 process/session correlations, eight rules, and investigati
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
 
+**SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not create evidence.**
+
+
+## Locard V3 
+
 Locard V3 (`0.4.0`, schema 3) adds optional, CPU-based local semantic retrieval and
 hybrid evidence selection. Existing deterministic commands remain available without
 embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
-
-**SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not create evidence.**
 
 
 ## WARNING: This project is not finalized
@@ -25,12 +28,7 @@ embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
 
-
-
-
-
-
-## V2 evidence architecture and workflow
+## Architecture and workflow
 
 ```mermaid
 flowchart TD
