@@ -136,11 +136,7 @@ Here is another representation of the architecture
 <img width="4152" height="2544" alt="locard-runtime (1)" src="https://github.com/user-attachments/assets/54524163-8c67-45b6-ba56-9e4eb93881e5" />
 
 
-Schema 3 retains `events` and `event_context` unchanged. `evidence_records` is the
-common registry; MFT records/names, Prefetch details/references/volumes, and Registry
-hives/keys/values/views have separate tables. `evidence_timestamps` and
-`evidence_objects` are derived lookup projections. An artifact may have many
-timestamp observations or none; it is never fabricated into an EVTX event.
+## How it works
 
 Acquire offline files using appropriate forensic acquisition procedures. Locard
 parses supplied copies; it does not acquire live hives, unlock files, mount images,
