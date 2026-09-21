@@ -48,7 +48,7 @@ stops an investigation; no results from the new state are incorporated.
 ## Description
 ### Architecture and workflow
 
-<img width="5884" height="5438" alt="diagram (2)" src="https://github.com/user-attachments/assets/3145c7c3-590d-4fba-aefa-7c4cdf8e51d8" />
+<img width="5884" height="5438" alt="diagram (3)" src="https://github.com/user-attachments/assets/b3debfae-b67d-4aa5-b5e1-f020cd9d7941" />
 
 
 Here is another representation of the architecture
