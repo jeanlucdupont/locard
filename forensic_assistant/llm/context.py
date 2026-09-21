@@ -74,8 +74,8 @@ def context_bundle(context, question, budget=PROMPT_BYTES):
         old_length = len(bundle["EVIDENCE"])
         bundle["EVIDENCE"].extend(compact_record(records[eid]) for eid in new)
         if context.get('semantic_retrieval'):
-            for item in bundle['EVIDENCE'][old_length:]:
-                item['selection_reasons']=context.get('selection_reasons',{}).get(item['id'],['deterministic_expansion'])
+            for record in bundle['EVIDENCE'][old_length:]:
+                record['selection_reasons']=context.get('selection_reasons',{}).get(record['id'],['deterministic_expansion'])
         sent.update(new)
         if section:
             bundle[section].append(item)

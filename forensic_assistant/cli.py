@@ -25,7 +25,7 @@ def emit(value):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Locard — local evidence-first Windows forensics")
-    parser.add_argument("--version", action="version", version="Locard V3 (" + __version__ + ")")
+    parser.add_argument("--version", action="version", version="Locard V4 (" + __version__ + ")")
     parser.add_argument("--db", default=Config.database)
     commands = parser.add_subparsers(dest="command", required=True)
     v1_cli.configure(commands)
@@ -75,8 +75,12 @@ def main(argv=None):
     v2_cli.configure(commands)
     from forensic_assistant.semantic import cli as semantic_cli
     semantic_cli.configure(commands,ask_parser)
+    from forensic_assistant.investigation_ai import cli as investigation_cli
+    investigation_cli.configure(commands)
     args = parser.parse_args(argv)
     try:
+        if args.command in ('investigate-ai', 'investigation'):
+            emit(investigation_cli.dispatch(args)); return 0
         if args.command=='semantic' and args.semantic_command=='setup':
             from forensic_assistant.semantic.model import setup
             emit(setup(args.destination,args.model));return 0

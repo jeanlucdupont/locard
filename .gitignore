@@ -9,6 +9,7 @@
 !/LICENSE
 !/THIRD_PARTY_NOTICES.md
 !/V3.md
+!/V4.md
 !/pyproject.toml
 !/requirements.txt
 !/forensic_assistant/
@@ -159,3 +160,9 @@ embedding-cache/
 *.faiss
 *.index
 *.semantic-stage
+
+# Derived investigation transcripts and state are sensitive case data.
+investigations/
+*.investigations/
+transcripts/
+*.jsonl

@@ -18,9 +18,29 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 ## WARNING: This project is not finalized
 
-**We are at V3.** Locard V3 (`0.4.0`, schema 3) adds optional, CPU-based local semantic retrieval and
-hybrid evidence selection. Existing deterministic commands remain available without
-embedding dependencies. See [V3 setup, architecture and limitations](V3.md).
+**We are at V4.** Locard V4 (`0.5.0`, evidence schema 3 unchanged) adds optional,
+bounded iterative investigation through nine predefined read-only forensic operations.
+The model proposes operations; Locard validates and executes them. Observations and
+relationships are rendered from disclosed evidence fields and deterministic engine
+objects. Model hypotheses are not forensic evidence. Existing deterministic and V3
+semantic commands remain available independently.
+
+**THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.**
+See [V4 operation, privacy, budgets and replay](V4.md) and
+[V3 local semantic setup](V3.md).
+
+```powershell
+locard --db data\case.db investigate-ai 'Inspect PowerShell activity' --no-semantic --explain --json
+locard --db data\case.db investigate-ai 'Inspect PowerShell activity' --dry-run
+locard --db data\case.db investigation show '<investigation-id>' --explain
+locard --db data\case.db investigation replay '<investigation-id>' --no-semantic
+```
+
+V4 `--dry-run` performs initial retrieval and **one local model call** to display a
+validated proposal without executing an iterative tool. The existing `ask --dry-run`
+still makes no model call. Transcripts default to `DATABASE.investigations`, contain
+sensitive derived case data, and must not be published. A changed case fingerprint
+stops an investigation; no results from the new state are incorporated.
 
 
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />

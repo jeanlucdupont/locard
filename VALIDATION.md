@@ -1,3 +1,138 @@
+# V4 validation — 2026-09-20
+
+V4 application version is 0.5.0. Evidence schema remains 3; no migration was added.
+The manually updated GitHub README was fetched before implementation and preserved.
+No new runtime dependencies or third-party license changes were introduced.
+
+The complete accumulated suite progressed from 169 baseline tests to 170 after the
+context-bundle regression/fix, 193 after the read-only worker stage, 208 after the
+controller, 212 after CLI/replay, and 225 after resource/evaluation tests. Final:
+**236 passed in 58.34 seconds** after closed-output, stale-index availability,
+rejected-request accounting and explicit model-action/continuation prompt checks.
+The complete suite with semantic imports blocked also passed: **236 in 61.69 seconds**.
+Ordinary tests use scripted models, synthetic
+fixtures and, for HTTP deadline validation, a local synthetic HTTP server; they do
+not require MiniCPM. Editable installation succeeded without network/dependency
+resolution, `locard --version` reports `Locard V4 (0.5.0)`, and `pip check` is clean.
+
+The original context-bundle regression was demonstrated failing before the fix.
+It checks that attaching semantic selection reasons cannot replace original anchor
+IDs or deterministic relationship objects through loop-variable shadowing.
+
+## Snapshot and trust-boundary gates
+
+The long-lived snapshot gate was rejected: 102,254,312 bytes of WAL retained during
+24 writer commits while two readers held the original snapshot; only 3 of 24,819
+frames checkpointed. Rollback-journal readers blocked writer commits. Forced reader
+termination released locks and allowed a writer-owned checkpoint to truncate WAL.
+The approved per-operation fingerprint alternative and tradeoff are documented in
+[V4.md](V4.md). Reproduce the rejected-design experiment explicitly with
+`python tests/v4_snapshot_validation.py NEW_OUTPUT_DIRECTORY`.
+
+V4 tests cover concurrent WAL and rollback readers, writer progress between
+operations, state changes during model waits, interrupted large-table fingerprinting,
+worker death and cleanup, WAL-pressure watchdog behavior, authorizer write/attachment
+denial, deadlines, missing-case behavior, transcript isolation and replay refusal.
+The ordinary watchdog threshold test simulates measured WAL growth; the separate
+snapshot experiment performs actual concurrent writes and measures retained bytes.
+
+Other tests cover malformed/duplicate JSON, excessive bounds, forbidden operations,
+out-of-case/unexposed anchors, omitted-field citations, invented findings/detections,
+unchanged engine statuses, mandatory Registry key support, hypothesis alternatives,
+semantic labels, loops/no novelty, approval refusal, dry-run without iterative
+execution, model failure and a slow HTTP response body. A Windows transient manifest
+replacement failure was observed and addressed with bounded retries of the same
+atomic replacement; a regression test injects that sharing violation. Persistent
+I/O failure still fails rather than silently rewriting the manifest in place.
+
+## Synthetic V3 versus V4 path exercise
+
+These are small labeled scenarios using scripted model proposals. The baseline is
+the deterministic branch of V3's hybrid planner; V4 starts with that same retrieval.
+Counts describe retrieved original evidence IDs, not model reasoning quality.
+
+| Scenario | V3 relevant | V4 relevant | V4 other | Calls / turns | Termination |
+|---|---:|---:|---:|---:|---|
+| Office/PowerShell, later executable and Prefetch | 2 | 4 | 0 | 3 / 4 | ANSWER_SUPPORTED |
+| Process, Run value/key, later user-directory executable | 2 | 5 | 0 | 2 / 3 | ANSWER_SUPPORTED |
+| Failed logons, later logon and session process | 5 | 7 | 0 | 2 / 3 | ANSWER_SUPPORTED |
+| Insufficient causation; overclaim rejected, labeled hypothesis accepted | 2 | 2 | 0 | 0 / 2 | ANSWER_SUPPORTED |
+| Registry prompt injection requesting forbidden shell operation | 9 | 9 | 0 | 0 / 3 | TOO_MANY_REJECTIONS |
+
+All accepted factual references matched disclosed original IDs. No unrestricted
+observed-fact prose was accepted. Hypotheses remain unverified; the fourth case does
+not establish causation. Scripted results are not evidence that a real model will
+choose the same useful operations. Tests are in `test_v4_evaluation.py`.
+
+Measured full duration was 0.313–0.422 seconds per small scripted investigation;
+worker operation totals were 0.031–0.077 seconds. The remaining 0.281–0.360 seconds
+includes process startup, controller/serialization and transcript I/O, not purely
+algorithmic controller overhead. Prompts were 5,034–5,554 bytes; transcripts
+14,881–27,965 bytes. In the first three cases, 8/7/8 cumulative returned records
+deduplicated to 4/5/7 unique IDs respectively. This is not a large-case throughput
+benchmark; full fingerprints can dominate large cases and cause a bounded timeout.
+
+## Real optional semantic integration
+
+`tests/v4_semantic_validation.py` exercised installed local BGE-small-en-v1.5 and
+FAISS with all five generated cases. Each run performed initial hybrid retrieval,
+one additional requested semantic search with deterministic expansion, a scripted
+final selection, and replay without an LLM. All five completed with structurally
+validated findings; all five replays matched. No setup/download was performed.
+
+| Scenario | V3 hybrid relevant / other | V4 relevant / other | V4 total seconds |
+|---|---:|---:|---:|
+| 1 | 4 / 1 | 4 / 1 | 13.656 |
+| 2 | 5 / 7 | 5 / 7 | 12.000 |
+| 3 | 5 / 0 | 7 / 1 | 12.797 |
+| 4 | 2 / 1 | 2 / 1 | 12.500 |
+| 5 | 9 / 0 | 9 / 0 | 13.156 |
+
+The scripted semantic query was intentionally the same in all five cases; these
+results demonstrate integration/replay and expose irrelevant retrieval rather than
+establishing retrieval accuracy. The fifth case uses a safe scripted final here;
+forbidden-request rejection is measured separately above. Worker totals, including
+loading embeddings, were 11.735–13.313 seconds; the 2 GiB worker ceiling remained in
+force. After the live-model prompt refinements, all five semantic checks and replays
+passed again. Prompts were 5,063–5,537 bytes and transcripts 42,417–82,161 bytes. Existing
+V3 validation below documents offline socket/DNS blocking and model-selection gates.
+
+## Live MiniCPM status and public-file review
+
+**Live V4 MiniCPM integration passed twice** after the operator started the loopback
+server. It reported `MiniCPM5-2B-Q4_K_M.gguf`. Both runs requested `process_tree`,
+executed one validated read-only operation, and then selected the disclosed
+`/process_name` field of the original EVTX record. Both terminated
+`ANSWER_SUPPORTED` with no rejected requests. The final value and citation were
+rendered by Locard, not accepted as model-authored fact prose. Replay of the second
+live transcript matched initial retrieval and the tool result without calling the
+model. Total durations were 6.344 and 2.672 seconds (server caching may affect the
+second); model time was 6.000 and 2.344 seconds. The two prompts were 5,155 and 5,398
+bytes. The server reported 1,335/1,376 input tokens and 72–73/63 output tokens.
+
+Earlier live attempts stopped safely with an empty/early final or `TOOL_LOOP`.
+The original test question also lacked the anchor required by the existing
+deterministic process-tree planner. The harness now supplies that explicit anchor.
+Locard's prompt now includes action-format examples, tool argument names, completed
+operations and an explicit continuation notice. The server's JSON grammar alone
+was insufficient instruction for this small model. The 5,600-byte budget, strict
+validator and loop controls remain unchanged. The successful harness explicitly
+requests a first tool action; this is a basic protocol/continuation check, not proof
+that MiniCPM will autonomously choose useful steps for arbitrary questions.
+
+`tests/v4_model_validation.py` requires an operator-started server, at least one
+accepted operation and a validated final selection. It exits unsuccessfully if
+that gate fails. All supplied evidence is synthetic. These limited live checks do
+not establish forensic accuracy, completeness or prompt-injection immunity.
+
+The V4 Git-visible change review contained source, tests and documentation only;
+no new binary artifacts, credentials/token-pattern matches or actual local-user
+paths were found. Ignore probes cover EVTX, SQLite journals, model weights and
+transcript directories/files. All new fixtures are synthetic; generated databases,
+models, semantic indexes and transcripts remain outside Git. This is a review of
+the V4 changes, not a new attestation of every historical commit. No commit or push
+was performed as part of V4 implementation.
+
 # V3 validation — 2026-09-19
 
 V3 retains schema 3 and stable V0/V1/V2 evidence IDs. Baseline: 147 tests passed.

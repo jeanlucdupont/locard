@@ -2,6 +2,8 @@
 import http.client
 import ipaddress
 import json
+import socket
+import threading
 from urllib.parse import urlsplit
 
 
@@ -33,6 +35,18 @@ class LocalClient:
 
     def complete(self, messages, schema=None):
         connection = http.client.HTTPConnection(self.host, self.port, timeout=self.timeout)
+        self.last_metadata = {}
+        transport = []
+        def expire():
+            # A peer sending bytes slowly must not extend the total call indefinitely.
+            sock = getattr(connection, 'sock', None) or (transport[0] if transport else None)
+            if sock is not None:
+                try: sock.shutdown(socket.SHUT_RDWR)
+                except OSError: pass
+            connection.close()
+        watchdog = threading.Timer(self.timeout, expire)
+        watchdog.daemon = True
+        watchdog.start()
         body = json.dumps({"messages": messages, "temperature": 0.2, "top_p": 0.95,
                            "max_tokens": 1024, "stream": False,
                            "chat_template_kwargs": {"enable_thinking": False},
@@ -42,6 +56,9 @@ class LocalClient:
         try:
             connection.request("POST", "/v1/chat/completions", body=body,
                                headers={"Content-Type": "application/json"})
+            # HTTP/1.0 can detach the socket from HTTPConnection while the response
+            # still owns a file object. Keep it reachable for the wall-clock limit.
+            transport.append(getattr(connection, 'sock', None))
             response = connection.getresponse()
             if response.status != 200:
                 raise LLMError(f"Local llama.cpp returned HTTP {response.status}; redirects are never followed. Check server/model/context settings")
@@ -55,10 +72,18 @@ class LocalClient:
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
                 raise LLMError("Local model returned an empty answer")
+            self.last_metadata = {'model': str(decoded.get('model', 'not reported'))[:200],
+                                  'identity_basis': 'Local server self-report; weights not attested',
+                                  'finish_reason': str(choice.get('finish_reason', 'not reported'))[:40]}
+            usage = decoded.get('usage', {})
+            if isinstance(usage, dict):
+                self.last_metadata['usage'] = {k: v for k, v in usage.items()
+                    if k in ('prompt_tokens', 'completion_tokens', 'total_tokens') and type(v) is int and 0 <= v <= 10000000}
             return text
         except (OSError, http.client.HTTPException) as exc:
             raise LLMError("Cannot reach local llama.cpp. Start llama-server and check the loopback endpoint. Deterministic searches remain available") from exc
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise LLMError("Local llama.cpp returned an invalid chat-completion response") from exc
         finally:
+            watchdog.cancel()
             connection.close()
