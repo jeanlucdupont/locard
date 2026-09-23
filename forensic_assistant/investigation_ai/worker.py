@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import time
+import os
 
 if __package__ in (None,''):
     # Launched with -I: only this installed source root is added, never case CWD.
@@ -26,7 +27,7 @@ def serve():
             request=json.loads(line)
             if config is None:
                 config=request['config']
-                response={'ready':True}
+                response={'ready':True,'worker_pid':os.getpid()}
             else:
                 op=request['operation']
                 # A pinned generation cannot change underneath the investigation.

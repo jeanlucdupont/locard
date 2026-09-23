@@ -12,16 +12,18 @@ import time
 class WorkerError(ValueError):pass
 
 class ForensicWorker:
+    worker_script = Path(__file__).with_name('worker.py')
     def __init__(self,config):
         config=dict(config)
         for key in ('index_root','model_path'):
             if config.get(key):config[key]=str(Path(config[key]).resolve())
         self.case_path=Path(config['case_path']).resolve(strict=True)
         self.process=None;self.messages=queue.Queue(maxsize=2);self.diagnostics=deque(maxlen=4)
+        self.job=None;self.worker_pid=None
         environment=dict(os.environ)
         for name in ('PYTHONPATH','PYTHONHOME','PYTHONSTARTUP','PYTHONINSPECT'):environment.pop(name,None)
         environment.update(HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',HF_HUB_DISABLE_TELEMETRY='1',DO_NOT_TRACK='1')
-        self.process=subprocess.Popen([sys.executable,'-I',str(Path(__file__).with_name('worker.py'))],
+        self.process=subprocess.Popen([sys.executable,'-I',str(self.worker_script)],
           cwd=str(Path(__file__).parent),env=environment,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
           creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         def output():
@@ -33,7 +35,11 @@ class ForensicWorker:
         def diagnostic():
             while chunk:=self.process.stderr.read(1024):self.diagnostics.append(chunk)
         threading.Thread(target=output,daemon=True).start();threading.Thread(target=diagnostic,daemon=True).start()
-        try:self._exchange({'config':{**config,'case_path':str(self.case_path)}},10)
+        try:
+            ready=self._exchange({'config':{**config,'case_path':str(self.case_path)}},10)
+            self.worker_pid=ready['worker_pid']
+            from .lifecycle import WorkerJob
+            self.job=WorkerJob(self.worker_pid)
         except BaseException:self.close();raise
 
     def _wal_size(self):
@@ -67,6 +73,8 @@ class ForensicWorker:
           'expected_fingerprint':fingerprint,'seconds':seconds,'question':question},seconds)
 
     def close(self):
+        if self.job:
+            self.job.close();self.job=None
         if self.process:
             if self.process.poll() is None:self.process.kill()
             self.process.wait(timeout=5)

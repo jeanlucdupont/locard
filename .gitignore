@@ -10,6 +10,7 @@
 !/THIRD_PARTY_NOTICES.md
 !/V3.md
 !/V4.md
+!/V5.md
 !/pyproject.toml
 !/requirements.txt
 !/forensic_assistant/
@@ -166,3 +167,8 @@ investigations/
 *.investigations/
 transcripts/
 *.jsonl
+
+# Derived V5 report bundles and interrupted publication staging.
+report-bundles/
+*.locard-report/
+.locard-report-*/

@@ -25,7 +25,7 @@ def emit(value):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Locard — local evidence-first Windows forensics")
-    parser.add_argument("--version", action="version", version="Locard V4 (" + __version__ + ")")
+    parser.add_argument("--version", action="version", version="Locard V5 (" + __version__ + ")")
     parser.add_argument("--db", default=Config.database)
     commands = parser.add_subparsers(dest="command", required=True)
     v1_cli.configure(commands)
@@ -77,8 +77,18 @@ def main(argv=None):
     semantic_cli.configure(commands,ask_parser)
     from forensic_assistant.investigation_ai import cli as investigation_cli
     investigation_cli.configure(commands)
+    from forensic_assistant.reporting import cli as report_cli
+    report_cli.configure(commands)
     args = parser.parse_args(argv)
     try:
+        if args.command=='report':
+            try:
+                result=report_cli.dispatch(args)
+                emit(result)
+                return 2 if any(result.get(k)=='FAIL' for k in ('file_integrity','structure','case_fingerprint','evidence_grounding')) else 0
+            except (ValueError,OSError,KeyError,TypeError) as exc:
+                emit({'status':'FAILED','error':str(exc),'published':False if args.report_command=='generate' else None})
+                return 2
         if args.command in ('investigate-ai', 'investigation'):
             emit(investigation_cli.dispatch(args)); return 0
         if args.command=='semantic' and args.semantic_command=='setup':

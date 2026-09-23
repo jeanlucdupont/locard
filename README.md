@@ -18,7 +18,18 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 ## WARNING: This project is not finalized
 
-**We are at V4.** Locard V4 (`0.5.0`, evidence schema 3 unchanged) adds optional,
+**We are at V5.** Locard V5 (`0.6.0`, evidence schema 3 unchanged) adds optional,
+claim-centric forensic reports in structured JSON and standalone offline HTML.
+Facts remain deterministically rendered; optional MiniCPM assistance only orders
+validated claims. Reports include evidence mappings, manifests, checksums,
+output-only redaction, and separate integrity/structure/fingerprint/grounding checks.
+Successful validation does not prove forensic conclusions. See [V5 reporting](V5.md).
+
+Reports generated directly from supplied evidence IDs describe only that selection
+and required supporting records. They do not imply a complete investigation or
+turn an empty finding category into an investigative negative result.
+
+Locard V4 (`0.5.0`) introduced optional,
 bounded iterative investigation through nine predefined read-only forensic operations.
 The model proposes operations; Locard validates and executes them. Observations and
 relationships are rendered from disclosed evidence fields and deterministic engine

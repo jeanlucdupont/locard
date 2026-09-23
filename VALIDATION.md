@@ -483,6 +483,7 @@ evidence. The test establishes API interoperability, not general analytical accu
 The public samples are not representative of every Windows build, event provider,
 corruption mode, audit policy, or real investigation. MiniCPM can produce shallow or
 incorrect interpretations even with valid citations. Analyst validation is mandatory.
-No performance benchmark, forensic certification, or complete attack-detection
-coverage is claimed. External dependency downloads were setup-only; application
+The synthetic reporting benchmarks in [V5](V5.md) cover only those generated
+workloads. No forensic certification, real-case performance guarantee, or complete
+attack-detection coverage is claimed. External dependency downloads were setup-only; application
 analysis uses loopback HTTP and local SQLite.
