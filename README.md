@@ -17,7 +17,11 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 ### We are at V5.
 
-Locard V5 reads four types of forensic evidence files:
+Locard reads four types of forensic evidence files.
+
+<img width="713" height="780" alt="image" src="https://github.com/user-attachments/assets/1087ac96-3bb7-496e-8d6a-0f33aa1986be" />
+
+
 
 | File type | Examples | What Locard extracts |
 |---|---|---|
