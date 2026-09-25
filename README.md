@@ -15,7 +15,7 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 ## WARNING: This project is not finalized
 
-**We are at V5.** 
+### We are at V5.
 
 Locard V5 reads four types of forensic evidence files:
 
@@ -40,7 +40,7 @@ Open-source tools that can assist with this include:
   https://github.com/mika/xmount
 
 
-**THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.**
+### THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.
 See [V4 operation, privacy, budgets and replay](V4.md) and
 [V3 local semantic setup](V3.md).
 
