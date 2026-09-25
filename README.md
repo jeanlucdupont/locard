@@ -26,7 +26,7 @@ Locard V5 reads four types of forensic evidence files:
 | Windows Prefetch | .pf files | Executable names, recorded run counts/times, referenced filenames, and volume metadata |
 | Windows Registry hives | SYSTEM, SOFTWARE, SAM, SECURITY, NTUSER.DAT, UsrClass.dat | Keys, values, key last-write timestamps, and selected forensic artifacts |
 
-## Disk Images
+### Disk Images
 Locard expects already extracted artifacts. It does not directly mount disk images such as E01, RAW, or VHD, parse memory dumps or packet captures, or analyze arbitrary PDF/Word documents. Registry transaction-log replay and SAM/SECURITY decryption are also unsupported. 
 
 If your evidence is stored in a disk image, you can use an external forensic tool to mount or extract the filesystem before providing the relevant artifacts to Locard.
