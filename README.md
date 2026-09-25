@@ -6,9 +6,6 @@ Locard is a local Windows forensic investigation CLI, named after Edmond Locard 
 principle that **every contact leaves a trace**. It preserves source provenance,
 normalizes events into SQLite, retrieves evidence deterministically, and optionally
 asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.
-V2 adds offline NTFS MFT, Prefetch, and Registry evidence, a common timeline,
-conservative cross-artifact correlations, and four review rules. It preserves V0
-EVTX ingestion and V1 process/session correlations, eight rules, and investigations.
 
 **Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.**
@@ -18,23 +15,7 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 ## WARNING: This project is not finalized
 
-**We are at V5.** Locard V5 (`0.6.0`, evidence schema 3 unchanged) adds optional,
-claim-centric forensic reports in structured JSON and standalone offline HTML.
-Facts remain deterministically rendered; optional MiniCPM assistance only orders
-validated claims. Reports include evidence mappings, manifests, checksums,
-output-only redaction, and separate integrity/structure/fingerprint/grounding checks.
-Successful validation does not prove forensic conclusions. See [V5 reporting](V5.md).
-
-Reports generated directly from supplied evidence IDs describe only that selection
-and required supporting records. They do not imply a complete investigation or
-turn an empty finding category into an investigative negative result.
-
-Locard V4 (`0.5.0`) introduced optional,
-bounded iterative investigation through nine predefined read-only forensic operations.
-The model proposes operations; Locard validates and executes them. Observations and
-relationships are rendered from disclosed evidence fields and deterministic engine
-objects. Model hypotheses are not forensic evidence. Existing deterministic and V3
-semantic commands remain available independently.
+**We are at V5.** Locard V5 adds optional, claim-centric forensic reports in structured JSON and standalone offline HTML.
 
 **THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.**
 See [V4 operation, privacy, budgets and replay](V4.md) and
@@ -170,36 +151,6 @@ MFT absolute-path search also honors an unambiguous drive assertion.
 | POSSIBLE | Partial object/name agreement with missing path, host, or timing support |
 | UNRESOLVED | Conflicting host/path assertions, competing matches, incomplete object data, or candidate cap |
 
-V1 process/session status semantics, including LIKELY, are preserved. Cross-artifact
-matching never claims process or content identity from basename or path equality.
-Default windows are 2 seconds for EVTX/Prefetch, 120 seconds for MFT SI creation,
-and 300 seconds when Registry key last-write is involved. Time distance uses integer
-nanoseconds. Equal timestamps cannot establish a "followed by" relationship.
-Cross-artifact queries use indexed basenames and at most 100 candidates by default;
-truncation prevents a unique corroboration claim. Multiple compatible observations
-are retained as unresolved instead of selecting a convenient match.
-
-Four rules extend the existing eight: `LOCARD-X-001` Prefetch execution corroboration,
-`LOCARD-X-002` nearby MFT SI creation metadata for the process image,
-`LOCARD-X-003` a process already flagged by an Office/PowerShell rule preceding a
-persistence key last-write whose value references that same image, and
-`LOCARD-X-004` persistence references matching common user/temporary-path patterns.
-These are observations for review; path patterns do not prove actual writability.
-Findings expose all supporting IDs, including Registry value and key evidence.
-
-Bundles prioritize the anchor, direct process/session links, exact object links,
-cross-artifact corroboration, detections, closest temporal observations, then other
-context. They retain the 5600-byte combined prompt bound and 1024 output-token limit
-for the 8192-token local model. Counts distinguish candidate, selected, and omitted
-evidence by artifact type; completely omitted classes and truncated fields are
-explicit. Registry value packages require their key evidence. The model receives
-timestamp meanings and engine-assigned statuses; it cannot upgrade those statuses.
-
-For example, an EVTX event may report Word as PowerShell's parent, MFT metadata may
-describe a nearby `payload.exe` creation time, Prefetch may independently record
-PowerShell execution, and a Run key may contain a payload reference. Locard can
-present compatible observations and their gaps. Those facts do not establish that
-Word downloaded malware and installed persistence; each causal step needs evidence.
 
 ### Parser validation and trust boundary
 
@@ -210,36 +161,9 @@ Word downloaded malware and installed persistence; each causal step needs eviden
 | [libscca-python](https://pypi.org/project/libscca-python/20260527/) | 20260527 | LGPL-3.0-or-later |
 | [libregf-python](https://pypi.org/project/libregf-python/20260526/) | 20260526 | LGPL-3.0-or-later |
 
-The originally proposed `mft==0.7.0` binding failed the provenance gate: it exposes
-the declared record number and skips zero-filled slots without exposing reliable
-physical offsets. Locard substituted Dissect, whose record decoder preserves
-physical framing, update-sequence fixups, original integers, and multiple attributes.
-The rejected package is not a dependency. Dissect is copyleft, not permissively
-licensed; this dependency choice must be retained in any distribution/license
-assessment. No existing project license conflicted with local use. Native libyal
-bindings remain upstream alpha releases; acceptance here is limited to the pinned
-Windows/Python environment and tested formats, not a blanket correctness claim.
-
-New artifact parsers run in separate processes with a 2 GiB memory ceiling,
-default 300-second timeout (`--parser-timeout`, maximum 3600), 8 GiB staging limit,
-and bounded diagnostics. Failure to establish the memory limit rejects parsing.
-Staging is disk-backed; inserts are batched, then published transactionally only
-after the original file's SHA-256 and size still match. Parser crashes/timeouts
-reject the stage; localized parse errors yield explicit partial runs with offsets.
-Sources are opened read-only. Resource containment is not a security sandbox for
-native-library vulnerabilities. Input/output limits may reject legitimate unusually
-large records; errors disclose these limits rather than silently reinterpret bytes.
-
-Sources, SQLite databases, native wheels, model weights, temporary stages, and
-validation captures are excluded from Git. Only synthetic fixture builders are in
-tests. See `VALIDATION.md` for the parser gate, accumulated tests, public-sample
-checks, and disk-backed benchmark.
 
 ## Setup
 ### Windows setup
-
-Existing cases must use evidence schema 3; legacy V0/V1 databases are rejected.
-V0 analysis commands remain available, including positional timeline syntax.
 
 Use Python 3.11 or newer. From this project directory in PowerShell:
 
@@ -250,17 +174,10 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m forensic_assistant.cli --help
 ```
 
-If a different Python 3.11+ version is installed, select it instead. No activation
-script is necessary. The implementation environment already has a populated
+No activation script is necessary. The implementation environment already has a populated
 `.venv`; virtual environments are machine-specific and should be recreated when moved.
 
 Runtime dependencies are pinned in `requirements.txt` and `pyproject.toml`.
-The V2 parser and licensing table below identifies the additional packages.
-SQLite, CLI, hashing, HTTP, and time handling use Python's standard library.
-`pytest` is a development dependency. EVTX parser upstream:
-<https://github.com/williballenthin/python-evtx>. Native parser wheels were validated
-on Windows AMD64 with Python 3.12.14; other Python/platform combinations need
-compatible wheels or a separately validated native build.
 
 Installation downloads packages, but application operation does not require Internet
 access. To prepare installation on an isolated workstation, build a wheelhouse on
