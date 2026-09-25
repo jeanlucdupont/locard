@@ -15,7 +15,9 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 ## WARNING: This project is not finalized
 
-**We are at V5.** Locard V5 adds optional, claim-centric forensic reports in structured JSON and standalone offline HTML.
+**We are at V5.** 
+
+Locard V5 reads four types of forensic evidence files:
 
 | File type | Examples | What Locard extracts |
 |---|---|---|
@@ -24,7 +26,7 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 | Windows Prefetch | .pf files | Executable names, recorded run counts/times, referenced filenames, and volume metadata |
 | Windows Registry hives | SYSTEM, SOFTWARE, SAM, SECURITY, NTUSER.DAT, UsrClass.dat | Keys, values, key last-write timestamps, and selected forensic artifacts |
 
-
+Locard expects already extracted artifacts. It does not directly mount disk images such as E01, RAW, or VHD, parse memory dumps or packet captures, or analyze arbitrary PDF/Word documents. Registry transaction-log replay and SAM/SECURITY decryption are also unsupported.
 
 
 **THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.**
