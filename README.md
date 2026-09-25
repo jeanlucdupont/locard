@@ -17,6 +17,16 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 **We are at V5.** Locard V5 adds optional, claim-centric forensic reports in structured JSON and standalone offline HTML.
 
+| File type | Examples | What Locard extracts |
+|---|---|---|
+| Windows event logs | .evtx, such as Security.evtx | Events, timestamps, accounts, processes, and other recorded fields |
+| NTFS Master File Table | Extracted $MFT | File/directory metadata, filenames, parent references, sizes, and timestamps |
+| Windows Prefetch | .pf files | Executable names, recorded run counts/times, referenced filenames, and volume metadata |
+| Windows Registry hives | SYSTEM, SOFTWARE, SAM, SECURITY, NTUSER.DAT, UsrClass.dat | Keys, values, key last-write timestamps, and selected forensic artifacts |
+
+
+
+
 **THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.**
 See [V4 operation, privacy, budgets and replay](V4.md) and
 [V3 local semantic setup](V3.md).
