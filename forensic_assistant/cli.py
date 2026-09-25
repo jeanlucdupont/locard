@@ -6,7 +6,6 @@ from contextlib import closing
 from forensic_assistant import __version__
 from forensic_assistant.config import Config
 from forensic_assistant.database.db import connect
-from forensic_assistant.database.migrations import migrate
 from forensic_assistant.ingest.evtx import discover, ingest_file
 from forensic_assistant.retrieval.queries import Queries
 from forensic_assistant.llm.ask import ask
@@ -29,7 +28,6 @@ def main(argv=None):
     parser.add_argument("--db", default=Config.database)
     commands = parser.add_subparsers(dest="command", required=True)
     v1_cli.configure(commands)
-    commands.add_parser("migrate", help="Back up and explicitly migrate a V0/V1 database")
     ingest = commands.add_parser("ingest", help="Recursively ingest EVTX files")
     ingest.add_argument("path")
     search = commands.add_parser("search", help="Deterministic evidence search")
@@ -94,9 +92,6 @@ def main(argv=None):
         if args.command=='semantic' and args.semantic_command=='setup':
             from forensic_assistant.semantic.model import setup
             emit(setup(args.destination,args.model));return 0
-        if args.command == "migrate":
-            emit(migrate(args.db))
-            return 0
         if args.command=='semantic':
             from pathlib import Path
             if not Path(args.db).is_file():raise ValueError('Semantic commands require an existing evidence database')

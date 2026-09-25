@@ -238,8 +238,8 @@ checks, and disk-backed benchmark.
 ## Setup
 ### Windows setup
 
-If upgrading an existing V0 or V1 database, use the explicit migration below before other
-commands. V0 CLI commands remain available, including positional timeline syntax.
+Existing cases must use evidence schema 3; legacy V0/V1 databases are rejected.
+V0 analysis commands remain available, including positional timeline syntax.
 
 Use Python 3.11 or newer. From this project directory in PowerShell:
 
@@ -486,7 +486,7 @@ See `VALIDATION.md` for stage results and separate integration checks.
 
 `database/schema.sql` retains schema version 1 as the historical V0 base schema.
 New databases apply the additive schema-2 and schema-3 extensions
-from `database/migrations.py` and `database/artifacts.py`; existing V0/V1 databases require `migrate`. Unsupported
+from `database/migrations.py` and `database/artifacts.py`; existing V0/V1 databases are rejected. Unsupported
 versions are rejected. Changing normalization mappings does not automatically rewrite
 existing events. Context extraction version 1 is stored separately in `event_context`.
 

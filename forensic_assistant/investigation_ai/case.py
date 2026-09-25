@@ -12,7 +12,7 @@ def open_readonly(path,deadline=None):
     db.row_factory=sqlite3.Row
     try:
         if db.execute('PRAGMA user_version').fetchone()[0]!=3:
-            raise ValueError('V4 requires an existing schema-3 case; migrate explicitly outside investigation')
+            raise ValueError('V4 requires an existing schema-3 case')
         db.execute('PRAGMA query_only=ON')
         db.execute('PRAGMA trusted_schema=OFF')
         db.enable_load_extension(False)

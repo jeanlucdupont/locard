@@ -389,7 +389,7 @@ malicious evidence text, bundle priorities/omissions, and mocked model responses
 Migration tests compare every original event column before and after migration,
 verify that the backup retains schema version 1, verify idempotence, and inject a
 failure to confirm transactional rollback. V1 never automatically migrated the
-workspace's original V0 database; the explicit migration command is documented.
+workspace's original V0 database. These tests exercise internal schema helpers.
 
 ### V1 integration and performance checks
 

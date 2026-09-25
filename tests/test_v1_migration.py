@@ -24,7 +24,7 @@ def old_database(path):
 def test_explicit_migration_preserves_every_field(tmp_path):
     path = tmp_path / "old.db"
     original = old_database(path)
-    with pytest.raises(ValueError, match="requires migration"):
+    with pytest.raises(ValueError, match="Unsupported legacy database schema"):
         connect(path)
     result = migrations.migrate(path)
     db = connect(path)

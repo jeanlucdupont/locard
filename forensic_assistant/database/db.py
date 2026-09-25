@@ -19,7 +19,7 @@ def connect(path):
     version = db.execute("PRAGMA user_version").fetchone()[0]
     if version in (1, 2):
         db.close()
-        raise ValueError("V0/V1 database requires migration. Run: locard --db <database-path> migrate")
+        raise ValueError("Unsupported legacy database schema; an existing schema-3 case is required")
     if version not in (0, 3):
         db.close()
         raise ValueError(f"Unsupported database schema version: {version}")

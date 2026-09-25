@@ -15,7 +15,7 @@ def v1(path):
 
 def test_v1_to_v2_preserves_evidence(tmp_path):
     path=tmp_path/'case.db';original,context=v1(path)
-    with pytest.raises(ValueError,match='requires migration'):connect(path)
+    with pytest.raises(ValueError,match='Unsupported legacy database schema'):connect(path)
     result=migrations.migrate(path);db=connect(path)
     assert dict(db.execute('SELECT * FROM events').fetchone())==original
     assert dict(db.execute('SELECT * FROM event_context').fetchone())==context
