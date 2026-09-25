@@ -19,7 +19,7 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 Locard reads four types of forensic evidence files.
 
-<img width="350" height="370" alt="image" src="https://github.com/user-attachments/assets/1087ac96-3bb7-496e-8d6a-0f33aa1986be" />
+<img width="400" height="400" alt="image" src="https://github.com/user-attachments/assets/1087ac96-3bb7-496e-8d6a-0f33aa1986be" />
 
 
 
