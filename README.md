@@ -50,14 +50,13 @@ Locard reads four types of forensic evidence files.
 | <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/c6117fc9-f49e-49a7-bd04-c2a7f8b88bc2" /><br>Windows Registry hives | SYSTEM, SOFTWARE, SAM, SECURITY, NTUSER.DAT, UsrClass.dat | Keys, values, key last-write timestamps, and selected forensic artifacts |
 
 
-Locard expects already extracted artifacts. It is not designed to run on the compromised machine (That would break the chain of custody). Moreover, Locard does not directly mount disk images such as E01, RAW, or VHD, parse memory dumps or packet captures, or analyze arbitrary PDF/Word documents. Registry transaction-log replay and SAM/SECURITY decryption are also unsupported. If your evidence is stored in a disk image, you can use an external forensic tool to mount or extract the filesystem before providing the relevant artifacts to Locard. Open-source tools that can assist with this include:
-* **ntfsdump**: Extracts files directly from NTFS disk images and supports formats including RAW, E01, VHD/VHDX, and VMDK.
-  https://github.com/sumeshi/ntfsdump
-* **imagemounter**: Python-based forensic image mounting utility supporting multiple forensic image formats through established forensic tools.
-  https://github.com/ralphje/imagemounter
-* **xmount**: Provides read-only access and conversion between forensic disk image formats including RAW, EWF/E01, VHD, VDI, and VMDK.
-  https://github.com/mika/xmount
+Locard expects already extracted artifacts. It is not designed to run on the compromised machine (That would break the chain of custody). Moreover, Locard does not directly mount disk images such as E01, RAW, or VHD, parse memory dumps or packet captures, or analyze arbitrary PDF/Word documents. Registry transaction-log replay and SAM/SECURITY decryption are also unsupported. If your evidence is stored in a disk image, you can use an external forensic tool to mount or extract the filesystem before providing the relevant artifacts to Locard. See list below.
 
+| Tool | Description | Repository |
+| --- | --- | --- |
+| **ntfsdump** | Extracts files directly from NTFS disk images and supports formats including RAW, E01, VHD/VHDX, and VMDK. | [sumeshi/ntfsdump](https://github.com/sumeshi/ntfsdump?utm_source=gemini) |
+| **imagemounter** | Python-based forensic image mounting utility supporting multiple forensic image formats through established forensic tools. | [ralphje/imagemounter](https://github.com/ralphje/imagemounter?utm_source=gemini) |
+| **xmount** | Provides read-only access and conversion between forensic disk image formats including RAW, EWF/E01, VHD, VDI, and VMDK. | [mika/xmount](https://github.com/mika/xmount?utm_source=gemini) |
 
 ### THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.
 
