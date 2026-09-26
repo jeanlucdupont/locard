@@ -293,6 +293,11 @@ Interactive and scripted modes are two interfaces over the same forensic capabil
 interactive mode adds no forensic authority. No new dependencies are required.
 
 ## Setup
+
+### Platform support
+
+Locard is currently developed and tested on Windows. Locard analyzes extracted Windows forensic artifacts and does not fundamentally require the source system to be Windows-mounted or live. Some underlying components are cross-platform, but Linux and macOS execution are not currently tested or officially supported.
+
 ### Windows setup
 
 Use Python 3.11 or newer. From this project directory in PowerShell:
