@@ -4,6 +4,15 @@
 | :---: | :--- |
 | <img width="60%" alt="image" src="https://github.com/user-attachments/assets/d98f7fa8-76a3-4d37-b796-9d2f9a27f28e" /><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Locard is a local Windows forensic investigation CLI, named after Edmond Locard and the principle that **every contact leaves a trace**. It preserves source provenance, normalizes events into SQLite, retrieves evidence deterministically, and optionally asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.<br><br>[Watch Locard's introduction video](https://youtube.com/shorts/UTP8ayRAmsk) <br><br><br><br><br><br><br><br>|
 
+To ensure trust and accuracy in the investigative process, Locard improves reliability through strict systemic safeguards rather than relying on LLM scale:
+
+*   **Deterministic Extraction:** Keeping the core evidence extraction process strictly deterministic.
+*   **Data Provenance:** Preserving original evidence IDs and their sources throughout the analysis.
+*   **Context Bounding:** Strictly limiting and controlling the context supplied to the model.
+*   **Citation Validation:** Validating all citations made by the model to ensure they map to real evidence.
+*   **Clear Distinctions:** Distinctly separating verifiable observations, correlations, and detections from AI-generated hypotheses and unknowns.
+*   **Execution Prevention:** Strictly preventing the model from directly executing commands or querying the database.
+
 ## Reminders
 
 Evidence establishes facts. Model output is analysis, not evidence. Locard is an
@@ -74,6 +83,40 @@ locard --db data\case.db investigation replay '<investigation-id>' --no-semantic
 
 Here is another representation of the architecture
 <img width="4152" height="2544" alt="locard-runtime (1)" src="https://github.com/user-attachments/assets/54524163-8c67-45b6-ba56-9e4eb93881e5" />
+
+
+
+### MiniCPM: A local-first approach to AI forensics
+Locard relies on the **MiniCPM5-2B** base model, which was created and released by OpenBMB (an open-source AI project team backed by ModelBest and Tsinghua University's Natural Language Processing Laboratory).  [https://github.com/openbmb/minicpm](https://github.com/openbmb/minicpm)
+<img width="510" height="269" alt="image" src="https://github.com/user-attachments/assets/d689307d-ddd5-42df-ba53-8a63d07339ad" />
+
+
+MiniCPM5-2B is an incredible, highly optimized model. It packs capabilities typically reserved for much larger models (in the 4B–8B parameter range) into a lightweight 2.5B parameter footprint. This makes it perfectly designed for edge devices, laptops, and local agents. Despite its small size, MiniCPM5-2B punches well above its weight class. On benchmarking suites that measure tool calling, coding, and multi-step reasoning, it frequently matches or beats larger models like Qwen3.5-4B and Granite 4.2 3B, all while consuming a fraction of the VRAM.
+
+#### Local and deterministic
+
+Locard was designed around a foundational principle: **a forensic investigation should never require sending sensitive evidence to an external AI service.**  By utilizing a small, efficient model like MiniCPM5-2B, Locard makes a fully local workflow practical. Analysts can run the system directly on their laptops without needing access to a massive GPU server. 
+
+Locard does not need a massive general-purpose LLM because the AI is not responsible for uncovering the facts. The forensic facts are produced by deterministic parsers, database queries, correlation logic, and detection rules *before* the model is ever called. Locard deliberately prevents model intelligence from becoming part of the evidence chain, recognizing that simply increasing a model's size does not make its generated statements forensic evidence.
+
+#### The Role of the AI Assistant
+
+Locard does not ask the model to reconstruct an investigation from millions of raw events. Instead, deterministic retrieval and correlation reduce the case down to a small, bounded evidence bundle first.  The model serves as an analysis assistant layered on top of the forensic engine—**it is not the forensic engine itself.** 
+
+What MiniCPM DOES Do:
+*   **Summarize** retrieved forensic evidence.
+*   **Explain relationships** between already identified records.
+*   **Propose hypotheses** and alternative explanations for observed activities.
+*   **Navigate** the investigation alongside the analyst.
+*   **Produce** readable, evidence-backed analysis reports.
+
+What MiniCPM DOES NOT Do:
+*   Parse raw forensic artifacts.
+*   Generate or execute SQL queries.
+*   Execute system commands.
+*   Modify evidence in any way.
+*   Decide which records constitute "forensic facts."
+
 
 
 ### How it works
