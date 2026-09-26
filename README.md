@@ -95,7 +95,7 @@ Locard does not need a massive general-purpose LLM because the AI is not respons
 
 #### The Role of the AI Assistant
 
-Locard does not ask the model to reconstruct an investigation from millions of raw events. Instead, deterministic retrieval and correlation reduce the case down to a small, bounded evidence bundle first.  The model serves as an analysis assistant layered on top of the forensic engine—**it is not the forensic engine itself.** 
+Locard does not ask the model to reconstruct an investigation from millions of raw events. Instead, deterministic retrieval and correlation reduce the case down to a small, bounded evidence bundle first.  The model serves as an analysis assistant layered on top of the forensic engine. **It is not the forensic engine itself.** 
 
 | What MiniCPM DOES Do | What MiniCPM DOES NOT Do |
 |---|---|
