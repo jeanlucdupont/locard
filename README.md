@@ -43,11 +43,11 @@ Locard reads four types of forensic evidence files.
 
 
 | File type | Examples | What Locard extracts |
-|---|---|---|
-| <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/e3ca6ef2-fe73-4ece-8b72-c86ad66db30b" /> Windows event logs | .evtx, such as Security.evtx | Events, timestamps, accounts, processes, and other recorded fields |
-| <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/1217ed71-79ad-4e78-8bce-b8de686b1a09" /> NTFS Master File Table | Extracted $MFT | File/directory metadata, filenames, parent references, sizes, and timestamps |
-| <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/16469abf-fc15-4ca6-a520-0fc3f9181288" /> Windows Prefetch | .pf files | Executable names, recorded run counts/times, referenced filenames, and volume metadata |
-| <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/c6117fc9-f49e-49a7-bd04-c2a7f8b88bc2" /> Windows Registry hives | SYSTEM, SOFTWARE, SAM, SECURITY, NTUSER.DAT, UsrClass.dat | Keys, values, key last-write timestamps, and selected forensic artifacts |
+| :---: |---|---|
+| <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/e3ca6ef2-fe73-4ece-8b72-c86ad66db30b" /><br>Windows event logs | .evtx, such as Security.evtx | Events, timestamps, accounts, processes, and other recorded fields |
+| <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/1217ed71-79ad-4e78-8bce-b8de686b1a09" /><br>NTFS Master File Table | Extracted $MFT | File/directory metadata, filenames, parent references, sizes, and timestamps |
+| <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/16469abf-fc15-4ca6-a520-0fc3f9181288" /><br>Windows Prefetch | .pf files | Executable names, recorded run counts/times, referenced filenames, and volume metadata |
+| <img width="50" height="50" alt="image" src="https://github.com/user-attachments/assets/c6117fc9-f49e-49a7-bd04-c2a7f8b88bc2" /><br>Windows Registry hives | SYSTEM, SOFTWARE, SAM, SECURITY, NTUSER.DAT, UsrClass.dat | Keys, values, key last-write timestamps, and selected forensic artifacts |
 
 
 Locard expects already extracted artifacts. It is not designed to run on the compromised machine (That would break the chain of custody). Moreover, Locard does not directly mount disk images such as E01, RAW, or VHD, parse memory dumps or packet captures, or analyze arbitrary PDF/Word documents. Registry transaction-log replay and SAM/SECURITY decryption are also unsupported. If your evidence is stored in a disk image, you can use an external forensic tool to mount or extract the filesystem before providing the relevant artifacts to Locard. Open-source tools that can assist with this include:
