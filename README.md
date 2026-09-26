@@ -24,6 +24,12 @@ SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not
 The interactive CLI uses the existing V0-V5 forensic capabilities.
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
+[v3 local semantic setup](docs/v3.md)
+[v4 operation, privacy, budgets and replay](docs/v4.md) 
+
+
+
+
 ### Locard inputs
 
 Locard reads four types of forensic evidence files.
@@ -52,8 +58,6 @@ If your evidence is stored in a disk image, you can use an external forensic too
 
 
 ### THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.
-See [V4 operation, privacy, budgets and replay](V4.md) and
-[V3 local semantic setup](V3.md).
 
 ```powershell
 locard --db data\case.db investigate-ai 'Inspect PowerShell activity' --no-semantic --explain --json
