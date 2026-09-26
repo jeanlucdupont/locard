@@ -23,7 +23,8 @@ SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not
 
 **WARNING: This project is not finalized**
 
-The interactive CLI uses the existing V0-V5 forensic capabilities.
+The interactive CLI in V6 uses the existing V0-V5 forensic capabilities. Even though this project is its in Version 6, which is supposed to be its final form, there is still a **lot** left to be done. At this stage Locard is a solution that did not pass the test of running in a live environment. It's more like and advanced prototype.
+
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
 [v3 local semantic setup](docs/v3.md)
