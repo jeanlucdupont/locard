@@ -15,14 +15,14 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 ## WARNING: This project is not finalized
 
-### Locard 0.7.0
+### Locard V6
 
 The interactive CLI uses the existing V0-V5 forensic capabilities.
-Evidence schema remains 3; report format remains unchanged.
+<img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
 Locard reads four types of forensic evidence files.
 
-<img width="400" height="400" alt="image" src="https://github.com/user-attachments/assets/1087ac96-3bb7-496e-8d6a-0f33aa1986be" />
+<img width="370" height="400" alt="image" src="https://github.com/user-attachments/assets/1087ac96-3bb7-496e-8d6a-0f33aa1986be" />
 
 
 
@@ -56,7 +56,7 @@ locard --db data\case.db investigation show '<investigation-id>' --explain
 locard --db data\case.db investigation replay '<investigation-id>' --no-semantic
 ```
 
-<img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
+
 
 ## Description
 ### Architecture and workflow
