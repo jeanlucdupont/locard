@@ -1,6 +1,6 @@
 # Locard Forensics - Local AI-Assisted Digital Forensics
 
-
+| File type | Examples |
 |---|---|
 |<img width="377" height="512" alt="image" src="https://github.com/user-attachments/assets/ca1df9e4-91a3-4be4-aefa-bab5921f6758" />| Locard is a local Windows forensic investigation CLI, named after Edmond Locard and the principle that **every contact leaves a trace**. It preserves source provenance, normalizes events into SQLite, retrieves evidence deterministically, and optionally asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.
 
