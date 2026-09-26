@@ -31,6 +31,7 @@ Locard reads four types of forensic evidence files.
 <img width="370" height="400" alt="image" src="https://github.com/user-attachments/assets/1087ac96-3bb7-496e-8d6a-0f33aa1986be" />
 
 
+
 | File type | Examples | What Locard extracts |
 |---|---|---|
 | Windows event logs | .evtx, such as Security.evtx | Events, timestamps, accounts, processes, and other recorded fields |
@@ -67,7 +68,7 @@ locard --db data\case.db investigation replay '<investigation-id>' --no-semantic
 ### Architecture and workflow
 
 
-<img width="5884" height="5438" alt="diagram (4)" src="https://github.com/user-attachments/assets/0302127c-9f23-460f-a50b-50d3cf216b24" />
+<img width="6040" height="5297" alt="diagram (5)" src="https://github.com/user-attachments/assets/a48d1d86-2aaa-4fea-868b-f8b238182b40" />
 
 
 
