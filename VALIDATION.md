@@ -1,3 +1,73 @@
+# Interactive CLI 0.7.0 validation - 2026-09-26
+
+Application version 0.7.0; evidence schema 3 and report format 1 unchanged.
+Apache-2.0 and dependency requirements are unchanged. The interactive shell reuses
+one parser/dispatcher with the scripted CLI. No MiniCPM service is required for
+ordinary tests; controller/report integration uses scripted local clients and
+synthetic evidence only.
+
+| Major stage | Complete accumulated suite |
+|---|---|
+| Baseline | 266 passed |
+| Shared parser/dispatcher | 266 passed |
+| Existing-case validation and analyst UI state | 279 passed |
+| Shell routing, selection, switching and help | 305 passed |
+| Approval, parser containment and interrupted ingestion | 314 passed |
+| Case isolation and Windows console validation | 320 passed |
+| Final 0.7.0, documentation and startup-flow verification | 320 passed in 135.84 seconds |
+| Final isolated core-only environment | 320 passed in 134.59 seconds |
+
+The isolated environment has no sentence-transformers, FAISS, torch, transformers,
+NumPy, huggingface-hub, tokenizers, or safetensors installed. Final suites were run
+concurrently with separate temporary directories, so timings are not benchmarks.
+An editable 0.7.0 installation succeeded without dependency installation or build
+isolation. The installed entry point reports `Locard 0.7.0`.
+
+## Interactive implementation gates
+
+- Approval input uses synchronous, deadline-polled console input. Timeout and
+  cancellation leave no background stdin reader; following input remains readable.
+- Windows input uses explicit key events, avoiding ambiguous Unicode/special-key
+  prefixes. Input-mode restoration is mandatory. Oversized lines are discarded,
+  not executed as silently truncated commands.
+- Parser children wait for parent-owned containment before parsing. Real Windows
+  worker and descendant processes terminate on cancellation/timeout; parent death
+  releases the kill-on-close job. Startup cancellation closes the permission pipe
+  and waits for the launcher to reap its unpermitted child. Unconfirmed cleanup
+  fails visibly rather than returning to the shell as if cleanup succeeded.
+- Interrupted EVTX and artifact runs record `interrupted`, finish time, errors,
+  and whether current-file publication committed. Tests cover cancellation before
+  and after publication, earlier completed files, WAL and rollback databases,
+  detached staging databases, and released handles. Hard termination cannot always
+  finalize a run; `running` is never interpreted as successful completion.
+- Real command integration switches between two synthetic cases, performs evidence
+  retrieval and independent investigations, generates reports, and verifies both
+  reports against their respective cases. Original database bytes remain unchanged
+  for these read/derived-output operations. Model objects and command overrides
+  are not retained; history clears at selection/switch/exit.
+- Selection rejects missing, invalid, legacy, structurally incomplete, redirected,
+  or locked targets without creating/upgrading them. Invalid remembered cases go
+  directly to selection, without a reuse confirmation. Paths with spaces, Unicode,
+  relative paths and local paths longer than 260 characters are tested.
+- UI state tests cover ten-entry ordering/deduplication, bounded strict JSON,
+  corruption preservation, atomic-replacement failure and redirection refusal.
+  Preferences live outside forensic databases; scripted commands do not update them.
+
+A live Windows terminal session verified remembered-case startup, status, in-memory
+up-arrow history, accented input, Ctrl+C while editing, EOF and exit. Test artifacts,
+synthetic databases, transcripts, UI-state files and reports are outside the source
+repository. No actual evidence or analyst profile state was used.
+
+Limits: live UNC-share access was not validated; existing SQLite/read-only path
+restrictions apply. Console display width and supplementary-character delivery can
+vary by terminal. Read-only structural checks are not a full integrity scan or
+forensic-grounding validation. SQLite work has bounded validation deadlines, but
+filesystem/device access can still incur operating-system latency. Abrupt process
+or power loss may leave incomplete derived staging or ingestion/transcript state;
+those outputs must not be represented as completed work.
+
+---
+
 # V4 validation — 2026-09-20
 
 V4 application version is 0.5.0. Evidence schema remains 3; no migration was added.

@@ -15,7 +15,10 @@ investigative aid, not a replacement for validation by a forensic analyst.**
 
 ## WARNING: This project is not finalized
 
-### We are at V5.
+### Locard 0.7.0
+
+The interactive CLI uses the existing V0-V5 forensic capabilities.
+Evidence schema remains 3; report format remains unchanged.
 
 Locard reads four types of forensic evidence files.
 
@@ -186,6 +189,95 @@ MFT absolute-path search also honors an unambiguous drive assertion.
 | [libscca-python](https://pypi.org/project/libscca-python/20260527/) | 20260527 | LGPL-3.0-or-later |
 | [libregf-python](https://pypi.org/project/libregf-python/20260526/) | 20260526 | LGPL-3.0-or-later |
 
+
+## Interactive and scripted workflows
+
+After installation, run `locard` in a terminal to start an interactive session.
+Locard offers the last selected database, or asks for an existing database path.
+An existing, structurally valid schema-3 Locard database is required before the
+main prompt appears. Enter a path (optionally quoted), choose a recent-case number,
+or press Enter, Ctrl+C, or EOF during selection to exit/cancel. Missing, inaccessible,
+invalid, and legacy databases are rejected; selection never creates or upgrades a case.
+To create a new case, use the existing non-interactive ingestion workflow below.
+
+```text
+Locard 0.7.0
+
+Last database:
+C:\Cases\workstation-23\forensic.db
+
+Use this database? [Y/n]:
+
+locard[workstation-23/forensic.db]> status
+locard[workstation-23/forensic.db]> search --process powershell.exe
+locard[workstation-23/forensic.db]> help report generate
+locard[workstation-23/forensic.db]> case "C:\Cases\other\forensic.db"
+locard[other/forensic.db]> exit
+```
+
+The prompt uses the parent directory and database filename, safely escaped and
+shortened if necessary. It is a display label, not a persistent case name or unique
+identifier. Selection displays the full path; `case` displays it again and offers
+recent databases. A failed or cancelled switch retains the old case. If the active
+case becomes unavailable, Locard requires reselection before accepting more commands.
+
+Shell-only commands are `help [command [subcommand]]`, `case [path]`, `exit`, and
+`quit`. Help comes from the ordinary CLI parser. All forensic commands retain their
+existing arguments and implementations; the shell supplies `--db` internally.
+Use `case` rather than a global `--db` override. Command-specific model/index/output
+options apply only to that command. `report validate` still needs an explicit
+`--case` to perform case fingerprint and grounding checks.
+
+Paths with spaces must be quoted in commands. Backslashes are literal. Both single
+and double quotes group arguments; double a matching quote inside a quoted argument
+to include it literally. Relative paths use the launch working directory; no
+shell expansion, environment-variable substitution, shell operators, or Python
+execution is provided. Unicode and long local paths are tested. UNC quoting is
+supported, but live UNC-share access has not been validated; existing SQLite and
+read-only opener restrictions apply. Linked/reparse-point case paths are rejected.
+
+Windows supports bounded in-memory up/down command history and basic editing.
+History is cleared on case selection/switching and exit and is never written to disk.
+Other terminals use their native input behavior; equivalent editing is not promised.
+No autocomplete is included. Ctrl+C clears a line or interrupts an operation; EOF
+(on Windows, Ctrl+Z at an empty prompt), `exit`, and `quit` close the shell. Ordinary
+argument/command errors return to the prompt; unexpected internal or unconfirmed
+cleanup failures terminate visibly. Completed ingestion files remain committed after
+an interruption. The current run records interruption and whether its publication
+committed; abrupt process/terminal termination can leave a run marked `running`.
+That is incomplete state, not a completed acquisition. Partial derived staging is
+not a completed semantic index, investigation, or report.
+
+Selection performs bounded structural checks, not evidence-grounding or full database
+integrity validation. It does not load models, contact MiniCPM, or compute evidence
+fingerprints. Use `status` and `semantic status` explicitly; semantic status can scan
+case content. SQLite connections and forensic workers are command-scoped; no model,
+controller, report, or database connection is kept for the next case.
+
+**Analyst-side privacy:** `%LOCALAPPDATA%\Locard\ui-state.json` stores at most ten
+recent successfully selected absolute database paths, with the most recent first.
+Those paths can identify cases. It contains no command history, evidence content,
+credentials, model responses, transcripts, or reports. It is unencrypted and inherits
+user-profile directory permissions. Writes use a sibling temporary file and atomic
+replacement; redirected state paths are rejected. Missing recent cases are not
+silently removed or recreated. Malformed state is warned about and preserved, with
+persistence disabled for that session. To reset it, exit Locard and deliberately
+move/remove that UI-state file; no forensic database needs changing. If the location
+is unavailable or saving fails, the session remains usable with a warning.
+
+Non-interactive automation remains available and does not alter recent-case state:
+
+```powershell
+locard --db "C:\Cases\workstation-23\forensic.db" status
+locard --db "C:\Cases\workstation-23\forensic.db" search --process powershell.exe
+locard report show "C:\Reports\example"
+```
+
+Commands execute once and preserve their existing exit behavior. Bare `locard` with
+redirected input/output fails clearly instead of prompting. Database-independent
+commands remain usable without selecting a case through this non-interactive CLI.
+Interactive and scripted modes are two interfaces over the same forensic capabilities;
+interactive mode adds no forensic authority. No new dependencies are required.
 
 ## Setup
 ### Windows setup

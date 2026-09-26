@@ -2,6 +2,9 @@
 import os
 import sys
 
+class CleanupError(RuntimeError):
+    """Do not return to a shell when process cleanup cannot be confirmed."""
+
 class WorkerJob:
     def __init__(self,pid):
         self.handle=None
@@ -39,5 +42,8 @@ class WorkerJob:
 
     def close(self):
         if self.handle:
-            self.kernel.TerminateJobObject(self.handle,1)
-            self.kernel.CloseHandle(self.handle);self.handle=None
+            handle=self.handle;self.handle=None
+            terminated=self.kernel.TerminateJobObject(handle,1)
+            closed=self.kernel.CloseHandle(handle)
+            if not terminated or not closed:
+                raise CleanupError('Cannot confirm worker job cleanup')

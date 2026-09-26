@@ -1,9 +1,7 @@
 """Optional V4 commands are routed before the legacy write-capable opener."""
 import json
 from pathlib import Path
-import queue
 import sys
-import threading
 from forensic_assistant.config import Config
 from forensic_assistant.llm.client import LocalClient
 from .controller import run
@@ -36,11 +34,12 @@ def configure(commands):
 def approve(proposal, seconds):
     if not sys.stdin.isatty(): raise ValueError('--approve-tools requires an interactive terminal')
     print(json.dumps(proposal, ensure_ascii=True), file=sys.stderr)
-    print('Approve this read-only operation? [y/N] ', end='', file=sys.stderr, flush=True)
-    answer = queue.Queue(maxsize=1)
-    threading.Thread(target=lambda: answer.put(sys.stdin.readline()), daemon=True).start()
-    try: return answer.get(timeout=max(.001, seconds)).strip().casefold() == 'y'
-    except queue.Empty: return False
+    from forensic_assistant.interactive.console import timed_line
+    try:
+        return timed_line('Approve this read-only operation? [y/N] ', max(.001,seconds)).strip().casefold() == 'y'
+    except (TimeoutError,EOFError):
+        return False
+
 
 def dispatch(args):
     root = args.transcripts or str(Path(args.db)) + '.investigations'

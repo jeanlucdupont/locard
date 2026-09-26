@@ -11,7 +11,10 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def connect(path):
+def connect(path, *, existing_only=False):
+    if existing_only:
+        from forensic_assistant.interactive.case import open_existing
+        return open_existing(path)
     if str(path) != ":memory:":
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path)

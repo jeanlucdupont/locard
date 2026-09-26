@@ -64,9 +64,7 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None):
     path = Path(path).resolve()
     import importlib.metadata
     parser_metadata={'parser_name':'python-evtx','parser_version':importlib.metadata.version('python-evtx')} if reader is records else {}
-    with db:
-        run_id = db.execute("INSERT INTO ingestion_runs(source_file,started_utc,status) VALUES (?, ?, ?)",
-                            (str(path), now(), "running")).lastrowid
+    run_id=None
     errors = 0
 
     def report(stage, message, offset=None, record_id=None):
@@ -81,6 +79,9 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None):
     inserted = duplicates = 0
     status = "failed"
     try:
+        with db:
+            run_id = db.execute("INSERT INTO ingestion_runs(source_file,started_utc,status) VALUES (?, ?, ?)",
+                                (str(path), now(), "running")).lastrowid
         before = digest(path)
         size = path.stat().st_size
         with tempfile.TemporaryDirectory(prefix="locard-stage-") as temp:
@@ -121,12 +122,24 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None):
                             duplicates += len(rows) - count
                         db.execute("UPDATE ingestion_runs SET file_sha256=? WHERE id=?", (before, run_id))
                     status = "partial" if errors else "complete"
+        with db:
+            db.execute("UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?",
+                       (now(), status, inserted, duplicates, errors, run_id))
+    except KeyboardInterrupt:
+        from forensic_assistant.ingest.interruption import record_interruption
+        record_interruption(db,run_id,inserted,duplicates)
+        raise
     except Exception as exc:
-        inserted = duplicates = 0
+        db.rollback()
+        if run_id is None: raise
+        published = db.execute('SELECT file_sha256 FROM ingestion_runs WHERE id=?',(run_id,)).fetchone()
+        if not published: raise
+        if published[0] is None: inserted = duplicates = 0
+        status = 'partial' if published[0] is not None else 'failed'
         report("file", f"{type(exc).__name__}: {exc}")
-    with db:
-        db.execute("UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?",
-                   (now(), status, inserted, duplicates, errors, run_id))
+        with db:
+            db.execute("UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?",
+                       (now(), status, inserted, duplicates, errors, run_id))
     return {"run_id": run_id, "source_file": str(path), "status": status,
             "inserted": inserted, "duplicates": duplicates, "errors": errors}
 

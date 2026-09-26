@@ -22,9 +22,9 @@ def emit(value):
     print(json.dumps(value, ensure_ascii=True, indent=2))
 
 
-def main(argv=None):
+def build_parser():
     parser = argparse.ArgumentParser(description="Locard — local evidence-first Windows forensics")
-    parser.add_argument("--version", action="version", version="Locard V5 (" + __version__ + ")")
+    parser.add_argument("--version", action="version", version="Locard " + __version__)
     parser.add_argument("--db", default=Config.database)
     commands = parser.add_subparsers(dest="command", required=True)
     v1_cli.configure(commands)
@@ -77,7 +77,24 @@ def main(argv=None):
     investigation_cli.configure(commands)
     from forensic_assistant.reporting import cli as report_cli
     report_cli.configure(commands)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv:
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            print('Locard: interactive mode requires a terminal; supply a command for scripts.', file=sys.stderr)
+            return 2
+        from forensic_assistant.interactive.shell import run
+        return run()
+    return dispatch(build_parser().parse_args(argv))
+
+
+def dispatch(args, *, existing_only=False):
+    from forensic_assistant.semantic import cli as semantic_cli
+    from forensic_assistant.investigation_ai import cli as investigation_cli
+    from forensic_assistant.reporting import cli as report_cli
     try:
         if args.command=='report':
             try:
@@ -95,7 +112,7 @@ def main(argv=None):
         if args.command=='semantic':
             from pathlib import Path
             if not Path(args.db).is_file():raise ValueError('Semantic commands require an existing evidence database')
-        with closing(connect(args.db)) as db:
+        with closing(connect(args.db, existing_only=True) if existing_only else connect(args.db)) as db:
             if args.command=='semantic':
                 emit(semantic_cli.dispatch(db,args));return 0
             v2_result = v2_cli.dispatch(db,args)

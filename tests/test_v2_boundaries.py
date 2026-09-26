@@ -82,10 +82,14 @@ def test_worker_failures_reject_output(tmp_path,monkeypatch,mode):
         returncode=1 if mode=='crash' else None
         killed=False
         def __init__(self,args,stdout,stderr,**kwargs):
+            import io
+            self.stdin=io.BytesIO()
             if mode=='diagnostics':stdout.write(b'x'*65537);stdout.flush()
         def poll(self):return self.returncode
         def kill(self):self.killed=True;self.returncode=-1
-        def wait(self):return self.returncode
+        def wait(self,**kwargs):
+            if self.returncode is None:self.returncode=-1
+            return self.returncode
     monkeypatch.setattr(module.subprocess,'Popen',FakeProcess)
     ticks=iter([0,2])
     if mode=='timeout':monkeypatch.setattr(module.time,'monotonic',lambda:next(ticks))

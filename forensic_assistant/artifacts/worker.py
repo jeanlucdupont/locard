@@ -2,6 +2,7 @@
 import importlib
 import importlib.metadata
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -77,6 +78,12 @@ def limit_memory():
 if __name__=='__main__':
     try:
         guard=limit_memory()
+        if len(sys.argv)>6 and sys.argv[6]=='--parent-guard':
+            ready=Path(sys.argv[4]+'.ready')
+            temporary=Path(str(ready)+'.tmp')
+            temporary.write_text(json.dumps({'worker_pid':os.getpid()}),encoding='ascii')
+            os.replace(temporary,ready)
+            if sys.stdin.buffer.readline(16)!=b'go\n':raise ValueError('Parent containment handshake cancelled')
         print(json.dumps(run(sys.argv[1],sys.argv[2],sys.argv[3],sys.argv[4],json.loads(sys.argv[5]))))
     except Exception as exc:
         print(json.dumps({'error':f'{type(exc).__name__}: {exc}'}));sys.exit(1)
