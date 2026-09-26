@@ -78,24 +78,16 @@ locard --db data\case.db investigation replay '<investigation-id>' --no-semantic
 ## Description
 ### Architecture and workflow
 
-
 <img width="6040" height="5297" alt="diagram (5)" src="https://github.com/user-attachments/assets/a48d1d86-2aaa-4fea-868b-f8b238182b40" />
-
-
 
 Here is another representation of the architecture
 <img width="4152" height="2544" alt="locard-runtime (1)" src="https://github.com/user-attachments/assets/54524163-8c67-45b6-ba56-9e4eb93881e5" />
 
-
-
-### MiniCPM: A local-first approach to AI forensics
+### MiniCPM
 Locard relies on the **MiniCPM5-2B** base model, which was created and released by OpenBMB (an open-source AI project team backed by ModelBest and Tsinghua University's Natural Language Processing Laboratory).  [https://github.com/openbmb/minicpm](https://github.com/openbmb/minicpm)
 <img width="510" height="269" alt="image" src="https://github.com/user-attachments/assets/d689307d-ddd5-42df-ba53-8a63d07339ad" />
 
-
 MiniCPM5-2B is an incredible, highly optimized model. It packs capabilities typically reserved for much larger models (in the 4B–8B parameter range) into a lightweight 2.5B parameter footprint. This makes it perfectly designed for edge devices, laptops, and local agents. Despite its small size, MiniCPM5-2B punches well above its weight class. On benchmarking suites that measure tool calling, coding, and multi-step reasoning, it frequently matches or beats larger models like Qwen3.5-4B and Granite 4.2 3B, all while consuming a fraction of the VRAM.
-
-#### Local and deterministic
 
 By utilizing a small, efficient model like MiniCPM5-2B, Locard makes a fully local workflow practical. Analysts can run the system directly on their laptops without needing access to a massive GPU server. 
 
@@ -105,20 +97,13 @@ Locard does not need a massive general-purpose LLM because the AI is not respons
 
 Locard does not ask the model to reconstruct an investigation from millions of raw events. Instead, deterministic retrieval and correlation reduce the case down to a small, bounded evidence bundle first.  The model serves as an analysis assistant layered on top of the forensic engine—**it is not the forensic engine itself.** 
 
-What MiniCPM DOES Do:
-*   **Summarize** retrieved forensic evidence.
-*   **Explain relationships** between already identified records.
-*   **Propose hypotheses** and alternative explanations for observed activities.
-*   **Navigate** the investigation alongside the analyst.
-*   **Produce** readable, evidence-backed analysis reports.
-
-What MiniCPM DOES NOT Do:
-*   Parse raw forensic artifacts.
-*   Generate or execute SQL queries.
-*   Execute system commands.
-*   Modify evidence in any way.
-*   Decide which records constitute "forensic facts."
-
+| What MiniCPM DOES Do | What MiniCPM DOES NOT Do |
+|---|---|
+| Summarize retrieved forensic evidence. | Parse raw forensic artifacts. |
+| Explain relationships between already identified records. | Generate or execute SQL queries. |
+| Propose hypotheses and alternative explanations for observed activities. | Execute system commands. |
+| Navigate the investigation alongside the analyst. | Modify evidence in any way. |
+| Produce readable, evidence-backed analysis reports. | Decide which records constitute "forensic facts." |
 
 
 ### How it works
