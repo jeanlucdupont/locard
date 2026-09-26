@@ -7,15 +7,19 @@ principle that **every contact leaves a trace**. It preserves source provenance,
 normalizes events into SQLite, retrieves evidence deterministically, and optionally
 asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.
 
-**Evidence establishes facts. Model output is analysis, not evidence. Locard is an
-investigative aid, not a replacement for validation by a forensic analyst.**
+## Reminders
 
-**SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not create evidence.**
+Evidence establishes facts. Model output is analysis, not evidence. Locard is an
+investigative aid, not a replacement for validation by a forensic analyst.
+
+SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not create evidence.
+
+<img width="523" height="359" alt="image" src="https://github.com/user-attachments/assets/a2c59b56-ed24-49d1-a8de-d3eaa55a14c9" />
 
 
-## WARNING: This project is not finalized
+## Locard V6
 
-### Locard V6
+**WARNING: This project is not finalized**
 
 The interactive CLI uses the existing V0-V5 forensic capabilities.
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
@@ -24,6 +28,8 @@ Locard reads four types of forensic evidence files.
 
 <img width="370" height="400" alt="image" src="https://github.com/user-attachments/assets/1087ac96-3bb7-496e-8d6a-0f33aa1986be" />
 
+
+### Locard inputs
 
 
 | File type | Examples | What Locard extracts |
@@ -705,8 +711,6 @@ not proof that the model's interpretation or chosen classification is correct.
 
 Logging configuration and supplied evidence determine what Locard can
 reconstruct. No model output is inserted into the evidence database.
-
-<img width="523" height="359" alt="image" src="https://github.com/user-attachments/assets/a2c59b56-ed24-49d1-a8de-d3eaa55a14c9" />
 
 
 ## License
