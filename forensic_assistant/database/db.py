@@ -18,25 +18,29 @@ def connect(path, *, existing_only=False):
     if str(path) != ":memory:":
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path)
-    db.row_factory = sqlite3.Row
-    version = db.execute("PRAGMA user_version").fetchone()[0]
-    if version in (1, 2):
-        db.close()
-        raise ValueError("Unsupported legacy database schema; an existing schema-3 case is required")
-    if version not in (0, 3):
-        db.close()
-        raise ValueError(f"Unsupported database schema version: {version}")
-    db.execute("PRAGMA foreign_keys=ON")
-    if version == 0:
-        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
+    try:
+        db.row_factory = sqlite3.Row
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version in (1, 2):
             db.close()
-            raise ValueError("Unversioned nonempty database; refusing to modify it")
-        db.executescript(Path(__file__).with_name("schema.sql").read_text())
-        with db:
-            upgrade(db)
-            from forensic_assistant.database.artifacts import upgrade3
-            upgrade3(db)
-    return db
+            raise ValueError("Unsupported legacy database schema; an existing schema-3 case is required")
+        if version not in (0, 3):
+            db.close()
+            raise ValueError(f"Unsupported database schema version: {version}")
+        db.execute("PRAGMA foreign_keys=ON")
+        if version == 0:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
+                db.close()
+                raise ValueError("Unversioned nonempty database; refusing to modify it")
+            db.executescript(Path(__file__).with_name("schema.sql").read_text())
+            with db:
+                upgrade(db)
+                from forensic_assistant.database.artifacts import upgrade3
+                upgrade3(db)
+        return db
+    except BaseException:
+        db.close()
+        raise
 
 
 def register_source(db, sha, size, path):

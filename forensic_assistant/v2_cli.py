@@ -23,20 +23,26 @@ def configure(commands):
     commands.choices['investigate'].add_argument('--timestamp-slot')
 
 
+
+def ingest_sources(db,args,progress=None):
+    requested=args.command.removeprefix('ingest-');results=[]
+    for path,kind in discover(args.path,None if requested=='all' else requested):
+        if kind=='evtx':
+            result=ingest_file(db,path)
+            if result['status'] in ('complete','partial'):
+                sha=db.execute('SELECT file_sha256 FROM ingestion_runs WHERE id=?',(result['run_id'],)).fetchone()[0]
+                with db:bind_context(db,sha,str(path.resolve()),args.hostname,args.user,args.volume_root)
+        else:
+            result=ingest_artifact(db,path,kind,hostname=args.hostname,username=args.user,volume_root=args.volume_root,
+                                   timeout=args.parser_timeout,record_size=args.record_size)
+        results.append(result)
+        if progress is not None:progress(path,kind,result)
+    return results
+
 def dispatch(db,args):
     command=args.command;q=EvidenceQueries(db)
     if command.startswith('ingest-'):
-        requested=command.removeprefix('ingest-');results=[]
-        for path,kind in discover(args.path,None if requested=='all' else requested):
-            if kind=='evtx':
-                result=ingest_file(db,path)
-                if result['status'] in ('complete','partial'):
-                    sha=db.execute('SELECT file_sha256 FROM ingestion_runs WHERE id=?',(result['run_id'],)).fetchone()[0]
-                    with db:bind_context(db,sha,str(path.resolve()),args.hostname,args.user,args.volume_root)
-            else:
-                result=ingest_artifact(db,path,kind,hostname=args.hostname,username=args.user,volume_root=args.volume_root,
-                                       timeout=args.parser_timeout,record_size=args.record_size)
-            results.append(result)
+        results=ingest_sources(db,args)
         return {'results':results,'status':'complete' if results and all(r['status']=='complete' for r in results) else 'incomplete'},0 if results and all(r['status']=='complete' for r in results) else 1
     if command=='show':return get_evidence(db,args.evidence_id,args.raw),0
     if command=='status':

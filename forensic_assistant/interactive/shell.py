@@ -44,7 +44,12 @@ class Shell:
 
     def choose(self,path=None):
         if path is not None:
+            if str(path).startswith(('"',"'")):
+                parts=split(str(path))
+                if len(parts)!=1:raise ValueError('Enter one database path')
+                path=parts[0]
             self.activate(path);return True
+        print('[N] New case')
         if self.active:print('Current database: '+safe(self.active))
         if self.state.recent:
             print('Recent databases:')
@@ -53,6 +58,7 @@ class Shell:
             try:
                 line=self.reader.read('Database path or recent number (Enter cancels): ').strip()
                 if not line or line in ('exit','quit'):return False
+                if line.casefold() in ('n','new'):return self.new()
                 if line.isdecimal() and 1<=int(line)<=len(self.state.recent):path=self.state.recent[int(line)-1]
                 elif line.startswith(('"',"'")):
                     parts=split(line)
@@ -71,7 +77,7 @@ class Shell:
             try:validate(self.state.recent[0])
             except (OSError,ValueError,sqlite3.Error) as exc:
                 print('Remembered database unavailable: '+safe(exc))
-                return self.choose()
+                return self.menu()
             except (EOFError,KeyboardInterrupt):print();return False
             print('Last database:\n'+safe(self.state.recent[0])+'\n')
             try:
@@ -81,7 +87,26 @@ class Shell:
                     except (OSError,ValueError,sqlite3.Error) as exc:print('Remembered database unavailable: '+safe(exc))
                 elif response in ('exit','quit'):return False
             except (EOFError,KeyboardInterrupt):print();return False
-        return self.choose()
+        return self.menu()
+
+    def new(self):
+        from .creation import create
+        return create(self)
+
+    def menu(self):
+        while True:
+            print("No active case.\n[1] Create a new case\n[2] Open an existing case\n[3] Exit")
+            try:
+                choice=self.reader.read("Selection (or existing database path): ").strip()
+                if choice in ("", "3", "exit", "quit"):return False
+                if choice=="1":
+                    if self.new():return True
+                elif choice=="2":
+                    if self.choose():return True
+                else:
+                    if self.choose(choice):return True
+            except (OSError,ValueError,sqlite3.Error) as exc:print("Cannot select database: "+safe(exc))
+            except (EOFError,KeyboardInterrupt):print();return False
 
     def run(self):
         from forensic_assistant.cli import build_parser,dispatch
@@ -93,7 +118,7 @@ class Shell:
                     print('\nValidation interrupted; retrying before accepting commands.');continue
                 except (OSError,ValueError,sqlite3.Error) as exc:
                     print('Active case unavailable: '+safe(exc));self.active=None;self.reader.clear()
-                    if not self.choose():return 0
+                    if not self.menu():return 0
                 label=safe(self.active.parent.name+'/'+self.active.name)
                 if len(label)>80:label=label[:38]+'...'+label[-39:]
                 executing=False
@@ -105,9 +130,11 @@ class Shell:
                         return 0
                     if words[0]=='case':
                         if len(words)>2:raise ValueError('Use case or case "database path"')
-                        self.choose(words[1] if len(words)==2 else None);continue
+                        if len(words)==2 and words[1]=='new':self.new()
+                        else:self.choose(words[1] if len(words)==2 else None)
+                        continue
                     if words[0]=='help':
-                        if len(words)==1:print('Shell: help [command], case [path], exit, quit. No shell execution or persistent history.')
+                        if len(words)==1:print('Shell: help [command], case [path|new], exit, quit. No shell execution or persistent history.')
                         words=words[1:]+['--help']
                     parser=build_parser()
                     try:args=parser.parse_args(['--db',str(self.active),*words])

@@ -1,3 +1,53 @@
+# Interactive case creation 0.8.0 validation - 2026-09-26
+
+Application 0.8.0; evidence schema 3, report format 1, Apache-2.0 licensing,
+and dependencies unchanged. No MiniCPM service is needed. All test evidence is
+synthetic and generated outside the repository.
+
+| Major stage | Complete accumulated suite |
+|---|---|
+| Baseline | 320 passed in 109.99 seconds |
+| Shared ingestion orchestration and initializer cleanup | 320 passed in 118.69 seconds |
+| Exclusive initialization, wizard, menu, and activation | 346 passed in 119.11 seconds |
+| Interruption, publication, timeout, and case-isolation gates | 365 passed in 143.01 seconds |
+| Final 0.8.0 and documentation | 367 passed in 141.69 seconds |
+| Final isolated core-only environment | 367 passed in 138.72 seconds |
+
+Both final suites ran concurrently in separate scratch directories; timings are not
+benchmarks. The core-only environment has no sentence-transformers, FAISS, torch,
+transformers, NumPy, huggingface-hub, tokenizers, or safetensors installed.
+An editable installation without dependency installation or build isolation passed;
+the installed executable reports `Locard 0.8.0`. A real Windows terminal smoke test
+with an isolated analyst profile confirmed first-run selection, parent-directory
+consent, no directory before final confirmation, explicit empty-case creation,
+activation, status, and clean exit. Only source, tests, and documentation changed;
+all synthetic databases, evidence, and UI-state files stayed outside the repository.
+
+The first targeted workflow run exposed Windows refusing mkdir on an existing
+volume root; the implementation now skips existing directories and creates only
+missing components. All later complete suites passed that regression.
+
+Validation covers no writes before confirmation, explicit parent-directory consent,
+retention after failure, no-overwrite publication races, Unicode/spaced/relative
+paths, invalid/existing destinations, empty/unsupported/unreadable sources, real
+synthetic MFT/Prefetch/Registry ingestion, additional ingestion through the shell,
+and preservation of source bytes. Cancellation is tested at every wizard input,
+in all four ingestion paths, and immediately after database publication. The
+existing real Windows worker/descendant cleanup tests remain part of every suite.
+Simulated parser timeouts check wizard activation and durable failure reporting;
+existing worker tests exercise actual timeout containment. Unconfirmed cleanup
+errors propagate rather than claiming safe recovery.
+
+Missing-parent creation is deferred until final confirmation, even after the
+analyst agrees to it. Private initialization staging is cleaned on failure;
+approved case directories and published databases are retained. Case A remains
+active while B is prepared and ingested. Recovery never implies a directory-wide
+rollback. These are local Windows tests, not a guarantee against a privileged
+process concurrently replacing filesystem paths; live network-share behavior
+and POSIX publication have not been exercised in this environment.
+
+---
+
 # Interactive CLI 0.7.0 validation - 2026-09-26
 
 Application version 0.7.0; evidence schema 3 and report format 1 unchanged.

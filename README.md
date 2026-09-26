@@ -228,16 +228,57 @@ MFT absolute-path search also honors an unambiguous drive assertion.
 
 ## Interactive and scripted workflows
 
-After installation, run `locard` in a terminal to start an interactive session.
-Locard offers the last selected database, or asks for an existing database path.
-An existing, structurally valid schema-3 Locard database is required before the
-main prompt appears. Enter a path (optionally quoted), choose a recent-case number,
-or press Enter, Ctrl+C, or EOF during selection to exit/cancel. Missing, inaccessible,
-invalid, and legacy databases are rejected; selection never creates or upgrades a case.
-To create a new case, use the existing non-interactive ingestion workflow below.
+Application version: **0.8.0**. Evidence schema 3 and report format 1 are unchanged.
+
+From a fresh clone, install and start Locard in a Windows terminal:
+
+```powershell
+git clone https://github.com/jeanlucdupont/locard.git
+cd locard
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\locard.exe
+```
+
+Locard offers the last selected database. Otherwise, the startup menu offers
+**Create a new case**, **Open an existing case**, and **Exit**. A validated schema-3
+Locard database is required before the main prompt appears. Opening an existing
+case never creates or upgrades it. The selector accepts paths (optionally quoted)
+and recent-case numbers; Enter, Ctrl+C, or EOF cancels selection.
+
+Choose **Create a new case**, or use `case new` from an active case. The wizard asks
+for a database filename, extracted evidence file/directory, and optional source
+hostname, user, and original drive. Blank metadata means unknown; Locard does not
+infer it from the analyst's computer. The destination must be outside the evidence
+source directory. Existing files are never overwritten; an existing valid Locard
+database can be opened without automatically ingesting the selected source.
+
+If the parent directory is missing, Locard asks for explicit `y`/`yes` approval to
+create it. Actual directory and database creation wait until the final confirmation.
+Declining the directory request returns to destination selection. At the final
+summary, `B` goes back and any answer other than `y`/`yes` cancels without filesystem
+changes. Ctrl+C/EOF also cancels. Approved directories already created are retained
+if initialization or ingestion later fails.
+
+Discovery checks for supported artifact signatures before creation, then ingestion
+repeats discovery using the existing engine. If no supported artifacts are found,
+choose another source, explicitly request an empty case, or cancel. Initialization
+uses private staging and no-overwrite publication. Only unpublished initialization
+staging is automatically cleaned; published databases and committed evidence are
+never automatically deleted. Parser timeout and record-size options remain in the
+ordinary ingestion commands, rather than the first-run wizard.
+
+Successful ingestion activates the new case. Recoverable file/record errors with
+stored evidence activate it with explicit limitations. Fatal failure or cancellation
+retains the previous case; a retained database can subsequently be opened explicitly.
+If no records were stored, activation requires an explicit choice. Summaries show
+stored evidence records by artifact, file-run outcomes, inserted/duplicate counts,
+and recorded errors; Registry records include keys and values. Earlier commits are
+not rolled back when a later file fails. These counts do not establish completeness
+of a forensic examination. Recent-case state changes only after activation.
 
 ```text
-Locard 0.7.0
+Locard 0.8.0
 
 Last database:
 C:\Cases\workstation-23\forensic.db
@@ -254,10 +295,10 @@ locard[other/forensic.db]> exit
 The prompt uses the parent directory and database filename, safely escaped and
 shortened if necessary. It is a display label, not a persistent case name or unique
 identifier. Selection displays the full path; `case` displays it again and offers
-recent databases. A failed or cancelled switch retains the old case. If the active
+recent databases and a New case option. A failed or cancelled switch retains the old case. If the active
 case becomes unavailable, Locard requires reselection before accepting more commands.
 
-Shell-only commands are `help [command [subcommand]]`, `case [path]`, `exit`, and
+Shell-only commands are `help [command [subcommand]]`, `case [path|new]`, `exit`, and
 `quit`. Help comes from the ordinary CLI parser. All forensic commands retain their
 existing arguments and implementations; the shell supplies `--db` internally.
 Use `case` rather than a global `--db` override. Command-specific model/index/output

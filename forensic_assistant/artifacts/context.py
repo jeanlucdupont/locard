@@ -6,10 +6,15 @@ from forensic_assistant.database.db import now
 from forensic_assistant.database.artifacts import dump
 
 
-def bind_context(db,sha,source_file,hostname=None,username=None,volume_root=None):
+def normalize_volume_root(volume_root):
     if volume_root and not re.fullmatch(r'[A-Za-z]:\\?',volume_root):
         raise ValueError('Volume root must be an explicit drive letter such as C:')
     volume_root=volume_root[:2].upper() if volume_root else None
+    return volume_root
+
+
+def bind_context(db,sha,source_file,hostname=None,username=None,volume_root=None):
+    volume_root=normalize_volume_root(volume_root)
     data=[sha,host_key(hostname),username,volume_root,'analyst-supplied',source_file]
     key=hashlib.sha256(dump(data).encode()).hexdigest()
     if any((hostname,username,volume_root)):

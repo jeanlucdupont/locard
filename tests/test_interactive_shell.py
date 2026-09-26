@@ -46,7 +46,7 @@ def test_requires_valid_case_before_prompt_and_remembers(tmp_path,capsys):
     before=good.read_bytes()
     assert Shell(state,reader).run()==0
     assert 'Cannot select' in capsys.readouterr().out
-    assert reader.prompts[:2]==['Database path or recent number (Enter cancels): ']*2
+    assert reader.prompts[:2]==['Selection (or existing database path): ']*2
     assert not missing.exists() and good.read_bytes()==before
     assert State(state.path).load().recent==[str(good.resolve())]
 
