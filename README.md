@@ -7,7 +7,7 @@ principle that **every contact leaves a trace**. It preserves source provenance,
 normalizes events into SQLite, retrieves evidence deterministically, and optionally
 asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.
 
-[Watch Locard's introduction video](docs/jeanlucdupont-locard-explained.mp4)
+[Watch Locard's introduction video](https://youtube.com/shorts/UTP8ayRAmsk)
 
 ## Reminders
 
