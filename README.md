@@ -24,12 +24,11 @@ SEMANTIC SIMILARITY != FORENSIC EVIDENCE. RAG helps locate evidence; it does not
 The interactive CLI uses the existing V0-V5 forensic capabilities.
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
+### Locard inputs
+
 Locard reads four types of forensic evidence files.
 
 <img width="370" height="400" alt="image" src="https://github.com/user-attachments/assets/1087ac96-3bb7-496e-8d6a-0f33aa1986be" />
-
-
-### Locard inputs
 
 
 | File type | Examples | What Locard extracts |
