@@ -7,6 +7,8 @@ principle that **every contact leaves a trace**. It preserves source provenance,
 normalizes events into SQLite, retrieves evidence deterministically, and optionally
 asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.
 
+[Watch Locard's introduction video](docs/jeanlucdupont-locard-explained.mp4)
+
 ## Reminders
 
 Evidence establishes facts. Model output is analysis, not evidence. Locard is an
@@ -25,6 +27,7 @@ The interactive CLI uses the existing V0-V5 forensic capabilities.
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
 [v3 local semantic setup](docs/v3.md)
+
 [v4 operation, privacy, budgets and replay](docs/v4.md) 
 
 
