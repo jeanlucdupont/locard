@@ -15,6 +15,7 @@ from forensic_assistant.retrieval.presentation import render_timeline
 from forensic_assistant import v1_cli
 from forensic_assistant import v2_cli
 from forensic_assistant.correlation.models import get_event
+from importlib.resources import files
 
 
 def emit(value):
