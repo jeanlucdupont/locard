@@ -25,7 +25,7 @@ def emit(value):
 def get_banner() -> str:
     return (
         files("forensic_assistant")
-        .joinpath("resources/banner.ansi")
+        .joinpath("resources/banner.txt")
         .read_text(encoding="utf-8")
     )
 
