@@ -21,6 +21,12 @@ def emit(value):
     # Escape control sequences from untrusted log content for terminal safety.
     print(json.dumps(value, ensure_ascii=True, indent=2))
 
+def get_banner() -> str:
+    return (
+        files("forensic_assistant")
+        .joinpath("resources/banner.ansi")
+        .read_text(encoding="utf-8")
+    )
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Locard — local evidence-first Windows forensics")
@@ -86,6 +92,7 @@ def main(argv=None):
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             print('Locard: interactive mode requires a terminal; supply a command for scripts.', file=sys.stderr)
             return 2
+        print(get_banner())
         from forensic_assistant.interactive.shell import run
         return run()
     return dispatch(build_parser().parse_args(argv))
