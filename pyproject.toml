@@ -22,8 +22,9 @@ locard = "forensic_assistant.cli:main"
 include = ["forensic_assistant*"]
 
 [tool.setuptools.package-data]
-forensic_assistant = ["database/schema.sql"]
+forensic_assistant = ["database/schema.sql", "resources/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
