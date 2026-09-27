@@ -245,6 +245,10 @@ Locard database is required before the main prompt appears. Opening an existing
 case never creates or upgrades it. The selector accepts paths (optionally quoted)
 and recent-case numbers; Enter, Ctrl+C, or EOF cancels selection.
 
+<img width="558" height="349" alt="image" src="https://github.com/user-attachments/assets/e32a646d-c68a-4622-9c86-4eefde74f193" />
+
+
+
 Choose **Create a new case**, or use `case new` from an active case. The wizard asks
 for a database filename, extracted evidence file/directory, and optional source
 hostname, user, and original drive. Blank metadata means unknown; Locard does not
