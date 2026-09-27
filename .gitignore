@@ -172,3 +172,13 @@ transcripts/
 report-bundles/
 *.locard-report/
 .locard-report-*/
+
+# Auditable Windows bootstrap entry points and their exact helper sources.
+!/install.ps1
+!/locard.ps1
+!/scripts/
+/scripts/*
+!/scripts/install-support.ps1
+!/scripts/windows-process.ps1
+!/scripts/windows-process.cs
+.locard-install.lock

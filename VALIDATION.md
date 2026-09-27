@@ -1,3 +1,69 @@
+# Windows bootstrap 0.8.1 validation - 2026-09-27
+
+Application 0.8.1; evidence schema 3, report format 1, Apache-2.0 licensing,
+parser implementations, database behavior, and dependency declarations unchanged.
+Only application-version acceptance is extended for historical transcript loading.
+
+| Major stage | Complete accumulated suite |
+|---|---|
+| Inspected 0.8.0 baseline | 367 passed in 120.97 seconds |
+| Native invocation, launcher, cancellation and resource gates | 379 passed in 190.70 seconds |
+| Python discovery, environment policy and installer stages | 413 passed in 259.46 seconds |
+| 0.8.1, documentation and update gates | 416 passed in 331.11 seconds |
+| Same stage, isolated core-only environment | 416 passed in 331.92 seconds |
+| Final cleanup and output-bound hardening | 419 passed in 222.87 seconds |
+| Final complete suite, isolated core-only environment | 419 passed in 226.87 seconds |
+
+A fresh normal installation was performed outside the source repository. The loaded
+package came from the new environment's site-packages, not the source checkout;
+its metadata was non-editable. Schema 3 initialized and the installed MFT, Prefetch,
+and Registry workers ingested synthetic fixtures successfully. Semantic packages
+were absent. The installer also ran in a scratch checkout containing spaces and
+Unicode, then reran under Windows PowerShell 5.1 using the same environment.
+
+An all-binary dependency rule initially failed because transitive pure-Python
+`hexdump` is source-distributed. The implementation requires wheels for native
+parser packages while permitting normal pure-Python builds, without changing any
+dependency. An initial verification check used library names instead of the actual
+`pyscca`/`pyregf` import names; this failed visibly without claiming success, and
+the corrected rerun reused the retained environment.
+
+Windows PowerShell 5.1 and PowerShell 7 tests exercise spaces, Unicode, empty
+arguments, embedded quotes, trailing backslashes, caller directory and exit codes.
+Real child/descendant processes are tested for timeout, parent death and Ctrl+C.
+Synthetic private consoles explicitly clear the test parent's inherited ignore-Ctrl+C
+flag before generating the event; no event is sent to the analyst's console.
+Both 130 and native STATUS_CONTROL_C_EXIT represent cancellation. A real terminal
+smoke test also confirmed the launcher leaves Locard at its prompt after input
+cancellation. Normal invocation uses a suspended child assigned to a kill-on-close
+job before resuming it; cleanup failure is fatal rather than silently accepted.
+
+A controlled local Git remote exercised actual fast-forward `git pull` updates,
+first from 0.8.0 to 0.8.1 and then a same-version metadata update. Both installer
+reruns succeeded while preserving pyvenv.cfg content and its creation time. A new
+0.8.1 scratch checkout also installed through automatic PATH candidate discovery
+when the Python launcher listed no runtimes; no explicit -Python selection was
+needed. The test harness supplied the process-local PATH; the installer did not
+modify it. Installed native workers and core-only package contents were checked
+again outside that checkout. The existing editable development installation was
+updated normally and remains editable.
+
+Final review added a fatal cleanup exception that cannot be swallowed by Python
+candidate fallback, plus a post-exit captured-output limit. Regression tests cover
+both. Normal dependency declarations were compared with Git HEAD and are unchanged.
+All generated executables, environments, package caches, Git test remotes, synthetic
+evidence, and case databases remain outside the repository.
+
+Limitations: tested runtime is standard AMD64 CPython 3.12.14. Other versions
+satisfying >=3.11 still need compatible native wheels. No ARM64, x86, free-threaded
+or alternate interpreter support is claimed for the bootstrapper. Windows policy
+can prohibit scripts or Add-Type; the normal manual installation remains available.
+Pip updates are not transactional, and an interrupted environment can require
+manual repair. Installation may use pip's configured network package sources;
+no application telemetry, model download or unrelated network calls were added.
+
+---
+
 # Interactive case creation 0.8.0 validation - 2026-09-26
 
 Application 0.8.0; evidence schema 3, report format 1, Apache-2.0 licensing,

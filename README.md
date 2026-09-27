@@ -228,16 +228,15 @@ MFT absolute-path search also honors an unambiguous drive assertion.
 
 ## Interactive and scripted workflows
 
-Application version: **0.8.0**. Evidence schema 3 and report format 1 are unchanged.
+Application version: **0.8.1**. Evidence schema 3 and report format 1 are unchanged.
 
 From a fresh clone, install and start Locard in a Windows terminal:
 
 ```powershell
 git clone https://github.com/jeanlucdupont/locard.git
 cd locard
-py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\locard.exe
+.\install.ps1
+.\locard.ps1
 ```
 
 Locard offers the last selected database. Otherwise, the startup menu offers
@@ -278,7 +277,7 @@ not rolled back when a later file fails. These counts do not establish completen
 of a forensic examination. Recent-case state changes only after activation.
 
 ```text
-Locard 0.8.0
+Locard 0.8.1
 
 Last database:
 C:\Cases\workstation-23\forensic.db
@@ -362,31 +361,131 @@ interactive mode adds no forensic authority. No new dependencies are required.
 
 Locard is currently developed and tested on Windows. Locard analyzes extracted Windows forensic artifacts and does not fundamentally require the source system to be Windows-mounted or live. Some underlying components are cross-platform, but Linux and macOS execution are not currently tested or officially supported.
 
-### Windows setup
+### Windows installation
 
-Use Python 3.11 or newer. From this project directory in PowerShell:
+Use Windows PowerShell 5.1 or PowerShell 7 and a standard 64-bit AMD64 CPython
+installation satisfying the project's `>=3.11` requirement. Run `install.ps1`,
+then `locard.ps1`; activation is unnecessary. Python 3.12 is the validated runtime.
+
+The installer reuses a healthy compatible `.venv`. Otherwise it inspects the `py`
+launcher's listed runtimes and `python`/`python3` executable candidates, avoiding
+Microsoft Store activation aliases. It probes their actual version, implementation,
+architecture, and release type. It prefers the latest installed 3.12 patch, then
+other compatible stable versions from newest to oldest. A matching Python version
+still needs compatible native dependency wheels; installation stops clearly if
+those are unavailable. It does not install Python or invoke winget. An interpreter
+not discoverable through the launcher or PATH can be selected explicitly when no
+`.venv` exists:
 
 ```powershell
-py -3.11 -m venv .venv
+.\install.ps1 -Python 'C:\Path To Python\python.exe'
+```
+
+The default installs core Locard normally, not editable, and excludes test and
+semantic extras. It does not upgrade pip routinely, download AI models, change
+PATH/security settings, require administrator rights, or access case databases.
+The small shared C# helper is compiled in memory using PowerShell's built-in
+`Add-Type`; it is not a downloaded executable or an additional dependency.
+
+### Updating and recovery
+
+After `git pull`, rerun `.\install.ps1`. A healthy `.venv` is reused; satisfied
+dependencies remain installed, and Locard itself is reinstalled from the checkout,
+including same-version source changes. Close running Locard processes before
+updating. The installer prepares packages before replacing installed packages,
+then checks dependencies, installed version, imports, and packaged resources.
+A file lock prevents concurrent installers; the empty `.locard-install.lock`
+file may remain and is ignored by Git. Its presence alone does not indicate a lock.
+
+An incompatible, incomplete, corrupt, or redirected `.venv` is never silently
+removed or rebuilt. Inspect it and deliberately move it aside if you want a fresh
+installation. Virtual environments are machine-specific and should not be moved
+for reuse. An editable developer installation requires confirmation before
+conversion; `-ReplaceEditable` supplies that explicit choice for automation.
+Existing optional packages are not automatically removed.
+
+Pip changes are not transactional. If installation is interrupted while replacing
+packages, the environment is retained but may need repair. Rerun the installer if
+its interpreter and pip still validate, or use manual recovery. No rollback is
+claimed. Installer-owned child processes are contained before running and cleaned
+up after failure/cancellation. Abrupt termination can leave private packaging
+scratch in the Windows temporary directory; it contains derived install files,
+not forensic evidence. The launcher lets Locard handle Ctrl+C itself, preserving
+interactive cancellation and normal command exit codes.
+
+`locard.ps1` uses its own checkout's `.venv`, forwards arguments, and preserves the
+caller's working directory. Relative case/output paths keep their ordinary CLI
+meaning. Invoking the installer from elsewhere prints the full launcher path in
+its final instruction. Missing installation produces a clear setup instruction;
+launching never installs anything automatically.
+
+### Network requirements and offline installation
+
+Package installation may download dependencies and build requirements through pip's
+configured package sources. This is package installation, not Locard telemetry.
+There are no update checks or unrelated network requests. Native parser packages
+require compatible wheels; the existing pure-Python `hexdump` dependency may be
+built from its source distribution. No native compiler is installed automatically.
+Inspect and trust the checkout and package sources before installation: ordinary
+Python package builds can execute build code.
+
+For an isolated workstation, prepare wheels on a compatible connected machine,
+transfer them and the checkout, and use the manual packaging path. Build tooling
+such as the declared `setuptools>=77` must also be available if building locally:
+
+```powershell
+python -m pip wheel --wheel-dir wheelhouse .
+# After creating a compatible virtual environment on the isolated workstation:
+.\.venv\Scripts\python.exe -m pip install --no-index --find-links wheelhouse locard-forensics
+```
+
+### PowerShell execution policy
+
+Review the scripts before running them. If policy blocks them, follow your
+organization's approved script-signing or execution procedure, or use manual
+installation. Do not weaken machine-wide execution policy. These instructions do
+not use `ExecutionPolicy Bypass`. Restricted language/application-control policies
+may also prohibit the helper's `Add-Type`; use the manual executable in that case.
+
+### Manual installation
+
+The bootstrapper is optional. With a compatible Python already installed:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\locard.exe
+```
+
+Choose an installed compatible Python if 3.12 is unavailable. Python packaging
+remains independent of PowerShell; Linux/macOS execution remains unvalidated as
+noted above. Relative paths resolve against the launch working directory.
+
+### Development setup
+
+Developers can retain editable installation and install test dependencies explicitly:
+
+```powershell
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[test]"
 .\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m forensic_assistant.cli --help
 ```
 
-No activation script is necessary. The implementation environment already has a populated
-`.venv`; virtual environments are machine-specific and should be recreated when moved.
+Installer tests use temporary repositories, generated test executables, and
+controlled discovery. They do not alter machine Python installations. Windows
+process tests use private hidden consoles for cancellation checks.
 
-Runtime dependencies are pinned in `requirements.txt` and `pyproject.toml`.
+### Optional semantic dependencies
 
-Installation downloads packages, but application operation does not require Internet
-access. To prepare installation on an isolated workstation, build a wheelhouse on
-a compatible connected Windows/Python machine, then transfer the project and wheels:
+Core installation does not include the large semantic stack. Install it explicitly
+if needed, using the same environment, then follow [semantic setup](docs/v3.md):
 
 ```powershell
-python -m pip wheel --wheel-dir wheelhouse ".[test]"
-# On the isolated workstation, after creating a virtual environment:
-.\.venv\Scripts\python.exe -m pip install --no-index --find-links wheelhouse "locard-forensics[test]"
+.\.venv\Scripts\python.exe -m pip install ".[semantic]"
 ```
+
+For an editable developer installation, use `-e ".[semantic,test]"` instead.
+MiniCPM, llama.cpp, and model downloads remain separate, explicit setup steps.
 
 ### Start the local model
 
