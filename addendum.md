@@ -1,0 +1,727 @@
+### THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.
+
+```powershell
+locard --db data\case.db investigate-ai 'Inspect PowerShell activity' --no-semantic --explain --json
+locard --db data\case.db investigate-ai 'Inspect PowerShell activity' --dry-run
+locard --db data\case.db investigation show '<investigation-id>' --explain
+locard --db data\case.db investigation replay '<investigation-id>' --no-semantic
+```
+
+### How it works
+
+Acquire offline files using appropriate forensic acquisition procedures. Locard
+parses supplied copies; it does not acquire live hives, unlock files, mount images,
+recover deleted content, or replay Registry transaction logs. Missing companion
+hives are allowed. `ingest` retains its original EVTX-only behavior. New commands
+validate signatures rather than relying on filenames:
+
+```powershell
+locard --db data\case.db ingest-mft 'C:\Evidence\filesystem\$MFT' --hostname PC01 --volume-root C:
+locard --db data\case.db ingest-prefetch C:\Evidence\Prefetch --hostname PC01 --volume-root C:
+locard --db data\case.db ingest-registry C:\Evidence\Registry --hostname PC01
+locard --db data\case.db ingest-all C:\Evidence --hostname PC01 --json
+locard --db data\case.db search --path payload.exe --json
+locard --db data\case.db search --artifact registry --json
+locard --db data\case.db search --process powershell.exe
+locard --db data\case.db timeline --start 2026-09-15T14:30:00Z --end 2026-09-15T14:32:00Z --json
+locard --db data\case.db show '<evidence-id>' --raw --json
+locard --db data\case.db investigate '<evidence-id>' --json
+locard --db data\case.db ask 'Inspect Prefetch powershell.exe' --dry-run
+```
+
+
+
+
+Use the active environment's `locard` command or replace it with
+`.\.venv\Scripts\python.exe -m forensic_assistant.cli`. Replace placeholder IDs
+with complete IDs from search results. `--db` precedes the subcommand.
+`--hostname`, `--user`, and `--volume-root` on ingestion are analyst assertions,
+stored separately from raw evidence. Apply a directory-wide assertion only when
+every contained source shares that context. Conflicting assertions remain visible
+and prevent corroboration. Filenames, folders, and the analyst's live environment
+never supply missing host, user, timezone, or drive information.
+
+`search` counts evidence records. `timeline` counts timestamp observations and can
+show one MFT record repeatedly under distinct SI/FN fields. Stable ordering is UTC,
+evidence ID, then timestamp slot. Search combines filters with AND; `--start` and
+`--end` supply time bounds. `--artifact` selects a source; the existing
+`--artifact-type` timeline option still selects EVTX categories. Registry value
+search may use its containing key's time, explicitly marked inherited; unified
+timeline rows belong to the key. `around` and `investigate` accept
+`--timestamp-slot` from `show` when an anchor has multiple distinct timestamps.
+Investigation still retrieves object relationships without choosing an arbitrary
+MFT/Prefetch timestamp for temporal neighbors.
+
+### Stable IDs and provenance
+
+| Source | Evidence ID locator | Preserved representation |
+|---|---|---|
+| EVTX | `EVTX:<sha256>:Offset:<offset>` (unchanged) | Original XML and existing fields |
+| MFT | `MFT:<sha256>:Offset:<physical-byte-offset>` | Raw record, physical slot, header/attribute details, all exposed filenames |
+| Prefetch | `PREFETCH:<sha256>:File` | Original file bytes, format/metrics, referenced paths and volumes |
+| Registry key | `REGISTRY:<sha256>:KeyOffset:<absolute-nk-offset>` | Key path, parent linkage, raw integer last-write |
+| Registry value | `REGISTRY:<sha256>:ValueOffset:<absolute-vk-offset>` | Raw bytes, typed safe decoding, containing key linkage |
+
+Registry offsets point to the `nk`/`vk` signature, not the preceding cell-size field.
+MFT identity uses physical position, independent of a corrupt or stale header record
+number. SHA-256 includes the complete supplied file. Moving an identical source
+does not change IDs; changed content creates a new source namespace. First-ingested
+`source_file` remains immutable, and `source_locations` records every observed path
+for identical file bytes. Parser/extractor versions, locators, warnings, and source
+context accompany JSON evidence. Historical EVTX parser versions that were never
+recorded remain unknown; migration does not invent them.
+
+### Artifact semantics and limits
+
+- **MFT:** Allocated and unallocated records, sequence numbers, parent references,
+  multiple filenames, sizes, and attribute metadata are retained. SI and FN
+  creation/modification/MFT-change/access timestamps remain separate, with original
+  FILETIME integers and 100 ns precision. Parent sequence mismatch, missing parents,
+  cycles, depth limits, and multiple paths remain explicit. Paths are volume-relative
+  until an unambiguous analyst drive assertion is supplied. Attribute-list extension
+  records remain separate; external/nonresident content is not reconstructed.
+  Metadata timestamps alone do not establish download, execution, or user action.
+- **Prefetch:** Validated formats 17, 23, 26, 30, and 31 retain executable name,
+  identifier, run count, exposed execution slots, referenced filenames, and volume
+  metadata. The identifier is not a content hash. Retained execution history is
+  incomplete; count interpretation varies, files can be deleted, and Prefetch may
+  be disabled or behave differently on servers. Absence does not prove non-execution.
+  The Python binding does not expose standalone directory tables; Locard reports
+  that limitation and preserves original bytes rather than inventing directories.
+- **Registry:** Structural signatures identify SYSTEM, SOFTWARE, SAM, SECURITY,
+  NTUSER, and USRCLASS where possible; ambiguous/minimal hives remain UNKNOWN.
+  Keys and values retain distinct identities. Last-write belongs to the key,
+  never individual value creation. Binary/undecodable values use safe base64;
+  expansion strings remain unexpanded. Dirty/corrupt snapshots are flagged;
+  logs, deleted-cell recovery, SAM/SECURITY decryption, and transaction replay are
+  outside V2. Versioned local extractors cover Run/RunOnce, service ImagePath and
+  ServiceDll, Winlogon, startup folders, profiles, USB/device, RDP, and selected
+  recent-text locations. They retain key/value links and do not assert execution
+  or that a particular ControlSet was active.
+
+Path comparison preserves originals, normalizes case/slashes and unambiguous NT
+prefixes, and distinguishes absolute, device, volume-relative, and unexpanded paths.
+It never expands environment variables, resolves short names, follows the local
+filesystem, or guesses ambiguous unquoted executable paths. Prefetch device paths
+can be compared using an explicit drive assertion only when exactly one volume
+provides an unambiguous device prefix. Search includes original normalized paths;
+MFT absolute-path search also honors an unambiguous drive assertion.
+
+### Parser validation and trust boundary
+
+| Package | Pinned version | Upstream license |
+|---|---|---|
+| [dissect.ntfs](https://pypi.org/project/dissect.ntfs/3.16/) | 3.16 | AGPL-3.0-or-later |
+| dissect.cstruct / dissect.util | 4.7 / 3.24 | Apache-2.0 |
+| [libscca-python](https://pypi.org/project/libscca-python/20260527/) | 20260527 | LGPL-3.0-or-later |
+| [libregf-python](https://pypi.org/project/libregf-python/20260526/) | 20260526 | LGPL-3.0-or-later |
+
+
+
+Locard offers the last selected database. Otherwise, the startup menu offers
+**Create a new case**, **Open an existing case**, and **Exit**. A validated schema-3
+Locard database is required before the main prompt appears. Opening an existing
+case never creates or upgrades it. The selector accepts paths (optionally quoted)
+and recent-case numbers; Enter, Ctrl+C, or EOF cancels selection.
+
+
+Choose **Create a new case**, or use `case new` from an active case. The wizard asks
+for a database filename, extracted evidence file/directory, and optional source
+hostname, user, and original drive. Blank metadata means unknown; Locard does not
+infer it from the analyst's computer. The destination must be outside the evidence
+source directory. Existing files are never overwritten; an existing valid Locard
+database can be opened without automatically ingesting the selected source.
+
+If the parent directory is missing, Locard asks for explicit `y`/`yes` approval to
+create it. Actual directory and database creation wait until the final confirmation.
+Declining the directory request returns to destination selection. At the final
+summary, `B` goes back and any answer other than `y`/`yes` cancels without filesystem
+changes. Ctrl+C/EOF also cancels. Approved directories already created are retained
+if initialization or ingestion later fails.
+
+Discovery checks for supported artifact signatures before creation, then ingestion
+repeats discovery using the existing engine. If no supported artifacts are found,
+choose another source, explicitly request an empty case, or cancel. Initialization
+uses private staging and no-overwrite publication. Only unpublished initialization
+staging is automatically cleaned; published databases and committed evidence are
+never automatically deleted. Parser timeout and record-size options remain in the
+ordinary ingestion commands, rather than the first-run wizard.
+
+Successful ingestion activates the new case. Recoverable file/record errors with
+stored evidence activate it with explicit limitations. Fatal failure or cancellation
+retains the previous case; a retained database can subsequently be opened explicitly.
+If no records were stored, activation requires an explicit choice. Summaries show
+stored evidence records by artifact, file-run outcomes, inserted/duplicate counts,
+and recorded errors; Registry records include keys and values. Earlier commits are
+not rolled back when a later file fails. These counts do not establish completeness
+of a forensic examination. Recent-case state changes only after activation.
+
+
+The prompt uses the parent directory and database filename, safely escaped and
+shortened if necessary. It is a display label, not a persistent case name or unique
+identifier. Selection displays the full path; `case` displays it again and offers
+recent databases and a New case option. A failed or cancelled switch retains the old case. If the active
+case becomes unavailable, Locard requires reselection before accepting more commands.
+
+Shell-only commands are `help [command [subcommand]]`, `case [path|new]`, `exit`, and
+`quit`. Help comes from the ordinary CLI parser. All forensic commands retain their
+existing arguments and implementations; the shell supplies `--db` internally.
+Use `case` rather than a global `--db` override. Command-specific model/index/output
+options apply only to that command. `report validate` still needs an explicit
+`--case` to perform case fingerprint and grounding checks.
+
+Paths with spaces must be quoted in commands. Backslashes are literal. Both single
+and double quotes group arguments; double a matching quote inside a quoted argument
+to include it literally. Relative paths use the launch working directory; no
+shell expansion, environment-variable substitution, shell operators, or Python
+execution is provided. Unicode and long local paths are tested. UNC quoting is
+supported, but live UNC-share access has not been validated; existing SQLite and
+read-only opener restrictions apply. Linked/reparse-point case paths are rejected.
+
+Windows supports bounded in-memory up/down command history and basic editing.
+History is cleared on case selection/switching and exit and is never written to disk.
+Other terminals use their native input behavior; equivalent editing is not promised.
+No autocomplete is included. Ctrl+C clears a line or interrupts an operation; EOF
+(on Windows, Ctrl+Z at an empty prompt), `exit`, and `quit` close the shell. Ordinary
+argument/command errors return to the prompt; unexpected internal or unconfirmed
+cleanup failures terminate visibly. Completed ingestion files remain committed after
+an interruption. The current run records interruption and whether its publication
+committed; abrupt process/terminal termination can leave a run marked `running`.
+That is incomplete state, not a completed acquisition. Partial derived staging is
+not a completed semantic index, investigation, or report.
+
+Selection performs bounded structural checks, not evidence-grounding or full database
+integrity validation. It does not load models, contact MiniCPM, or compute evidence
+fingerprints. Use `status` and `semantic status` explicitly; semantic status can scan
+case content. SQLite connections and forensic workers are command-scoped; no model,
+controller, report, or database connection is kept for the next case.
+
+**Analyst-side privacy:** `%LOCALAPPDATA%\Locard\ui-state.json` stores at most ten
+recent successfully selected absolute database paths, with the most recent first.
+Those paths can identify cases. It contains no command history, evidence content,
+credentials, model responses, transcripts, or reports. It is unencrypted and inherits
+user-profile directory permissions. Writes use a sibling temporary file and atomic
+replacement; redirected state paths are rejected. Missing recent cases are not
+silently removed or recreated. Malformed state is warned about and preserved, with
+persistence disabled for that session. To reset it, exit Locard and deliberately
+move/remove that UI-state file; no forensic database needs changing. If the location
+is unavailable or saving fails, the session remains usable with a warning.
+
+Non-interactive automation remains available and does not alter recent-case state:
+
+```powershell
+locard --db "C:\Cases\workstation-23\forensic.db" status
+locard --db "C:\Cases\workstation-23\forensic.db" search --process powershell.exe
+locard report show "C:\Reports\example"
+```
+
+Commands execute once and preserve their existing exit behavior. Bare `locard` with
+redirected input/output fails clearly instead of prompting. Database-independent
+commands remain usable without selecting a case through this non-interactive CLI.
+Interactive and scripted modes are two interfaces over the same forensic capabilities;
+interactive mode adds no forensic authority. No new dependencies are required.
+
+
+### Windows installation
+
+Use Windows PowerShell 5.1 or PowerShell 7 and a standard 64-bit AMD64 CPython
+installation satisfying the project's `>=3.11` requirement. Run `install.ps1`,
+then `locard.ps1`; activation is unnecessary. Python 3.12 is the validated runtime.
+
+The installer reuses a healthy compatible `.venv`. Otherwise it inspects the `py`
+launcher's listed runtimes and `python`/`python3` executable candidates, avoiding
+Microsoft Store activation aliases. It probes their actual version, implementation,
+architecture, and release type. It prefers the latest installed 3.12 patch, then
+other compatible stable versions from newest to oldest. A matching Python version
+still needs compatible native dependency wheels; installation stops clearly if
+those are unavailable. It does not install Python or invoke winget. An interpreter
+not discoverable through the launcher or PATH can be selected explicitly when no
+`.venv` exists:
+
+```powershell
+.\install.ps1 -Python 'C:\Path To Python\python.exe'
+```
+
+The default installs core Locard normally, not editable, and excludes test and
+semantic extras. It does not upgrade pip routinely, download AI models, change
+PATH/security settings, require administrator rights, or access case databases.
+The small shared C# helper is compiled in memory using PowerShell's built-in
+`Add-Type`; it is not a downloaded executable or an additional dependency.
+
+### Updating and recovery
+
+After `git pull`, rerun `.\install.ps1`. A healthy `.venv` is reused; satisfied
+dependencies remain installed, and Locard itself is reinstalled from the checkout,
+including same-version source changes. Close running Locard processes before
+updating. The installer prepares packages before replacing installed packages,
+then checks dependencies, installed version, imports, and packaged resources.
+A file lock prevents concurrent installers; the empty `.locard-install.lock`
+file may remain and is ignored by Git. Its presence alone does not indicate a lock.
+
+An incompatible, incomplete, corrupt, or redirected `.venv` is never silently
+removed or rebuilt. Inspect it and deliberately move it aside if you want a fresh
+installation. Virtual environments are machine-specific and should not be moved
+for reuse. An editable developer installation requires confirmation before
+conversion; `-ReplaceEditable` supplies that explicit choice for automation.
+Existing optional packages are not automatically removed.
+
+Pip changes are not transactional. If installation is interrupted while replacing
+packages, the environment is retained but may need repair. Rerun the installer if
+its interpreter and pip still validate, or use manual recovery. No rollback is
+claimed. Installer-owned child processes are contained before running and cleaned
+up after failure/cancellation. Abrupt termination can leave private packaging
+scratch in the Windows temporary directory; it contains derived install files,
+not forensic evidence. The launcher lets Locard handle Ctrl+C itself, preserving
+interactive cancellation and normal command exit codes.
+
+`locard.ps1` uses its own checkout's `.venv`, forwards arguments, and preserves the
+caller's working directory. Relative case/output paths keep their ordinary CLI
+meaning. Invoking the installer from elsewhere prints the full launcher path in
+its final instruction. Missing installation produces a clear setup instruction;
+launching never installs anything automatically.
+
+### Network requirements and offline installation
+
+Package installation may download dependencies and build requirements through pip's
+configured package sources. This is package installation, not Locard telemetry.
+There are no update checks or unrelated network requests. Native parser packages
+require compatible wheels; the existing pure-Python `hexdump` dependency may be
+built from its source distribution. No native compiler is installed automatically.
+Inspect and trust the checkout and package sources before installation: ordinary
+Python package builds can execute build code.
+
+For an isolated workstation, prepare wheels on a compatible connected machine,
+transfer them and the checkout, and use the manual packaging path. Build tooling
+such as the declared `setuptools>=77` must also be available if building locally:
+
+```powershell
+python -m pip wheel --wheel-dir wheelhouse .
+# After creating a compatible virtual environment on the isolated workstation:
+.\.venv\Scripts\python.exe -m pip install --no-index --find-links wheelhouse locard-forensics
+```
+
+### PowerShell execution policy
+
+Review the scripts before running them. If policy blocks them, follow your
+organization's approved script-signing or execution procedure, or use manual
+installation. Do not weaken machine-wide execution policy. These instructions do
+not use `ExecutionPolicy Bypass`. Restricted language/application-control policies
+may also prohibit the helper's `Add-Type`; use the manual executable in that case.
+
+### Manual installation
+
+The bootstrapper is optional. With a compatible Python already installed:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\locard.exe
+```
+
+Choose an installed compatible Python if 3.12 is unavailable. Python packaging
+remains independent of PowerShell; Linux/macOS execution remains unvalidated as
+noted above. Relative paths resolve against the launch working directory.
+
+### Development setup
+
+Developers can retain editable installation and install test dependencies explicitly:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[test]"
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Installer tests use temporary repositories, generated test executables, and
+controlled discovery. They do not alter machine Python installations. Windows
+process tests use private hidden consoles for cancellation checks.
+
+### Optional semantic dependencies
+
+Core installation does not include the large semantic stack. Install it explicitly
+if needed, using the same environment, then follow [semantic setup](docs/v3.md):
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install ".[semantic]"
+```
+
+For an editable developer installation, use `-e ".[semantic,test]"` instead.
+MiniCPM, llama.cpp, and model downloads remain separate, explicit setup steps.
+
+
+### Ingest and inspect evidence
+
+Run commands from the project directory. `--db` is a global option placed **before**
+the subcommand; its default is `data/forensic.db` relative to the current directory.
+Use a separate database per investigation. Keep databases outside source evidence folders.
+
+```powershell
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ingest 'C:\Evidence'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli --db data\case1.db ingest 'C:\Evidence\Security.evtx'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli status
+```
+
+Discovery is recursive and case-insensitive for `.evtx`; directory symlinks are not
+followed. Source files are opened read-only. Ingestion hashes each file, stages parsed
+events in a temporary disk-backed SQLite database, rehashes the source, then merges
+stable results transactionally in batches. Temporary staging needs free disk space.
+Files changed during parsing have their staged results rejected. This detects observed
+changes; it does not replace acquisition from a stable, write-protected evidence copy.
+
+Each run reports `complete`, `partial`, `changed`, or `failed`. Parse failures and
+checksum warnings are persisted in `ingestion_errors` with available record offsets
+and record numbers. Record failures do not prevent parsing later readable records or
+other files. Unrecoverable chunk traversal stops that chunk and is reported. No
+deleted-record carving or recovery of inactive chunks is implemented. Interrupted
+processes can leave `running` entries; a new ingestion safely retries with deduplication.
+
+Checksums are parser checks, not proof of authenticity. Invalid XML is recorded as an
+ingestion error and remains recoverable only from the unchanged original file; no
+normalized event is manufactured for XML that could not be parsed.
+
+### Deterministic searches
+
+```powershell
+.\.venv\Scripts\python.exe -m forensic_assistant.cli search --event-id 4688
+.\.venv\Scripts\python.exe -m forensic_assistant.cli search --user bob
+.\.venv\Scripts\python.exe -m forensic_assistant.cli search --user 'DOMAIN\bob'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli search --process powershell.exe
+.\.venv\Scripts\python.exe -m forensic_assistant.cli search --ip '2001:db8::1'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli search --kind failed-logons --user bob
+.\.venv\Scripts\python.exe -m forensic_assistant.cli search --start '2026-09-15T00:00:00Z' --end '2026-09-16T00:00:00Z'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli timeline '2026-09-15T14:30:00Z' --minutes 5
+.\.venv\Scripts\python.exe -m forensic_assistant.cli search --limit 100 --offset 100
+```
+
+`--kind` accepts `logons`, `failed-logons`, `processes`, `powershell`,
+`scheduled-tasks`, `services`, or `account-changes`. Filters combine with AND.
+`logons` includes successful, explicit-credential, and privileged logon records;
+failed logons have their own query. PowerShell searches include operational records
+and normalized `powershell.exe`/`pwsh.exe` process names, without labeling them malicious.
+
+Username searches match the selected normalized actor or target, not every name in
+the payload. Bare names match the exact name or a domain-qualified suffix; qualified
+names match exactly, case-insensitively. Process searches match a full path or exact
+Windows basename, not arbitrary substrings. SQL wildcard characters in user input
+are escaped. IP queries cover source and destination and recognize equivalent IPv6
+spellings; IPv6 equivalence checks can require scanning rows. No LLM generates SQL.
+
+Time bounds are inclusive. UTC timestamps have fixed nine-digit fractional seconds;
+original parser-rendered timestamp strings are also retained (both `T` and space
+separators are accepted). Parser-rendered precision may be lower than binary EVTX
+FILETIME precision; padding does not manufacture additional precision. Missing, invalid, and timezone-ambiguous
+timestamps have NULL UTC values and warnings; they are excluded from timed searches.
+Untimed searches include them last. Results sort by UTC timestamp then stable evidence
+ID, report total count and truncation, and support `--limit` / `--offset`. Search and
+timeline omit raw XML by default; add `--raw` to include it.
+
+Output is JSON, with untrusted control characters escaped. Exit status is 0 for
+success (including no matches), 1 for incomplete ingestion/no discovered files, and
+2 for invalid input, database errors, or unavailable/invalid model responses.
+
+### Evidence IDs and source paths
+
+```text
+EVTX:<full source SHA-256>:Offset:<record byte offset>
+```
+
+Copy an ID from a search result:
+
+```powershell
+.\.venv\Scripts\python.exe -m forensic_assistant.cli show 'EVTX:<sha256>:Offset:<offset>' --raw
+```
+
+The digest identifies the exact source content; the offset identifies the binary
+record location. EventRecordID, provider, channel, Event ID, original timestamp, and
+parser-rendered XML are preserved. XML is the parser's representation of EVTX binary
+XML, not a byte-for-byte replacement for the source file.
+
+**`events.source_file` is the source path used by the ingestion that created that
+event.** It is never changed by duplicate ingestion. **`source_locations` is the
+authoritative set of all observed paths for identical evidence content.** A copied or
+renamed file adds a location while retaining existing event provenance. Different
+content at the same path gets a different hash and distinct IDs. `show` returns all
+observed source paths. Locations are historical observations, not a guarantee that a
+file still exists or contains the same data; verify the hash before re-examination.
+
+### Ask questions
+
+```powershell
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ask 'Show me suspicious PowerShell activity'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ask 'What activity involved user bob?'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ask 'Show failed logons for 192.0.2.10'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ask 'What happened around 2026-09-15T14:31:00Z?'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ask 'What happened around 14:31?' --date 2026-09-15
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ask 'PowerShell for user bob' --dry-run
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ask 'Event ID 4688' --endpoint http://127.0.0.1:8080 --timeout 120
+```
+
+The keyword planner recognizes PowerShell, processes, logons, failed/privileged
+logons, scheduled tasks, services, account creation/changes, usernames, one IP address,
+Event IDs, and timestamps. The displayed plan is reviewable; it is not a general
+natural-language interpreter. Multiple activity categories are rejected rather than
+silently choosing one. Unsupported questions require a supported concept or manual
+search. A time-only question uses an explicit `--date`, a date in the question, or the
+sole UTC date in evidence; otherwise it asks for a date. Assumptions are shown in the
+plan. Timeline questions use a five-minute window.
+
+`--dry-run` displays the plan and evidence bundle without contacting the model.
+Initial ask retrieval defaults to 30 matching records; V1 expands deterministic context
+around the first match, retaining other matches as candidates. Bundles report candidate,
+sent, and omitted record counts and whether the candidate count is a lower bound.
+Long field values are shortened with explicit `truncated_fields`; raw XML is not sent. Narrow the search
+or use `show --raw` when details are omitted. Zero matches produce an insufficient-
+evidence message without calling the model.
+
+Model answers must be JSON with per-finding evidence IDs, interpretation, confidence,
+alternative explanations, and suggested next evidence. Unparseable answers, missing
+citations, or references to IDs outside the supplied bundle cause the analysis to be
+withheld. There is no automatic retry loop. These structural checks **do not prove
+that a cited event supports a claim**, prevent all hallucinations, or make a model
+immune to prompt injection. All conclusions require analyst verification. Missing
+evidence and incomplete auditing are explicit limitations, never proof of innocence
+or compromise. The tool does not automatically store model conclusions as evidence.
+
+## Event coverage and normalization
+
+Mappings are keyed by provider, channel, and Event ID:
+
+| Provider/channel | Explicit event coverage |
+|---|---|
+| Security-Auditing / Security | 4624, 4625, 4634, 4648, 4672, 4688, 4697, 4698, 4702, 4720, 4728, 4732, 4756 |
+| Eventlog / Security | 1102 |
+| PowerShell / Operational | 4103, 4104 |
+| Sysmon / Operational | 1 process creation, 3 network connections |
+
+Logon/logoff and account-creation usernames select `Target*`; other mapped Security
+events select `Subject*`. For 4648, target credentials stay in the original payload.
+For group changes, the initiating subject is normalized; group/member details remain
+in the payload. Sysmon uses `User`. No SID-to-name resolution is guessed. PowerShell
+4103 context text is preserved, but not parsed into an inferred username. Script-block
+fragments are kept as separate events and are not automatically reassembled. Sysmon
+payload `UtcTime` remains in the payload; normalized time uses System TimeCreated.
+
+Missing values and `-` placeholders normalize to NULL. Numeric PIDs support decimal
+and hexadecimal. Raw EventData/UserData leaf values, including repeated names, remain
+in `event_data_json`; duplicate names are not arbitrarily selected for normalization.
+XML retains hierarchy and attributes. Unknown Event IDs retain basic metadata and
+raw XML. A service image string is not treated as proof of process execution.
+
+## Project layout and testing
+
+### Version-control hygiene
+
+The Git repository contains only application source, synthetic unit tests, the SQL
+schema, package metadata, and documentation. `.gitignore` uses an explicit allowlist
+and excludes the entire `data/` tree, EVTX/forensic artifacts, SQLite databases and
+sidecars, model weights, credentials, virtual environments, caches, and temporary
+outputs at any depth. Runtime data directories are created locally as needed.
+New file types require a deliberate allowlist change. Never force-add evidence or
+secrets: Git ignore rules can be bypassed with `git add -f`, and they do not inspect
+the contents of allowed source files. Review `git diff --cached` before committing.
+
+```text
+forensic_assistant/
+  config.py, model.py, cli.py
+  ingest/       # parser, provenance staging, explicit mappings
+  database/     # SQLite connections, schema, inserts
+  retrieval/    # deterministic queries and keyword planner
+  llm/          # loopback client, prompts, citation validation
+tests/          # parsed XML fixtures and mocked HTTP tests
+data/evidence/  # optional location for analyst-supplied evidence copies
+```
+
+Run `.\.venv\Scripts\python.exe -m pytest -q`. Unit tests do not require Internet,
+real evidence, or MiniCPM. They cover normalization, timestamps, IDs, inserts,
+duplicates and path provenance, integrity-change rejection, queries, planner, bundle
+formatting, citation validation, endpoint restrictions, and HTTP failure handling.
+See `VALIDATION.md` for stage results and separate integration checks.
+
+`database/schema.sql` retains schema version 1 as the historical V0 base schema.
+New databases apply the additive schema-2 and schema-3 extensions
+from `database/migrations.py` and `database/artifacts.py`; existing V0/V1 databases are rejected. Unsupported
+versions are rejected. Changing normalization mappings does not automatically rewrite
+existing events. Context extraction version 1 is stored separately in `event_context`.
+
+V2 deliberately excludes embeddings, vector databases, autonomous agents, cloud
+services, web interfaces, memory parsing, USN Journal, Amcache, SRUM, browser history,
+LNK/Jump Lists, packet capture, and external enrichment. No detection
+coverage or forensic completeness is promised by this initial event subset.
+
+## V1 deterministic investigations
+
+Examples below use the installed `locard` entry point. Without environment activation,
+use `.\.venv\Scripts\locard.exe` or `.\.venv\Scripts\python.exe -m forensic_assistant.cli`.
+All commands default to JSON; `--json` explicitly selects it and `--text` selects
+readable output. Text rendering escapes untrusted control characters.
+
+### Filtered timelines and surrounding context
+
+```powershell
+locard timeline --start '2026-09-15T14:25:00Z' --end '2026-09-15T14:40:00Z' --hostname PC.example --text
+locard timeline --around '2026-09-15T14:31:00Z' --minutes 5 --user 'DOMAIN\bob' --json
+locard timeline --around '2026-09-15T14:31:00Z' --process powershell.exe --event-id 4688
+locard timeline --around '2026-09-15T14:31:00Z' --artifact-type process --ip 192.0.2.10
+locard around '<evidence-id>' --seconds 120 --direction after --json
+```
+
+Timeline filters combine with AND. Time bounds are inclusive and equal timestamps
+sort by evidence ID; this tie-break is display order, not proof of event causality.
+`before` and `after` exclude events at the anchor's exact timestamp because their
+relative ordering is unknown. `around` includes both bounds and the anchor.
+Evidence-anchored context is restricted to the anchor's normalized hostname. Missing
+host or unambiguous time prevents temporal correlation rather than widening the search.
+
+### Process trees
+
+```powershell
+locard process-tree --evidence '<process-creation-evidence-id>' --text
+locard process-tree --process powershell.exe --around '2026-09-15T14:31:00Z' --hostname PC.example --json
+```
+
+Every node is an actual process-creation record with its evidence ID and timestamp.
+Text output lists nodes and parent-to-child edges; JSON includes status, supporting
+IDs, reasons, limitations, and configured bounds. Ambiguous name/time searches return
+candidate IDs; select one explicitly with `--evidence`.
+
+| Status | Deterministic criteria |
+|---|---|
+| CONFIRMED | Unique same-host explicit parent/process GUID match, compatible timing, and no observed contradictions |
+| LIKELY | Unique preceding same-host PID candidate within the configured window; matching parent image; no observed identity conflicts, intervening restart, termination, or PID reuse |
+| UNRESOLVED | Missing parent, ambiguous candidates, equal-time PID ordering, contradictory fields, cycles, or exceeded candidate bounds |
+
+Default PID fallback window is 300 seconds (`--pid-window`, maximum one day).
+Each node's child search covers 300 seconds (`--seconds`, maximum one day). Graph
+defaults are 100 nodes and depth 8 (`--max-nodes`, `--max-depth`). These are explicit
+search limits, not assertions about a process lifetime. Long-running parents outside
+the PID window remain unresolved unless GUID evidence supports a link. No parent
+record is synthesized from a child's reported parent name/PID. Confirmed means
+supported by supplied records, not independently authenticated or malicious.
+
+### Authentication and sessions
+
+```powershell
+locard logons --user 'DOMAIN\bob' --json
+locard logons --ip 192.0.2.10 --hostname PC.example
+locard session --logon-id 0x42 --hostname PC.example --around '2026-09-15T14:31:00Z'
+locard session --logon-id 0x42 --evidence '<successful-logon-evidence-id>' --json
+```
+
+Authentication views include 4624, 4625, 4634, 4647, 4648, and 4672 where available.
+V1's projection recognizes 4647 as a logoff request without rewriting its V0 event.
+Session IDs are canonical numeric identifiers, scoped by host and time; usernames
+alone never join sessions. An observed logoff closes the interval, while a new logon
+with the same ID or a restart bounds it. A logoff request does not establish completion.
+The fallback ceiling is 24 hours (`--max-hours`, maximum 168); it does not invent a logoff.
+
+Links in compatible observed start/logoff intervals can be CONFIRMED; incomplete
+boundaries yield LIKELY, and conflicting account/SID fields yield UNRESOLVED.
+Missing restart auditing can still conceal identifier reuse. The same Logon ID on
+multiple hosts requires disambiguation. Failed logons never become successful sessions.
+For 4688, `created_by_session` uses SubjectLogonId; `runs_in_session` requires an
+explicit execution identifier. Explicit credentials associate with the initiating
+session and do not prove creation of a target session.
+
+Process-lifetime context recognizes Security 4689 and Sysmon 5 termination markers,
+and Security 4608 startup markers, only when already present in supplied EVTX.
+No additional artifact types are collected. Host keys fold case and a terminal DNS
+dot; aliases are not resolved and attacker-controlled domains are never queried.
+
+### Dynamic detections
+
+```powershell
+locard detections --start '2026-09-15T14:25:00Z' --end '2026-09-15T14:40:00Z' --json
+locard detections --user 'DOMAIN\bob' --hostname PC.example --severity medium
+locard detections --rule LOCARD-AUTH-001 --failure-threshold 5 --failure-window 300
+```
+
+| Rule | Observation | Severity |
+|---|---|---|
+| LOCARD-PROC-001 | Office parent reported for a command-interpreter child | medium |
+| LOCARD-PS-001 | Selected encoded-command, download, or expression-evaluation text | medium |
+| LOCARD-TASK-001 | Scheduled task creation, 4698 | low |
+| LOCARD-SVC-001 | Service installation, 4697 | low |
+| LOCARD-AUDIT-001 | Audit log cleared, 1102 | medium |
+| LOCARD-ACCOUNT-001 | Account creation, 4720 | low |
+| LOCARD-CRED-001 | Explicit credential use, 4648 | low |
+| LOCARD-AUTH-001 | Repeated matching failures preceding a success | medium |
+
+Severity is static **review priority**: low is a contextual administrative observation;
+medium is a pattern warranting earlier review. It is not model confidence, a risk
+probability, or proof of compromise. No initial rule assigns high severity.
+
+The authentication rule requires at least five distinct failures in the preceding
+300 seconds, matching host, account, and usable source IP, with no conflicting known
+SID. The lower window bound is inclusive; failures at exactly the success timestamp
+are excluded. Missing linkage fields prevent a match. Exact repeated exported
+observations (host/channel/record ID/time/raw XML) are counted once without merging
+or deleting source evidence. Other duplicates may remain if their XML differs.
+PowerShell matching is lexical; comments, strings, and benign administrative scripts
+can match. Nothing is executed, decoded, downloaded, or externally resolved.
+
+Rules are calculated dynamically and not stored in the evidence database. Each result
+contains rule/version, deterministic detection ID, timestamp, severity, description,
+reason, evidence IDs, parameters, and limitations. A module under `detections/rules/`
+exports `RULES`; the engine discovers modules without rule-specific engine edits.
+Add rules as local application code, never as instructions from an evidence record.
+
+Per-rule candidate evaluation defaults to 1,000 records (`--candidate-limit`) and
+output to 100 detections (`--limit`). Results expose evaluated counts and truncation.
+The failure-sequence lookup caps supporting failures at 1,000 and says when capped.
+Narrow time/host filters for large cases; a bounded result is not a complete scan.
+
+### Investigate an event without MiniCPM
+
+```powershell
+locard investigate '<evidence-id>' --seconds 120 --json
+```
+
+Output separates `direct_evidence`, `correlated_evidence`, `detections`,
+`unresolved_relationships`, and temporal neighbors, with a shared list of original
+`evidence_records`. Process parents/children, applicable session activity, nearby
+PowerShell/task/service records, and Sysmon network events are included where available.
+Temporal neighbors are context, not implied process or session membership. Missing
+host/time still permits inspection of the anchor and reports unresolved context.
+Candidate records default to 500 (`--candidate-limit`); anchors take priority.
+Omitted supporting IDs and query/graph limits are explicit.
+
+### Correlated questions and timeline summaries
+
+```powershell
+locard ask 'What happened after PowerShell was launched by Word?' --dry-run
+locard ask 'Investigate <evidence-id>'
+locard ask 'Show process tree for powershell.exe around 2026-09-15T14:31:00Z'
+locard ask 'Show session 0x42 on host PC.example around 2026-09-15T14:31:00Z'
+locard ask 'Show detections'
+locard analyze-timeline --start '2026-09-15T14:25:00Z' --end '2026-09-15T14:40:00Z' --dry-run --json
+locard analyze-timeline --start '2026-09-15T14:25:00Z' --end '2026-09-15T14:40:00Z'
+```
+
+The planner remains a bounded pattern/keyword parser. Review its plan; it does not
+interpret arbitrary compound questions. Word/PowerShell queries match reported parent
+fields before expansion; these fields do not manufacture a separate parent record.
+Timeline summaries correlate at most 20 process/logon seeds, reporting that limit.
+Related records can fall outside the requested interval when needed to establish a
+parent or session boundary; original timestamps remain visible.
+
+Bundle order is anchor, supported correlations, detection evidence, nearest temporal
+neighbors, then remaining candidates. Correlation/detection metadata is sent only
+when all its referenced records fit. Missing packages, omitted records, truncated
+fields, and bounded source queries are reported. Counts are lower bounds when source
+queries hit limits. The combined system/user prompt stays below 5,600 bytes, reserving
+space for the chat template and 1,024 generated tokens in the 8,192-token context.
+Thinking remains disabled. Very large anchors produce an actionable error rather
+than silently replacing the anchor with unrelated evidence.
+
+`analyze-timeline` returns cited `summary`, `observed_sequence`,
+`possible_interpretation`, and `alternative_explanations`, plus gaps and next steps.
+Claims are labeled OBSERVED, CORRELATED, HYPOTHESIS, or UNKNOWN. Deterministic supporting
+relationship IDs/statuses are attached after model validation; CORRELATED summary
+prose backed only by a LIKELY link receives an explicit LIKELY prefix. The validator rejects
+unknown citations, hypotheses placed in the observed sequence, and CORRELATED claims
+without supporting supplied relationship evidence. This is structural validation,
+not proof that the model's interpretation or chosen classification is correct.
+
+Logging configuration and supplied evidence determine what Locard can
+reconstruct. No model output is inserted into the evidence database.
+
