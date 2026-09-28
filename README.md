@@ -33,19 +33,11 @@ The interactive CLI in V6 uses the existing V0-V5 forensic capabilities. Even th
 
 <img width="1623" height="744" alt="image" src="https://github.com/user-attachments/assets/56802195-95b9-4f9d-8dbe-48ddc18ee59e" />
 
-[v3 local semantic setup](docs/v3.md)
-
-[v4 operation, privacy, budgets and replay](docs/v4.md) 
-
-
-
-
 ### Locard inputs
 
 Locard reads four types of forensic evidence files.
 
 <img width="370" height="400" alt="image" src="https://github.com/user-attachments/assets/1087ac96-3bb7-496e-8d6a-0f33aa1986be" />
-
 
 
 | File type | Examples | What Locard extracts |
@@ -64,23 +56,10 @@ Locard expects already extracted artifacts. It is not designed to run on the com
 | **imagemounter** | Python-based forensic image mounting utility supporting multiple forensic image formats through established forensic tools. | [ralphje/imagemounter](https://github.com/ralphje/imagemounter?utm_source=gemini) |
 | **xmount** | Provides read-only access and conversion between forensic disk image formats including RAW, EWF/E01, VHD, VDI, and VMDK. | [mika/xmount](https://github.com/mika/xmount?utm_source=gemini) |
 
-### THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.
-
-```powershell
-locard --db data\case.db investigate-ai 'Inspect PowerShell activity' --no-semantic --explain --json
-locard --db data\case.db investigate-ai 'Inspect PowerShell activity' --dry-run
-locard --db data\case.db investigation show '<investigation-id>' --explain
-locard --db data\case.db investigation replay '<investigation-id>' --no-semantic
-```
-
-
 
 ## Description
 ### Architecture and workflow
 
-<img width="6040" height="5297" alt="diagram (5)" src="https://github.com/user-attachments/assets/a48d1d86-2aaa-4fea-868b-f8b238182b40" />
-
-Here is another representation of the architecture
 <img width="4152" height="2544" alt="locard-runtime (1)" src="https://github.com/user-attachments/assets/54524163-8c67-45b6-ba56-9e4eb93881e5" />
 
 ### MiniCPM
@@ -106,105 +85,6 @@ Locard does not ask the model to reconstruct an investigation from millions of r
 | Produce readable, evidence-backed analysis reports. | Decide which records constitute "forensic facts." |
 
 
-### How it works
-
-Acquire offline files using appropriate forensic acquisition procedures. Locard
-parses supplied copies; it does not acquire live hives, unlock files, mount images,
-recover deleted content, or replay Registry transaction logs. Missing companion
-hives are allowed. `ingest` retains its original EVTX-only behavior. New commands
-validate signatures rather than relying on filenames:
-
-```powershell
-locard --db data\case.db ingest-mft 'C:\Evidence\filesystem\$MFT' --hostname PC01 --volume-root C:
-locard --db data\case.db ingest-prefetch C:\Evidence\Prefetch --hostname PC01 --volume-root C:
-locard --db data\case.db ingest-registry C:\Evidence\Registry --hostname PC01
-locard --db data\case.db ingest-all C:\Evidence --hostname PC01 --json
-locard --db data\case.db search --path payload.exe --json
-locard --db data\case.db search --artifact registry --json
-locard --db data\case.db search --process powershell.exe
-locard --db data\case.db timeline --start 2026-09-15T14:30:00Z --end 2026-09-15T14:32:00Z --json
-locard --db data\case.db show '<evidence-id>' --raw --json
-locard --db data\case.db investigate '<evidence-id>' --json
-locard --db data\case.db ask 'Inspect Prefetch powershell.exe' --dry-run
-```
-
-
-
-
-Use the active environment's `locard` command or replace it with
-`.\.venv\Scripts\python.exe -m forensic_assistant.cli`. Replace placeholder IDs
-with complete IDs from search results. `--db` precedes the subcommand.
-`--hostname`, `--user`, and `--volume-root` on ingestion are analyst assertions,
-stored separately from raw evidence. Apply a directory-wide assertion only when
-every contained source shares that context. Conflicting assertions remain visible
-and prevent corroboration. Filenames, folders, and the analyst's live environment
-never supply missing host, user, timezone, or drive information.
-
-`search` counts evidence records. `timeline` counts timestamp observations and can
-show one MFT record repeatedly under distinct SI/FN fields. Stable ordering is UTC,
-evidence ID, then timestamp slot. Search combines filters with AND; `--start` and
-`--end` supply time bounds. `--artifact` selects a source; the existing
-`--artifact-type` timeline option still selects EVTX categories. Registry value
-search may use its containing key's time, explicitly marked inherited; unified
-timeline rows belong to the key. `around` and `investigate` accept
-`--timestamp-slot` from `show` when an anchor has multiple distinct timestamps.
-Investigation still retrieves object relationships without choosing an arbitrary
-MFT/Prefetch timestamp for temporal neighbors.
-
-### Stable IDs and provenance
-
-| Source | Evidence ID locator | Preserved representation |
-|---|---|---|
-| EVTX | `EVTX:<sha256>:Offset:<offset>` (unchanged) | Original XML and existing fields |
-| MFT | `MFT:<sha256>:Offset:<physical-byte-offset>` | Raw record, physical slot, header/attribute details, all exposed filenames |
-| Prefetch | `PREFETCH:<sha256>:File` | Original file bytes, format/metrics, referenced paths and volumes |
-| Registry key | `REGISTRY:<sha256>:KeyOffset:<absolute-nk-offset>` | Key path, parent linkage, raw integer last-write |
-| Registry value | `REGISTRY:<sha256>:ValueOffset:<absolute-vk-offset>` | Raw bytes, typed safe decoding, containing key linkage |
-
-Registry offsets point to the `nk`/`vk` signature, not the preceding cell-size field.
-MFT identity uses physical position, independent of a corrupt or stale header record
-number. SHA-256 includes the complete supplied file. Moving an identical source
-does not change IDs; changed content creates a new source namespace. First-ingested
-`source_file` remains immutable, and `source_locations` records every observed path
-for identical file bytes. Parser/extractor versions, locators, warnings, and source
-context accompany JSON evidence. Historical EVTX parser versions that were never
-recorded remain unknown; migration does not invent them.
-
-### Artifact semantics and limits
-
-- **MFT:** Allocated and unallocated records, sequence numbers, parent references,
-  multiple filenames, sizes, and attribute metadata are retained. SI and FN
-  creation/modification/MFT-change/access timestamps remain separate, with original
-  FILETIME integers and 100 ns precision. Parent sequence mismatch, missing parents,
-  cycles, depth limits, and multiple paths remain explicit. Paths are volume-relative
-  until an unambiguous analyst drive assertion is supplied. Attribute-list extension
-  records remain separate; external/nonresident content is not reconstructed.
-  Metadata timestamps alone do not establish download, execution, or user action.
-- **Prefetch:** Validated formats 17, 23, 26, 30, and 31 retain executable name,
-  identifier, run count, exposed execution slots, referenced filenames, and volume
-  metadata. The identifier is not a content hash. Retained execution history is
-  incomplete; count interpretation varies, files can be deleted, and Prefetch may
-  be disabled or behave differently on servers. Absence does not prove non-execution.
-  The Python binding does not expose standalone directory tables; Locard reports
-  that limitation and preserves original bytes rather than inventing directories.
-- **Registry:** Structural signatures identify SYSTEM, SOFTWARE, SAM, SECURITY,
-  NTUSER, and USRCLASS where possible; ambiguous/minimal hives remain UNKNOWN.
-  Keys and values retain distinct identities. Last-write belongs to the key,
-  never individual value creation. Binary/undecodable values use safe base64;
-  expansion strings remain unexpanded. Dirty/corrupt snapshots are flagged;
-  logs, deleted-cell recovery, SAM/SECURITY decryption, and transaction replay are
-  outside V2. Versioned local extractors cover Run/RunOnce, service ImagePath and
-  ServiceDll, Winlogon, startup folders, profiles, USB/device, RDP, and selected
-  recent-text locations. They retain key/value links and do not assert execution
-  or that a particular ControlSet was active.
-
-Path comparison preserves originals, normalizes case/slashes and unambiguous NT
-prefixes, and distinguishes absolute, device, volume-relative, and unexpanded paths.
-It never expands environment variables, resolves short names, follows the local
-filesystem, or guesses ambiguous unquoted executable paths. Prefetch device paths
-can be compared using an explicit drive assertion only when exactly one volume
-provides an unambiguous device prefix. Search includes original normalized paths;
-MFT absolute-path search also honors an unambiguous drive assertion.
 
 ### Correlation, detections, and model context
 
@@ -216,282 +96,14 @@ MFT absolute-path search also honors an unambiguous drive assertion.
 | UNRESOLVED | Conflicting host/path assertions, competing matches, incomplete object data, or candidate cap |
 
 
-### Parser validation and trust boundary
-
-| Package | Pinned version | Upstream license |
-|---|---|---|
-| [dissect.ntfs](https://pypi.org/project/dissect.ntfs/3.16/) | 3.16 | AGPL-3.0-or-later |
-| dissect.cstruct / dissect.util | 4.7 / 3.24 | Apache-2.0 |
-| [libscca-python](https://pypi.org/project/libscca-python/20260527/) | 20260527 | LGPL-3.0-or-later |
-| [libregf-python](https://pypi.org/project/libregf-python/20260526/) | 20260526 | LGPL-3.0-or-later |
-
-
-## Interactive and scripted workflows
-
-Application version: **0.8.1**. Evidence schema 3 and report format 1 are unchanged.
-
-From a fresh clone, install and start Locard in a Windows terminal:
-
-```powershell
-git clone https://github.com/jeanlucdupont/locard.git
-cd locard
-.\install.ps1
-.\locard.ps1
-```
-
-Locard offers the last selected database. Otherwise, the startup menu offers
-**Create a new case**, **Open an existing case**, and **Exit**. A validated schema-3
-Locard database is required before the main prompt appears. Opening an existing
-case never creates or upgrades it. The selector accepts paths (optionally quoted)
-and recent-case numbers; Enter, Ctrl+C, or EOF cancels selection.
-
-<img width="558" height="349" alt="image" src="https://github.com/user-attachments/assets/e32a646d-c68a-4622-9c86-4eefde74f193" />
-
-
-
-Choose **Create a new case**, or use `case new` from an active case. The wizard asks
-for a database filename, extracted evidence file/directory, and optional source
-hostname, user, and original drive. Blank metadata means unknown; Locard does not
-infer it from the analyst's computer. The destination must be outside the evidence
-source directory. Existing files are never overwritten; an existing valid Locard
-database can be opened without automatically ingesting the selected source.
-
-If the parent directory is missing, Locard asks for explicit `y`/`yes` approval to
-create it. Actual directory and database creation wait until the final confirmation.
-Declining the directory request returns to destination selection. At the final
-summary, `B` goes back and any answer other than `y`/`yes` cancels without filesystem
-changes. Ctrl+C/EOF also cancels. Approved directories already created are retained
-if initialization or ingestion later fails.
-
-Discovery checks for supported artifact signatures before creation, then ingestion
-repeats discovery using the existing engine. If no supported artifacts are found,
-choose another source, explicitly request an empty case, or cancel. Initialization
-uses private staging and no-overwrite publication. Only unpublished initialization
-staging is automatically cleaned; published databases and committed evidence are
-never automatically deleted. Parser timeout and record-size options remain in the
-ordinary ingestion commands, rather than the first-run wizard.
-
-Successful ingestion activates the new case. Recoverable file/record errors with
-stored evidence activate it with explicit limitations. Fatal failure or cancellation
-retains the previous case; a retained database can subsequently be opened explicitly.
-If no records were stored, activation requires an explicit choice. Summaries show
-stored evidence records by artifact, file-run outcomes, inserted/duplicate counts,
-and recorded errors; Registry records include keys and values. Earlier commits are
-not rolled back when a later file fails. These counts do not establish completeness
-of a forensic examination. Recent-case state changes only after activation.
-
-```text
-Locard 0.8.1
-
-Last database:
-C:\Cases\workstation-23\forensic.db
-
-Use this database? [Y/n]:
-
-locard[workstation-23/forensic.db]> status
-locard[workstation-23/forensic.db]> search --process powershell.exe
-locard[workstation-23/forensic.db]> help report generate
-locard[workstation-23/forensic.db]> case "C:\Cases\other\forensic.db"
-locard[other/forensic.db]> exit
-```
-
-The prompt uses the parent directory and database filename, safely escaped and
-shortened if necessary. It is a display label, not a persistent case name or unique
-identifier. Selection displays the full path; `case` displays it again and offers
-recent databases and a New case option. A failed or cancelled switch retains the old case. If the active
-case becomes unavailable, Locard requires reselection before accepting more commands.
-
-Shell-only commands are `help [command [subcommand]]`, `case [path|new]`, `exit`, and
-`quit`. Help comes from the ordinary CLI parser. All forensic commands retain their
-existing arguments and implementations; the shell supplies `--db` internally.
-Use `case` rather than a global `--db` override. Command-specific model/index/output
-options apply only to that command. `report validate` still needs an explicit
-`--case` to perform case fingerprint and grounding checks.
-
-Paths with spaces must be quoted in commands. Backslashes are literal. Both single
-and double quotes group arguments; double a matching quote inside a quoted argument
-to include it literally. Relative paths use the launch working directory; no
-shell expansion, environment-variable substitution, shell operators, or Python
-execution is provided. Unicode and long local paths are tested. UNC quoting is
-supported, but live UNC-share access has not been validated; existing SQLite and
-read-only opener restrictions apply. Linked/reparse-point case paths are rejected.
-
-Windows supports bounded in-memory up/down command history and basic editing.
-History is cleared on case selection/switching and exit and is never written to disk.
-Other terminals use their native input behavior; equivalent editing is not promised.
-No autocomplete is included. Ctrl+C clears a line or interrupts an operation; EOF
-(on Windows, Ctrl+Z at an empty prompt), `exit`, and `quit` close the shell. Ordinary
-argument/command errors return to the prompt; unexpected internal or unconfirmed
-cleanup failures terminate visibly. Completed ingestion files remain committed after
-an interruption. The current run records interruption and whether its publication
-committed; abrupt process/terminal termination can leave a run marked `running`.
-That is incomplete state, not a completed acquisition. Partial derived staging is
-not a completed semantic index, investigation, or report.
-
-Selection performs bounded structural checks, not evidence-grounding or full database
-integrity validation. It does not load models, contact MiniCPM, or compute evidence
-fingerprints. Use `status` and `semantic status` explicitly; semantic status can scan
-case content. SQLite connections and forensic workers are command-scoped; no model,
-controller, report, or database connection is kept for the next case.
-
-**Analyst-side privacy:** `%LOCALAPPDATA%\Locard\ui-state.json` stores at most ten
-recent successfully selected absolute database paths, with the most recent first.
-Those paths can identify cases. It contains no command history, evidence content,
-credentials, model responses, transcripts, or reports. It is unencrypted and inherits
-user-profile directory permissions. Writes use a sibling temporary file and atomic
-replacement; redirected state paths are rejected. Missing recent cases are not
-silently removed or recreated. Malformed state is warned about and preserved, with
-persistence disabled for that session. To reset it, exit Locard and deliberately
-move/remove that UI-state file; no forensic database needs changing. If the location
-is unavailable or saving fails, the session remains usable with a warning.
-
-Non-interactive automation remains available and does not alter recent-case state:
-
-```powershell
-locard --db "C:\Cases\workstation-23\forensic.db" status
-locard --db "C:\Cases\workstation-23\forensic.db" search --process powershell.exe
-locard report show "C:\Reports\example"
-```
-
-Commands execute once and preserve their existing exit behavior. Bare `locard` with
-redirected input/output fails clearly instead of prompting. Database-independent
-commands remain usable without selecting a case through this non-interactive CLI.
-Interactive and scripted modes are two interfaces over the same forensic capabilities;
-interactive mode adds no forensic authority. No new dependencies are required.
-
-## Setup
+## How-to
 
 ### Platform support
 
 Locard is currently developed and tested on Windows. Locard analyzes extracted Windows forensic artifacts and does not fundamentally require the source system to be Windows-mounted or live. Some underlying components are cross-platform, but Linux and macOS execution are not currently tested or officially supported.
 
-### Windows installation
 
-Use Windows PowerShell 5.1 or PowerShell 7 and a standard 64-bit AMD64 CPython
-installation satisfying the project's `>=3.11` requirement. Run `install.ps1`,
-then `locard.ps1`; activation is unnecessary. Python 3.12 is the validated runtime.
-
-The installer reuses a healthy compatible `.venv`. Otherwise it inspects the `py`
-launcher's listed runtimes and `python`/`python3` executable candidates, avoiding
-Microsoft Store activation aliases. It probes their actual version, implementation,
-architecture, and release type. It prefers the latest installed 3.12 patch, then
-other compatible stable versions from newest to oldest. A matching Python version
-still needs compatible native dependency wheels; installation stops clearly if
-those are unavailable. It does not install Python or invoke winget. An interpreter
-not discoverable through the launcher or PATH can be selected explicitly when no
-`.venv` exists:
-
-```powershell
-.\install.ps1 -Python 'C:\Path To Python\python.exe'
-```
-
-The default installs core Locard normally, not editable, and excludes test and
-semantic extras. It does not upgrade pip routinely, download AI models, change
-PATH/security settings, require administrator rights, or access case databases.
-The small shared C# helper is compiled in memory using PowerShell's built-in
-`Add-Type`; it is not a downloaded executable or an additional dependency.
-
-### Updating and recovery
-
-After `git pull`, rerun `.\install.ps1`. A healthy `.venv` is reused; satisfied
-dependencies remain installed, and Locard itself is reinstalled from the checkout,
-including same-version source changes. Close running Locard processes before
-updating. The installer prepares packages before replacing installed packages,
-then checks dependencies, installed version, imports, and packaged resources.
-A file lock prevents concurrent installers; the empty `.locard-install.lock`
-file may remain and is ignored by Git. Its presence alone does not indicate a lock.
-
-An incompatible, incomplete, corrupt, or redirected `.venv` is never silently
-removed or rebuilt. Inspect it and deliberately move it aside if you want a fresh
-installation. Virtual environments are machine-specific and should not be moved
-for reuse. An editable developer installation requires confirmation before
-conversion; `-ReplaceEditable` supplies that explicit choice for automation.
-Existing optional packages are not automatically removed.
-
-Pip changes are not transactional. If installation is interrupted while replacing
-packages, the environment is retained but may need repair. Rerun the installer if
-its interpreter and pip still validate, or use manual recovery. No rollback is
-claimed. Installer-owned child processes are contained before running and cleaned
-up after failure/cancellation. Abrupt termination can leave private packaging
-scratch in the Windows temporary directory; it contains derived install files,
-not forensic evidence. The launcher lets Locard handle Ctrl+C itself, preserving
-interactive cancellation and normal command exit codes.
-
-`locard.ps1` uses its own checkout's `.venv`, forwards arguments, and preserves the
-caller's working directory. Relative case/output paths keep their ordinary CLI
-meaning. Invoking the installer from elsewhere prints the full launcher path in
-its final instruction. Missing installation produces a clear setup instruction;
-launching never installs anything automatically.
-
-### Network requirements and offline installation
-
-Package installation may download dependencies and build requirements through pip's
-configured package sources. This is package installation, not Locard telemetry.
-There are no update checks or unrelated network requests. Native parser packages
-require compatible wheels; the existing pure-Python `hexdump` dependency may be
-built from its source distribution. No native compiler is installed automatically.
-Inspect and trust the checkout and package sources before installation: ordinary
-Python package builds can execute build code.
-
-For an isolated workstation, prepare wheels on a compatible connected machine,
-transfer them and the checkout, and use the manual packaging path. Build tooling
-such as the declared `setuptools>=77` must also be available if building locally:
-
-```powershell
-python -m pip wheel --wheel-dir wheelhouse .
-# After creating a compatible virtual environment on the isolated workstation:
-.\.venv\Scripts\python.exe -m pip install --no-index --find-links wheelhouse locard-forensics
-```
-
-### PowerShell execution policy
-
-Review the scripts before running them. If policy blocks them, follow your
-organization's approved script-signing or execution procedure, or use manual
-installation. Do not weaken machine-wide execution policy. These instructions do
-not use `ExecutionPolicy Bypass`. Restricted language/application-control policies
-may also prohibit the helper's `Add-Type`; use the manual executable in that case.
-
-### Manual installation
-
-The bootstrapper is optional. With a compatible Python already installed:
-
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install .
-.\.venv\Scripts\locard.exe
-```
-
-Choose an installed compatible Python if 3.12 is unavailable. Python packaging
-remains independent of PowerShell; Linux/macOS execution remains unvalidated as
-noted above. Relative paths resolve against the launch working directory.
-
-### Development setup
-
-Developers can retain editable installation and install test dependencies explicitly:
-
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[test]"
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-Installer tests use temporary repositories, generated test executables, and
-controlled discovery. They do not alter machine Python installations. Windows
-process tests use private hidden consoles for cancellation checks.
-
-### Optional semantic dependencies
-
-Core installation does not include the large semantic stack. Install it explicitly
-if needed, using the same environment, then follow [semantic setup](docs/v3.md):
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install ".[semantic]"
-```
-
-For an editable developer installation, use `-e ".[semantic,test]"` instead.
-MiniCPM, llama.cpp, and model downloads remain separate, explicit setup steps.
-
-### Start the local model
+### Local AI model
 
 Run from your llama.cpp directory, adjusting the model path:
 
@@ -513,6 +125,27 @@ Only HTTP loopback addresses are allowed. `localhost` is mapped directly to
 `127.0.0.1`; numeric IPv4 loopback and `::1` are supported. No DNS lookup, proxies,
 redirects, telemetry, cloud services, or automatic execution of event content are used.
 Ensure your local server itself is configured for local-only processing.
+
+
+### Installation 
+
+```powershell
+git clone https://github.com/jeanlucdupont/locard.git
+cd locard
+.\install.ps1
+```
+
+### Two modes
+
+Locard can run with arguments or without arguments. Without argument, Locard switches to interactive (shell) mode.
+
+```
+.\locard.ps1
+```
+
+<img width="558" height="349" alt="image" src="https://github.com/user-attachments/assets/e32a646d-c68a-4622-9c86-4eefde74f193" />
+
+
 
 ## Use
 ### Ingest and inspect evidence
