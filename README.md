@@ -148,8 +148,29 @@ Locard can run with arguments or without arguments. Without argument, Locard swi
 
 ## Use
 
+### General principles
+
 <img width="1774" height="887" alt="image" src="https://github.com/user-attachments/assets/828be5d8-5c56-4735-8604-900a24462e7e" />
 
+### Create a case
+
+To be documented
+
+### Ingest evidence
+
+To be documented
+
+### Deterministic investigation
+
+To be documented
+
+### Ask AI
+
+To be documented
+
+### Generate report
+
+To be documented
 
 
 ## License
