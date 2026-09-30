@@ -99,6 +99,31 @@ Locard expects already extracted artifacts. It is not designed to run on the com
 
 ### Investigation output (Locard 0.9.0)
 
+Locard **0.9.1** adds restrained terminal syntax colors: headings and evidence IDs
+are emphasized, and keys, strings, numbers, and booleans/null have consistent type
+styles. Terminal colors improve readability only; they do not indicate that
+evidence is malicious, benign, or significant. Executable names and detection
+values do not acquire new severity judgments through coloring.
+
+```text
+search --artifact prefetch --no-color
+show <evidence-id> --page --no-color
+```
+
+Color requires an interactive ANSI-capable terminal. Windows consoles must already
+have virtual-terminal processing enabled; uncertain capability falls back to plain
+output. `--no-color` disables styling for a command. Starting `locard --no-color`
+also disables it for the banner and the resulting interactive session. The presence
+of `NO_COLOR`, including an empty value, disables color throughout. The startup
+banner follows the same policy without changing its artwork.
+
+Explicit `--json`, `--output`, and `--append` remain plain; exported content never
+contains added ANSI styling. The internal pager preserves colors and ignores ANSI
+styles when calculating line width. Colors are reset before pager prompts. No
+external pager, new dependency, or terminal configuration change is required.
+Existing compact `--text` renderers and shell prompts remain plain where they do
+not have semantic style annotations.
+
 **Search summarizes. Show explains. Raw exposes.**
 
 Normal deterministic `search` displays compact, escaped record summaries with

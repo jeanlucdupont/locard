@@ -3,18 +3,20 @@ import shutil
 from .presentation import safe, detail
 
 
-def render(result):
+def render(result, palette=None):
+    from forensic_assistant.terminal import Palette, value_role
+    palette = palette or Palette()
     try: width = max(40, min(120, shutil.get_terminal_size().columns))
     except OSError: width = 80
     def field(name, value):
         text = safe(value)
         room = max(16, width - len(name) - 4)
         if len(text) > room: text = text[:room-3] + '...'
-        return '  ' + name + ': ' + text
-    lines = ['SEARCH RESULTS']
+        return '  ' + palette('key', name) + ': ' + palette(value_role(value), text)
+    lines = [palette('heading', 'SEARCH RESULTS')]
     for r in result['records']:
         kind = r['source_type']; d = r.get('detail') or {}
-        lines += ['', safe(r['id']), field('Artifact', r['artifact_type'])]
+        lines += ['', palette('evidence_id', safe(r['id'])), field('Artifact', r['artifact_type'])]
         ctx = r.get('context', {})
         lines.append(field('Host', 'CONFLICT' if 'hostname' in ctx.get('conflicts', []) else ctx.get('hostname') or 'unknown'))
         if ctx.get('hostname'): lines.append(field('Host basis', ctx.get('basis')))

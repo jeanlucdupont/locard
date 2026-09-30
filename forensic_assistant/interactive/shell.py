@@ -31,8 +31,9 @@ def split(line):
 
 
 class Shell:
-    def __init__(self, state, reader=None):
+    def __init__(self, state, reader=None, *, no_color=False):
         self.state=state;self.reader=reader or Reader();self.active=None;self.last_status=0
+        self.no_color=no_color
 
     def activate(self,path):
         target=validate(path)
@@ -139,6 +140,7 @@ class Shell:
                     parser=build_parser()
                     try:args=parser.parse_args(['--db',str(self.active),*words])
                     except SystemExit as exc:self.last_status=int(exc.code);continue
+                    if self.no_color:args.no_color=True
                     # Also rejects argparse global-option abbreviations/equals forms.
                     if args.db!=str(self.active) or any(w=='--db' or w.startswith('--db=') for w in words):
                         raise ValueError('Use case to change the active database')
@@ -157,8 +159,8 @@ class Shell:
         finally:self.reader.clear()
 
 
-def run():
+def run(*, no_color=False):
     try:state=State(state_path()).load()
     except (OSError,ValueError) as exc:
         state=State(None);state.warning=str(exc)
-    return Shell(state).run()
+    return Shell(state,no_color=no_color).run()

@@ -8,10 +8,12 @@ import sys
 import tempfile
 import time
 from forensic_assistant.retrieval.presentation import safe
+from forensic_assistant.terminal import Palette, enabled, render_json, wrap_line, message
 
 
 def configure(commands):
     def add(parser, *, report_generate=False):
+        parser.add_argument('--no-color', action='store_true', default=argparse.SUPPRESS, help='Disable terminal styling (also respects NO_COLOR)')
         group = parser.add_mutually_exclusive_group()
         group.add_argument('--page', action='store_true', default=argparse.SUPPRESS, help='Review output with the internal pager (Space/Enter/Q)')
         if not report_generate:
@@ -60,7 +62,7 @@ def page(stream):
     def rows():
         for line in stream:
             line = line.rstrip('\n')
-            for i in range(0, max(1, len(line)), width): yield line[i:i+width]
+            yield from wrap_line(line, width)
     iterator = iter(rows()); pending = next(iterator, None)
     prompt = '-- More -- Space: page, Enter: line, Q: quit'
     try:
@@ -140,11 +142,15 @@ class Output:
             raise ValueError('--page, --output and --append are mutually exclusive')
         if self.paged and getattr(args, 'json', False): raise ValueError('--json cannot be combined with --page')
         self.target = Path(output or self.append).absolute() if output or self.append else None
+        self.palette = Palette(enabled(args, file_output=bool(self.target)))
         if self.target: validate_destination(self.target, args)
         self.stream = tempfile.SpooledTemporaryFile(mode='w+', encoding='utf-8', newline='\n', max_size=1024*1024) if self.target or self.paged else None
 
     def write(self, text):
         print(text, file=self.stream or sys.stdout)
+
+    def json(self, value):
+        self.write(render_json(value, self.palette))
 
     def finish(self):
         if self.stream is None: return
@@ -169,7 +175,7 @@ class Output:
                 finally:
                     if temporary is not None: temporary.unlink(missing_ok=True)
                 verb = 'written to'
-            print('Output '+verb+': '+safe(self.target), file=sys.stderr)
+            message('Output '+verb+': '+safe(self.target), self.args, role='success')
         else: page(self.stream)
 
     def close(self):

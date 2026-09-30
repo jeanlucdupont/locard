@@ -33,6 +33,7 @@ def build_parser():
     parser = argparse.ArgumentParser(description="Locard — local evidence-first Windows forensics")
     parser.add_argument("--version", action="version", version="Locard " + __version__)
     parser.add_argument("--db", default=Config.database)
+    parser.add_argument('--no-color', action='store_true', help='Disable terminal styling (also respects NO_COLOR)')
     commands = parser.add_subparsers(dest="command", required=True)
     v1_cli.configure(commands)
     ingest = commands.add_parser("ingest", help="Recursively ingest EVTX files")
@@ -91,13 +92,15 @@ def build_parser():
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv:
+    if not argv or argv == ['--no-color']:
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             print('Locard: interactive mode requires a terminal; supply a command for scripts.', file=sys.stderr)
             return 2
-        print(get_banner())
+        from forensic_assistant.terminal import banner
+        no_color = '--no-color' in argv
+        print(banner(get_banner(), argparse.Namespace(no_color=no_color)))
         from forensic_assistant.interactive.shell import run
-        return run()
+        return run(no_color=True) if no_color else run()
     return dispatch(build_parser().parse_args(argv))
 
 
@@ -110,7 +113,8 @@ def dispatch(args, *, existing_only=False):
         output.finish()
         return code
     except (ValueError, OSError, sqlite3.Error) as exc:
-        print('Locard output: ' + json.dumps(str(exc)), file=sys.stderr)
+        from forensic_assistant.terminal import message
+        message('Locard output: ' + json.dumps(str(exc)), args)
         return 2
     finally:
         if output is not None: output.close()
@@ -118,7 +122,7 @@ def dispatch(args, *, existing_only=False):
 
 def _dispatch(args, output, *, existing_only=False):
     def emit(value):
-        output.write(json.dumps(value, ensure_ascii=True, indent=2))
+        output.json(value)
     from forensic_assistant.semantic import cli as semantic_cli
     from forensic_assistant.investigation_ai import cli as investigation_cli
     from forensic_assistant.reporting import cli as report_cli
@@ -147,7 +151,7 @@ def _dispatch(args, output, *, existing_only=False):
                 result,code=v2_result
                 if args.command=='search' and not args.json and not args.raw:
                     from forensic_assistant.retrieval.search_display import render
-                    output.write(render(result))
+                    output.write(render(result, output.palette))
                 elif getattr(args,'text',False):output.write(v2_cli.render(result))
                 else:emit(result)
                 return code
@@ -221,7 +225,8 @@ def _dispatch(args, output, *, existing_only=False):
                 emit(rendered)
             return 0
     except (ValueError, OSError, sqlite3.Error, OverflowError, LLMError) as exc:
-        print("Locard: " + json.dumps(str(exc)), file=sys.stderr)
+        from forensic_assistant.terminal import message
+        message("Locard: " + json.dumps(str(exc)), args)
         return 2
 
 

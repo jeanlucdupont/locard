@@ -1,3 +1,46 @@
+# Terminal presentation 0.9.1 validation - 2026-09-30
+
+Fetched origin and confirmed a clean main branch identical to origin/main at
+a48c868 before editing. Shared output infrastructure now controls terminal styles;
+JSON-like human output is rendered from structured values with escaped strings,
+not by rewriting evidence or applying a general-purpose highlighter. ANSI-stripped
+rendering is tested against the existing JSON serialization. Search formats apply
+semantic styles after display truncation. No dependency, evidence-schema, retrieval,
+ingestion, detection, prompt, or report-format changes were made. Transcript version
+acceptance includes the new application version without changing conclusions.
+
+| Validation | Result |
+|---|---|
+| Color plus existing output/pager targets | 75 passed in 10.99 seconds |
+| Complete accumulated suite | 494 passed in 271.09 seconds |
+| Synthetic 2 MB raw render | Plain 0.0049 s; colored 0.0067 s; stripped text identical |
+
+Tests cover type styles, exact evidence IDs and values, escaped attacker-controlled
+control characters, raw/detailed output, no-color at root/command/nested-command
+and session levels, NO_COLOR presence (including empty), conservative capability
+detection, JSON, exports/appends, ANSI-aware wrapping, colored/plain paging and
+quit, banner policy, and no external shell/process invocation.
+
+Live Windows terminal checks verified colored Prefetch summaries, detailed show
+through the pager, plain --no-color search, plain explicit JSON, and an exported
+detail file with no ANSI. The test process alone cleared the environment's
+NO_COLOR/TERM=dumb defaults for the color check; no persistent terminal settings
+were changed. Windows virtual-terminal mode was already enabled. Live pager key
+injection was rejected by the execution environment's automatic approval policy;
+the blocked test process was identified and terminated. Consequently Space/Enter/Q
+behavior for this release is covered by automated tests, not a completed live
+key-interaction test. Non-Windows terminal capability handling was not live-tested.
+
+Color is disabled for uncertain terminals, non-TTY streams, explicit JSON and file
+content. Existing compact text renderers and shell prompts remain plain. Colors
+indicate structure/type, not forensic significance or a new severity decision.
+The banner artwork and its existing styles are unchanged when color is supported;
+embedded SGR styles are removed when color is disabled. Pager width remains
+character-based, as before, but SGR bytes do not count toward display width.
+All smoke-test profiles, evidence and exported output remain outside the repository.
+
+---
+
 # Investigation output 0.9.0 validation - 2026-09-29
 
 Fetched origin and verified a clean checkout with no local-only commits before
