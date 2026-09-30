@@ -39,8 +39,11 @@ def build_parser():
     ingest = commands.add_parser("ingest", help="Recursively ingest EVTX files")
     ingest.add_argument("path")
     search = commands.add_parser("search", help="Deterministic evidence search")
-    for name in ("user", "ip", "process", "hostname", "start", "end"):
+    for name in ("user", "ip", "hostname", "start", "end"):
         search.add_argument("--" + name)
+    process = search.add_mutually_exclusive_group()
+    process.add_argument('--process', help='Exact executable name, case-insensitive; .exe may be omitted for a bare name. Explicit paths remain exact.')
+    process.add_argument('--process-contains', metavar='PROCESS', help='Case-insensitive literal substring of the executable basename; no wildcards')
     search.add_argument("--event-id", type=int)
     search.add_argument("--kind", choices=["logons", "failed-logons", "processes", "powershell", "scheduled-tasks", "services", "account-changes"])
     timeline = commands.add_parser("timeline")

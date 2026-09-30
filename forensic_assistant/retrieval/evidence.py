@@ -66,8 +66,20 @@ def get_evidence(db,eid,raw=False):
 class EvidenceQueries:
     def __init__(self,db):self.db=db
 
-    def _where(self,*,artifact=None,evidence_kind=None,path=None,username=None,hostname=None,strict_host=False,process=None,event_id=None,ip=None,artifact_types=None,powershell=False):
+    def _where(self,*,artifact=None,evidence_kind=None,path=None,username=None,hostname=None,strict_host=False,process=None,process_exact=None,process_contains=None,event_id=None,ip=None,artifact_types=None,powershell=False):
         clauses=[];params=[]
+        # Explicit CLI search policy; existing process callers retain their contract.
+        if sum(v is not None for v in (process,process_exact,process_contains))>1:
+            raise ValueError('Exact and partial process filters are mutually exclusive')
+        if process_exact is not None or process_contains is not None:
+            from forensic_assistant.retrieval.process_names import predicate
+            value=process_exact if process_exact is not None else process_contains
+            if not value.strip():raise ValueError('Process search must not be empty')
+            if process_exact is not None and ntpath.dirname(value):
+                process=value  # Preserve existing full-path/volume assertion matching.
+            else:
+                clause,values=predicate(value,contains=process_contains is not None)
+                clauses.append(clause);params.extend(values)
         if artifact:
             if artifact not in ('evtx','mft','prefetch','registry'):raise ValueError('Unknown artifact source')
             clauses.append('e.source_type=?');params.append(artifact)
@@ -86,6 +98,9 @@ class EvidenceQueries:
             if not value:continue
             p=normalize_path(value)
             role=" AND o.role IN ('process_image','executable_name','executable_path_candidate','file_path','filename','persistence_target')" if is_process else ''
+            if is_process and process_exact is not None:
+                # A Prefetch candidate path must identify its represented executable.
+                role += " AND (e.source_type<>'prefetch' OR (o.role='executable_path_candidate' AND o.basename IN (SELECT i.basename FROM evidence_objects i WHERE i.evidence_id=e.evidence_id AND i.role='executable_name')))"
             if ntpath.dirname(value):
                 clauses.append("EXISTS (SELECT 1 FROM evidence_objects o WHERE o.evidence_id=e.evidence_id AND (o.normalized=? OR (o.path_kind='volume_relative' AND EXISTS (SELECT 1 FROM source_contexts c WHERE c.file_sha256=e.file_sha256 AND lower(c.volume_root)||o.normalized=? AND NOT EXISTS (SELECT 1 FROM source_contexts x WHERE x.file_sha256=e.file_sha256 AND x.volume_root<>c.volume_root))))"+role+')')
                 params.extend([p['normalized']]*2)

@@ -54,6 +54,8 @@ def dispatch(db,args):
         filters={k:getattr(args,k,None) for k in ('artifact','path','process','hostname','ip','event_id')}
         filters.update(username=args.user,limit=args.limit,offset=args.offset,raw=args.raw)
         if command=='search':
+            filters['process_exact']=filters.pop('process')
+            filters['process_contains']=args.process_contains
             kinds={'logons':['logon','explicit_credentials','privileged_logon'],'failed-logons':['failed_logon'],
                    'processes':['process'],'scheduled-tasks':['scheduled_task'],'services':['service'],
                    'account-changes':['account_creation','group_membership']}

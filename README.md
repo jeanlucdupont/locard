@@ -133,7 +133,7 @@ when present in the bounded evidence projection. A candidate path is not a prove
 executable identity. Other artifact types use their own identifying fields.
 Long display fields may be shortened; evidence IDs and stored evidence are not.
 Counts, offset, limit, and whether more results exist appear below the results.
-Search ordering and matching remain unchanged; a Prefetch record's displayed
+Search ordering remains unchanged; a Prefetch record's displayed
 latest run does not change its existing search sort order.
 
 Use these commands inside Locard, or prefix them with `locard --db case.db`:
@@ -148,6 +148,36 @@ search --artifact prefetch --json --output results.json
 detections --append investigation.txt
 timeline --start 2020-01-01T00:00:00Z --end 2020-01-02T00:00:00Z --page
 ```
+
+`search --process` performs convenient exact matching. These are equivalent
+case-insensitive searches for the Prefetch executable `POWERSHELL.EXE`:
+
+```text
+search --artifact prefetch --process powershell
+search --artifact prefetch --process powershell.exe
+```
+
+A bare name without an extension matches that literal name or its `.exe` form.
+Explicit filenames, including other extensions such as `tool.com`, stay exact;
+existing full-path searches also stay exact. `--process power` does not match
+`powershell.exe`, `powercfg.exe`, or `powerpnt.exe`.
+
+`search --process-contains` performs explicit partial matching:
+
+```text
+search --artifact prefetch --process-contains power
+```
+
+This matches a case-insensitive literal substring of the executable basename and
+may return several executable names. It interprets no wildcards or regular
+expressions. The two process options are mutually exclusive. Prefetch searches
+match the represented executable, not arbitrary referenced files; a full-path
+match still uses a candidate path and does not prove that path's identity.
+Matching alone implies neither suspiciousness nor execution: existing MFT
+filename and Registry target roles retain their artifact-specific meaning.
+Other filters and JSON structure are unchanged. This convenience applies to
+deterministic `search`, including the interactive shell; timeline and AI retrieval
+retain their existing matching behavior.
 
 `show` retains existing detailed evidence output. `--raw` retains the existing
 verbose/raw representation, including its established retrieval bounds.

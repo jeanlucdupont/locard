@@ -1,3 +1,35 @@
+# Deterministic process search validation - 2026-09-30
+
+Fetched origin and confirmed a clean main branch identical to origin/main at
+ee19257 before editing; fast-forward-only synchronization was already up to date.
+CLI search opts into a small parameterized basename predicate over the existing
+typed evidence objects. Other process-filter callers retain their existing policy.
+
+| Validation | Result |
+|---|---|
+| Search, existing Prefetch, query and boundary targets | 61 passed in 19.95 seconds |
+| Complete accumulated suite | 533 passed in 258.30 seconds |
+
+Exact search accepts the literal extensionless name or its .exe form; explicit
+filenames and full paths remain exact. Contains search uses SQLite instr with
+bound, lowercased query values, so percent signs, underscores, regex punctuation
+and SQL-looking strings remain literal. Prefetch name matching uses only the
+represented executable; full-path candidates must share that executable basename.
+Existing MFT and Registry object roles remain searchable without implying execution.
+
+Regression coverage includes extensionless evidence, mixed case, non-.exe names,
+parent-process exclusion, unrelated Prefetch references/candidates, other filters,
+pagination, mutual exclusion, help, empty queries, JSON shape, unchanged database
+bytes, interactive dispatch, and unchanged legacy query callers. Fixtures are
+synthetic and generated in test temporary directories outside the repository.
+
+No ingestion, parser, evidence identity/provenance, schema, detection, AI or report
+changes were made. The application version remains 0.9.1: advancing it would also
+require changing report transcript version acceptance, outside this task's scope.
+Only source, tests and documentation are included in this local change.
+
+---
+
 # Terminal presentation 0.9.1 validation - 2026-09-30
 
 Fetched origin and confirmed a clean main branch identical to origin/main at
