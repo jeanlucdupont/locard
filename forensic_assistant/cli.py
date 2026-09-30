@@ -84,6 +84,8 @@ def build_parser():
     investigation_cli.configure(commands)
     from forensic_assistant.reporting import cli as report_cli
     report_cli.configure(commands)
+    from forensic_assistant.output import configure
+    configure(commands)
     return parser
 
 
@@ -100,6 +102,23 @@ def main(argv=None):
 
 
 def dispatch(args, *, existing_only=False):
+    from forensic_assistant.output import Output
+    output = None
+    try:
+        output = Output(args)
+        code = _dispatch(args, output, existing_only=existing_only)
+        output.finish()
+        return code
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        print('Locard output: ' + json.dumps(str(exc)), file=sys.stderr)
+        return 2
+    finally:
+        if output is not None: output.close()
+
+
+def _dispatch(args, output, *, existing_only=False):
+    def emit(value):
+        output.write(json.dumps(value, ensure_ascii=True, indent=2))
     from forensic_assistant.semantic import cli as semantic_cli
     from forensic_assistant.investigation_ai import cli as investigation_cli
     from forensic_assistant.reporting import cli as report_cli
@@ -126,7 +145,10 @@ def dispatch(args, *, existing_only=False):
             v2_result = v2_cli.dispatch(db,args)
             if v2_result is not None:
                 result,code=v2_result
-                if getattr(args,'text',False):print(v2_cli.render(result))
+                if args.command=='search' and not args.json and not args.raw:
+                    from forensic_assistant.retrieval.search_display import render
+                    output.write(render(result))
+                elif getattr(args,'text',False):output.write(v2_cli.render(result))
                 else:emit(result)
                 return code
             v1_result = v1_cli.dispatch(db, args)
@@ -134,7 +156,7 @@ def dispatch(args, *, existing_only=False):
                 if not args.raw:
                     v1_result = v1_cli.omit_raw(v1_result)
                 if args.text:
-                    print(v1_cli.render(v1_result))
+                    output.write(v1_cli.render(v1_result))
                 else:
                     emit(v1_result)
                 return 0
@@ -186,17 +208,17 @@ def dispatch(args, *, existing_only=False):
                 filters["username"] = args.user
                 function = getattr(queries, "find_" + args.kind.replace("-", "_")) if args.kind else queries.search
                 result = function(**filters)
-            output = result.as_dict()
+            rendered = result.as_dict()
             if args.command == "timeline":
-                output["records"] = [get_event(db, record["id"]) for record in output["records"]]
+                rendered["records"] = [get_event(db, record["id"]) for record in rendered["records"]]
             if not args.raw:
-                for record in output["records"]:
+                for record in rendered["records"]:
                     record.pop("raw_xml")
-            output["caution"] = queries.coverage()["caution"]
+            rendered["caution"] = queries.coverage()["caution"]
             if getattr(args, "text", False):
-                print(render_timeline(output))
+                output.write(render_timeline(rendered))
             else:
-                emit(output)
+                emit(rendered)
             return 0
     except (ValueError, OSError, sqlite3.Error, OverflowError, LLMError) as exc:
         print("Locard: " + json.dumps(str(exc)), file=sys.stderr)

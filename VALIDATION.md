@@ -1,3 +1,48 @@
+# Investigation output 0.9.0 validation - 2026-09-29
+
+Fetched origin and verified a clean checkout with no local-only commits before
+fast-forwarding from 619e8a9 to f99bc94. Upstream README, packaged banner and
+resource changes were preserved. No evidence-schema, report-format, parser,
+dependency or evidence-identity changes were made.
+
+| Validation | Result |
+|---|---|
+| Initial UX plus existing CLI/interactive targets | 64 passed in 12.97 seconds |
+| First accumulated suite | 451 passed in 281.96 seconds |
+| Expanded accumulated suite | 459 passed in 272.43 seconds |
+| Final UX tests using the strict read-only destination guard | 40 passed in 6.82 seconds |
+| Final complete suite, isolated core-only environment | 459 passed in 260.15 seconds |
+
+Synthetic Prefetch tests include 220 references, complete IDs, multiple retained
+timestamps and an analyst host assertion. They verify concise presentation,
+latest retained run selection, existing show/raw details, unchanged JSON, and
+unchanged database bytes. Summary coverage also includes EVTX, MFT and Registry.
+File tests cover replace/append/create, Unicode and spaces, relative/absolute
+paths, command rendering equivalence, write failures, source hard-link aliases,
+symbolic links, database/artifact protection, and no replacement after a command
+that fails without producing output. Destination validation reuses V4's bounded,
+strict read-only opener and SQLite authorizer, without migrations.
+
+Pager tests mock terminal dimensions and synchronous keyboard input for Space,
+Enter, Q/q, cancellation, EOF, dimension failure, input failure, nonterminal
+fallback, and prohibition of external processes. A real Windows console smoke
+test exercised Enter, Space and Q. A second smoke test paged raw search inside
+the interactive shell, quit to the same active-case prompt, then successfully
+ran status and exit. The temporary analyst profile and all synthetic data stayed
+outside the repository.
+
+The existing report-generate bundle --output retains its meaning; parent-level
+report --output selects a console-output file. Contradictory destinations and
+explicit --json --page are rejected. Replacement uses a sibling temporary file
+and atomic publication; append can be partial on interruption/failure. Appended
+JSON consists of separate documents, not a combined array. Other commands retain
+their existing rendering. Search changes presentation only and retains existing
+hydration limits, ordering, provenance and conflict handling. Terminal wrapping
+is character-based; native Windows behavior was smoke-tested, while non-Windows
+terminal handling was not exercised on a live terminal.
+
+---
+
 # Windows bootstrap 0.8.1 validation - 2026-09-27
 
 Application 0.8.1; evidence schema 3, report format 1, Apache-2.0 licensing,

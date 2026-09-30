@@ -97,6 +97,79 @@ Locard expects already extracted artifacts. It is not designed to run on the com
 
 ## How-to
 
+### Investigation output (Locard 0.9.0)
+
+**Search summarizes. Show explains. Raw exposes.**
+
+Normal deterministic `search` displays compact, escaped record summaries with
+complete evidence IDs. Prefetch summaries show the executable, latest retained
+execution timestamp, recorded run count, effective host, and a candidate path
+when present in the bounded evidence projection. A candidate path is not a proven
+executable identity. Other artifact types use their own identifying fields.
+Long display fields may be shortened; evidence IDs and stored evidence are not.
+Counts, offset, limit, and whether more results exist appear below the results.
+Search ordering and matching remain unchanged; a Prefetch record's displayed
+latest run does not change its existing search sort order.
+
+Use these commands inside Locard, or prefix them with `locard --db case.db`:
+
+```text
+search --artifact prefetch
+search --artifact prefetch --raw --page
+show <evidence-id> --page
+search --artifact prefetch --output prefetch.txt
+search --artifact prefetch --raw --output prefetch-details.txt
+search --artifact prefetch --json --output results.json
+detections --append investigation.txt
+timeline --start 2020-01-01T00:00:00Z --end 2020-01-02T00:00:00Z --page
+```
+
+`show` retains existing detailed evidence output. `--raw` retains the existing
+verbose/raw representation, including its established retrieval bounds.
+Explicit `--json` preserves the structured interface; scripts consuming search
+results should request it. Other commands keep their existing default rendering.
+
+| Destination | Behavior |
+|---|---|
+| Default | Render to the terminal |
+| `--page` | Internal Python pager: Space advances a page, Enter a line, Q/q quits; Ctrl+C also leaves paging |
+| `--output FILE` | Write UTF-8 output, replacing an existing derived file through a temporary file and atomic replacement |
+| `--append FILE` | Append UTF-8 output, creating a missing file; separate successive outputs with a newline |
+
+The pager uses terminal dimensions with a fallback and restores console input
+mode when it exits. If stdin or stdout is not a terminal, it prints normally
+without waiting for keys. Paging wraps long display lines; it does not change
+stored evidence. Explicit `--json --page` is rejected. `--page`, `--output`, and
+`--append` are mutually exclusive. No external pager or shell is executed.
+
+File paths may be relative to the caller's directory or absolute; quote paths
+containing spaces. Parent directories must already exist. Confirmations and errors
+go to stderr; file output is not also dumped to stdout. Write failures return a
+nonzero status and leave the interactive shell usable. Replacement is atomic;
+an interrupted or failed append may leave a partial appended section. Appending
+JSON produces separate JSON documents, not one combined JSON array.
+
+Output guards reject the active/explicit case database and its SQLite sidecars,
+recorded evidence paths (including hard-link aliases), recognized artifact/SQLite
+files, symbolic-link/junction destinations, and overlapping command inputs.
+These are safeguards for known inputs, not a way to identify every possible
+unregistered evidence file. Choose a separate analyst output path.
+
+For nested commands, destination options can follow the final subcommand. One
+existing option is deliberately preserved: `report generate --output` still names
+the new report **bundle directory**. To also save its console result, put the new
+file destination before `generate`:
+
+```text
+report --output report-result.txt generate --evidence <evidence-id> --output report-bundle
+report show report-bundle --output report-summary.txt
+```
+
+Locard's interactive interface is a command interpreter, not a general-purpose
+operating-system shell. Use these explicit options instead of `| more`, `>`, or
+`>>`; pipelines, shell operators, substitutions, and arbitrary execution remain
+unsupported. Run `help search` inside Locard or `locard search --help` for options.
+
 ### Platform support
 
 Locard is currently developed and tested on Windows. Locard analyzes extracted Windows forensic artifacts and does not fundamentally require the source system to be Windows-mounted or live. Some underlying components are cross-platform, but Linux and macOS execution are not currently tested or officially supported.

@@ -54,7 +54,7 @@ def test_time_and_paging(queries):
 
 def test_cli(tmp_path, capsys):
     args = ["--db", str(tmp_path / "case.db")]
-    assert main(args + ["search", "--event-id", "4688"]) == 0
+    assert main(args + ["search", "--event-id", "4688", "--json"]) == 0
     assert '"total": 0' in capsys.readouterr().out
     assert main(args + ["timeline", "14:31"]) == 2
     assert main(args + ["status"]) == 0
