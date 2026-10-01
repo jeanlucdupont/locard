@@ -66,6 +66,7 @@ def build_parser():
     around.add_argument("--limit", type=int, default=100)
     around.add_argument("--offset", type=int, default=0)
     around.add_argument("--raw", action="store_true")
+    around.add_argument('--ids', action='store_true', help='Include complete evidence IDs in compact --text output')
     for command in (timeline, around):
         display = command.add_mutually_exclusive_group()
         display.add_argument("--json", action="store_true", help="JSON output (default)")
@@ -162,12 +163,16 @@ def _dispatch(args, output, *, existing_only=False):
                 return 0
             if args.command=='semantic':
                 emit(semantic_cli.dispatch(db,args));return 0
-            v2_result = v2_cli.dispatch(db,args)
+            presentation = {}
+            v2_result = v2_cli.dispatch(db,args,presentation=presentation)
             if v2_result is not None:
                 result,code=v2_result
                 if args.command=='search' and not args.json and not args.raw:
                     from forensic_assistant.retrieval.search_display import render
                     output.write(render(result, output.palette))
+                elif args.command=='around' and args.text and not args.raw:
+                    from forensic_assistant.retrieval.around_display import render
+                    output.write(render(result, presentation['anchor'], presentation['stamp'], args, output.palette))
                 elif getattr(args,'text',False):output.write(v2_cli.render(result))
                 else:emit(result)
                 return code

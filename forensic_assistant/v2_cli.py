@@ -64,7 +64,7 @@ def ingest_sources(db,args,progress=None):
         db.rollback()
         with db:db.execute('UPDATE ingestion_batches SET status=?,finished_utc=? WHERE batch_id=?',(status,now(),batch_id))
 
-def dispatch(db,args):
+def dispatch(db,args,*,presentation=None):
     command=args.command;q=EvidenceQueries(db)
     if command.startswith('ingest-'):
         results=ingest_sources(db,args)
@@ -106,6 +106,8 @@ def dispatch(db,args):
         from forensic_assistant.correlation.temporal import shift
         anchor=get_evidence(db,args.evidence_id)
         stamp=anchor_time(anchor,args.timestamp_slot)
+        if presentation is not None:
+            presentation.update(anchor=anchor,stamp=stamp)
         source_ids=anchor['context'].get('source_ids',[])
         if len(source_ids)>1:raise ValueError('Multiple source occurrences; cannot select an unambiguous source')
         if not anchor['host_key']:raise ValueError('Host context missing or conflicting; cannot select same-host temporal neighbors')

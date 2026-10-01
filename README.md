@@ -231,6 +231,19 @@ checks apply to unassigned neighbors. Returned context distinguishes artifact
 hostname fields, analyst assertions and source membership; temporal proximity is
 not causal evidence.
 
+`around <evidence-id> --timestamp-slot <slot> --text` presents temporal context
+with exact relative times, a selected-slot anchor marker, and shared source,
+artifact and timestamp context. Dates and normalized timestamp precision remain
+visible. Mixed context is shown per observation. Long object descriptions may be
+shortened with `...`; context wraps to terminal width. Use `--text --ids` for full,
+unabridged evidence IDs, then `show <id>` for details. `--json` and `--raw` retain
+their existing complete structured/detail output (`--raw --text` retains the
+legacy detailed text view). `--page`, `--output FILE` and `--append FILE` work with
+the compact view; file exports contain no color codes. Shared context describes
+only the displayed rows, not observations outside the current result page.
+If several slots have the same anchor time, select `--timestamp-slot` to identify
+one anchor row; Locard does not arbitrarily mark all slots as the anchor.
+
 Source revisions, batches and assignments participate in the content fingerprint.
 Changes make dependent semantic indexes, investigations and report/case validation
 stale. Rebuild indexes explicitly; historical reports and transcripts are never
