@@ -1,5 +1,7 @@
 """Synchronous interface over the ordinary Locard parser and dispatcher."""
 import gc
+import os
+import argparse
 import sqlite3
 from forensic_assistant.interactive.case import validate
 from forensic_assistant.interactive.console import Reader, safe
@@ -114,6 +116,7 @@ class Shell:
 
     def run(self):
         from forensic_assistant.cli import build_parser,dispatch
+        from forensic_assistant.terminal import Palette, enabled, clear_screen
         if not self.startup():return 0
         try:
             while True:
@@ -127,7 +130,8 @@ class Shell:
                 if len(label)>80:label=label[:38]+'...'+label[-39:]
                 executing=False
                 try:
-                    words=split(self.reader.read('locard['+label+']> ',remember=True))
+                    prompt=Palette(enabled(self))('prompt','locard['+label+']> ')
+                    words=split(self.reader.read(prompt,remember=True))
                     if not words:continue
                     if words[0] in ('exit','quit'):
                         if len(words)!=1:raise ValueError('exit takes no arguments')
@@ -137,10 +141,32 @@ class Shell:
                         if len(words)==2 and words[1]=='new':self.new()
                         else:self.choose(words[1] if len(words)==2 else None)
                         continue
+                    if words[0]=='cls':
+                        if len(words)!=1:raise ValueError('Usage: cls')
+                        if not clear_screen():print('Screen clearing requires a supported interactive terminal.')
+                        continue
+                    if words[0]=='color':
+                        if len(words)>2 or (len(words)==2 and words[1] not in ('on','off')):
+                            raise ValueError('Usage: color [on|off]')
+                        if len(words)==2:self.no_color=words[1]=='off'
+                        if words==['color','on'] and 'NO_COLOR' in os.environ:
+                            print('Color remains disabled because NO_COLOR is set.')
+                        elif words==['color','on'] and not enabled(self):
+                            print('Color remains disabled because the terminal does not support styling.')
+                        else:print('Color: '+('on' if enabled(self) else 'off'))
+                        continue
                     if words[0]=='help':
-                        if len(words)==1:print('Shell: help [command], case [path|new], exit, quit. No shell execution or persistent history.')
+                        if len(words)==1:print('Shell: help [command], case [path|new], color [on|off], cls, exit, quit. No shell execution or persistent history.\nUse color on/off for session styling; --no-color remains available per command.')
+                        if len(words)==2 and words[1] in ('color','cls','case','exit','quit','help'):
+                            print({'color':'color [on|off]: session styling; NO_COLOR remains authoritative. --no-color remains accepted per command.',
+                                   'cls':'cls: clear the terminal internally; no arguments.',
+                                   'case':'case [path|new]: select or create a case.',
+                                   'exit':'exit: leave Locard.', 'quit':'quit: leave Locard.',
+                                   'help':'help [command]: show Locard command help.'}[words[1]])
+                            continue
                         words=words[1:]+['--help']
                     parser=build_parser()
+                    compact_help(parser)
                     try:args=parser.parse_args(['--db',str(self.active),*words])
                     except SystemExit as exc:self.last_status=int(exc.code);continue
                     if self.no_color:args.no_color=True
@@ -169,3 +195,11 @@ def run(*, no_color=False):
     except (OSError,ValueError) as exc:
         state=State(None);state.warning=str(exc)
     return Shell(state,no_color=no_color).run()
+
+
+def compact_help(parser):
+    """Suppress repetitive color help on this fresh shell-only parser, not the option."""
+    for action in parser._actions:
+        if '--no-color' in action.option_strings:action.help=argparse.SUPPRESS
+        if isinstance(action,argparse._SubParsersAction):
+            for child in action.choices.values():compact_help(child)

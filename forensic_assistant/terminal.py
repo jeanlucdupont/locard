@@ -6,7 +6,7 @@ import sys
 
 SGR = re.compile(r'\x1b\[[0-9;]*m')
 RESET = '\x1b[0m'
-STYLES = {'key':'36', 'string_value':'32', 'number_value':'35',
+STYLES = {'prompt':'97', 'key':'36', 'string_value':'32', 'number_value':'35',
           'boolean_value':'34', 'evidence_id':'1;36', 'heading':'1',
           'secondary_text':'0', 'warning':'33', 'error':'31', 'success':'32'}
 EVIDENCE_PREFIXES = ('EVTX:', 'PREFETCH:', 'MFT:', 'REGISTRY:')
@@ -108,3 +108,40 @@ def message(text, args=None, *, role='error'):
 
 def banner(text, args=None):
     return text if enabled(args) else SGR.sub('', text)
+
+
+def clear_screen(stream=None):
+    """Clear a terminal internally; color preferences do not disable cursor control."""
+    stream = sys.stdout if stream is None else stream
+    if not stream.isatty(): return False
+    if capable(stream):
+        stream.write('\x1b[2J\x1b[H'); stream.flush(); return True
+    if os.name == 'nt': return clear_windows(stream)
+    return False
+
+
+def clear_windows(stream):
+    """Legacy Windows console fallback, preserving attributes and console modes."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes as w
+    class Coord(ctypes.Structure):
+        _fields_ = [('x', w.SHORT), ('y', w.SHORT)]
+    class Rect(ctypes.Structure):
+        _fields_ = [('left', w.SHORT), ('top', w.SHORT), ('right', w.SHORT), ('bottom', w.SHORT)]
+    class Info(ctypes.Structure):
+        _fields_ = [('size', Coord), ('cursor', Coord), ('attributes', w.WORD),
+                    ('window', Rect), ('maximum', Coord)]
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.GetConsoleScreenBufferInfo.argtypes = [w.HANDLE, ctypes.POINTER(Info)]
+    kernel.FillConsoleOutputCharacterW.argtypes = [w.HANDLE, w.WCHAR, w.DWORD, Coord, ctypes.POINTER(w.DWORD)]
+    kernel.FillConsoleOutputAttribute.argtypes = [w.HANDLE, w.WORD, w.DWORD, Coord, ctypes.POINTER(w.DWORD)]
+    kernel.SetConsoleCursorPosition.argtypes = [w.HANDLE, Coord]
+    handle = msvcrt.get_osfhandle(stream.fileno()); info = Info(); written = w.DWORD()
+    if not kernel.GetConsoleScreenBufferInfo(handle, ctypes.byref(info)): return False
+    width = info.window.right - info.window.left + 1
+    for row in range(info.window.top, info.window.bottom + 1):
+        pos = Coord(info.window.left, row)
+        if not kernel.FillConsoleOutputCharacterW(handle, ' ', width, pos, ctypes.byref(written)): return False
+        if not kernel.FillConsoleOutputAttribute(handle, info.attributes, width, pos, ctypes.byref(written)): return False
+    return bool(kernel.SetConsoleCursorPosition(handle, Coord(info.window.left, info.window.top)))

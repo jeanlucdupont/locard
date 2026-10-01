@@ -113,7 +113,7 @@ show <evidence-id> --page --no-color
 Color requires an interactive ANSI-capable terminal. Windows consoles must already
 have virtual-terminal processing enabled; uncertain capability falls back to plain
 output. `--no-color` disables styling for a command. Starting `locard --no-color`
-also disables it for the banner and the resulting interactive session. The presence
+also starts the banner and interactive session without styling. The presence
 of `NO_COLOR`, including an empty value, disables color throughout. The startup
 banner follows the same policy without changing its artwork.
 
@@ -121,8 +121,21 @@ Explicit `--json`, `--output`, and `--append` remain plain; exported content nev
 contains added ANSI styling. The internal pager preserves colors and ignores ANSI
 styles when calculating line width. Colors are reset before pager prompts. No
 external pager, new dependency, or terminal configuration change is required.
-Existing compact `--text` renderers and shell prompts remain plain where they do
-not have semantic style annotations.
+The active-case prompt is bright white, without a background, when color is
+enabled; its style resets before typed input. In the interactive shell, use
+`color` to report the effective state, `color off` to disable styling, and
+`color on` to restore it on a capable terminal. This preference is session-only,
+can override startup `--no-color`, and is never saved. `NO_COLOR` remains
+authoritative; `color on` explains when it prevents styling. A command-specific
+`--no-color` remains supported and does not change the session preference.
+Interactive command help omits the repeated color option; `help` and `help color`
+document it. Direct CLI help continues listing `--no-color`.
+
+Use `cls` (no arguments) to clear the screen and return to the active-case prompt.
+It uses terminal controls or the native Windows console API, never an external
+command. Redirected or unsupported terminals receive a short notice instead.
+Clearing works independently of the color preference. `help color` and `help cls`
+describe these shell-only commands; they are not OS command execution.
 
 ### Sources, ingestion batches, and evidence identity (0.10.0)
 

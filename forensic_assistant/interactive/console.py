@@ -115,11 +115,18 @@ def edit(keys, *, history=(), output=None, prompt='', limit=65536):
         # terminal-dependent; the returned Unicode text is never truncated.
         import shutil
         width = max(10,shutil.get_terminal_size().columns-1)
-        prefix = safe(prompt)
+        from forensic_assistant.terminal import SGR, Palette
+        plain_prompt = SGR.sub('', prompt)
+        prefix = safe(plain_prompt)
         left = safe(''.join(buffer[:cursor])); right = safe(''.join(buffer[cursor:]))
         frame = (prefix+left)[-width:]
         shown = frame+right[:max(0,width-len(frame))]
-        output.write('\r'+shown+' '*max(0,previous-len(shown))+'\r'+frame)
+        # Only the trusted, complete prompt style is accepted; input is never styled.
+        styled = prompt == Palette(True)('prompt', plain_prompt)
+        prompt_chars = max(0, len(frame) - len(left))
+        def paint(value):
+            return Palette(styled)('prompt', value[:prompt_chars]) + value[prompt_chars:]
+        output.write('\r'+paint(shown)+' '*max(0,previous-len(shown))+'\r'+paint(frame))
         output.flush(); previous = len(shown)
     raise TimeoutError('Input timed out')
 
