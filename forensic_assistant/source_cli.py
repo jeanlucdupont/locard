@@ -14,6 +14,7 @@ def configure(commands):
         if name in ('show','update','assign'):p.add_argument('source_id')
         if name in ('list','show'):
             p.add_argument('--limit',type=int,default=100);p.add_argument('--offset',type=int,default=0)
+        if name=='list':p.add_argument('--ids',action='store_true',help='Show full copyable source IDs below the compact table; --json also retains complete values')
         if name in ('create','update'):
             for flag in ('name','hostname','user','volume-root'):p.add_argument('--'+flag)
         if name in ('update','assign'):
@@ -35,13 +36,29 @@ def changes(args):
         if getattr(args,flag) is not None}
 
 
-def render_list(data):
+def render_list(data,palette=None,*,ids=False,width=None):
     from forensic_assistant.retrieval.presentation import safe
-    lines=['SOURCES','ID | NAME | ANALYST HOSTNAME | BATCHES | DISTINCT FILES | ARTIFACT RECORDS']
-    for row in data['sources']:
-        lines.append(' | '.join([row['source_id'],safe(row['display_name']),safe(row['hostname'] or 'unknown'),
-            str(row['batches']),str(row['files']),safe(row['artifacts'])]))
-    lines.append(f"Showing {len(data['sources'])} of {data['total']}; offset {data['offset']}; more: {data['truncated']}")
+    from forensic_assistant.retrieval.layout import table,terminal_width
+    import textwrap
+    from forensic_assistant.terminal import Palette
+    palette=palette or Palette()
+    labels={'prefetch':'Prefetch','mft':'MFT','registry':'Registry','evtx':'EVTX'}
+    rows=[[r['source_id'],r['display_name'],r['hostname'] or 'unknown',r['batches'],r['files'],
+           ', '.join(labels.get(k,k)+': '+str(v) for k,v in sorted(r['artifacts'].items())) or '-'] for r in data['sources']]
+    lines=[palette('heading','SOURCES'),'']
+    lines+=table(['ID','NAME','HOSTNAME','BATCHES','FILES','ARTIFACTS'],rows,palette,
+                 minimums=[12,10,10,7,5,12],maximums=[40,28,24,9,9,40],
+                 roles=['evidence_id','string_value','secondary_text','number_value','number_value','secondary_text'],right=(3,4),width=width)
+    if ids:
+        lines+=['',palette('heading','Full source IDs')]
+        lines += [safe(r['source_id'])+'  '+safe(r['display_name']) for r in data['sources']]
+    notices=['Display abbreviations (...) are not command IDs. Use source list --ids for full IDs; --json for complete values.',
+             f"Showing {len(data['sources'])} of {data['total']}; offset {data['offset']}; more: {data['truncated']}"]
+    if data['truncated']:notices.append('Results truncated; use --offset/--limit to review remaining sources.')
+    for r in data['sources']:
+        if r.get('host_conflict'):notices.append(safe(r['source_id'])+': conflicting host assertions; inspect source show.')
+        if r.get('ambiguous_files'):notices.append(safe(r['source_id'])+f": {r['ambiguous_files']} files have multiple source memberships; inspect source show.")
+    for notice in notices:lines.extend(textwrap.wrap(notice,terminal_width(width),break_on_hyphens=False))
     return '\n'.join(lines)+'\n'
 
 

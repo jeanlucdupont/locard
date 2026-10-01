@@ -19,7 +19,7 @@ def detail(event):
     return event.get("command_line") or event.get("script_block") or kind or "Unmapped event"
 
 
-def render_timeline(result):
+def render_timeline(result,*,methodology=True):
     lines = ["TIME | EVIDENCE ID | EVENT ID | TYPE | USER | PROCESS | DETAIL"]
     for event in result["records"]:
         values = [event.get("timestamp_utc"), event["id"], event.get("event_id"),
@@ -27,5 +27,5 @@ def render_timeline(result):
                   event.get("process_name"), detail(event)]
         lines.append(" | ".join(safe(value) for value in values))
     lines.append(f"Displayed {len(result['records'])} / {result['total']}; truncated={result['truncated']}")
-    lines.append("CORRELATION != CAUSATION. Missing logs or auditing may hide activity.")
+    if methodology:lines.append("CORRELATION != CAUSATION. Missing logs or auditing may hide activity.")
     return "\n".join(lines)

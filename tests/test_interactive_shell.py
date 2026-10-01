@@ -97,7 +97,7 @@ def test_errors_help_interrupt_cancel_switch_and_eof(tmp_path,capsys):
     reader=Input(str(a),'bogus','show not-an-id','ask "','help report validate','case','',
                  KeyboardInterrupt(),'status',EOFError())
     shell=Shell(State(None),reader);assert shell.run()==0 and shell.active==a
-    captured=capsys.readouterr();assert '--case' in captured.out and 'invalid choice' in captured.err
+    captured=capsys.readouterr();assert '--case' in captured.out and 'Unknown command: bogus' in captured.out
 
 
 def test_disappearing_active_case_never_recreated(tmp_path):

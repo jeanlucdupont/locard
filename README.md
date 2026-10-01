@@ -204,6 +204,10 @@ applying it. Interactive mode shows the preview and requests confirmation, even 
 is rejected so the analyst can review it again. Source commands reuse `--page`,
 `--output`, `--append`, `--json` and `--no-color`; JSON remains plain structured data.
 `source list` file counts are distinct content hashes, not path or import counts.
+Its aligned table adapts to terminal width and uses restrained, optional colors.
+Shortened display fields end in `...`; abbreviated IDs must not be used as command
+arguments. `source list --ids` provides full copyable IDs, and `--json` retains all
+values. Very narrow terminals use labelled rows instead of a wide table.
 `source show` paginates revision history, batches, file occurrences and retrospective
 assignments rather than dumping every file by default.
 
@@ -292,17 +296,35 @@ hostname fields, analyst assertions and source membership; temporal proximity is
 not causal evidence.
 
 `around <evidence-id> --timestamp-slot <slot> --text` presents temporal context
-with exact relative times, a selected-slot anchor marker, and shared source,
-artifact and timestamp context. Dates and normalized timestamp precision remain
-visible. Mixed context is shown per observation. Long object descriptions may be
-shortened with `...`; context wraps to terminal width. Use `--text --ids` for full,
-unabridged evidence IDs, then `show <id>` for details. `--json` and `--raw` retain
+with a concise object/window header, source label, and selected-slot anchor marker.
+Compact timestamps and deltas are rounded to the nearest millisecond, with exact
+ties rounded away from zero; deltas are calculated from the original nanosecond
+values before display rounding. Small deltas can therefore display as `0.000s`
+without representing identical timestamps. Dates carry correctly across midnight.
+Shared methodology is omitted, while mixed source/artifact/timestamp meanings stay
+visible per observation. Duplicate source labels include their IDs to distinguish
+them within the displayed context. Long objects may be shortened with `...`.
+Use `--text --ids` for full evidence/source IDs, timestamp slots, original timestamp
+precision and shared timestamp meaning; `show <id>` provides details. JSON and raw retain
 their existing complete structured/detail output (`--raw --text` retains the
 legacy detailed text view). `--page`, `--output FILE` and `--append FILE` work with
 the compact view; file exports contain no color codes. Shared context describes
 only the displayed rows, not observations outside the current result page.
 If several slots have the same anchor time, select `--timestamp-slot` to identify
 one anchor row; Locard does not arbitrarily mark all slots as the anchor.
+
+Compact search/timeline output omits repeated generic forensic cautions. This is
+not a change in interpretation: temporal proximity does not establish causation,
+timestamp meanings differ by artifact, and retained timestamps/run counts do not
+establish complete execution history. Specific warnings and safeguards remain,
+including truncated results, unknown/conflicting host context, ambiguous source
+membership, parser failures and partial operations. Full structured/raw output
+retains its existing information.
+
+Direct command help uses `usage: locard ...`. Interactive help uses contextual
+syntax such as `usage: source assign ...`; unknown commands receive a short
+message, and argument errors show relevant usage and a help hint. Explicit `help`
+and `help <command>` remain comprehensive, and errors return to the active prompt.
 
 Source revisions, batches and assignments participate in the content fingerprint.
 Changes make dependent semantic indexes, investigations and report/case validation

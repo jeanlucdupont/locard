@@ -127,7 +127,7 @@ def anchor_time(anchor,slot=None):
     return next(iter(times))
 
 
-def render(result):
+def render(result,*,methodology=True):
     if 'records' not in result:return safe(result)
     lines=['UTC | EVIDENCE ID | SOURCE | ARTIFACT TYPE | TIMESTAMP MEANING | OBJECT / OBSERVATION']
     for r in result['records']:
@@ -136,5 +136,5 @@ def render(result):
         observation=detail(r) if r['source_type']=='evtx' else obj or r.get('observation')
         lines.append(' | '.join(safe(v) for v in (r.get('timestamp_utc'),r['id'],r['source_type'],r.get('artifact_type'),r.get('timestamp',{}).get('source'),observation)))
     lines.append(f"Displayed {len(result['records'])} / {result['total']}; truncated={result['truncated']}")
-    lines.append('CORRELATION != CAUSATION. Timestamp semantics differ by artifact.')
+    if methodology:lines.append('CORRELATION != CAUSATION. Timestamp semantics differ by artifact.')
     return '\n'.join(lines)

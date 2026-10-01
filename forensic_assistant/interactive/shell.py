@@ -1,7 +1,6 @@
 """Synchronous interface over the ordinary Locard parser and dispatcher."""
 import gc
 import os
-import argparse
 import sqlite3
 from forensic_assistant.interactive.case import validate
 from forensic_assistant.interactive.console import Reader, safe
@@ -116,6 +115,7 @@ class Shell:
 
     def run(self):
         from forensic_assistant.cli import build_parser,dispatch
+        from forensic_assistant.cli_parser import UnknownCommand,InvalidArguments
         from forensic_assistant.terminal import Palette, enabled, clear_screen
         if not self.startup():return 0
         try:
@@ -165,10 +165,11 @@ class Shell:
                                    'help':'help [command]: show Locard command help.'}[words[1]])
                             continue
                         words=words[1:]+['--help']
-                    parser=build_parser()
-                    compact_help(parser)
+                    parser=build_parser(interactive=True)
                     try:args=parser.parse_args(['--db',str(self.active),*words])
                     except SystemExit as exc:self.last_status=int(exc.code);continue
+                    except (UnknownCommand,InvalidArguments) as exc:
+                        print(str(exc));self.last_status=2;continue
                     if self.no_color:args.no_color=True
                     # Also rejects argparse global-option abbreviations/equals forms.
                     if args.db!=str(self.active) or any(w=='--db' or w.startswith('--db=') for w in words):
@@ -195,11 +196,3 @@ def run(*, no_color=False):
     except (OSError,ValueError) as exc:
         state=State(None);state.warning=str(exc)
     return Shell(state,no_color=no_color).run()
-
-
-def compact_help(parser):
-    """Suppress repetitive color help on this fresh shell-only parser, not the option."""
-    for action in parser._actions:
-        if '--no-color' in action.option_strings:action.help=argparse.SUPPRESS
-        if isinstance(action,argparse._SubParsersAction):
-            for child in action.choices.values():compact_help(child)

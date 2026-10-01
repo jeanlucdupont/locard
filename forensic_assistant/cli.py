@@ -29,8 +29,9 @@ def get_banner() -> str:
         .read_text(encoding="utf-8")
     )
 
-def build_parser():
-    parser = argparse.ArgumentParser(description="Locard — local evidence-first Windows forensics")
+def build_parser(*,interactive=False):
+    from forensic_assistant.cli_parser import InteractiveParser,configure_interactive
+    parser = (InteractiveParser if interactive else argparse.ArgumentParser)(prog='locard',description="Locard — local evidence-first Windows forensics")
     parser.add_argument("--version", action="version", version="Locard " + __version__)
     parser.add_argument("--db", default=Config.database)
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling (also respects NO_COLOR)')
@@ -55,7 +56,8 @@ def build_parser():
         timeline.add_argument("--" + name)
     timeline.add_argument("--event-id", type=int)
     timeline.add_argument("--minutes", type=int, default=5)
-    around = commands.add_parser("around", help="Same-host temporal context around evidence")
+    around = commands.add_parser("around", help="Same-host temporal context around evidence",
+        description='Compact text rounds timestamps and exact deltas to milliseconds (nearest, ties away from zero). JSON/raw/show retain full precision. Temporal proximity is not causation; timestamp meanings differ by artifact.')
     around.add_argument("evidence_id")
     around.add_argument("--seconds", type=int, default=120)
     around.add_argument("--direction", choices=["before", "after", "around"], default="around")
@@ -66,7 +68,7 @@ def build_parser():
     around.add_argument("--limit", type=int, default=100)
     around.add_argument("--offset", type=int, default=0)
     around.add_argument("--raw", action="store_true")
-    around.add_argument('--ids', action='store_true', help='Include complete evidence IDs in compact --text output')
+    around.add_argument('--ids', action='store_true', help='Include full evidence/source IDs, timestamp slots and original timestamp precision in --text output')
     for command in (timeline, around):
         display = command.add_mutually_exclusive_group()
         display.add_argument("--json", action="store_true", help="JSON output (default)")
@@ -93,6 +95,7 @@ def build_parser():
     source_cli.configure(commands)
     from forensic_assistant.output import configure
     configure(commands)
+    if interactive:configure_interactive(parser)
     return parser
 
 
@@ -158,7 +161,7 @@ def _dispatch(args, output, *, existing_only=False):
                 from forensic_assistant import source_cli
                 result=source_cli.dispatch(db,args)
                 if args.source_command=='list' and not args.json:
-                    output.write(source_cli.render_list(result))
+                    output.write(source_cli.render_list(result,output.palette,ids=args.ids))
                 elif args.source_command=='assign' and not args.json:
                     output.write(source_cli.render_assignment(result,output.palette))
                 else:emit(result)
@@ -175,7 +178,7 @@ def _dispatch(args, output, *, existing_only=False):
                 elif args.command=='around' and args.text and not args.raw:
                     from forensic_assistant.retrieval.around_display import render
                     output.write(render(result, presentation['anchor'], presentation['stamp'], args, output.palette))
-                elif getattr(args,'text',False):output.write(v2_cli.render(result))
+                elif getattr(args,'text',False):output.write(v2_cli.render(result,methodology=args.raw))
                 else:emit(result)
                 return code
             v1_result = v1_cli.dispatch(db, args)
@@ -183,7 +186,7 @@ def _dispatch(args, output, *, existing_only=False):
                 if not args.raw:
                     v1_result = v1_cli.omit_raw(v1_result)
                 if args.text:
-                    output.write(v1_cli.render(v1_result))
+                    output.write(v1_cli.render(v1_result,methodology=args.raw))
                 else:
                     emit(v1_result)
                 return 0
@@ -240,7 +243,7 @@ def _dispatch(args, output, *, existing_only=False):
                     record.pop("raw_xml")
             rendered["caution"] = queries.coverage()["caution"]
             if getattr(args, "text", False):
-                output.write(render_timeline(rendered))
+                output.write(render_timeline(rendered,methodology=args.raw))
             else:
                 emit(rendered)
             return 0

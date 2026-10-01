@@ -43,6 +43,5 @@ def render(result, palette=None):
     count = len(result['records']); more = result['offset'] + count < result['total']
     lines += ['', f"Showing {count} of {result['total']} matching records; offset={result['offset']}, limit={result['limit']}; additional results={'yes' if more else 'no'}.",
               'Display fields may be shortened; evidence IDs are complete. Stored evidence is unchanged.',
-              'Use show <evidence-id> for details; search --raw for verbose/raw output.',
-              'Retained timestamps and run counts do not establish a complete execution history.']
+              'Use show <evidence-id> for details; search --raw for verbose/raw output.']
     return '\n'.join(lines)

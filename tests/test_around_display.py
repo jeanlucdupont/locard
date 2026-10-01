@@ -23,7 +23,7 @@ def example():
 def test_exact_slot_delta_ids_and_immutable_data():
     a,r,args=example(); before=copy.deepcopy(r)
     text=render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120)
-    assert '-0.000000001s' in text and '0.000s' in text
+    assert '-0.000000001s' not in text and '0.000s' in text
     assert text.count('<- anchor')==1 and a['id'] not in text
     assert 'Prefetch' in text and 'prefetch_file' not in text
     args.ids=True
@@ -32,18 +32,18 @@ def test_exact_slot_delta_ids_and_immutable_data():
 
 
 @pytest.mark.parametrize('stamp,expected',[
-    ('2019-12-31T23:59:59.999999999Z','-0.000000001s'),
+    ('2019-12-31T23:59:59.999999999Z','0.000s'),
     ('2020-01-01T00:00:07.187000000Z','+7.187s'),
     ('2020-01-01T00:00:00.000000000Z','0.000s')])
 def test_delta(stamp,expected):
     assert delta(stamp,'2020-01-01T00:00:00.000000000Z')==expected
 
 
-@pytest.mark.parametrize('direction,label',[('around','+/-60s around'),('before','60s before'),('after','60s after')])
+@pytest.mark.parametrize('direction,label',[('around','+/-60s'),('before','60s before'),('after','60s after')])
 def test_direction_heading(direction,label):
     a,r,args=example();args.direction=direction
     assert render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120).startswith(
-        f'Temporal context: {label} POWERSHELL.EXE\n')
+        f'POWERSHELL.EXE | {label}\n')
 
 
 def test_mixed_narrow_color_and_untrusted_text():
@@ -75,7 +75,10 @@ def test_sources_midnight_and_empty_page():
     text=render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120)
     assert 'Source (displayed rows)' not in text
     assert 'src-0' in text and 'src-1' in text
-    assert '2019-12-31' in text and '2020-01-01' in text and '-0.000000003s' in text
+    assert '2020-01-01' in text and '0.000s' in text
+    args.ids=True
+    exact=render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120)
+    assert '2019-12-31T23:59:59.999999999Z' in exact
     r.update(records=[],offset=2)
     text=render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120)
     assert 'Displayed 0 / 2' in text and '<- anchor' not in text

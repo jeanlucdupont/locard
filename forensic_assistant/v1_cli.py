@@ -108,7 +108,7 @@ def omit_raw(value):
     return value
 
 
-def render(value):
+def render(value,*,methodology=True):
     if "nodes" in value:
         lines = ["PROCESS EVIDENCE"]
         for node in value["nodes"]:
@@ -119,6 +119,6 @@ def render(value):
         lines.extend(safe(limit) for limit in value["limits"])
         return "\n".join(lines)
     if "records" in value and "total" in value:
-        return render_timeline(value)
+        return render_timeline(value,methodology=methodology)
     import json
     return json.dumps(value, ensure_ascii=True, indent=2)
