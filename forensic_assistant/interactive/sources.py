@@ -31,7 +31,11 @@ def prepare(shell,args):
         with closing(open_existing(shell.active)) as db:
             preview=dispatch(db,args)
             args.confirmation_fingerprint=preview['confirmation_fingerprint']
-        print(safe(preview['preview']))
+        if args.source_command=='assign':
+            from forensic_assistant.source_cli import render_assignment
+            from forensic_assistant.terminal import Palette,enabled,render_json
+            print(render_json(preview,Palette()) if args.json else render_assignment(preview,Palette(enabled(args))))
+        else:print(safe(preview['preview']))
         if shell.reader.read('Apply this analyst-supplied change? [y/N]: ').strip().lower() not in ('y','yes'):return False
         args.yes=True
     return True

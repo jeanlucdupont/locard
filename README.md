@@ -230,6 +230,53 @@ together. One action accepts up to 1,000 hashes. Assigning a hash already belong
 to another source preserves both memberships and exposes ambiguity; it does not
 move evidence or select one origin arbitrarily.
 
+For bulk retrospective selection, `--path` searches only historical
+`source_locations` recorded in the case database. It never scans or imports the
+current filesystem. Preview before applying:
+
+```text
+source assign <source-id> --path "C:\Evidence\PC01\Prefetch" --reason "Analyst reviewed legacy collection"
+source assign <source-id> --path "C:\Evidence\PC01\Prefetch" --reason "Analyst reviewed legacy collection" --yes --confirmation-fingerprint <preview-fingerprint>
+```
+
+Repeat `--path` or combine it with repeated `--file-hash`: selectors form a
+deduplicated union. Every supplied path must match at least one recorded location.
+At least one selector is required; there is no `--all` or implicit selection.
+Comparison is lexical and case-insensitive, treats `/` and `\` alike, ignores
+trailing separators, and respects whole path components (`PC01` does not match
+`PC010`). A selector matches an exact recorded file path and/or descendants of a
+recorded directory. It does not resolve aliases, links, short names, environment
+variables or the current working directory. Use absolute drive paths or UNC
+shares; relative/device paths, `.`/`..`, wildcards, streams and components ending
+in spaces/dots are rejected. Brackets are literal, not glob patterns. For other
+historical path forms, use the precise `--file-hash` selector.
+
+The text preview shows source metadata, selected paths, distinct content count,
+artifact-record counts, reason and existing provenance. `--json` includes the
+complete selected hashes and matched recorded locations. Provenance counts are
+per distinct hash and may overlap: "ambiguous" means membership in multiple
+sources; multiple recorded locations are counted separately. Selection attaches
+the **content hash**, not one particular path occurrence. Other memberships and
+paths remain intact, so adding another source may create visible ambiguity and
+prevent source-aware correlation. A path does not establish machine identity.
+
+Application reports its actual scope and holds the same database transaction
+through selection and assignment. The optional `--confirmation-fingerprint`
+requires the unchanged case state returned by a preview; use the same selectors
+and reason when applying it. Without this token, `--yes` selects the current
+recorded scope, which may differ from an earlier preview. Interactive confirmation
+always checks the preview fingerprint. Selection is bounded to 1,000 distinct
+hashes, 100 path arguments and 10,000 matching recorded locations; narrow larger
+selections explicitly.
+
+Schema 4 is unchanged. Path-selected assignments retain the original analyst
+reason and store the supplied paths and explicit hash selectors as JSON text
+appended to the existing retrospective `basis` field. `source show` exposes this
+in its bounded assignment history. The selected content hashes remain in
+`source_assignment_files`; no historical batches or ingestion-run batch IDs are
+created. `status`, `search --source`, and `around` use the existing membership and
+ambiguity rules.
+
 `search --source` filters provenance membership. `search --hostname` searches
 artifact/active analyst hostname assertions; it remains distinct and may find
 records with conflicting assertions, which are shown in their context. The filters

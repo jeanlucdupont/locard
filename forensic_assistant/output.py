@@ -116,6 +116,8 @@ def validate_destination(target, args):
                         for (source,) in db.execute('SELECT source_file FROM '+table):
                             if same_path(target, Path(source)): raise ValueError('Output destination is recorded source evidence')
     for name in ('path', 'directory', 'output', 'transcripts', 'transcript_root', 'index', 'semantic_index', 'model_path', 'embedding_model', 'destination'):
+        if name=='path' and getattr(args,'command',None)=='source' and getattr(args,'source_command',None)=='assign':
+            continue  # Historical selector list, not a current filesystem input.
         value = getattr(args, name, None)
         if value:
             p = Path(value).absolute(); protected.append(p)

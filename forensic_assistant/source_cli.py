@@ -19,7 +19,9 @@ def configure(commands):
         if name in ('update','assign'):
             p.add_argument('--yes',action='store_true',help='Apply the explicit analyst action; otherwise preview only')
         if name=='assign':
-            p.add_argument('--file-hash',action='append',required=True,help='Explicit existing file SHA-256; repeat for each file')
+            p.add_argument('--file-hash',action='append',help='Explicit existing file SHA-256; repeat or combine with --path (deduplicated union)')
+            p.add_argument('--path',action='append',help='Recorded absolute Windows file/directory path; repeatable, no filesystem scan or wildcards. Requires --path or --file-hash.')
+            p.add_argument('--confirmation-fingerprint',help='Require the case fingerprint returned by a reviewed preview before applying')
             p.add_argument('--reason',required=True,help='Reason for retrospective assignment (does not reconstruct ingestion)')
     for name,p in commands.choices.items():
         if name=='ingest' or name.startswith('ingest-'):
@@ -65,13 +67,35 @@ def dispatch(db,args):
             if not args.yes:return dict(preview=preview,applied=False,confirmation='Repeat with --yes to apply',confirmation_fingerprint=fingerprint(db))
             result=sources.update(db,args.source_id,**values)
         else:
-            hashes=sorted(set(args.file_hash))
-            for sha in hashes:
-                if not db.execute('SELECT 1 FROM evidence_files WHERE sha256=?',(sha,)).fetchone():raise ValueError('File hash not found: '+sha)
-            count=sum(db.execute('SELECT count(*) FROM evidence_records WHERE file_sha256=?',(sha,)).fetchone()[0] for sha in hashes)
-            preview=dict(source=scope,file_hashes=hashes,files=len(hashes),evidence_records=count,reason=args.reason,basis='retrospective analyst assignment')
+            from forensic_assistant.database import source_selection
+            selection=source_selection.select(db,args.file_hash,getattr(args,'path',None))
+            preview=source_selection.preview(db,args.source_id,selection,args.reason)
             if not args.yes:return dict(preview=preview,applied=False,confirmation='Repeat with --yes to apply',confirmation_fingerprint=fingerprint(db))
-            result=dict(assignment_id=sources.assign(db,args.source_id,hashes,reason=args.reason))
+            result=dict(assignment_id=sources.assign(db,args.source_id,selection['file_hashes'],reason=args.reason,
+                                                    selection_basis=source_selection.assignment_basis(selection)))
         db.commit()
         return dict(applied=True,result=result,scope=preview)
     finally:db.rollback()
+
+
+def render_assignment(data,palette=None):
+    from forensic_assistant.terminal import Palette
+    from forensic_assistant.retrieval.presentation import safe
+    palette=palette or Palette()
+    p=data.get('preview',data.get('scope'));s=p['source']
+    lines=[palette('heading','RETROSPECTIVE SOURCE ASSIGNMENT'),
+           'Source: '+safe(s['display_name'])+' ['+safe(s['source_id'])+']',
+           'Analyst hostname: '+safe(s['hostname'] or 'unknown')]
+    for path in p['paths']:lines.append('Recorded path: '+safe(path))
+    if p['explicit_hashes']:lines.append('Explicit hash selectors: '+str(len(p['explicit_hashes'])))
+    lines += [f"Distinct file hashes: {p['files']}",f"Evidence records: {p['evidence_records']}",
+              'Artifact types: '+safe(p['artifact_types']), 'Existing provenance (file hashes):']
+    for key,value in p['existing_provenance'].items():lines.append('  '+key.replace('_',' ')+': '+str(value))
+    lines += ['Reason: '+safe(p['reason']),'Basis: '+p['basis']]
+    lines += [palette('warning',text) for text in p['limitations']]
+    if data['applied']:lines.append('Applied assignment: '+data['result']['assignment_id'])
+    else:
+        lines += ['Preview only. Repeat with --yes to apply; add --confirmation-fingerprint below to require this case state.',
+                  data['confirmation_fingerprint']]
+    lines.append('Use --json for the full selected hash and matched-location lists; source show exposes bounded assignment history.')
+    return '\n'.join(lines)

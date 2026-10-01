@@ -103,7 +103,7 @@ def memberships(db, sha):
     return [current(db,sid) for sid in ids]
 
 
-def assign(db, source_id, hashes, *, reason):
+def assign(db, source_id, hashes, *, reason, selection_basis=None):
     current(db,source_id)
     hashes=sorted(set(hashes))
     if not hashes or len(hashes)>1000 or not reason.strip() or len(reason)>4096:raise ValueError('Select 1..1000 explicit file hashes and a reason of 1..4096 characters')
@@ -111,7 +111,8 @@ def assign(db, source_id, hashes, *, reason):
         if not db.execute('SELECT 1 FROM evidence_files WHERE sha256=?',(sha,)).fetchone():
             raise ValueError('Selected file hash not found: '+sha)
     aid=identifier('assign')
-    db.execute('INSERT INTO source_assignments VALUES (?,?,?,?,?)',(aid,source_id,now(),'retrospective analyst assignment',reason))
+    basis='retrospective analyst assignment'+('; '+selection_basis if selection_basis else '')
+    db.execute('INSERT INTO source_assignments VALUES (?,?,?,?,?)',(aid,source_id,now(),basis,reason))
     db.executemany('INSERT INTO source_assignment_files VALUES (?,?)',[(aid,sha) for sha in hashes])
     return aid
 

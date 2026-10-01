@@ -159,6 +159,8 @@ def _dispatch(args, output, *, existing_only=False):
                 result=source_cli.dispatch(db,args)
                 if args.source_command=='list' and not args.json:
                     output.write(source_cli.render_list(result))
+                elif args.source_command=='assign' and not args.json:
+                    output.write(source_cli.render_assignment(result,output.palette))
                 else:emit(result)
                 return 0
             if args.command=='semantic':
