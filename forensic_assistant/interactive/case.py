@@ -18,22 +18,28 @@ def normalize(path):
     return target.resolve(strict=True)
 
 
-@lru_cache(maxsize=1)
-def expected_schema():
+@lru_cache(maxsize=2)
+def expected_schema(version=4):
     # Cache only trusted application schema metadata, never case data.
     from forensic_assistant.database.db import connect
     with closing(connect(':memory:')) as reference:
         names = [r[0] for r in reference.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-        return tuple((name, tuple(tuple(row)[1:] for row in reference.execute(f'PRAGMA table_info("{name}")')))
-                     for name in names)
+        result=[]
+        for name in names:
+            if version==3 and name in ('sources','source_assertions','ingestion_batches','source_assignments','source_assignment_files'):continue
+            columns=tuple(tuple(row)[1:] for row in reference.execute(f'PRAGMA table_info("{name}")')
+                          if not (version==3 and name=='ingestion_runs' and row[1]=='batch_id'))
+            result.append((name,columns))
+        return tuple(result)
 
 
 def check_structure(db):
-    if db.execute('PRAGMA user_version').fetchone()[0] != 3:
-        raise ValueError('An existing schema-3 Locard database is required')
+    version=db.execute('PRAGMA user_version').fetchone()[0]
+    if version not in (3,4):
+        raise ValueError('An existing schema-3 or schema-4 Locard database is required')
     if db.execute("SELECT 1 FROM sqlite_master WHERE type IN ('trigger','view') LIMIT 1").fetchone():
         raise ValueError('Unexpected executable schema objects in case')
-    for name, columns in expected_schema():
+    for name, columns in expected_schema(version):
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone():
             raise ValueError('Incomplete Locard database structure')
         actual = tuple(tuple(row)[1:] for row in db.execute(f'PRAGMA table_info("{name}")'))

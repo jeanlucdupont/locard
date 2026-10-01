@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 from forensic_assistant.database.context import insert_context
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 STATEMENTS = (
     """CREATE TABLE event_context (
     evidence_id TEXT PRIMARY KEY REFERENCES events(id), host_key TEXT, timestamp_utc TEXT,
@@ -39,19 +39,40 @@ def upgrade(db):
 
 
 def migrate(path):
-    source = Path(path).resolve(strict=True)
-    db = sqlite3.connect(source)
+    from forensic_assistant.reporting.transcripts import safe_path
+    source = safe_path(Path(path).absolute()).resolve(strict=True)
+    db = sqlite3.connect(source.as_uri()+'?mode=rw',uri=True,timeout=.2)
     db.row_factory = sqlite3.Row
     backup = None
     try:
         db.execute("PRAGMA foreign_keys=ON")
+        db.execute('PRAGMA trusted_schema=OFF')
+        db.enable_load_extension(False)
         db.execute("BEGIN IMMEDIATE")
         version = db.execute("PRAGMA user_version").fetchone()[0]
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type IN ('trigger','view') LIMIT 1").fetchone():
+            raise ValueError('Unexpected executable schema objects; migration refused')
         if version == SCHEMA_VERSION:
+            from forensic_assistant.interactive.case import check_structure
+            check_structure(db)
             db.rollback()
             return {"status": "current", "schema_version": version, "backup": None}
-        if version not in (1, 2):
-            raise ValueError(f"Cannot migrate schema version {version}; expected schema 1 or 2")
+        if version not in (1, 2, 3):
+            raise ValueError(f"Cannot migrate schema version {version}; expected schema 1, 2 or 3")
+        # Verify the old shape against trusted DDL without modifying the case.
+        reference=sqlite3.connect(':memory:')
+        try:
+            reference.executescript(Path(__file__).with_name('schema.sql').read_text())
+            if version>=2:
+                for sql in STATEMENTS:reference.execute(sql)
+            if version>=3:
+                from forensic_assistant.database.artifacts import DDL
+                for sql in DDL:reference.execute(sql)
+            for (name,) in reference.execute("SELECT name FROM sqlite_master WHERE type='table'"):
+                query='PRAGMA table_info("'+name+'")'
+                if [tuple(r)[1:] for r in db.execute(query)] != [tuple(r)[1:] for r in reference.execute(query)]:
+                    raise ValueError('Unsupported legacy table structure: '+name)
+        finally:reference.close()
         backup = source.with_name(source.name + f".schema{version}-backup-" + uuid.uuid4().hex + ".sqlite")
         # Exclusive creation prevents overwriting anything, including another backup.
         with backup.open("xb"):
@@ -66,13 +87,16 @@ def migrate(path):
         if version == 1:
             upgrade(db)
         from forensic_assistant.database.artifacts import upgrade3
-        upgrade3(db)
+        if version < 3:upgrade3(db)
+        from forensic_assistant.database.sources import upgrade4
+        upgrade4(db)
         if db.execute('PRAGMA foreign_key_check').fetchone() or db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
-            raise ValueError('Schema-3 integrity validation failed')
+            raise ValueError('Schema-4 integrity validation failed')
         db.commit()
-        return {"status": "migrated", "schema_version": 3, "backup": str(backup)}
-    except Exception as exc:
+        return {"status": "migrated", "schema_version": 4, "backup": str(backup)}
+    except BaseException as exc:
         db.rollback()
+        if not isinstance(exc,Exception):raise
         raise ValueError(f"Migration rolled back: {exc}. Backup: {backup or 'not created'}") from exc
     finally:
         db.close()

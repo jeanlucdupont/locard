@@ -58,7 +58,7 @@ def records(path):
             yield ParsedRecord(None, error="File truncated: fewer chunks than declared")
 
 
-def ingest_file(db, path, batch_size=500, reader=records, reporter=None):
+def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batch_id=None):
     if batch_size < 1:
         raise ValueError("Batch size must be positive")
     path = Path(path).resolve()
@@ -82,6 +82,7 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None):
         with db:
             run_id = db.execute("INSERT INTO ingestion_runs(source_file,started_utc,status) VALUES (?, ?, ?)",
                                 (str(path), now(), "running")).lastrowid
+            if batch_id is not None:db.execute('UPDATE ingestion_runs SET batch_id=? WHERE id=?',(batch_id,run_id))
         before = digest(path)
         size = path.stat().st_size
         with tempfile.TemporaryDirectory(prefix="locard-stage-") as temp:

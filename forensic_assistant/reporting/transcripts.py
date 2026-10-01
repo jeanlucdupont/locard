@@ -30,8 +30,8 @@ def load(root, investigation_id):
     events_raw = read(directory/'events.jsonl',4*1024*1024)
     try:
         manifest = loads(manifest_raw)
-        if (type(manifest['format']) is not int or manifest['format'] != 1 or manifest['policy_version'] != 'v4-1' or manifest['schema'] != 3
-            or manifest['application_version'] not in ('0.5.0','0.6.0','0.7.0','0.8.0','0.8.1','0.9.0','0.9.1')
+        if (type(manifest['format']) is not int or manifest['format'] != 1 or manifest['policy_version'] != 'v4-1' or manifest['schema'] not in (3,4)
+            or manifest['application_version'] not in ('0.5.0','0.6.0','0.7.0','0.8.0','0.8.1','0.9.0','0.9.1','0.10.0')
             or manifest['investigation_id'] != investigation_id or manifest.get('dry_run')
             or manifest['status'] == 'RUNNING' or 'replay_of' in manifest):
             raise ValueError('Unsupported or incomplete investigation')
@@ -85,7 +85,7 @@ def load(root, investigation_id):
                 final=state.render(data['answer']);continue
             elif kind in ('rejected','loop_rejected'): continue
             else: raise ValueError('Unsupported transcript event')
-            if response['fingerprint']!=manifest['evidence_fingerprint'] or response['schema']!=3 or response['database_changes']!=0:
+            if response['fingerprint']!=manifest['evidence_fingerprint'] or response['schema']!=manifest['schema'] or response['database_changes']!=0:
                 raise ValueError('Transcript evidence state mismatch')
             validate_output(response['result']);results.append(response['result']);state.ingest(response['result'])
         terminal=events[-1]['data']

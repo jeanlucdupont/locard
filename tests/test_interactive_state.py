@@ -13,7 +13,7 @@ def test_validation_preserves_database_and_releases_handles(tmp_path):
     before = path.read_bytes()
     assert validate(path) == path.resolve()
     with closing(connect(path, existing_only=True)) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 3
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 4
     assert before == path.read_bytes()
     path.rename(tmp_path/'released.db')
 

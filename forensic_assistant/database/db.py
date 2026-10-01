@@ -24,7 +24,7 @@ def connect(path, *, existing_only=False):
         if version in (1, 2):
             db.close()
             raise ValueError("Unsupported legacy database schema; an existing schema-3 case is required")
-        if version not in (0, 3):
+        if version not in (0, 3, 4):
             db.close()
             raise ValueError(f"Unsupported database schema version: {version}")
         db.execute("PRAGMA foreign_keys=ON")
@@ -37,6 +37,8 @@ def connect(path, *, existing_only=False):
                 upgrade(db)
                 from forensic_assistant.database.artifacts import upgrade3
                 upgrade3(db)
+                from forensic_assistant.database.sources import upgrade4
+                upgrade4(db)
         return db
     except BaseException:
         db.close()

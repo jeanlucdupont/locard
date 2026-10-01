@@ -77,7 +77,7 @@ def execute(db,name,args,config,model=None):
         seconds=args['seconds'];direction=args['direction']
         raw=q.search(start=shift(stamp,-seconds) if direction!='after' else stamp,
           end=shift(stamp,seconds) if direction!='before' else stamp,exclude_time=stamp if direction!='around' else None,
-          hostname=anchor['host_key'],strict_host=True,timeline=True,limit=limit,nearest_to=stamp).as_dict()
+          hostname=anchor['host_key'],strict_host=True,source_scope=next(iter(anchor['context'].get('source_ids',[])),''),timeline=True,limit=limit,nearest_to=stamp).as_dict()
     elif name=='process_tree':raw=process_tree(db,**args)
     elif name=='session':
         from forensic_assistant.correlation.models import get_event

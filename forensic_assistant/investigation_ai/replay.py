@@ -10,7 +10,7 @@ import time
 def replay(config, root, investigation_id):
     manifest, events = load(root, investigation_id)
     current = implementation()
-    if any(manifest.get(k) != v for k, v in current.items()):
+    if manifest.get('schema') not in (3,4) or any(manifest.get(k) != v for k, v in current.items() if k!='schema'):
         raise ValueError('Transcript implementation/policy/schema is incompatible; inspect without replay')
     if manifest.get('status') == 'RUNNING': raise ValueError('Incomplete investigation cannot be replayed')
     rules = [r.rule_id for r in available_rules()]
@@ -23,7 +23,7 @@ def replay(config, root, investigation_id):
     question = manifest.get('question')
     if type(question) is not str or not 0 < len(question.encode()) <= 1000: raise ValueError('Invalid replay question')
     started = time.monotonic(); pending = None; initialized = False; comparisons = []
-    output = Transcript(root, {'replay_of': investigation_id, 'evidence_fingerprint': expected})
+    output = Transcript(root, {'schema':manifest['schema'],'replay_of': investigation_id, 'evidence_fingerprint': expected})
     status = 'REPLAY_MATCH'; reason = None
     def seconds():
         remaining = budget.seconds - (time.monotonic()-started)
@@ -36,6 +36,7 @@ def replay(config, root, investigation_id):
                 if kind == 'initial':
                     if initialized: raise ValueError('Duplicate initial operation')
                     response = worker.call('initial', fingerprint=expected, seconds=seconds(), question=question)
+                    if response.get('schema')!=manifest['schema'] or response.get('database_changes')!=0:raise ValueError('Replay case schema/read-only mismatch')
                     if response.get('semantic_identity') != manifest.get('semantic_identity') or response.get('model_identity') != manifest.get('embedding_identity'):
                         raise ValueError('Semantic generation/model differs from original investigation')
                     match = digest(response['result']) == digest(data['result'])
@@ -61,6 +62,7 @@ def replay(config, root, investigation_id):
                         state.semantic += 1
                         if state.semantic > budget.semantic: raise ValueError('Replay semantic budget exceeded')
                     response = worker.call(name, args, fingerprint=expected, known_ids=state.exposed, seconds=seconds())
+                    if response.get('schema')!=manifest['schema'] or response.get('database_changes')!=0:raise ValueError('Replay case schema/read-only mismatch')
                     pending = (name, response)
                 elif kind == 'result':
                     if pending is None or data['operation'] != pending[0]: raise ValueError('Invalid result sequence')

@@ -41,7 +41,10 @@ class Shell:
         self.reader.clear()
         try:self.state.remember(target)
         except (OSError,ValueError) as exc:print('Recent case not saved: '+safe(exc))
-        print('Database: '+safe(target)+'\nSchema: 3 (structure checked; evidence conclusions not validated)')
+        from contextlib import closing
+        from .case import open_existing
+        with closing(open_existing(target)) as db:version=db.execute('PRAGMA user_version').fetchone()[0]
+        print('Database: '+safe(target)+f'\nSchema: {version} (structure checked; evidence conclusions not validated)')
 
     def choose(self,path=None):
         if path is not None:
@@ -145,6 +148,8 @@ class Shell:
                     if args.db!=str(self.active) or any(w=='--db' or w.startswith('--db=') for w in words):
                         raise ValueError('Use case to change the active database')
                     executing=True
+                    from .sources import prepare
+                    if not prepare(self,args):continue
                     self.last_status=dispatch(args,existing_only=True)
                 except EOFError:print();return 0
                 except KeyboardInterrupt:

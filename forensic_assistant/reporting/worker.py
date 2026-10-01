@@ -81,7 +81,7 @@ def serve():
                         elif op=='collect': result=collect(with_db,args['ids'],args.get('locations',False))
                         elif op=='objects': result=verify_objects(with_db,args)
                         else: raise ValueError('Unknown report operation')
-                        response=dict(result=result,fingerprint=observed,schema=3,database_changes=with_db.total_changes)
+                        response=dict(result=result,fingerprint=observed,schema=with_db.execute('PRAGMA user_version').fetchone()[0],database_changes=with_db.total_changes)
                 finally: with_db.close()
         except Exception as exc:
             response={'error':str(exc)[:500],'error_type':type(exc).__name__}

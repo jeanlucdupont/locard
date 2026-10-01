@@ -47,7 +47,7 @@ def apply(data, mode):
         if key in ('model_metadata','embedding_identity','semantic_identity'):
             return {'redacted':True,'recorded':bool(value)}
         if key=='value': return alias(value)
-        if key in ('username','hostname','volume_root','command_line','script_block','value_data','value_name',
+        if key in ('username','hostname','display_name','volume_root','command_line','script_block','value_data','value_name',
                    'process_name','parent_process_name','executable','key','objects','source_ip','destination_ip',
                    'event_data_json','normalization_warnings_json','statement','model_proposal','reason','warnings',
                    'alternatives','source_locations','question','model','identity_basis','locator','query','process','path','ip'):

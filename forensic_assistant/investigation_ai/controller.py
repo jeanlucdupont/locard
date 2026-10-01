@@ -40,7 +40,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         if remaining() <= 0: raise WorkerError('INVESTIGATION_TIMEOUT')
         response = worker.call(name, args, fingerprint=fingerprint, known_ids=state.exposed,
                               seconds=min(budget.tool_seconds, remaining()), question=question)
-        if response.get('database_changes') != 0 or response.get('schema') != 3:
+        if response.get('database_changes') != 0 or response.get('schema') not in (3,4):
             raise WorkerError('Evidence read-only/schema validation failed')
         if fingerprint is not None and response['fingerprint'] != fingerprint: raise WorkerError('EVIDENCE_STATE_CHANGED')
         if name!='check':
@@ -51,7 +51,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     try:
         worker = worker_factory(config)
         initial = call('initial')
-        transcript.manifest.update(evidence_fingerprint=fingerprint, semantic_identity=initial.get('semantic_identity'),
+        transcript.manifest.update(schema=initial['schema'],evidence_fingerprint=fingerprint, semantic_identity=initial.get('semantic_identity'),
                                    embedding_identity=initial.get('model_identity'))
         transcript.append('initial', initial)
         state.ingest(initial['result']); state.semantic += int(initial['result'].get('semantic_used', False))

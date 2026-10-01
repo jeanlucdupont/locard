@@ -76,10 +76,10 @@ def worker(kind,path,sha,stage,options,timeout):
                     if stream and not stream.closed:stream.close()
 
 
-def ingest_artifact(db,path,kind,*,hostname=None,username=None,volume_root=None,timeout=300,record_size=None,runner=worker):
+def ingest_artifact(db,path,kind,*,hostname=None,username=None,volume_root=None,timeout=300,record_size=None,runner=worker,batch_id=None):
     if kind not in PARSERS:raise ValueError('Unknown artifact type')
     if not 1<=timeout<=3600:raise ValueError('Parser timeout must be 1..3600 seconds')
-    path=str(Path(path).resolve(strict=True));version=importlib.metadata.version(PARSERS[kind])
+    path=str(Path(path).resolve());version=importlib.metadata.version(PARSERS[kind])
     # Validate context before starting a run (no live environment expansion).
     if volume_root:
         import re
@@ -95,6 +95,7 @@ def ingest_artifact(db,path,kind,*,hostname=None,username=None,volume_root=None,
     try:
         with db:
             run_id=db.execute('INSERT INTO ingestion_runs(source_file,started_utc,status) VALUES (?,?,?)',(path,now(),'running')).lastrowid
+            if batch_id is not None:db.execute('UPDATE ingestion_runs SET batch_id=? WHERE id=?',(batch_id,run_id))
             db.execute('INSERT INTO artifact_runs VALUES (?,?,?,?,?,?,?)',(run_id,kind,PARSERS[kind],version,'1',None,dump(options)))
         sha=digest(path);size=Path(path).stat().st_size
         with db:db.execute('UPDATE artifact_runs SET source_sha256=? WHERE run_id=?',(sha,run_id))

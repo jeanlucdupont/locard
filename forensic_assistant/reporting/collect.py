@@ -35,6 +35,7 @@ def build(case, *, evidence_ids=(), investigation_ids=(), transcript_root=None,
         for result in a['results']: selected.update(r['id'] for r in result['records'])
     if not selected or len(selected)>2000: raise ValueError('Empty or excessive evidence selection')
     records={};inventory={};provenance=[];all_claims={};limitations=[]
+    case_schema=None
     def add(category, assertion, ids=(), origins=()):
         item=claim(category,assertion,ids,origins)
         previous=all_claims.get(item['claim_id'])
@@ -42,11 +43,12 @@ def build(case, *, evidence_ids=(), investigation_ids=(), transcript_root=None,
         all_claims[item['claim_id']]=item
     with ReportWorker({'case_path':str(case)}) as worker:
         def call(op,args=None):
-            nonlocal expected
+            nonlocal expected,case_schema
             remaining=deadline-time.monotonic()
             if remaining<=0: raise ValueError('Report runtime exhausted')
             response=worker.call(op,args,fingerprint=expected,seconds=min(45,remaining))
-            if response['schema']!=3 or response['database_changes']!=0: raise ValueError('Read-only report gate failed')
+            if response['schema'] not in (3,4) or response['database_changes']!=0: raise ValueError('Read-only report gate failed')
+            case_schema=response['schema']
             expected=response['fingerprint'];return response['result']
         pending=sorted(selected)
         while pending:
@@ -117,7 +119,8 @@ def build(case, *, evidence_ids=(), investigation_ids=(), transcript_root=None,
         for eid,record in sorted(records.items()):
             if record['context']['conflicts']:
                 add('CONFLICT',dict(kind='context_assertion_conflict',fields=record['context']['conflicts'],
-                    assertions=record['context']['assertions'],resolution='Unresolved; no conflicting assertion selected'),[eid],['report-time context validation'])
+                    assertions=[*record['context']['assertions'],*record['context'].get('source_assertions',[])],
+                    resolution='Unresolved; no conflicting assertion selected'),[eid],['report-time context validation'])
             if record['fields'].get('truncated_fields') or record['warnings']:
                 limitations.append('Record '+eid+' has parser warnings or compact-field omissions')
         call('check')
@@ -155,7 +158,7 @@ def build(case, *, evidence_ids=(), investigation_ids=(), transcript_root=None,
         claims.append(claim('LIMITATION',dict(items=limitations),origins=['report generation']))
     for record in records.values(): record.pop('historical_variants')
     scope=DIRECT_SCOPE if mode=='explicit_evidence_ids' else 'Bounded report of selected same-state investigations; not a complete forensic examination.'
-    result=dict(format=FORMAT,schema=3,input_mode=mode,scope=scope,evidence_fingerprint=expected,
+    result=dict(format=FORMAT,schema=case_schema,input_mode=mode,scope=scope,evidence_fingerprint=expected,
         analyst_metadata=metadata,analyst_metadata_basis='Analyst supplied; not evidence',
         selection={'evidence_ids':sorted(set(evidence_ids)),'investigation_ids':sorted(investigation_ids)},
         limits=asdict(limits),source_locations_included=include_source_locations,

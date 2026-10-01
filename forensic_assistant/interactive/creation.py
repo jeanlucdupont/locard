@@ -141,6 +141,7 @@ def _attempt(shell):
                 if choice=='e':break
                 if choice!='a':return False
             except (ValueError,OSError) as exc:print('Invalid evidence source: '+safe(exc))
+        source_name = read('Source name (Enter = generated label): ') or None
         hostname = read('Source hostname (Enter = unknown): ') or None
         username = read('Source user (Enter = unknown): ') or None
         from forensic_assistant.artifacts.context import normalize_volume_root
@@ -148,7 +149,7 @@ def _attempt(shell):
             try:volume = normalize_volume_root(read('Original drive, e.g. C: (Enter = unknown): '));break
             except ValueError as exc:print(safe(exc))
         print('New case:\n  Database: '+safe(target)+'\n  Evidence: '+safe(source))
-        print('Analyst-supplied metadata: '+safe(dict(hostname=hostname,user=username,volume_root=volume)))
+        print('Analyst-supplied metadata: '+safe(dict(name=source_name,hostname=hostname,user=username,volume_root=volume)))
         if parents:print('Requested directories will be created and retained even if later steps fail.')
         action = read(('Create empty case' if not found else 'Create case and begin ingestion')+'? [y/N; B = back]: ').casefold()
         if action=='b':return _BACK
@@ -158,13 +159,20 @@ def _attempt(shell):
         initializing = True
         initialize(target,parents,on_publish=mark_published)
         print('Initialized database: '+safe(target))
+        from forensic_assistant.database import sources
+        with closing(open_existing(target)) as db:
+            with db:source_id=sources.create(db,name=source_name,hostname=hostname,username=username,volume_root=volume)
         if not found:
+            from forensic_assistant.database.db import now
+            with closing(open_existing(target)) as db:
+                with db:db.execute('INSERT INTO ingestion_batches VALUES (?,?,?,?,?,?,?)',
+                    (sources.identifier('batch'),source_id,now(),now(),str(source),'case new: empty preflight selection','empty'))
             print('Empty case explicitly requested; no ingestion performed.')
             shell.activate(target);return True
         def progress(file,kind,result):
             print(safe(file)+' ['+kind+']: '+safe({k:result[k] for k in ('status','inserted','duplicates','errors')}))
-        args = SimpleNamespace(command='ingest-all',path=source,hostname=hostname,user=username,
-                               volume_root=volume,parser_timeout=300,record_size=None)
+        args = SimpleNamespace(command='ingest-all',path=source,source=source_id,hostname=None,user=None,
+                               volume_root=None,parser_timeout=300,record_size=None)
         while True:
             source_path(args.path,target)
             with closing(open_existing(target)) as db:results = v2_cli.ingest_sources(db,args,progress)

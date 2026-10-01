@@ -28,7 +28,7 @@ def structure(report):
               'investigations','limitations','omissions','methodology','caution'}
         if report['redaction']=='identifiers':keys.add('redaction_notice')
         if set(data)!=keys:raise ValueError('Unexpected structured report fields')
-        if data['format']!=FORMAT or data['schema']!=3 or data['status'] not in ('COMPLETE','COMPLETE_WITH_LIMITATIONS'):
+        if data['format']!=FORMAT or data['schema'] not in (3,4) or data['status'] not in ('COMPLETE','COMPLETE_WITH_LIMITATIONS'):
             raise ValueError('Invalid report status/schema')
         if data['input_mode'] not in ('explicit_evidence_ids','investigations'): raise ValueError('Invalid input mode')
         if (data['input_mode']=='explicit_evidence_ids') != bool(data['selection']['evidence_ids']): raise ValueError('Input scope mismatch')
@@ -92,7 +92,7 @@ def generate(case, output, *, profile='technical', redaction='none', narrative_c
     structure(report)
     payloads={'report.json':canonical(report),'report.html':render(report)}
     manifest=dict(format=FORMAT,report_id=report['report_id'],created_utc=report['created_utc'],
-        application_version=__version__,schema=3,derived_data=True,input_mode=data['input_mode'],scope=data['scope'],
+        application_version=__version__,schema=data['schema'],derived_data=True,input_mode=data['input_mode'],scope=data['scope'],
         evidence_fingerprint=data['evidence_fingerprint'],investigations=data['investigations'],
         selection=data['selection'],profile=profile,redaction=redaction,status=data['status'],
         deterministic_sha256=digest(data),claim_ids=[c['claim_id'] for c in data['claims']],
@@ -143,7 +143,7 @@ def inspect_payloads(payloads):
         'evidence_fingerprint','investigations','selection','profile','redaction','status','deterministic_sha256',
         'claim_ids','evidence_ids','claim_evidence_graph','narrative','outputs','integrity_meaning'}:
         raise ValueError('Unexpected manifest fields')
-    if manifest['format']!=FORMAT or manifest['schema']!=3 or manifest['derived_data'] is not True:
+    if manifest['format']!=FORMAT or manifest['schema'] not in (3,4) or manifest['derived_data'] is not True:
         raise ValueError('Invalid manifest format/schema')
     if manifest['claim_ids']!=[c['claim_id'] for c in report['data']['claims']] or manifest['evidence_ids']!=sorted(report['data']['evidence']):
         raise ValueError('Manifest reference mismatch')
@@ -151,7 +151,7 @@ def inspect_payloads(payloads):
         raise ValueError('Manifest output hash mismatch')
     for key in ('report_id','created_utc','application_version','profile','redaction','narrative'):
         if manifest[key]!=report[key]: raise ValueError('Manifest/report mismatch')
-    for key in ('input_mode','scope','evidence_fingerprint','investigations','selection','status'):
+    for key in ('schema','input_mode','scope','evidence_fingerprint','investigations','selection','status'):
         if manifest[key]!=report['data'][key]: raise ValueError('Manifest/data mismatch')
     if manifest['deterministic_sha256']!=digest(report['data']) or manifest['claim_evidence_graph']!=report['data']['graph']:
         raise ValueError('Manifest data digest/graph mismatch')

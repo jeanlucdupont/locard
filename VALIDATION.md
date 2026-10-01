@@ -1,3 +1,86 @@
+# Source and ingestion-batch provenance 0.10.0 validation - 2026-09-30
+
+Fetched origin and verified a clean main branch identical to origin/main at
+21b3417 before implementation. Application version is 0.10.0; new cases use
+schema 4. No dependency or licensing changes were made.
+
+The additive schema is implemented in database/sources.py:
+
+| Table/change | Persisted information |
+|---|---|
+| sources | Immutable generated source_id, created_utc, analyst/automatic creation_basis |
+| source_assertions | Revision ID, source ID, display name, hostname, username, volume root, recorded time, basis, supersedes link |
+| ingestion_batches | Generated batch ID, source ID, start/finish times, requested path, command, status |
+| ingestion_runs.batch_id | Nullable batch reference; historical rows remain NULL |
+| source_assignments | Explicit retrospective action ID, source ID, time, basis and analyst reason |
+| source_assignment_files | Explicit file hashes selected by each retrospective action |
+
+Current metadata and updated_utc are projected from the latest source revision;
+history exposes active/superseded status. Source occurrence comes from batch-linked
+file runs or explicitly labelled retrospective assignments. No source is embedded
+permanently into an evidence ID, and original source_contexts remain unchanged.
+
+Migration tests cover schema 1/2 preservation via the existing tests, schema 3
+backup and upgrade, unchanged raw evidence/IDs, preservation of legacy assertions,
+WAL backup, explicit transactional rollback, and no fabricated source/batch history.
+Schema-3 reads do not migrate. Migration rejects unexpected views/triggers and
+unsupported table shapes, uses mode=rw, and keeps a uniquely named consistent
+backup. No real analyst case was migrated during development.
+
+Automatic scripted ingestion creates a neutral source on every invocation unless
+--source is explicit, including empty discovery. Existing ingestion metadata is
+recorded on that source. Tests cover repeated paths/hostnames without heuristic
+reuse, explicit source reuse, duplicate content in multiple sources, per-file batch
+links, partial files, cancellation after commits, and discovery failure. An unfinished
+batch is not automatically labelled successful or grouped with historical runs.
+
+Source retrieval and around preserve multi-source ambiguity and artifact/analyst
+hostname conflicts. Source-assigned temporal neighbors must share the same unique
+source and reliable hostname. Distinct sources do not merge by display name or
+matching analyst hostname. Legacy unassigned temporal context stays separate.
+Source changes invalidate fingerprints, semantic indexes and forensic-worker state;
+historical reports remain byte-for-byte unchanged and fail current-case compatibility.
+Schema-3 and schema-4 investigation replay both retain read-only/fingerprint checks.
+Report conflict assertions retain their closed structure, and source labels are
+suppressed by identifier redaction.
+
+| Validation stage | Result |
+|---|---|
+| Initial model/migration targets | 3 passed |
+| Initial complete accumulated suite | 536 passed in 268.01 seconds |
+| Source, migration and interactive targets | 81 passed in 35.04 seconds |
+| Replay, derived-state and migration targets | 28 passed in 20.45 seconds |
+| Conflict/report and source workflow gate | 20 passed in 21.30 seconds |
+| Final complete accumulated suite | 556 passed in 333.07 seconds |
+
+The intermediate full suites exposed a hard-coded replay schema check and a
+report conflict-structure mismatch. Both were corrected without weakening their
+validation gates; dedicated source/report and legacy replay regressions were added.
+
+End-to-end smoke checks used synthetic Prefetch files outside the repository:
+new case/source, two-file ingestion, a second batch on the same source, a second
+source, list/show/status, unknown hostname rejection, hostname assignment and
+correction, around, explicit migration and retrospective assignment. The case
+wizard used scripted Reader input; subsequent commands ran as actual CLI subprocesses.
+This was not a live keyboard/terminal interaction test. The initial smoke harness
+used the wrong Python module entry point; rerunning with forensic_assistant.cli
+completed the workflow successfully.
+
+Limitations: retrospective assignment selects whole existing file hashes (up to
+1,000 per action), not inferred directories or historical batches. There is no
+automatic reassignment or deletion of source history. Legacy file-level assertions
+can still cause conflicts and are not silently superseded by a source revision.
+Bounded source detail uses limit/offset, and evidence retrieval refuses more than
+100 source memberships rather than arbitrarily selecting an origin. Abnormal
+termination leaves unfinished state visible; unconfirmed worker cleanup has a
+distinct outcome. Evidence remains content-deduplicated even across sources.
+
+Only application source, synthetic-test generators/assertions and documentation
+belong in this change. Test cases, backups, indexes, reports and smoke artifacts
+were generated outside the repository. No push is part of this task.
+
+---
+
 # Deterministic process search validation - 2026-09-30
 
 Fetched origin and confirmed a clean main branch identical to origin/main at

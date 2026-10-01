@@ -13,7 +13,7 @@ from v2_fixtures import mft_file, prefetch_file, registry_file
 def wizard(tmp_path, *tail, missing=False):
     source=tmp_path/'evidence';source.mkdir()
     target=tmp_path/('nested/case.db' if missing else 'case.db')
-    reader=Input(str(target),*(['yes'] if missing else []),str(source),'e','','','','yes',*tail)
+    reader=Input(str(target),*(['yes'] if missing else []),str(source),'e','','','','','yes',*tail)
     return Shell(State(None),reader),target,source
 
 
@@ -64,7 +64,7 @@ def test_decline_missing_parent_returns_destination(tmp_path):
 
 def test_empty_case_first_run_and_recent(tmp_path):
     shell,target,source=wizard(tmp_path,missing=True)
-    lines=['1',str(target),'yes',str(source),'e','','','','yes','exit']
+    lines=['1',str(target),'yes',str(source),'e','','','','','yes','exit']
     shell=Shell(State(tmp_path/'ui.json'),Input(*lines))
     assert shell.run()==0 and shell.active==target
     assert State(shell.state.path).load().recent==[str(target)]
@@ -102,8 +102,8 @@ def test_mixed_real_parsers_and_additional_ingestion(tmp_path,capsys):
     mft_file(source/'mft');prefetch_file(source/'program.pf');registry_file(source/'hive')
     before={p.name:p.read_bytes() for p in source.iterdir()}
     target=tmp_path/'case.db'
-    shell=Shell(State(None),Input('1',str(target),str(source),'TESTHOST','TestUser','C:','yes',
-                                 f'ingest-all "{source}"','exit'))
+    shell=Shell(State(None),Input('1',str(target),str(source),'Workstation','TESTHOST','TestUser','C:','yes',
+                                 f'ingest-all "{source}"','1','exit'))
     assert shell.run()==0 and shell.active==target
     with closing(connect(target,existing_only=True)) as db:
         assert {r[0] for r in db.execute('SELECT DISTINCT source_type FROM evidence_records')}=={'mft','prefetch','registry'}
@@ -116,7 +116,7 @@ def test_mixed_real_parsers_and_additional_ingestion(tmp_path,capsys):
 def test_failure_after_commits_preserves_old_case_and_evidence(tmp_path,monkeypatch,capsys,failure):
     source=tmp_path/'evidence';source.mkdir();artifact=mft_file(source/'mft')
     old=case(tmp_path,'old.db');target=tmp_path/'new.db'
-    shell=Shell(State(None),Input(str(target),str(source),'','','','yes','n'));shell.activate(old)
+    shell=Shell(State(None),Input(str(target),str(source),'','','','','yes','n'));shell.activate(old)
     discover=creation.v2_cli.discover
     calls=0
     def fail_later(*args,**kwargs):
@@ -135,7 +135,7 @@ def test_partial_artifact_failure_activates_with_limitations(tmp_path,capsys):
     source=tmp_path/'evidence';source.mkdir();mft_file(source/'a-mft')
     (source/'z-bad-hive').write_bytes(b'regf'+bytes(100))
     target=tmp_path/'new.db'
-    shell=Shell(State(None),Input(str(target),str(source),'','','','yes'))
+    shell=Shell(State(None),Input(str(target),str(source),'','','','','yes'))
     assert creation.create(shell) and shell.active==target
     assert 'completed with errors/limitations' in capsys.readouterr().out
 
@@ -161,11 +161,11 @@ def test_initialization_exception_closes_connection(tmp_path,monkeypatch):
     target.unlink()  # Windows refuses deletion if SQLite still holds the file.
 
 
-@pytest.mark.parametrize('phase',range(7))
+@pytest.mark.parametrize('phase',range(8))
 def test_cancel_each_prepublication_input(tmp_path,phase):
     source=tmp_path/'evidence';source.mkdir();mft_file(source/'mft')
     target=tmp_path/'new'/'case.db';old=case(tmp_path,'old.db')
-    lines=[str(target),'yes',str(source),'','','','yes']
+    lines=[str(target),'yes',str(source),'','','','','yes']
     lines[phase]=KeyboardInterrupt()
     shell=Shell(State(None),Input(*lines));shell.activate(old)
     assert not creation.create(shell) and shell.active==old
@@ -182,7 +182,7 @@ def test_parser_cancel_records_interruption_without_activation(tmp_path,monkeypa
     if kind=='evtx':monkeypatch.setattr(creation.v2_cli,'ingest_file',partial(creation.v2_cli.ingest_file,reader=cancel))
     else:monkeypatch.setattr(creation.v2_cli,'ingest_artifact',partial(creation.v2_cli.ingest_artifact,runner=cancel))
     old=case(tmp_path,'old.db');target=tmp_path/'new.db'
-    shell=Shell(State(None),Input(str(target),str(source),'','','','yes'));shell.activate(old)
+    shell=Shell(State(None),Input(str(target),str(source),'','','','','yes'));shell.activate(old)
     assert not creation.create(shell) and shell.active==old
     with closing(connect(target,existing_only=True)) as db:
         row=db.execute('SELECT * FROM ingestion_runs').fetchone()
@@ -194,7 +194,7 @@ def test_timeout_does_not_activate_failed_case(tmp_path,monkeypatch,capsys):
     source=mft_file(tmp_path/'mft');target=tmp_path/'new.db'
     def timeout(*args,**kwargs):raise ValueError('Parser time limit exceeded')
     monkeypatch.setattr(creation.v2_cli,'ingest_artifact',partial(creation.v2_cli.ingest_artifact,runner=timeout))
-    shell=Shell(State(None),Input(str(target),str(source),'','','','yes','c'))
+    shell=Shell(State(None),Input(str(target),str(source),'','','','','yes','c'))
     assert not creation.create(shell) and shell.active is None and not shell.state.recent
     with closing(connect(target,existing_only=True)) as db:
         assert db.execute('SELECT status FROM ingestion_runs').fetchone()[0]=='failed'
@@ -216,7 +216,7 @@ def test_unconfirmed_cleanup_failure_is_fatal(tmp_path,monkeypatch):
     source=mft_file(tmp_path/'mft');target=tmp_path/'new.db'
     def fail(*args,**kwargs):raise RuntimeError('Worker cleanup unconfirmed')
     monkeypatch.setattr(creation.v2_cli,'ingest_sources',fail)
-    shell=Shell(State(None),Input(str(target),str(source),'','','','yes'))
+    shell=Shell(State(None),Input(str(target),str(source),'','','','','yes'))
     with pytest.raises(RuntimeError,match='cleanup'):creation.create(shell)
     assert shell.active is None and not shell.state.recent
 
@@ -225,7 +225,7 @@ def test_source_disappears_after_preflight_can_activate_empty_explicitly(tmp_pat
     source=tmp_path/'evidence';source.mkdir();artifact=mft_file(source/'mft')
     target=tmp_path/'new.db'
     def confirm():artifact.unlink();return 'yes'
-    shell=Shell(State(None),Input(str(target),str(source),'','','',confirm,'e'))
+    shell=Shell(State(None),Input(str(target),str(source),'','','','',confirm,'e'))
     assert creation.create(shell) and shell.active==target
     assert 'No supported artifacts remained' in capsys.readouterr().out
 
@@ -242,7 +242,7 @@ def test_directory_race_to_file_preserved(tmp_path,monkeypatch):
 
 def test_back_leaves_filesystem_unchanged(tmp_path):
     shell,target,source=wizard(tmp_path)
-    shell.reader=Input(str(target),str(source),'e','','','','b','')
+    shell.reader=Input(str(target),str(source),'e','','','','','b','')
     assert not creation.create(shell) and not target.exists()
 
 
@@ -256,7 +256,7 @@ def test_unreadable_preflight_never_creates(tmp_path,monkeypatch):
 
 def test_active_case_stays_old_through_ingestion(tmp_path,monkeypatch):
     source=mft_file(tmp_path/'mft');old=case(tmp_path,'old.db');target=tmp_path/'new.db'
-    shell=Shell(State(None),Input(str(target),str(source),'','','','yes'));shell.activate(old)
+    shell=Shell(State(None),Input(str(target),str(source),'','','','','yes'));shell.activate(old)
     original=creation.v2_cli.ingest_sources
     def check(*args,**kwargs):
         assert shell.active==old and shell.state.recent==[str(old)]
@@ -269,7 +269,7 @@ def test_active_case_stays_old_through_ingestion(tmp_path,monkeypatch):
 def test_retry_source_does_not_hide_previous_failures(tmp_path,capsys):
     bad=tmp_path/'bad';bad.write_bytes(b'regf'+bytes(100))
     good=mft_file(tmp_path/'mft');target=tmp_path/'case.db'
-    shell=Shell(State(None),Input(str(target),str(bad),'','','','yes','a',str(good),'yes'))
+    shell=Shell(State(None),Input(str(target),str(bad),'','','','','yes','a',str(good),'yes'))
     assert creation.create(shell) and shell.active==target
     output=capsys.readouterr().out
     assert 'completed with errors/limitations' in output

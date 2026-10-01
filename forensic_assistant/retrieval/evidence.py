@@ -66,8 +66,24 @@ def get_evidence(db,eid,raw=False):
 class EvidenceQueries:
     def __init__(self,db):self.db=db
 
-    def _where(self,*,artifact=None,evidence_kind=None,path=None,username=None,hostname=None,strict_host=False,process=None,process_exact=None,process_contains=None,event_id=None,ip=None,artifact_types=None,powershell=False):
+    def _where(self,*,artifact=None,evidence_kind=None,path=None,username=None,hostname=None,strict_host=False,process=None,process_exact=None,process_contains=None,event_id=None,ip=None,artifact_types=None,powershell=False,source_id=None,source_scope=None):
         clauses=[];params=[]
+        schema4=self.db.execute('PRAGMA user_version').fetchone()[0]==4
+        if source_id or (schema4 and source_scope is not None):
+            from forensic_assistant.database.sources import MEMBERSHIP,current,require4
+            require4(self.db)
+            if source_id:
+                current(self.db,source_id)
+                clauses.append('e.file_sha256 IN (SELECT file_sha256 FROM ('+MEMBERSHIP+') WHERE source_id=?)');params.append(source_id)
+            if source_scope is not None:
+                if source_scope:
+                    clauses.append('(SELECT count(*) FROM ('+MEMBERSHIP+') WHERE file_sha256=e.file_sha256)=1 AND e.file_sha256 IN (SELECT file_sha256 FROM ('+MEMBERSHIP+') WHERE source_id=?)');params.append(source_scope)
+                else:clauses.append('NOT EXISTS (SELECT 1 FROM ('+MEMBERSHIP+') WHERE file_sha256=e.file_sha256)')
+        if schema4:
+            # Parameterized SQL calls a read-only resolver shared with hydration.
+            def context_value(sha,host,user,key):
+                return effective_context(self.db,dict(file_sha256=sha,hostname=host,username=user)).get(key)
+            self.db.create_function('locard_context',4,context_value)
         # Explicit CLI search policy; existing process callers retain their contract.
         if sum(v is not None for v in (process,process_exact,process_contains))>1:
             raise ValueError('Exact and partial process filters are mutually exclusive')
@@ -86,14 +102,25 @@ class EvidenceQueries:
         if evidence_kind:clauses.append('e.artifact_type=?');params.append(evidence_kind)
         if hostname:
             from forensic_assistant.database.context import host_key
-            clauses.append('(e.hostname=? OR e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE hostname=?))');params.extend([host_key(hostname)]*2)
-            if strict_host:
+            if schema4:
+                if strict_host:
+                    clauses.append("locard_context(e.file_sha256,e.hostname,e.username,'hostname')=?");params.append(host_key(hostname))
+                else:
+                    from forensic_assistant.database.sources import MEMBERSHIP
+                    clauses.append('''(e.hostname=? OR e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE hostname=?) OR
+                        e.file_sha256 IN (SELECT m.file_sha256 FROM ('''+MEMBERSHIP+''') m JOIN source_assertions a USING(source_id)
+                        WHERE a.hostname=? AND NOT EXISTS (SELECT 1 FROM source_assertions n WHERE n.supersedes=a.assertion_id)))''');params.extend([host_key(hostname)]*3)
+            else:
+                clauses.append('(e.hostname=? OR e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE hostname=?))');params.extend([host_key(hostname)]*2)
+            if strict_host and not schema4:
                 clauses.append('(e.hostname IS NULL OR e.hostname=?) AND NOT EXISTS (SELECT 1 FROM source_contexts c WHERE c.file_sha256=e.file_sha256 AND c.hostname IS NOT NULL AND c.hostname<>?)')
                 params.extend([host_key(hostname)]*2)
         if username:
             suffix='%\\'+escape_like(username) if '\\' not in username and '@' not in username else escape_like(username)
-            clauses.append('(e.username=? COLLATE NOCASE OR e.username LIKE ? ESCAPE \'!\' COLLATE NOCASE OR e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE username=? COLLATE NOCASE OR username LIKE ? ESCAPE \'!\' COLLATE NOCASE))')
+            extra=" OR locard_context(e.file_sha256,e.hostname,e.username,'username')=? COLLATE NOCASE OR locard_context(e.file_sha256,e.hostname,e.username,'username') LIKE ? ESCAPE '!' COLLATE NOCASE" if schema4 else ''
+            clauses.append('(e.username=? COLLATE NOCASE OR e.username LIKE ? ESCAPE \'!\' COLLATE NOCASE OR e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE username=? COLLATE NOCASE OR username LIKE ? ESCAPE \'!\' COLLATE NOCASE)'+extra+')')
             params.extend([username,suffix,username,suffix])
+            if schema4:params.extend([username,suffix])
         for value,is_process in ((path,False),(process,True)):
             if not value:continue
             p=normalize_path(value)
@@ -102,7 +129,8 @@ class EvidenceQueries:
                 # A Prefetch candidate path must identify its represented executable.
                 role += " AND (e.source_type<>'prefetch' OR (o.role='executable_path_candidate' AND o.basename IN (SELECT i.basename FROM evidence_objects i WHERE i.evidence_id=e.evidence_id AND i.role='executable_name')))"
             if ntpath.dirname(value):
-                clauses.append("EXISTS (SELECT 1 FROM evidence_objects o WHERE o.evidence_id=e.evidence_id AND (o.normalized=? OR (o.path_kind='volume_relative' AND EXISTS (SELECT 1 FROM source_contexts c WHERE c.file_sha256=e.file_sha256 AND lower(c.volume_root)||o.normalized=? AND NOT EXISTS (SELECT 1 FROM source_contexts x WHERE x.file_sha256=e.file_sha256 AND x.volume_root<>c.volume_root))))"+role+')')
+                volume="lower(locard_context(e.file_sha256,e.hostname,e.username,'volume_root'))||o.normalized=?" if schema4 else "EXISTS (SELECT 1 FROM source_contexts c WHERE c.file_sha256=e.file_sha256 AND lower(c.volume_root)||o.normalized=? AND NOT EXISTS (SELECT 1 FROM source_contexts x WHERE x.file_sha256=e.file_sha256 AND x.volume_root<>c.volume_root))"
+                clauses.append("EXISTS (SELECT 1 FROM evidence_objects o WHERE o.evidence_id=e.evidence_id AND (o.normalized=? OR (o.path_kind='volume_relative' AND "+volume+"))"+role+')')
                 params.extend([p['normalized']]*2)
             else:
                 clauses.append('EXISTS (SELECT 1 FROM evidence_objects o WHERE o.evidence_id=e.evidence_id AND o.basename=?'+role+')');params.append(p['basename'])

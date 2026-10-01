@@ -63,7 +63,7 @@ def serve():
                             if op=='initial':result=tools.initial(db,request['question'],config,model)
                             elif op=='check':result={'checked':True}
                             else:result=tools.execute(db,op,request['arguments'],{**config,'known_ids':request['known_ids']},model)
-                        response={'result':result,'fingerprint':observed,'schema':3,
+                        response={'result':result,'fingerprint':observed,'schema':db.execute('PRAGMA user_version').fetchone()[0],
                           'semantic_identity':index_identity,'model_identity':model.identity if model else None,
                           'semantic_available':bool(model and config.get('semantic_enabled') and (op!='initial' or result.get('semantic_used'))),
                           'elapsed_seconds':time.monotonic()-started,'database_changes':db.total_changes}

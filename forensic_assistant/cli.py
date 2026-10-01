@@ -88,6 +88,8 @@ def build_parser():
     investigation_cli.configure(commands)
     from forensic_assistant.reporting import cli as report_cli
     report_cli.configure(commands)
+    from forensic_assistant import source_cli
+    source_cli.configure(commands)
     from forensic_assistant.output import configure
     configure(commands)
     return parser
@@ -130,6 +132,10 @@ def _dispatch(args, output, *, existing_only=False):
     from forensic_assistant.investigation_ai import cli as investigation_cli
     from forensic_assistant.reporting import cli as report_cli
     try:
+        if args.command=='case-upgrade':
+            if not args.yes:raise ValueError('Case upgrade requires --yes; a consistent backup is created before migration')
+            from forensic_assistant.database.migrations import migrate
+            emit(migrate(args.db));return 0
         if args.command=='report':
             try:
                 result=report_cli.dispatch(args)
@@ -146,7 +152,14 @@ def _dispatch(args, output, *, existing_only=False):
         if args.command=='semantic':
             from pathlib import Path
             if not Path(args.db).is_file():raise ValueError('Semantic commands require an existing evidence database')
-        with closing(connect(args.db, existing_only=True) if existing_only else connect(args.db)) as db:
+        with closing(connect(args.db, existing_only=True) if existing_only or args.command=='source' else connect(args.db)) as db:
+            if args.command=='source':
+                from forensic_assistant import source_cli
+                result=source_cli.dispatch(db,args)
+                if args.source_command=='list' and not args.json:
+                    output.write(source_cli.render_list(result))
+                else:emit(result)
+                return 0
             if args.command=='semantic':
                 emit(semantic_cli.dispatch(db,args));return 0
             v2_result = v2_cli.dispatch(db,args)
@@ -174,16 +187,13 @@ def _dispatch(args, output, *, existing_only=False):
                          semantic_index=args.semantic_index,embedding_model=args.embedding_model))
                 return 0
             if args.command == "ingest":
-                found = failed = False
-                for path in discover(args.path):
-                    found = True
-                    result = ingest_file(db, path, reporter=lambda msg: print(json.dumps(msg), file=sys.stderr))
+                results=v2_cli.ingest_sources(db,args)
+                for result in results:
                     emit(result)
-                    failed |= result["status"] != "complete"
-                if not found:
+                if not results:
                     print("No EVTX files found.", file=sys.stderr)
                     return 1
-                return 1 if failed else 0
+                return 1 if any(r['status']!='complete' for r in results) else 0
             if args.command == "status":
                 emit(queries.coverage())
                 return 0

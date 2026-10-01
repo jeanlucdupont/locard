@@ -124,6 +124,120 @@ external pager, new dependency, or terminal configuration change is required.
 Existing compact `--text` renderers and shell prompts remain plain where they do
 not have semantic style annotations.
 
+### Sources, ingestion batches, and evidence identity (0.10.0)
+
+A case can contain many sources. A **source** is an analyst-defined origin, with
+an immutable generated ID and a display name independent of hostname. A **batch**
+records one ingestion invocation. Its per-file runs retain their paths, outcomes
+and hashes. **Evidence identity** remains content hash plus record locator:
+identical content imported from different sources shares evidence IDs while
+retaining separate source occurrences. Source membership does not prove a machine's
+identity or that an executable ran.
+
+New cases use schema **4**. Schema-3 cases remain readable without automatic
+migration. Before using source management or ingesting into a legacy case, explicitly
+upgrade it (schema 1, 2 and 3 are supported upgrade inputs):
+
+```text
+locard --db case.db case-upgrade --yes
+```
+
+The upgrade creates a uniquely named SQLite-consistent backup beside the case,
+validates the schema, and applies additive changes transactionally. It preserves
+evidence, IDs, existing `source_contexts` and file runs. Historical sources and
+batches remain unknown; dates and directories are never used to invent membership.
+Keep the backup private: it contains the case's evidence. An upgrade failure rolls
+back the transaction; any backup already created is retained. Case selection and
+ordinary reads never perform this upgrade.
+
+Inside an active case, or prefixed with `locard --db case.db`:
+
+```text
+source create --name "Workstation 01"
+source list
+source show <source-id> --limit 50 --offset 0
+ingest-prefetch extracted-prefetch --source <source-id>
+ingest-evtx extracted-events --source <source-id>
+source update <source-id> --hostname dfir-lab-01
+source update <source-id> --hostname dfir-lab-01 --yes
+search --source <source-id>
+```
+
+For **non-interactive ingestion without `--source`**, every invocation creates a
+new automatic source with an immutable generated ID and a neutral generated
+display name. Hostname, user and volume root remain unknown unless supplied using
+the existing ingestion arguments; supplied values are recorded as analyst metadata.
+The creation basis explicitly records that Locard created the source automatically.
+Locard never reuses a source by matching hostname, path, display name, or earlier
+imports. To group several commands under one source, explicitly repeat its
+`--source` ID. Metadata changes to an existing source use `source update`, not
+ingestion metadata flags alongside `--source`.
+
+Interactive case creation asks for a source name and optional metadata. Additional
+interactive ingestion offers existing sources or a new source; selection is not
+retained as an implicit default for later commands. A blank name produces a neutral
+label, never a guessed hostname. Cancelled creation does not activate the new case.
+
+`source update` supports `--name`, `--hostname`, `--user` and `--volume-root`.
+Use an empty quoted value to clear optional metadata to unknown. Updates append
+revisions linked by supersession; old assertions remain available in `source show`.
+Raw evidence and artifact-derived fields are never rewritten. Legacy file-level
+assertions remain intact and can still expose conflicts; a new source assertion
+does not silently supersede a legacy assertion of uncertain scope.
+
+Without `--yes`, scripted updates and assignments preview the actual scope without
+applying it. Interactive mode shows the preview and requests confirmation, even if
+`--yes` was supplied. If the case changes after the interactive preview, the action
+is rejected so the analyst can review it again. Source commands reuse `--page`,
+`--output`, `--append`, `--json` and `--no-color`; JSON remains plain structured data.
+`source list` file counts are distinct content hashes, not path or import counts.
+`source show` paginates revision history, batches, file occurrences and retrospective
+assignments rather than dumping every file by default.
+
+Batches distinguish complete, partial, failed, empty and cancelled operations.
+Unconfirmed worker cleanup has its own `cleanup_unconfirmed` outcome and warning.
+Already committed evidence survives later failures or cancellation. Abnormal
+termination can leave a batch unfinished; `status` reports that limitation rather
+than inferring success or retroactively grouping file runs.
+
+For historical evidence, deliberately create a source and select existing file
+SHA-256 hashes (shown by `show <evidence-id>`). For example, for the earlier Prefetch
+case, repeat `--file-hash` for each of the files you have reviewed:
+
+```text
+source create --name "DFIR Lab 01" --hostname dfir-lab-01
+source assign <source-id> --file-hash <sha256> --file-hash <another-sha256> --reason "Analyst reviewed selected files"
+source assign <source-id> --file-hash <sha256> --file-hash <another-sha256> --reason "Analyst reviewed selected files" --yes
+```
+
+There is no assign-everything default. Assignment applies to all records of each
+explicitly selected file hash and is labelled **retrospective analyst assignment**;
+it creates no historical batch and does not claim that those files were imported
+together. One action accepts up to 1,000 hashes. Assigning a hash already belonging
+to another source preserves both memberships and exposes ambiguity; it does not
+move evidence or select one origin arbitrarily.
+
+`search --source` filters provenance membership. `search --hostname` searches
+artifact/active analyst hostname assertions; it remains distinct and may find
+records with conflicting assertions, which are shown in their context. The filters
+can be combined. Superseded source revisions do not act as current metadata.
+
+`around` requires an unambiguous effective hostname. For source-assigned anchors it
+also restricts neighbors to the same unique source; another source is not merged
+because its label or analyst hostname matches. Multiple source occurrences or
+conflicting source/artifact hostnames block this correlation. An unknown hostname
+still blocks it. For historical unassigned anchors, the existing conservative host
+checks apply to unassigned neighbors. Returned context distinguishes artifact
+hostname fields, analyst assertions and source membership; temporal proximity is
+not causal evidence.
+
+Source revisions, batches and assignments participate in the content fingerprint.
+Changes make dependent semantic indexes, investigations and report/case validation
+stale. Rebuild indexes explicitly; historical reports and transcripts are never
+rewritten. A migrated case has a different fingerprint even if its raw evidence is
+unchanged. Validate historical outputs against their original case snapshot when
+appropriate; successful validation still does not prove forensic conclusions.
+
 **Search summarizes. Show explains. Raw exposes.**
 
 Normal deterministic `search` displays compact, escaped record summaries with
