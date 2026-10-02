@@ -12,6 +12,16 @@ class InvalidArguments(Exception):
 
 
 class InteractiveParser(argparse.ArgumentParser):
+    def print_help(self,file=None):
+        import sys
+        if file is None:file=sys.stdout
+        from forensic_assistant.terminal import Palette
+        palette=self.context.get('palette',Palette())
+        lines=self.format_help().splitlines(keepends=True)
+        self._print_message(''.join(palette('key' if line.lstrip().startswith('-') else 'heading',line.rstrip('\n'))+'\n'
+                                   if line.startswith('usage:') or line.rstrip().endswith(':') or line.lstrip().startswith('-')
+                                   else line for line in lines),file)
+
     def parse_known_args(self, args=None, namespace=None):
         if hasattr(self,'context'):self.context['active']=self
         return super().parse_known_args(args,namespace)

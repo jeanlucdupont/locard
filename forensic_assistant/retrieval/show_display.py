@@ -1,5 +1,5 @@
 """Analyst summaries of existing evidence projections, never new conclusions."""
-from .presentation import safe, detail
+from .presentation import safe, detail, PREFETCH_CAUTIONS
 from .layout import pagination
 from .search_display import timestamp
 
@@ -14,7 +14,8 @@ def render(record,palette=None):
     field('Evidence ID',record['id'])
     if not ctx.get('source_assertions'):field('Source','unassigned')
     for source in ctx.get('source_assertions',[]):
-        field('Source',source.get('display_name'));field('Source ID',source.get('source_id'))
+        field('Source',source.get('display_name'))
+        if len(ctx.get('source_assertions',[]))>1:field('Source ID',source.get('source_id'))
     field('Effective host',ctx.get('hostname') or 'unknown')
     field('Host basis',ctx.get('basis','unknown'))
     if ctx.get('username'):field('User',ctx['username'])
@@ -47,14 +48,17 @@ def render(record,palette=None):
     times=record.get('timestamps',[]);populated=[t for t in times if t.get('timestamp_utc')]
     if times:
         lines+=['',palette('heading',f'Timestamps: {len(populated)} of {len(times)} slots populated')]
+        meanings={t.get('meaning') for t in populated}
+        common_meaning=next(iter(meanings)) if len(meanings)==1 else None
+        if common_meaning:field('Meaning',common_meaning)
         for t in populated:
             field(t['slot'],timestamp(t['timestamp_utc']))
-            if t.get('meaning'):field('Meaning',t['meaning'])
+            if t.get('meaning') and not common_meaning:field('Meaning',t['meaning'])
             if t.get('inherited_from_key'):lines.append('Timestamp belongs to the containing key, not the value.')
     if kind=='prefetch':
         candidates=sorted({o['original'] for o in record.get('objects',[]) if o['role']=='executable_path_candidate'})
         for path in candidates:field('Executable path candidate',path)
-        if record.get('objects_truncated'):lines.append(palette('warning','Object projection is bounded to 100; candidate paths may be incomplete.'))
+        if record.get('objects_truncated') and not candidates:lines.append(palette('warning','Executable path candidate unavailable in the bounded projection.'))
         refs=d.get('references',[]);total=d.get('reference_count',len(refs))
         field('Referenced files',total)
         for path in refs[:5]:lines.append('  '+palette('string_value',safe(path)))
@@ -66,10 +70,7 @@ def render(record,palette=None):
     if kind=='prefetch':
         # Only consolidate exact known interpretation cautions; unknown parser and
         # data-quality warnings must survive verbatim.
-        standard={'Prefetch identifier is not a content hash',
-                  'Run count and retained execution slots are not a complete execution history',
-                  'Missing Prefetch does not establish non-execution; collection may be disabled or deleted',
-                  'Referenced files are not all executed images; directory tables are not exposed by this binding'}
+        standard=PREFETCH_CAUTIONS
         directory_warning='Referenced files are not all executed images; directory tables are not exposed by this binding' in warnings
         warnings=[w for w in warnings if w not in standard]
         warnings+=['Retained runs are incomplete; missing Prefetch does not establish non-execution (collection may be disabled or deleted).',

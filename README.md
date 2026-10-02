@@ -549,3 +549,19 @@ use `--limit`/`--offset` to page its histories and file/hash lists.
 `source list --ids` provides complete command IDs; table abbreviations are for
 presentation only. All human views support the existing pager and plain UTF-8
 output/append destinations and session color controls.
+
+
+Bare interactive `help` is an alphabetical command catalog; `help <command>`
+and `help <command> <subcommand>` retain contextual usage and options.
+Compact paths preserve whole trailing components when space permits; an oversized
+final component is visibly shortened only when necessary. Normal search/show
+omit routine object-projection notices when a candidate path is available, but
+still warn when that field is unavailable in the bounded projection or when
+context/data-quality problems affect interpretation. JSON/raw projection fields
+and existing bounds are unchanged.
+
+Evidence `show` keeps source names and host basis, showing source IDs only for
+multiple source memberships. Full source IDs remain in `--json`/`--raw`.
+A meaning shared by all displayed timestamp slots is printed once; differing
+meanings remain attached to their slots. Referenced files remain the first five
+in retrieval order, with a count when sampled, not a ranking of importance.

@@ -71,7 +71,7 @@ def test_clear_no_external_process_and_usage(tmp_path,monkeypatch,capsys,color):
     assert Shell(State(None),reader).run()==0
     text=capsys.readouterr().out
     assert 'Usage: cls' in text and 'Usage: color [on|off]' in text
-    assert 'No shell execution' in text and 'color [on|off]' in text
+    assert 'No shell execution' not in text and 'Locard Forensics' in text and 'color [on|off]' in text
     assert cleared==[True]
 
 

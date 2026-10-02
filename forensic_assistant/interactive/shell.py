@@ -156,7 +156,11 @@ class Shell:
                         else:print('Color: '+('on' if enabled(self) else 'off'))
                         continue
                     if words[0]=='help':
-                        if len(words)==1:print('Shell: help [command], case [path|new], color [on|off], cls, exit, quit. No shell execution or persistent history.\nUse color on/off for session styling; --no-color remains available per command.')
+                        if len(words)==1:
+                            from .help import catalog
+                            print(catalog(build_parser(interactive=True),Palette(enabled(self))))
+                            self.last_status=0
+                            continue
                         if len(words)==2 and words[1] in ('color','cls','case','exit','quit','help'):
                             print({'color':'color [on|off]: session styling; NO_COLOR remains authoritative. --no-color remains accepted per command.',
                                    'cls':'cls: clear the terminal internally; no arguments.',
@@ -166,6 +170,7 @@ class Shell:
                             continue
                         words=words[1:]+['--help']
                     parser=build_parser(interactive=True)
+                    parser.context['palette']=Palette(enabled(self))
                     try:args=parser.parse_args(['--db',str(self.active),*words])
                     except SystemExit as exc:self.last_status=int(exc.code);continue
                     except (UnknownCommand,InvalidArguments) as exc:

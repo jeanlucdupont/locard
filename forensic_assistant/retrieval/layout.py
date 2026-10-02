@@ -1,5 +1,6 @@
 """Plain-cell layout before centralized styling; escaped values have stable widths."""
 import shutil
+import re
 from .presentation import safe
 
 
@@ -9,6 +10,24 @@ def terminal_width(width=None):
 
 def fit(text,width):
     return text if len(text)<=width else text[:max(0,width-3)]+'...'
+
+
+def fit_path(text,width):
+    """Shorten an already safe()-escaped path at separator boundaries.
+
+    Preserve the literal suffix, including separator style. If even the final
+    component cannot fit, visibly shorten that component as a last resort.
+    """
+    if len(text)<=width:return text
+    separators=list(re.finditer(r'\\\\|/',text))
+    for match in separators:
+        suffix='...'+text[match.start():]
+        if len(suffix)<=width:return suffix
+    if separators:
+        last=separators[-1]
+        prefix='...'+last.group()
+        if width>=len(prefix)+4:return prefix+fit(text[last.end():],width-len(prefix))
+    return fit(text,width)
 
 
 def pagination(count,total,offset=0):
@@ -30,10 +49,10 @@ def table(headers,rows,palette,*,minimums,maximums,roles,right=(),width=None,tai
         for row in cells:
             if lines:lines.append('')
             for i,value in enumerate(row):
-                lines.append(palette('key',headers[i]+': ')+palette(roles[i],fit(value,max(3,width-len(headers[i])-2))))
+                lines.append(palette('key',headers[i]+': ')+palette(roles[i],(fit_path if i in tail else fit)(value,max(3,width-len(headers[i])-2))))
         return lines
     def cell(value,i,header):
-        shown=('...'+value[-max(1,sizes[i]-3):]) if not header and i in tail and len(value)>sizes[i] else fit(value,sizes[i])
+        shown=fit_path(value,sizes[i]) if not header and i in tail else fit(value,sizes[i])
         return shown.rjust(sizes[i]) if i in right else shown.ljust(sizes[i])
     def rowline(row,header=False):
         return '  '.join(palette('key' if header else roles[i],

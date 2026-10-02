@@ -29,3 +29,12 @@ def render_timeline(result,*,methodology=True):
     lines.append(f"Displayed {len(result['records'])} / {result['total']}; truncated={result['truncated']}")
     if methodology:lines.append("CORRELATION != CAUSATION. Missing logs or auditing may hide activity.")
     return "\n".join(lines)
+
+
+# Exact parser-provided interpretation cautions, not data-quality diagnoses.
+PREFETCH_CAUTIONS=frozenset({
+    'Prefetch identifier is not a content hash',
+    'Run count and retained execution slots are not a complete execution history',
+    'Missing Prefetch does not establish non-execution; collection may be disabled or deleted',
+    'Referenced files are not all executed images; directory tables are not exposed by this binding',
+})

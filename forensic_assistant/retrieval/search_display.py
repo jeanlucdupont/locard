@@ -1,5 +1,5 @@
 """Compact search projections; selection and hydration remain unchanged."""
-from .presentation import safe, detail
+from .presentation import safe, detail, PREFETCH_CAUTIONS
 from .layout import table, pagination
 from .around_display import display_time
 
@@ -51,11 +51,14 @@ def render(result, palette=None, *, ids=False, width=None):
         for index,r in enumerate(records,1):lines.append(f"{index}: "+palette('evidence_id',safe(r['id'])))
     for index,r in enumerate(records,1):
         ctx=r.get('context',{})
+        for warning in r.get('warnings',[]):
+            if r['source_type']!='prefetch' or warning not in PREFETCH_CAUTIONS:
+                lines.append(palette('warning',f'Row {index}: '+safe(warning)))
         if ctx.get('conflicts'):lines.append(palette('warning',f"Row {index}: conflicting context: "+safe(', '.join(ctx['conflicts']))))
         if r['source_type']=='prefetch':
             paths={o['original'] for o in r.get('objects',[]) if o['role']=='executable_path_candidate'}
             if len(paths)>1:lines.append(palette('warning',f'Row {index}: multiple executable path candidates.'))
-            if r.get('objects_truncated'):lines.append(palette('warning',f'Row {index}: object projection is bounded; candidate paths may be incomplete.'))
+            if r.get('objects_truncated') and not paths:lines.append(palette('warning',f'Row {index}: executable path candidate unavailable in the bounded projection.'))
     footer=pagination(len(records),result['total'],result.get('offset',0))
     if footer:lines+=['',footer]
     return '\n'.join(lines)
