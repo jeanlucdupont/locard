@@ -41,7 +41,7 @@ def test_cycles_and_unsupported_types():
 @pytest.mark.parametrize('flags',[[],['--raw'],['--json'],['--no-color']])
 def test_search_and_show_exact_content(case,capsys,color,flags):
     path,eid,_=case
-    for command in (['search'],['show',eid]):
+    for command in (['search','--ids'],['show',eid]):
         args=['--db',str(path),*command,*flags]
         assert main(args)==0
         colored=capsys.readouterr().out
@@ -81,7 +81,8 @@ def test_file_output_always_plain(case,tmp_path,capsys,color,mode,flags):
     target=tmp_path/'derived.txt'
     assert main(['--db',str(case[0]),'show',case[1],*flags,mode,str(target)])==0
     data=target.read_text(encoding='utf-8')
-    assert '\x1b' not in data and json.loads(data)['id']==case[1]
+    assert '\x1b' not in data and case[1] in data
+    if flags:assert json.loads(data)['id']==case[1]
     if '--raw' in flags:assert json.loads(data)['detail']['raw_file']
     captured=capsys.readouterr()
     assert captured.out==''

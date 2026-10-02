@@ -145,4 +145,4 @@ def test_interactive_uses_shared_search(case,capsys):
                                  'search --artifact prefetch --process-contains power','exit'))
     assert shell.run()==0 and shell.last_status==0
     text=capsys.readouterr().out
-    assert 'Showing 1 of 1' in text and 'Showing 5 of 5' in text
+    assert 'Showing' not in text and 'LAST RUN (UTC)' in text

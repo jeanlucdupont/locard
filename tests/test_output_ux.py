@@ -38,10 +38,10 @@ def test_search_show_raw_json(case,capsys):
     before=path.read_bytes()
     assert main(args+['search','--artifact','prefetch','--limit','1'])==0
     text=capsys.readouterr().out
-    for value in (eid,'APP.EXE','2020-01-02','run count: 5','lab','Candidate path','Showing 1 of 1','show <evidence-id>'):
+    for value in ('APP.EXE','2020-01-02','RUNS','lab','CANDIDATE PATH'):
         assert value in text
     assert 'REFERENCE_ONLY' not in text and len(text)<1400
-    assert main(args+['show',eid])==0
+    assert main(args+['show',eid,'--json'])==0
     shown=json.loads(capsys.readouterr().out)
     assert shown['detail']['reference_count']==220 and shown['detail']['references_truncated']
     assert main(args+['search','--raw'])==0
@@ -59,7 +59,7 @@ def test_summary_other_artifacts_and_counts():
           dict(id='MFT:full',source_type='mft',artifact_type='mft_record',detail={'names':[{'filename':'file.exe'}],'allocated':1,'file_size':12},context={}),
           dict(id='REGISTRY:full',source_type='registry',artifact_type='registry_value',detail={'key_path':'Software\\Example','value_name':'Example','value_type':1,'value_data':'HUGE_NOT_SHOWN'},context={})]
     text=render(dict(records=rows,total=10,limit=3,offset=3))
-    assert 'Showing 3 of 10' in text and 'additional results=yes' in text and 'offset=3' in text
+    assert 'Showing 4\u20136 of 10' in text and 'additional results' not in text and 'offset=' not in text
     assert 'file.exe' in text and '4688' in text and 'HUGE_NOT_SHOWN' not in text
     rows[0]['process_name']='bad\x1b[31m\ntext'
     assert '\x1b' not in render(dict(records=rows,total=3,limit=3,offset=0))
@@ -181,7 +181,7 @@ def test_page_routes_internally_and_no_external_process(case,monkeypatch):
     path,_,_=case; captured=[]
     monkeypatch.setattr(output,'page',lambda stream:captured.append(stream.read()))
     assert main(['--db',str(path),'search','--page'])==0
-    assert 'SEARCH RESULTS' in captured[0]
+    assert 'LAST RUN (UTC)' in captured[0]
 
 
 def test_report_output_collision_preserved(tmp_path,monkeypatch,capsys):
@@ -203,7 +203,7 @@ def test_interactive_quoted_output_and_recovery(case,tmp_path,capsys):
     reader=Input(str(path),f'search --output "{target}"',f'show "{eid}" --output "{tmp_path / "missing" / "file"}"','status','exit')
     shell=Shell(State(None),reader)
     assert shell.run()==0 and shell.active==path and shell.last_status==0
-    assert 'SEARCH RESULTS' in target.read_text(encoding='utf-8')
+    assert 'LAST RUN (UTC)' in target.read_text(encoding='utf-8')
 
 
 def test_help_exposes_destinations(capsys):

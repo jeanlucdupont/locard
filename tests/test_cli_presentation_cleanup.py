@@ -27,7 +27,7 @@ def test_source_alignment_styles_and_full_ids():
     colored=source_cli.render_list(data,terminal.Palette(True),width=160)
     assert terminal.SGR.sub('',colored)==text and '\x1b[' in colored
     assert 'Prefetch: 196' in text and 'EVTX: 3, Registry: 2' in text and 'unknown' in text
-    lines=text.splitlines();header=lines[2];first=lines[4];second=lines[5]
+    lines=text.splitlines();header=lines[0];first=lines[2];second=lines[3]
     assert first.index('Lab One')==second.index('Other')==header.index('NAME')
     assert first.index('unknown')==second.index('host')==header.index('HOSTNAME')
     assert all(r['source_id'] in text for r in data['sources'])
@@ -40,7 +40,7 @@ def test_source_narrow_long_values_warnings():
     data.update(total=10,truncated=True)
     plain=source_cli.render_list(data,width=40)
     assert max(map(len,plain.splitlines()))<=40 and '...' in plain
-    assert 'source list --ids' in plain and 'Results truncated' in plain
+    assert 'source list --ids' not in plain and 'Showing 2 of 10' in plain
     assert 'conflicting host' in plain and 'multiple source' in plain
     full=source_cli.render_list(data,width=40,ids=True)
     assert all(r['source_id'] in full for r in data['sources'])
@@ -78,8 +78,8 @@ def test_clean_header_and_detail_preservation():
     detailed=render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120)
     for value in ('src-exact','run:2','000000002Z','Timestamp meaning','execution',a['id']):assert value in detailed
     assert r==before
-    r['truncated']=True
-    assert 'Results truncated' in render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120)
+    r.update(truncated=True,total=3)
+    assert 'Showing 2 of 3' in render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120)
 
 
 def test_usage_and_local_argument_errors(monkeypatch,capsys):

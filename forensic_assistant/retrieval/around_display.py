@@ -57,8 +57,6 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
     def line(text, role='secondary_text'):
         lines.extend(palette(role, part) for part in
                      (textwrap.wrap(text, width, break_on_hyphens=False, replace_whitespace=False) or ['']))
-    window = f'+/-{args.seconds}s' if args.direction == 'around' else f'{args.seconds}s {args.direction}'
-    line(f'{safe(observation(anchor))} | {window}', 'heading')
     names={}
     for record in [anchor,*rows]:
         for s in record.get('context',{}).get('source_assertions',[]):
@@ -114,8 +112,7 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
             # IDs are deliberately never shortened; the shared pager can wrap them.
             lines.append(palette('evidence_id', '  ID: ' + safe(r['id'])))
             line('  Timestamp: '+r['timestamp_utc']+'; slot: '+safe(r['timestamp']['slot']))
-    line(f"Displayed {len(rows)} / {result['total']} observations; offset={result['offset']}.")
-    if result['truncated']:line('Results truncated; use --offset/--limit to review remaining observations.','warning')
-    if shortened:
-        line('Some display values may be shortened (...); use --json or show for complete values.')
+    from .layout import pagination
+    footer=pagination(len(rows),result['total'],result['offset'])
+    if footer:line(footer)
     return '\n'.join(lines)

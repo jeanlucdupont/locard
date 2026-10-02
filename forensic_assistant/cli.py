@@ -45,6 +45,7 @@ def build_parser(*,interactive=False):
     process = search.add_mutually_exclusive_group()
     process.add_argument('--process', help='Exact executable name, case-insensitive; .exe may be omitted for a bare name. Explicit paths remain exact.')
     process.add_argument('--process-contains', metavar='PROCESS', help='Case-insensitive literal substring of the executable basename; no wildcards')
+    search.add_argument('--ids',action='store_true',help='Include full copyable evidence IDs, numbered to match table rows; display paths may be shortened. Use show for details, --json for the existing structured projection, --raw for available raw payloads.')
     search.add_argument("--event-id", type=int)
     search.add_argument("--kind", choices=["logons", "failed-logons", "processes", "powershell", "scheduled-tasks", "services", "account-changes"])
     timeline = commands.add_parser("timeline")
@@ -57,7 +58,7 @@ def build_parser(*,interactive=False):
     timeline.add_argument("--event-id", type=int)
     timeline.add_argument("--minutes", type=int, default=5)
     around = commands.add_parser("around", help="Same-host temporal context around evidence",
-        description='Compact text rounds timestamps and exact deltas to milliseconds (nearest, ties away from zero). JSON/raw/show retain full precision. Temporal proximity is not causation; timestamp meanings differ by artifact.')
+        description='Compact text rounds timestamps and exact deltas to milliseconds (nearest, ties away from zero). JSON/raw and --ids retain full precision. Temporal proximity is not causation; timestamp meanings differ by artifact.')
     around.add_argument("evidence_id")
     around.add_argument("--seconds", type=int, default=120)
     around.add_argument("--direction", choices=["before", "after", "around"], default="around")
@@ -73,7 +74,7 @@ def build_parser(*,interactive=False):
         display = command.add_mutually_exclusive_group()
         display.add_argument("--json", action="store_true", help="JSON output (default)")
         display.add_argument("--text", action="store_true", help="Compact readable output")
-    show = commands.add_parser("show", help="Look up evidence and all observed source paths")
+    show = commands.add_parser("show", help="Human-readable evidence summary", description="Human summary with populated timestamps and bounded references. --json preserves the structured projection; --raw includes available XML/artifact bytes. Both retain existing 100-object/reference/value-ID bounds and truncation flags.")
     show.add_argument("evidence_id")
     show.add_argument("--raw", action="store_true")
     commands.add_parser("status", help="Show ingestion status and coverage limitations")
@@ -162,6 +163,8 @@ def _dispatch(args, output, *, existing_only=False):
                 result=source_cli.dispatch(db,args)
                 if args.source_command=='list' and not args.json:
                     output.write(source_cli.render_list(result,output.palette,ids=args.ids))
+                elif args.source_command=='show' and not args.json and not args.details:
+                    output.write(source_cli.render_show(result,output.palette))
                 elif args.source_command=='assign' and not args.json:
                     output.write(source_cli.render_assignment(result,output.palette))
                 else:emit(result)
@@ -174,7 +177,10 @@ def _dispatch(args, output, *, existing_only=False):
                 result,code=v2_result
                 if args.command=='search' and not args.json and not args.raw:
                     from forensic_assistant.retrieval.search_display import render
-                    output.write(render(result, output.palette))
+                    output.write(render(result, output.palette, ids=args.ids))
+                elif args.command=='show' and not args.json and not args.raw:
+                    from forensic_assistant.retrieval.show_display import render
+                    output.write(render(result,output.palette))
                 elif args.command=='around' and args.text and not args.raw:
                     from forensic_assistant.retrieval.around_display import render
                     output.write(render(result, presentation['anchor'], presentation['stamp'], args, output.palette))

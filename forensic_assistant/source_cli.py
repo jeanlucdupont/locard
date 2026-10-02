@@ -14,6 +14,8 @@ def configure(commands):
         if name in ('show','update','assign'):p.add_argument('source_id')
         if name in ('list','show'):
             p.add_argument('--limit',type=int,default=100);p.add_argument('--offset',type=int,default=0)
+        if name=='show':p.add_argument('--details',action='store_true',help='Existing structured provenance detail, paginated with --limit/--offset; --json is equivalent')
+        if name=='list':p.description='Display abbreviations (...) are not command IDs; use --ids for full copyable IDs or --json for complete values.'
         if name=='list':p.add_argument('--ids',action='store_true',help='Show full copyable source IDs below the compact table; --json also retains complete values')
         if name in ('create','update'):
             for flag in ('name','hostname','user','volume-root'):p.add_argument('--'+flag)
@@ -38,23 +40,22 @@ def changes(args):
 
 def render_list(data,palette=None,*,ids=False,width=None):
     from forensic_assistant.retrieval.presentation import safe
-    from forensic_assistant.retrieval.layout import table,terminal_width
+    from forensic_assistant.retrieval.layout import table,terminal_width,pagination
     import textwrap
     from forensic_assistant.terminal import Palette
     palette=palette or Palette()
     labels={'prefetch':'Prefetch','mft':'MFT','registry':'Registry','evtx':'EVTX'}
     rows=[[r['source_id'],r['display_name'],r['hostname'] or 'unknown',r['batches'],r['files'],
            ', '.join(labels.get(k,k)+': '+str(v) for k,v in sorted(r['artifacts'].items())) or '-'] for r in data['sources']]
-    lines=[palette('heading','SOURCES'),'']
+    lines=[]
     lines+=table(['ID','NAME','HOSTNAME','BATCHES','FILES','ARTIFACTS'],rows,palette,
                  minimums=[12,10,10,7,5,12],maximums=[40,28,24,9,9,40],
                  roles=['evidence_id','string_value','secondary_text','number_value','number_value','secondary_text'],right=(3,4),width=width)
     if ids:
         lines+=['',palette('heading','Full source IDs')]
         lines += [safe(r['source_id'])+'  '+safe(r['display_name']) for r in data['sources']]
-    notices=['Display abbreviations (...) are not command IDs. Use source list --ids for full IDs; --json for complete values.',
-             f"Showing {len(data['sources'])} of {data['total']}; offset {data['offset']}; more: {data['truncated']}"]
-    if data['truncated']:notices.append('Results truncated; use --offset/--limit to review remaining sources.')
+    footer=pagination(len(data['sources']),data['total'],data['offset'])
+    notices=[footer] if footer else []
     for r in data['sources']:
         if r.get('host_conflict'):notices.append(safe(r['source_id'])+': conflicting host assertions; inspect source show.')
         if r.get('ambiguous_files'):notices.append(safe(r['source_id'])+f": {r['ambiguous_files']} files have multiple source memberships; inspect source show.")
@@ -115,4 +116,27 @@ def render_assignment(data,palette=None):
         lines += ['Preview only. Repeat with --yes to apply; add --confirmation-fingerprint below to require this case state.',
                   data['confirmation_fingerprint']]
     lines.append('Use --json for the full selected hash and matched-location lists; source show exposes bounded assignment history.')
+    return '\n'.join(lines)
+
+
+def render_show(data,palette=None):
+    from forensic_assistant.terminal import Palette,value_role
+    from forensic_assistant.retrieval.presentation import safe
+    palette=palette or Palette();lines=[]
+    def field(name,value):lines.append(palette('key',name+': ')+palette(value_role(value),safe(value)))
+    for name,key in [('Source','display_name'),('Source ID','source_id'),('Creation basis','creation_basis'),
+                     ('Created UTC','created_utc'),('Analyst hostname','hostname'),('Analyst user','username'),
+                     ('Volume root','volume_root'),('Current assertion','assertion_id'),('Assertion basis','basis'),
+                     ('Batches','batches'),('Distinct source files','files'),('Evidence records','evidence_count'),
+                     ('Files with multiple source memberships','ambiguous_files')]:field(name,data.get(key))
+    # Source-wide assertions cannot establish each file's effective host: legacy
+    # file assertions and multiple memberships are resolved at evidence retrieval.
+    field('Artifact hostnames',', '.join(data.get('artifact_hostnames',[])) or 'unknown')
+    lines.append('Effective hostname is resolved per evidence record; inspect show for file-specific context.')
+    for kind,count in sorted(data.get('artifacts',{}).items()):field(kind.upper()+' records',count)
+    for label,key in [('Assertion revisions','assertion_history'),('Retrospective assignments','retrospective_assignments'),
+                      ('Retrospective assignment-to-file links','retrospective_files'),('Ingestion file occurrences','file_occurrences')]:
+        field(label,data[key]['total'])
+    for warning in data.get('limitations',[]):lines.append(palette('warning',safe(warning)))
+    if data.get('artifact_hostnames_truncated'):lines.append(palette('warning','Artifact hostname list is bounded to 100.'))
     return '\n'.join(lines)

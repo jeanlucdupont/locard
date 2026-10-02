@@ -43,7 +43,7 @@ def test_delta(stamp,expected):
 def test_direction_heading(direction,label):
     a,r,args=example();args.direction=direction
     assert render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120).startswith(
-        f'POWERSHELL.EXE | {label}\n')
+        '2020-01-01 00:00:00.000 UTC | unassigned | Prefetch\n')
 
 
 def test_mixed_narrow_color_and_untrusted_text():
@@ -81,7 +81,7 @@ def test_sources_midnight_and_empty_page():
     assert '2019-12-31T23:59:59.999999999Z' in exact
     r.update(records=[],offset=2)
     text=render(r,a,a['timestamps'][1]['timestamp_utc'],args,width=120)
-    assert 'Displayed 0 / 2' in text and '<- anchor' not in text
+    assert 'Showing 0 of 2' in text and '<- anchor' not in text
 
 
 def test_around_colored_pager(case,monkeypatch):
@@ -113,7 +113,7 @@ def test_cli_selection_json_raw_page_files(case,tmp_path,capsys,monkeypatch):
     assert json.loads(capsys.readouterr().out)==expected
     assert main(base+['--text'])==0
     text=capsys.readouterr().out
-    assert 'Displayed 2 / 2' in text and eid not in text and text.count('<- anchor')==1
+    assert 'Showing' not in text and eid not in text and text.count('<- anchor')==1
     assert main(base+['--text','--ids'])==0
     assert eid in capsys.readouterr().out
     assert main(base+['--text','--page'])==0

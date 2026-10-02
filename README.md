@@ -335,13 +335,13 @@ appropriate; successful validation still does not prove forensic conclusions.
 
 **Search summarizes. Show explains. Raw exposes.**
 
-Normal deterministic `search` displays compact, escaped record summaries with
-complete evidence IDs. Prefetch summaries show the executable, latest retained
+Normal deterministic `search` displays compact, escaped artifact tables.
+Add `--ids` for full copyable evidence IDs. Prefetch summaries show the executable, latest retained
 execution timestamp, recorded run count, effective host, and a candidate path
 when present in the bounded evidence projection. A candidate path is not a proven
 executable identity. Other artifact types use their own identifying fields.
 Long display fields may be shortened; evidence IDs and stored evidence are not.
-Counts, offset, limit, and whether more results exist appear below the results.
+Only partial pages show a concise displayed-count or range footer; pagination metadata remains in JSON.
 Search ordering remains unchanged; a Prefetch record's displayed
 latest run does not change its existing search sort order.
 
@@ -388,10 +388,10 @@ Other filters and JSON structure are unchanged. This convenience applies to
 deterministic `search`, including the interactive shell; timeline and AI retrieval
 retain their existing matching behavior.
 
-`show` retains existing detailed evidence output. `--raw` retains the existing
+`show` presents an artifact-aware human summary, including full evidence ID and source path, populated timestamp slots, and a bounded reference sample. `--raw` retains the existing
 verbose/raw representation, including its established retrieval bounds.
 Explicit `--json` preserves the structured interface; scripts consuming search
-results should request it. Other commands keep their existing default rendering.
+results should request it. Plain `source show` also uses a human summary; `--details` or `--json` preserves its existing structured view.
 
 | Destination | Behavior |
 |---|---|
@@ -518,3 +518,34 @@ Project source license: **Apache-2.0**. See [LICENSE](LICENSE) and
 
 Locard Forensic
 Copyright © 2026 Jean-Luc Dupont
+
+
+### Compact evidence and source views
+
+Normal `search` uses artifact-specific tables with millisecond timestamps.
+`search --ids` adds numbered, full copyable evidence IDs for `show` and `around`.
+Table paths may be shortened for terminal width; full projected values remain
+available through `show`, `--json`, and `--raw`. No values in evidence are changed.
+`around --text` begins with anchor time and source/artifact context; `--ids`
+retains exact timestamps and slot identifiers. Complete result pages have no
+pagination footer; partial pages report the displayed count or range.
+
+Plain `show <id>` is human-readable. Scripts should specify `show <id> --json`.
+`show --raw` preserves the existing structured raw representation with available
+XML/artifact bytes. Neither mode changes the established retrieval bounds:
+objects, Prefetch references, and Registry key value IDs are limited to 100,
+with the existing truncation flags (and reference total where available).
+These are bounded projections, not exhaustive collection exports. Human Prefetch
+summaries display up to five references and observed source paths, with counts.
+Use the existing structured views to inspect the larger projected lists.
+
+`source show <id>` summarizes current analyst metadata and provenance counts.
+Effective hostname is resolved for each evidence record, including file-specific
+assertions; a source label alone does not establish a host. Distinct source files
+and retrospective assignment-to-file links are separate counts: overlapping
+assignments legitimately produce more links than distinct files.
+`source show <id> --details` or `--json` exposes the existing provenance structure;
+use `--limit`/`--offset` to page its histories and file/hash lists.
+`source list --ids` provides complete command IDs; table abbreviations are for
+presentation only. All human views support the existing pager and plain UTF-8
+output/append destinations and session color controls.

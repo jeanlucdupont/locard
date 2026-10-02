@@ -11,7 +11,13 @@ def fit(text,width):
     return text if len(text)<=width else text[:max(0,width-3)]+'...'
 
 
-def table(headers,rows,palette,*,minimums,maximums,roles,right=(),width=None):
+def pagination(count,total,offset=0):
+    if count==total and offset==0:return ''
+    if not offset or not count:return f'Showing {count} of {total}'
+    return f'Showing {offset+1}\u2013{offset+count} of {total}'
+
+
+def table(headers,rows,palette,*,minimums,maximums,roles,right=(),width=None,tail=()):
     width=terminal_width(width)
     cells=[[safe(value) for value in row] for row in rows]
     sizes=[max(len(h),min(maximums[i],max([len(h)]+[len(r[i]) for r in cells]))) for i,h in enumerate(headers)]
@@ -26,8 +32,11 @@ def table(headers,rows,palette,*,minimums,maximums,roles,right=(),width=None):
             for i,value in enumerate(row):
                 lines.append(palette('key',headers[i]+': ')+palette(roles[i],fit(value,max(3,width-len(headers[i])-2))))
         return lines
+    def cell(value,i,header):
+        shown=('...'+value[-max(1,sizes[i]-3):]) if not header and i in tail and len(value)>sizes[i] else fit(value,sizes[i])
+        return shown.rjust(sizes[i]) if i in right else shown.ljust(sizes[i])
     def rowline(row,header=False):
         return '  '.join(palette('key' if header else roles[i],
-                               fit(value,sizes[i]).rjust(sizes[i]) if i in right else fit(value,sizes[i]).ljust(sizes[i]))
+                               cell(value,i,header))
                          for i,value in enumerate(row))
     return [rowline(headers,True),'  '.join('-'*n for n in sizes),*[rowline(r) for r in cells]]
