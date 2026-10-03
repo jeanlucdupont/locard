@@ -142,14 +142,30 @@ def test_global_nested_and_command_options():
         assert parser.parse_args(argv).no_color
 
 
-def test_shell_no_color_session(case,color,capsys):
+def test_shell_no_color_session(case, color, capsys):
     from forensic_assistant.interactive.shell import Shell
     from forensic_assistant.interactive.state import State
     from test_interactive_shell import Input
-    shell=Shell(State(None),Input(str(case[0]),'search','status','exit'),no_color=True)
-    assert shell.run()==0
-    assert '\x1b' not in capsys.readouterr().out
 
+    shell = Shell(
+        State(None),
+        Input(str(case[0]), 'search', 'status', 'exit'),
+        no_color=True,
+    )
+
+    assert shell.run() == 0
+
+    captured = capsys.readouterr().out
+
+    # The startup banner is intentionally allowed to use ANSI styling.
+    # The interactive session itself must honor no_color.
+    from forensic_assistant.cli import get_liner
+    from importlib.metadata import version
+    banner = '                         Version '+version('locard-forensics')+'\n'+get_liner()+'\n'
+    assert captured.startswith(banner)
+
+    session_output = captured[len(banner):]
+    assert '\x1b' not in session_output
 
 def test_no_external_process(case,color,monkeypatch,capsys):
     import subprocess

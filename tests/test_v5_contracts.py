@@ -6,6 +6,26 @@ from forensic_assistant.investigation_ai.controller import run
 from test_v4_worker import make_case, config
 from test_v4_controller import Scripted, final
 
+
+def test_release_provenance_does_not_replace_format_compatibility(tmp_path):
+    from importlib.metadata import version
+    case=tmp_path/'case.db';make_case(case)
+    root=tmp_path/'runs'
+    result=run(config(case),'PowerShell',root,client=Scripted([final]))
+    iid=result['investigation_id'];path=root/iid/'manifest.json'
+    original=json.loads(path.read_text())
+    assert original['application_version']==version('locard-forensics')
+    # Historical and hypothetical future releases using the same format contract.
+    for release in (version('locard-forensics'),'0.8.1','42.7','42.8'):
+        path.write_text(json.dumps({**original,'application_version':release}))
+        assert load(root,iid)['manifest']['application_version']==release
+    for key,value in (('application_version',None),('application_version',42),
+                      ('application_version','42'),('application_version','42.7\n'),
+                      ('application_version','42.7<script>'),('format',2),
+                      ('format',True),('policy_version','unknown'),('schema',99)):
+        path.write_text(json.dumps({**original,key:value}))
+        with pytest.raises(ValueError):load(root,iid)
+
 def test_categories_graph_and_strict_json():
     assert len(CATEGORIES)==8
     for category in CATEGORIES:

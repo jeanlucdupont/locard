@@ -31,7 +31,10 @@ def load(root, investigation_id):
     try:
         manifest = loads(manifest_raw)
         if (type(manifest['format']) is not int or manifest['format'] != 1 or manifest['policy_version'] != 'v4-1' or manifest['schema'] not in (3,4)
-            or manifest['application_version'] not in ('0.5.0','0.6.0','0.7.0','0.8.0','0.8.1','0.9.0','0.9.1','0.10.0')
+            # Producer release is provenance; format/policy/schema govern compatibility.
+            # Accept current two-part and historical three-part release syntax.
+            or not isinstance(manifest['application_version'], str)
+            or re.fullmatch(r'[0-9]+\.[0-9]+(?:\.[0-9]+)?', manifest['application_version']) is None
             or manifest['investigation_id'] != investigation_id or manifest.get('dry_run')
             or manifest['status'] == 'RUNNING' or 'replay_of' in manifest):
             raise ValueError('Unsupported or incomplete investigation')

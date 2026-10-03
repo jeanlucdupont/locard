@@ -18,6 +18,14 @@ pytestmark=pytest.mark.skipif(os.name!='nt' or not POWERSHELL,reason='Windows Po
 def literal(value):return "'"+str(value).replace("'","''")+"'"
 
 
+@pytest.mark.parametrize('release,valid',[('42.7',True),('42.8',True),('0.8.1',True),('42',False),('42.7.invalid',False)])
+def test_project_version_syntax(tmp_path,release,valid):
+    (tmp_path/'pyproject.toml').write_text('[project]\nversion = "'+release+'"\nrequires-python = ">=3.11"\n')
+    result=policy('(Get-LocardProject '+literal(tmp_path)+').Version')
+    assert (result.returncode==0)==valid
+    if valid:assert result.stdout.decode().strip()==release
+
+
 def command(shell,code,**kwargs):
     encoded=base64.b64encode(code.encode('utf-16le')).decode()
     return subprocess.run([shell,'-NoProfile','-NonInteractive','-EncodedCommand',encoded],capture_output=True,timeout=40,**kwargs)

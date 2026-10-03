@@ -16,7 +16,7 @@ function Get-LocardProject {
     param([string]$Root)
     $text = Get-Content -LiteralPath (Join-Path $Root 'pyproject.toml') -Raw -Encoding UTF8
     $section = [regex]::Match($text, '(?ms)^\[project\]\s*\r?\n(.*?)(?=^\[|\z)').Groups[1].Value
-    $version = [regex]::Match($section, '(?m)^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$').Groups[1].Value
+    $version = [regex]::Match($section, '(?m)^version\s*=\s*"([0-9]+\.[0-9]+(?:\.[0-9]+)?)"\s*$').Groups[1].Value
     $requires = [regex]::Match($section, '(?m)^requires-python\s*=\s*"([^"]+)"\s*$').Groups[1].Value
     if (-not $version -or -not $requires) { throw 'Cannot read project version/Python requirement. Use manual installation.' }
     # Fail closed on future unsupported syntax; validate again with Python tomllib later.

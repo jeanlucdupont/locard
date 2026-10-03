@@ -23,12 +23,12 @@ from test_interactive_shell import Input
 def test_catalog_actual_commands_alphabetical(color):
     parser=build_parser(interactive=True);text=catalog(parser,terminal.Palette(color))
     plain=terminal.SGR.sub('',text)
-    assert plain.startswith('Locard Forensics\n\nCommands:')
+    assert plain.startswith('\n  ?')
     names=[line.split()[0] for line in plain.splitlines() if line.startswith('  ')]
     actual=next(a.choices for a in parser._actions if isinstance(a,argparse._SubParsersAction))
     assert names==sorted(set(actual)|set(SHELL_COMMANDS))
     for bad in ('usage:','positional arguments:','options:','--db','--version','.venv','python.exe','Shell:'):assert bad not in plain
-    assert plain.endswith('Type `help <command>` for details.')
+    assert plain.endswith('Type `help <command>` for details.\n')
     assert ('\x1b[' in text)==color
 
 
@@ -39,8 +39,13 @@ def test_shell_help_and_detailed_help(case,monkeypatch,capsys,setting,no_color,s
     else:monkeypatch.delenv('NO_COLOR',raising=False)
     shell=Shell(State(None),Input(str(case[0]),'color '+setting,'help','help source assign','exit'))
     assert shell.run()==0
-    text=capsys.readouterr().out;plain=terminal.SGR.sub('',text)
-    assert 'Locard Forensics' in plain and 'usage: source assign' in plain and '--file-hash' in plain and '--path' in plain
+    from forensic_assistant.cli import get_liner
+    from importlib.metadata import version
+    text=capsys.readouterr().out
+    startup='                         Version '+version('locard-forensics')+'\n'+get_liner()+'\n'
+    assert text.startswith(startup)
+    text=text[len(startup):];plain=terminal.SGR.sub('',text)
+    assert 'Type `help <command>` for details.' in plain and 'usage: source assign' in plain and '--file-hash' in plain and '--path' in plain
     assert 'usage: Locard shell' not in plain
     assert ('\x1b[' in text)==styled
 

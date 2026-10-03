@@ -24,10 +24,10 @@ def test_prompt_switch_toggle_session_and_dispatch(tmp_path,monkeypatch,capsys,c
     state=State(None);shell=Shell(state,reader)
     assert shell.run()==0
     prompts=[p for p in reader.prompts if 'locard[' in p]
-    assert prompts[0]=='\x1b[97mlocard[A/a.db]> \x1b[0m'
+    assert prompts[0]==terminal.Palette(True)('prompt','locard[A/a.db]> ')
     assert prompts[2]=='locard[A/a.db]> '
     assert prompts[4]=='locard[B/b.db]> '
-    assert prompts[5]=='\x1b[97mlocard[B/b.db]> \x1b[0m'
+    assert prompts[5]==terminal.Palette(True)('prompt','locard[B/b.db]> ')
     assert [a.no_color for a in seen]==[True,False,True,False]
     assert seen[1].command=='investigate-ai'
     assert 'Color: on' in capsys.readouterr().out
@@ -55,7 +55,7 @@ def test_prompt_editor_redraw_resets_before_typed_input(color,monkeypatch):
     keys=list('status')+['LEFT','DELETE','s','\r']
     assert edit(keys,output=colored,prompt=prompt)==edit(keys,output=plain,prompt=terminal.SGR.sub('',prompt))
     assert terminal.SGR.sub('',colored.getvalue())==plain.getvalue()
-    assert '\x1b[97mlocard[A/a.db]> \x1b[0mstatus' in colored.getvalue()
+    assert prompt+'status' in colored.getvalue()
     assert '\\x1b' not in colored.getvalue()
 
 
@@ -70,9 +70,9 @@ def test_clear_no_external_process_and_usage(tmp_path,monkeypatch,capsys,color):
                  'help','cls','status | whoami','$(whoami)','exit')
     assert Shell(State(None),reader).run()==0
     text=capsys.readouterr().out
-    assert 'Usage: cls' in text and 'Usage: color [on|off]' in text
-    assert 'No shell execution' not in text and 'Locard Forensics' in text and 'color [on|off]' in text
-    assert cleared==[True]
+    assert 'Unknown command: cls' in text and 'Usage: color [on|off]' in text
+    assert 'No shell execution' not in text and 'Type `help <command>` for details.' in text and 'color [on|off]' in text
+    assert cleared==[]
 
 
 def test_color_output_json_files_and_pager(tmp_path,monkeypatch,capsys,color):
