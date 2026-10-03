@@ -179,7 +179,7 @@ def test_page_routes_internally_and_no_external_process(case,monkeypatch):
     def forbidden(*a,**kw):raise AssertionError('External process forbidden')
     monkeypatch.setattr(subprocess,'Popen',forbidden);monkeypatch.setattr(os,'system',forbidden)
     path,_,_=case; captured=[]
-    monkeypatch.setattr(output,'page',lambda stream:captured.append(stream.read()))
+    monkeypatch.setattr(output,'page',lambda stream,palette=None:captured.append(stream.read()))
     assert main(['--db',str(path),'search','--page'])==0
     assert 'LAST RUN (UTC)' in captured[0]
 

@@ -6,9 +6,10 @@ import sys
 
 SGR = re.compile(r'\x1b\[[0-9;]*m')
 RESET = '\x1b[0m'
-STYLES = {'prompt':'97', 'key':'36', 'string_value':'32', 'number_value':'35',
+STYLES = {'prompt':'1;3;94', 'key':'36', 'string_value':'32', 'number_value':'35',
           'boolean_value':'34', 'evidence_id':'1;36', 'heading':'1',
-          'secondary_text':'0', 'warning':'33', 'error':'31', 'success':'32'}
+          'secondary_text':'0', 'warning':'33', 'error':'31', 'success':'32',
+          'info_bar': '3;30;107'}
 EVIDENCE_PREFIXES = ('EVTX:', 'PREFETCH:', 'MFT:', 'REGISTRY:')
 
 

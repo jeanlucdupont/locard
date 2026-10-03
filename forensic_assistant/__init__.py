@@ -1,2 +1,5 @@
 """Locard: evidence is authoritative; model output is analysis."""
-__version__ = "0.10.0"
+from importlib.metadata import version
+
+__version__ = version("locard-forensics")
+

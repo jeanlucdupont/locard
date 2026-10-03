@@ -3,7 +3,6 @@ import json
 import sqlite3
 import sys
 from contextlib import closing
-from forensic_assistant import __version__
 from forensic_assistant.config import Config
 from forensic_assistant.database.db import connect
 from forensic_assistant.ingest.evtx import discover, ingest_file
@@ -16,7 +15,9 @@ from forensic_assistant import v1_cli
 from forensic_assistant import v2_cli
 from forensic_assistant.correlation.models import get_event
 from importlib.resources import files
+from importlib.metadata import version
 
+__version__ = version("locard-forensics")
 
 def emit(value):
     # Escape control sequences from untrusted log content for terminal safety.
@@ -28,6 +29,14 @@ def get_banner() -> str:
         .joinpath("resources/banner.txt")
         .read_text(encoding="utf-8")
     )
+
+def get_liner() -> str:
+    return (
+        files("forensic_assistant")
+        .joinpath("resources/liner.txt")
+        .read_text(encoding="utf-8")
+    )
+
 
 def build_parser(*,interactive=False):
     from forensic_assistant.cli_parser import InteractiveParser,configure_interactive

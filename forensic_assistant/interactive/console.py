@@ -4,7 +4,7 @@ import sys
 import time
 import unicodedata
 from contextlib import contextmanager
-
+from forensic_assistant.terminal import clear_screen 
 
 class WindowsKeys:
     """Read explicit key events, avoiding getwch's U+00E0 prefix ambiguity."""
@@ -106,6 +106,10 @@ def edit(keys, *, history=(), output=None, prompt='', limit=65536):
         elif key == 'HOME': cursor = 0
         elif key == 'END': cursor = len(buffer)
         elif key == 'DELETE' and cursor < len(buffer): del buffer[cursor]
+        elif key == '\x0c':  # Ctrl-L
+            output.write('\n')
+            output.flush()
+            clear_screen()
         elif key in ('\b','\x7f') and cursor:
             cursor -= 1; del buffer[cursor]
         elif len(key) == 1 and key.isprintable():

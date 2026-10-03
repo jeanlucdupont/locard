@@ -204,7 +204,7 @@ def test_output_modes_and_interactive_confirmation(tmp_path,monkeypatch,capsys):
     assert 'Distinct file hashes: 3' in colored and hashes[0] not in colored
     assert main(base+['--no-color'])==0;plain=capsys.readouterr().out
     assert terminal.SGR.sub('',colored)==plain
-    pages=[];monkeypatch.setattr(output,'page',lambda stream:pages.append(stream.read()))
+    pages=[];monkeypatch.setattr(output,'page',lambda stream,palette=None:pages.append(stream.read()))
     assert main(base+['--page'])==0 and pages[0]==colored
     assert main(base+['--output',str(target)])==0
     assert main(base+['--append',str(target)])==0

@@ -95,7 +95,7 @@ def test_new_summaries_pager_files(case,tmp_path,monkeypatch,capsys,command):
     if command=='show':base=['--db',str(case[0]),'show',case[1]]
     else:
         path=tmp_path/'other.db';sid,_=make_case(path);base=['--db',str(path),'source','show',sid]
-    captured=[];monkeypatch.setattr(output,'page',lambda stream:captured.append(stream.read()))
+    captured=[];monkeypatch.setattr(output,'page',lambda stream,palette=None:captured.append(stream.read()))
     assert main(base+['--page'])==0
     target=tmp_path/'summary.txt'
     for flag in ('--output','--append'):assert main(base+[flag,str(target)])==0

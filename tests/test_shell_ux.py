@@ -77,7 +77,7 @@ def test_clear_no_external_process_and_usage(tmp_path,monkeypatch,capsys,color):
 
 def test_color_output_json_files_and_pager(tmp_path,monkeypatch,capsys,color):
     path=case(tmp_path); dest=tmp_path/'status.txt';paged=[]
-    monkeypatch.setattr(output,'page',lambda stream:paged.append(stream.read()))
+    monkeypatch.setattr(output,'page',lambda stream,palette=None:paged.append(stream.read()))
     reader=Input(str(path),'color on','status --page','color off','status --page',
                  'color on',f'status --output "{dest}"',f'status --append "{dest}"',
                  'status --json','exit')

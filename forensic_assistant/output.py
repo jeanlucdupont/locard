@@ -51,7 +51,8 @@ def keyboard():
         finally: termios.tcsetattr(fd, termios.TCSAFLUSH, original)
 
 
-def page(stream):
+def page(stream, palette=None):
+    palette = palette if palette is not None else Palette()
     if not sys.stdout.isatty() or not sys.stdin.isatty():
         shutil.copyfileobj(stream, sys.stdout); return
     try:
@@ -73,7 +74,7 @@ def page(stream):
                     print(pending)
                     pending = next(iterator, None)
                     if pending is None: return
-                print(prompt, end='', flush=True)
+                print(palette('info_bar', prompt), end='', flush=True)
                 try:
                     while True:
                         key = read()
@@ -178,7 +179,7 @@ class Output:
                     if temporary is not None: temporary.unlink(missing_ok=True)
                 verb = 'written to'
             message('Output '+verb+': '+safe(self.target), self.args, role='success')
-        else: page(self.stream)
+        else: page(self.stream, self.palette)
 
     def close(self):
         if self.stream is not None: self.stream.close()
