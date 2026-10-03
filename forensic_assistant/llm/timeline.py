@@ -6,14 +6,28 @@ from forensic_assistant.llm.client import LocalClient
 
 
 def summary_schema(ids):
-    claim = {"type": "object", "additionalProperties": False,
-             "properties": {"statement": {"type": "string"},
-                            "classification": {"type": "string", "enum": ["OBSERVED", "CORRELATED", "CORROBORATED", "HYPOTHESIS", "UNKNOWN"]},
-                            "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": sorted(ids)}}},
-             "required": ["statement", "classification", "evidence_ids"]}
+    claim = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "statement": {"type": "string"},
+            "classification": {
+                "type": "string",
+                "enum": ["OBSERVED", "CORRELATED", "CORROBORATED", "HYPOTHESIS", "UNKNOWN"]
+            },
+            "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": sorted(ids)}}
+        },
+        "required": ["statement", "classification", "evidence_ids"]
+    }
     properties = {key: {"type": "array", "maxItems": 3, "items": claim} for key in
                   ("summary", "observed_sequence", "possible_interpretation", "alternative_explanations")}
-    properties.update({key: {"type": "array", "items": {"type": "string"}} for key in ("gaps_missing_evidence", "next_forensic_steps")})
+    properties.update({key: {
+        "type": "array",
+        "items": {"type": "string"}
+    } for key in (
+        "gaps_missing_evidence",
+        "next_forensic_steps"
+    )})
     return {"type": "object", "additionalProperties": False, "properties": properties, "required": list(properties)}
 
 
@@ -41,11 +55,14 @@ def validate_summary(content, bundle):
                 raise ValueError("Unknown timeline claim classification")
             if section == "observed_sequence" and label not in ("OBSERVED", "CORRELATED", "CORROBORATED"):
                 raise ValueError("A hypothesis cannot appear as an observed sequence")
-            if section in ("possible_interpretation", "alternative_explanations") and label not in ("HYPOTHESIS", "UNKNOWN"):
+            if section in (
+                "possible_interpretation",
+                "alternative_explanations"
+            ) and label not in ("HYPOTHESIS", "UNKNOWN"):
                 raise ValueError("Interpretations must be explicitly qualified")
             if label == "CORRELATED" and not any(set(r["evidence_ids"]) <= set(refs) for r in bundle["CORRELATED_EVIDENCE"]):
                 raise ValueError("Correlated claim lacks supporting supplied relationship evidence")
-            if label == 'CORROBORATED' and not any(r['status']=='CORROBORATED' and set(r['evidence_ids'])<=set(refs) for r in bundle['CORRELATED_EVIDENCE']):
+            if label == 'CORROBORATED' and not any(r['status'] == 'CORROBORATED' and set(r['evidence_ids']) <= set(refs) for r in bundle['CORRELATED_EVIDENCE']):
                 raise ValueError('Corroborated claim lacks engine-assigned corroboration')
     for section in ("gaps_missing_evidence", "next_forensic_steps"):
         if not isinstance(result[section], list) or not all(isinstance(value, str) for value in result[section]):
@@ -60,12 +77,26 @@ def validate_summary(content, bundle):
     return result
 
 
-def analyze_timeline(db, start, end, *, hostname=None, username=None, max_candidates=500,
-                     endpoint="http://127.0.0.1:8080", timeout=120, dry_run=False, client=None):
+def analyze_timeline(
+    db,
+    start,
+    end,
+    *,
+    hostname=None,
+    username=None,
+    max_candidates=500,
+    endpoint="http://127.0.0.1:8080",
+    timeout=120,
+    dry_run=False,
+    client=None
+):
     context = timeline_context(db, start, end, hostname=hostname, username=username, max_candidates=max_candidates)
     question = "Summarize this timeline using summary, observed_sequence, possible_interpretation, alternative_explanations, gaps_missing_evidence, and next_forensic_steps. Classify claims OBSERVED/CORRELATED/CORROBORATED/HYPOTHESIS/UNKNOWN. Interpretations and alternatives must be HYPOTHESIS or UNKNOWN. Cite every claim. Be concise. Do not infer a complete attack sequence."
     bundle = context_bundle(context, question)
-    output = {"evidence_bundle": bundle, "notice": "Model analysis is not evidence. Citation checks do not establish factual correctness."}
+    output = {
+        "evidence_bundle": bundle,
+        "notice": "Model analysis is not evidence. Citation checks do not establish factual correctness."
+    }
     if not bundle["EVIDENCE"]:
         output["status"] = "insufficient_evidence"
     elif dry_run:

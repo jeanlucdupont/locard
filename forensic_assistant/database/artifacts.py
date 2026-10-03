@@ -75,43 +75,104 @@ def dump(value):
 
 
 def register(db, record):
-    names = ('evidence_id','source_type','artifact_type','file_sha256','source_file','locator_json',
-             'hostname','username','parser_name','parser_version','extractor_version','warnings_json','original_json')
-    data = {**dict(hostname=None, username=None, parser_name=None, parser_version=None,
-                  extractor_version=VERSION, warnings_json='[]', original_json='{}'), **record}
-    return db.execute('INSERT INTO evidence_records ('+','.join(names)+') VALUES ('+
-                      ','.join('?' for _ in names)+') ON CONFLICT DO NOTHING',
-                      [data[k] for k in names]).rowcount
+    names = (
+        'evidence_id',
+        'source_type',
+        'artifact_type',
+        'file_sha256',
+        'source_file',
+        'locator_json',
+        'hostname',
+        'username',
+        'parser_name',
+        'parser_version',
+        'extractor_version',
+        'warnings_json',
+        'original_json'
+    )
+    data = {
+        **dict(
+            hostname=None,
+            username=None,
+            parser_name=None,
+            parser_version=None,
+            extractor_version=VERSION,
+            warnings_json='[]',
+            original_json='{}'
+        ),
+        **record
+    }
+    return db.execute(
+        'INSERT INTO evidence_records (' + ','.join(names) + ') VALUES (' +
+        ','.join('?' for _ in names) + ') ON CONFLICT DO NOTHING',
+        [data[k] for k in names]
+    ).rowcount
 
 
 def add_timestamp(db, eid, stamp):
-    keys = ('slot','timestamp_utc','original_value','encoding','source','meaning','precision_ns','normalization_status')
-    db.execute('INSERT INTO evidence_timestamps VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',
-               [eid, *(stamp.get(k) for k in keys)])
+    keys = (
+        'slot',
+        'timestamp_utc',
+        'original_value',
+        'encoding',
+        'source',
+        'meaning',
+        'precision_ns',
+        'normalization_status'
+    )
+    db.execute(
+        'INSERT INTO evidence_timestamps VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',
+        [eid, *(stamp.get(k) for k in keys)]
+    )
 
 
 def add_object(db, eid, slot, role, original):
     from forensic_assistant.artifacts.paths import normalize_path
     p = normalize_path(original)
-    db.execute('INSERT INTO evidence_objects VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',
-               (eid,slot,role,original,p['normalized'],p['basename'],p['kind'],dump(p['warnings'])))
+    db.execute(
+        'INSERT INTO evidence_objects VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',
+        (eid, slot, role, original, p['normalized'], p['basename'], p['kind'], dump(p['warnings']))
+    )
 
 
-def project_events(db, rows,parser_name=None,parser_version=None):
+def project_events(db, rows, parser_name=None, parser_version=None):
     for row in rows:
         e = dict(row)
-        if not register(db, dict(evidence_id=e['id'], source_type='evtx',artifact_type=e['artifact_type'] or 'event',
-                                file_sha256=e['file_sha256'],source_file=e['source_file'],
-                                locator_json=dump({'offset':e['record_offset'],'record_id':e['record_id']}),
-                                hostname=host_key(e['hostname']),username=e['username'],
-                                parser_name=parser_name,parser_version=parser_version,
-                                extractor_version=e['normalizer_version'],warnings_json=e['normalization_warnings_json'])):
+        if not register(
+            db,
+            dict(
+                evidence_id=e['id'],
+                source_type='evtx',
+                artifact_type=e['artifact_type'] or 'event',
+                file_sha256=e['file_sha256'],
+                source_file=e['source_file'],
+                locator_json=dump({'offset': e['record_offset'], 'record_id': e['record_id']}),
+                hostname=host_key(e['hostname']),
+                username=e['username'],
+                parser_name=parser_name,
+                parser_version=parser_version,
+                extractor_version=e['normalizer_version'],
+                warnings_json=e['normalization_warnings_json']
+            )
+        ):
             continue
-        add_timestamp(db,e['id'],dict(slot='SystemTime',timestamp_utc=e['timestamp_utc'],original_value=e['timestamp_original'],
-                      encoding='parser-rendered ISO8601',source='EVTX SystemTime',meaning='Event timestamp',precision_ns=None,
-                      normalization_status=e['timestamp_status']))
-        for field,role in (('process_name','process_image'),('parent_process_name','parent_image')):
-            if e[field]: add_object(db,e['id'],field,role,e[field])
+        add_timestamp(
+            db,
+            e['id'],
+            dict(
+                slot='SystemTime',
+                timestamp_utc=e['timestamp_utc'],
+                original_value=e['timestamp_original'],
+                encoding='parser-rendered ISO8601',
+                source='EVTX SystemTime',
+                meaning='Event timestamp',
+                precision_ns=None,
+                normalization_status=e['timestamp_status']
+            )
+        )
+        for field, role in (('process_name', 'process_image'), ('parent_process_name', 'parent_image')):
+            if e[field]:
+                add_object(db, e['id'], field, role, e[field])
         from forensic_assistant.ingest.sysmon import is_file_create, file_create_timestamps
         if is_file_create(e):
             from forensic_assistant.database.context import payload
@@ -119,13 +180,15 @@ def project_events(db, rows,parser_name=None,parser_version=None):
             data = payload(e)
             target = clean(data.get('TargetFilename'))
             if target:
-                add_object(db,e['id'],'TargetFilename','file_create_target',target)
+                add_object(db, e['id'], 'TargetFilename', 'file_create_target', target)
             for stamp in file_create_timestamps(e, data):
-                add_timestamp(db,e['id'],stamp)
+                add_timestamp(db, e['id'], stamp)
 
 
 def upgrade3(db):
-    for sql in DDL: db.execute(sql)
+    for sql in DDL:
+        db.execute(sql)
     cursor = db.execute('SELECT * FROM events ORDER BY id')
-    while rows := cursor.fetchmany(500): project_events(db,rows)
+    while rows := cursor.fetchmany(500):
+        project_events(db, rows)
     db.execute('PRAGMA user_version=3')

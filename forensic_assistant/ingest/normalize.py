@@ -96,12 +96,20 @@ def normalize(xml, sha, source_file, offset):
     if event.provider == SECURITY and event.channel == "Security" and event.event_id in SECURITY_MAP:
         event.artifact_type, prefix = SECURITY_MAP[event.event_id]
         account(prefix)
-        assign({"process_name": "ProcessName", "source_ip": "IpAddress",
-                "service_name": "ServiceName", "task_name": "TaskName"})
+        assign({
+            "process_name": "ProcessName",
+            "source_ip": "IpAddress",
+            "service_name": "ServiceName",
+            "task_name": "TaskName"
+        })
         for field, key in (("process_id", "ProcessId"), ("source_port", "IpPort"), ("logon_type", "LogonType")):
             integer(field, data.get(key))
         if event.event_id == 4688:
-            assign({"process_name": "NewProcessName", "parent_process_name": "ParentProcessName", "command_line": "CommandLine"})
+            assign({
+                "process_name": "NewProcessName",
+                "parent_process_name": "ParentProcessName",
+                "command_line": "CommandLine"
+            })
             integer("process_id", data.get("NewProcessId"))
             integer("parent_process_id", data.get("ProcessId"))
         if event.event_id == 4697:
@@ -115,10 +123,20 @@ def normalize(xml, sha, source_file, offset):
         event.script_block = data.get("ScriptBlockText") if event.event_id == 4104 else data.get("Payload")
     elif event.provider == SYSMON and event.channel == "Microsoft-Windows-Sysmon/Operational" and event.event_id in (1, 3):
         event.artifact_type = "process" if event.event_id == 1 else "network"
-        assign({"username": "User", "process_name": "Image", "parent_process_name": "ParentImage",
-                "command_line": "CommandLine", "source_ip": "SourceIp", "destination_ip": "DestinationIp"})
-        for field, key in (("process_id", "ProcessId"), ("parent_process_id", "ParentProcessId"),
-                           ("source_port", "SourcePort"), ("destination_port", "DestinationPort")):
+        assign({
+            "username": "User",
+            "process_name": "Image",
+            "parent_process_name": "ParentImage",
+            "command_line": "CommandLine",
+            "source_ip": "SourceIp",
+            "destination_ip": "DestinationIp"
+        })
+        for field, key in (
+            ("process_id", "ProcessId"),
+            ("parent_process_id", "ParentProcessId"),
+            ("source_port", "SourcePort"),
+            ("destination_port", "DestinationPort")
+        ):
             integer(field, data.get(key))
     elif event.provider == SYSMON and event.channel == "Microsoft-Windows-Sysmon/Operational" and event.event_id == 11:
         from forensic_assistant.ingest.sysmon import file_create_timestamps

@@ -19,10 +19,21 @@ class PowerShellCharacteristics(Rule):
         content = "\n".join(event.get(field) or "" for field in ("command_line", "script_block"))
         found = [name for name, pattern in INDICATORS.items() if re.search(pattern, content)]
         if found:
-            return self.observation(event, "Lexical PowerShell indicators: " + ", ".join(found),
-                limitations=["Matches may appear in comments, strings, or legitimate administration",
-                             "No script is executed or decoded; fragmented/truncated logging can hide context"])
+            return self.observation(
+                event,
+                "Lexical PowerShell indicators: " + ", ".join(found),
+                limitations=[
+                    "Matches may appear in comments, strings, or legitimate administration",
+                    "No script is executed or decoded; fragmented/truncated logging can hide context"
+                ]
+            )
 
 
-RULES = [PowerShellCharacteristics("LOCARD-PS-001", "PowerShell characteristics worth review",
-    "Review selected encoded-command, download, and expression-evaluation indicators", "medium", "1", ("process", "powershell"))]
+RULES = [PowerShellCharacteristics(
+    "LOCARD-PS-001",
+    "PowerShell characteristics worth review",
+    "Review selected encoded-command, download, and expression-evaluation indicators",
+    "medium",
+    "1",
+    ("process", "powershell")
+)]

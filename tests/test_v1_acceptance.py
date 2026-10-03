@@ -11,7 +11,10 @@ from forensic_assistant.retrieval.queries import Queries
 from v1_fixtures import database, add, process
 
 
-@pytest.mark.parametrize("command", ["timeline", "process-tree", "logons", "session", "detections", "around", "investigate", "analyze-timeline"])
+@pytest.mark.parametrize(
+    "command",
+    ["timeline", "process-tree", "logons", "session", "detections", "around", "investigate", "analyze-timeline"]
+)
 def test_all_investigative_cli_json(tmp_path, capsys, command):
     db = database()
     add(db, 1, 4624, data={"TargetLogonId": "0x10", "TargetUserName": "bob"})
@@ -25,7 +28,9 @@ def test_all_investigative_cli_json(tmp_path, capsys, command):
     }
     path = tmp_path / "case.db"
     dest = sqlite3.connect(path)
-    db.backup(dest); dest.close(); db.close()
+    db.backup(dest)
+    dest.close()
+    db.close()
     assert main(["--db", str(path), command, *args[command], "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert isinstance(result, dict)
@@ -39,7 +44,10 @@ def test_context_indexes_used():
         ("host_key=? AND process_guid=?", ("pc.example", "guid"), "ctx_guid"),
         ("host_key=? AND target_logon_key=? AND timestamp_utc>=?", ("pc.example", "10", "2026"), "ctx_target_logon"),
     ]:
-        plan = db.execute("EXPLAIN QUERY PLAN SELECT evidence_id FROM event_context WHERE " + predicate, args).fetchall()
+        plan = db.execute(
+            "EXPLAIN QUERY PLAN SELECT evidence_id FROM event_context WHERE " + predicate,
+            args
+        ).fetchall()
         assert index in " ".join(str(row[3]) for row in plan)
 
 
@@ -65,8 +73,20 @@ def test_4647_projection_timeline_without_rewriting_event():
 def test_guid_cycle_is_unresolved():
     db = database()
     a, b = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
-    first = add(db, 1, 1, sysmon=True, data={"ProcessGuid": a, "ParentProcessGuid": b, "ProcessId": "10", "ParentProcessId": "20"})
-    add(db, 2, 1, sysmon=True, data={"ProcessGuid": b, "ParentProcessGuid": a, "ProcessId": "20", "ParentProcessId": "10"})
+    first = add(
+        db,
+        1,
+        1,
+        sysmon=True,
+        data={"ProcessGuid": a, "ParentProcessGuid": b, "ProcessId": "10", "ParentProcessId": "20"}
+    )
+    add(
+        db,
+        2,
+        1,
+        sysmon=True,
+        data={"ProcessGuid": b, "ParentProcessGuid": a, "ProcessId": "20", "ParentProcessId": "10"}
+    )
     tree = process_tree(db, first["id"])
     assert tree["relationships"]
     assert all(edge["status"] == "UNRESOLVED" for edge in tree["relationships"])

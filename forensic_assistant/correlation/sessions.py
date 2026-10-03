@@ -17,13 +17,17 @@ def logons(db, username=None, ip=None, hostname=None, start=None, end=None, limi
         params.extend([exact, exact, suffix, suffix])
     if ip:
         import ipaddress
-        where += " AND c.source_ip_key=?"; params.append(str(ipaddress.ip_address(ip)))
+        where += " AND c.source_ip_key=?"
+        params.append(str(ipaddress.ip_address(ip)))
     if hostname:
-        where += " AND c.host_key=?"; params.append(host_key(hostname))
+        where += " AND c.host_key=?"
+        params.append(host_key(hostname))
     if start:
-        where += " AND c.timestamp_utc>=?"; params.append(required_time(start))
+        where += " AND c.timestamp_utc>=?"
+        params.append(required_time(start))
     if end:
-        where += " AND c.timestamp_utc<=?"; params.append(required_time(end))
+        where += " AND c.timestamp_utc<=?"
+        params.append(required_time(end))
     if start and end and required_time(start) > required_time(end):
         raise ValueError("Start must not follow end")
     return select(db, where, params, limit=limit, offset=offset)
@@ -36,8 +40,10 @@ def event_roles(event):
     if kind in ("logon", "logoff"):
         return [(event["target_logon_key"], "target", "session_event")]
     if kind == "process":
-        return [(event["subject_logon_key"], "subject", "created_by_session"),
-                (event["process_logon_key"], "target", "runs_in_session")]
+        return [
+            (event["subject_logon_key"], "subject", "created_by_session"),
+            (event["process_logon_key"], "target", "runs_in_session")
+        ]
     if event["process_logon_key"]:
         return [(event["process_logon_key"], "target", "process_session")]
     if event["subject_logon_key"]:
@@ -58,7 +64,8 @@ def session(db, logon_id, *, hostname=None, around=None, anchor_id=None, max_hou
         hostname = anchor["host_key"]
     where, params = "c.kind='logon' AND c.target_logon_key=?", [key]
     if hostname:
-        where += " AND c.host_key=?"; params.append(host_key(hostname))
+        where += " AND c.host_key=?"
+        params.append(host_key(hostname))
     if around:
         around = required_time(around)
         where += " AND c.timestamp_utc<=? AND c.timestamp_utc>=?"
@@ -72,35 +79,81 @@ def session(db, logon_id, *, hostname=None, around=None, anchor_id=None, max_hou
             newest = max(e["timestamp_utc"] for e in candidates)
             candidates = [e for e in candidates if e["timestamp_utc"] == newest]
         if result.truncated or len(candidates) != 1:
-            return {"status": "UNRESOLVED", "reason": "No unique successful-logon anchor; specify --hostname and --around, or use --evidence",
-                    "candidate_anchor_ids": [e["id"] for e in candidates], "records": [], "relationships": [],
-                    "truncated": result.truncated, "logon_id": key}
+            return {
+                "status": "UNRESOLVED",
+                "reason": "No unique successful-logon anchor; specify --hostname and --around, or use --evidence",
+                "candidate_anchor_ids": [e["id"] for e in candidates],
+                "records": [],
+                "relationships": [],
+                "truncated": result.truncated,
+                "logon_id": key
+            }
         anchor = candidates[0]
     if not anchor["host_key"] or not anchor["timestamp_utc"]:
-        return {"status": "UNRESOLVED", "reason": "Anchor lacks host or UTC time", "records": [anchor], "relationships": [], "truncated": False}
+        return {
+            "status": "UNRESOLVED",
+            "reason": "Anchor lacks host or UTC time",
+            "records": [anchor],
+            "relationships": [],
+            "truncated": False
+        }
     start, host = anchor["timestamp_utc"], anchor["host_key"]
     ceiling = shift(start, max_hours * 3600)
-    boundaries = select(db, "c.host_key=? AND c.timestamp_utc>? AND c.timestamp_utc<=? AND (c.kind='boot' OR (c.kind IN ('logoff','logon') AND c.target_logon_key=?))",
-                        (host, start, ceiling, key), limit=1)
+    boundaries = select(
+        db,
+        "c.host_key=? AND c.timestamp_utc>? AND c.timestamp_utc<=? AND (c.kind='boot' OR (c.kind IN ('logoff','logon') AND c.target_logon_key=?))",
+        (host, start, ceiling, key),
+        limit=1
+    )
     boundary = boundaries.records[0] if boundaries.records else None
     if boundary:
-        ties = select(db, "c.host_key=? AND c.timestamp_utc=? AND (c.kind='boot' OR (c.kind IN ('logoff','logon') AND c.target_logon_key=?))",
-                      (host, boundary["timestamp_utc"], key), limit=100)
+        ties = select(
+            db,
+            "c.host_key=? AND c.timestamp_utc=? AND (c.kind='boot' OR (c.kind IN ('logoff','logon') AND c.target_logon_key=?))",
+            (host, boundary["timestamp_utc"], key),
+            limit=100
+        )
         if ties.truncated or len(unique_observations(ties.records)) > 1:
-            return {"status": "UNRESOLVED", "reason": "Competing session boundaries share a timestamp", "records": [anchor], "relationships": [], "truncated": ties.truncated}
+            return {
+                "status": "UNRESOLVED",
+                "reason": "Competing session boundaries share a timestamp",
+                "records": [anchor],
+                "relationships": [],
+                "truncated": ties.truncated
+            }
     end = boundary["timestamp_utc"] if boundary else ceiling
     inclusive = bool(boundary and boundary["kind"] == "logoff")
     if around and (around > end or (not inclusive and around == end)):
-        return {"status": "UNRESOLVED", "reason": "Requested event is outside the evidenced session interval", "records": [anchor], "relationships": [], "truncated": False}
+        return {
+            "status": "UNRESOLVED",
+            "reason": "Requested event is outside the evidenced session interval",
+            "records": [anchor],
+            "relationships": [],
+            "truncated": False
+        }
     boundary_conflict = bool(boundary and any(anchor["target_" + field] and boundary["target_" + field] and anchor["target_" + field] != boundary["target_" + field] for field in ("sid", "account")))
-    query = select(db, "c.host_key=? AND c.timestamp_utc>=? AND c.timestamp_utc" + ("<=?" if inclusive else "<?") +
-                   " AND (c.target_logon_key=? OR c.subject_logon_key=? OR c.process_logon_key=?)",
-                   (host, start, end, key, key, key), limit=limit)
+    query = select(
+        db,
+        "c.host_key=? AND c.timestamp_utc>=? AND c.timestamp_utc" + ("<=?" if inclusive else "<?") +
+        " AND (c.target_logon_key=? OR c.subject_logon_key=? OR c.process_logon_key=?)",
+        (host, start, end, key, key, key),
+        limit=limit
+    )
     # A same-time competing logon cannot be ordered by an arbitrary evidence-ID tie-break.
-    same_time = select(db, "c.host_key=? AND c.kind='logon' AND c.target_logon_key=? AND c.timestamp_utc=?",
-                       (host, key, start), limit=100)
+    same_time = select(
+        db,
+        "c.host_key=? AND c.kind='logon' AND c.target_logon_key=? AND c.timestamp_utc=?",
+        (host, key, start),
+        limit=100
+    )
     if same_time.truncated or len(unique_observations(same_time.records)) > 1:
-        return {"status": "UNRESOLVED", "reason": "Competing logon anchors share a timestamp", "records": [anchor], "relationships": [], "truncated": False}
+        return {
+            "status": "UNRESOLVED",
+            "reason": "Competing logon anchors share a timestamp",
+            "records": [anchor],
+            "relationships": [],
+            "truncated": False
+        }
     relations, records = [], {anchor["id"]: anchor}
     for event in query.records:
         if event["id"] == anchor["id"]:
@@ -118,14 +171,30 @@ def session(db, logon_id, *, hostname=None, around=None, anchor_id=None, max_hou
                 records[boundary["id"]] = boundary
                 if boundary["id"] not in evidence_ids:
                     evidence_ids.append(boundary["id"])
-            relations.append(Relationship(relation, status, evidence_ids, reason,
-                            ["Unobserved restarts or missing audit records can conceal identifier reuse"], anchor["id"], event["id"]).as_dict())
+            relations.append(Relationship(
+                relation,
+                status,
+                evidence_ids,
+                reason,
+                ["Unobserved restarts or missing audit records can conceal identifier reuse"],
+                anchor["id"],
+                event["id"]
+            ).as_dict())
             records[event["id"]] = event
-    return {"status": "CORRELATED", "anchor_id": anchor["id"], "logon_id": key, "hostname": host,
-            "start": start, "end": end, "end_reason": boundary["kind"] if boundary else "fallback_ceiling",
-            "records": sorted(records.values(), key=lambda e: (e["timestamp_utc"], e["id"])),
-            "relationships": relations, "truncated": query.truncated, "candidate_count": query.total,
-            "parameters": {"max_hours": max_hours, "limit": limit}}
+    return {
+        "status": "CORRELATED",
+        "anchor_id": anchor["id"],
+        "logon_id": key,
+        "hostname": host,
+        "start": start,
+        "end": end,
+        "end_reason": boundary["kind"] if boundary else "fallback_ceiling",
+        "records": sorted(records.values(), key=lambda e: (e["timestamp_utc"], e["id"])),
+        "relationships": relations,
+        "truncated": query.truncated,
+        "candidate_count": query.total,
+        "parameters": {"max_hours": max_hours, "limit": limit}
+    }
 
 
 def related_logon_events(db, evidence_id, **kwargs):

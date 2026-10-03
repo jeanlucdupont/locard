@@ -18,7 +18,10 @@ def test_office_and_powershell():
         assert detection["limitations"] and detection["rule_version"]
 
 
-@pytest.mark.parametrize("event_id,rule", [(4698, "LOCARD-TASK-001"), (4697, "LOCARD-SVC-001"), (4720, "LOCARD-ACCOUNT-001"), (4648, "LOCARD-CRED-001")])
+@pytest.mark.parametrize(
+    "event_id,rule",
+    [(4698, "LOCARD-TASK-001"), (4697, "LOCARD-SVC-001"), (4720, "LOCARD-ACCOUNT-001"), (4648, "LOCARD-CRED-001")]
+)
 def test_event_rules(event_id, rule):
     db = database()
     add(db, 1, event_id)
@@ -65,7 +68,11 @@ def test_duplicate_observations_do_not_inflate_failures():
     event = add(db, 1, 4625, data=fields)
     original = dict(db.execute("SELECT * FROM events WHERE id=?", (event["id"],)).fetchone())
     for n in range(2, 8):
-        copied = NormalizedEvent(**{**original, "id": event["id"].replace("Offset:1", "Offset:" + str(n)), "record_offset": n})
+        copied = NormalizedEvent(**{
+            **original,
+            "id": event["id"].replace("Offset:1", "Offset:" + str(n)),
+            "record_offset": n
+        })
         with db:
             insert_events(db, [copied])
     add(db, 20, 4624, time="14:31:00", data=fields)

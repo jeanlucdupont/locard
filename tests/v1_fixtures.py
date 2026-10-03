@@ -17,7 +17,13 @@ def add(db, offset, event_id=4688, time="14:30:00", host="PC.example", data=None
     body = "".join(f'<Data Name="{key}">{escape(str(value))}</Data>' for key, value in data.items())
     provider = "Microsoft-Windows-Sysmon" if sysmon else "Microsoft-Windows-Security-Auditing"
     channel = "Microsoft-Windows-Sysmon/Operational" if sysmon else "Security"
-    raw = xml(event_id, provider, channel, body, record_id=offset).replace("14:30:55.1234567", time).replace("PC.example", host)
+    raw = xml(
+        event_id,
+        provider,
+        channel,
+        body,
+        record_id=offset
+    ).replace("14:30:55.1234567", time).replace("PC.example", host)
     event = normalize(raw, SHA, "synthetic.evtx", offset)
     with db:
         insert_events(db, [event])

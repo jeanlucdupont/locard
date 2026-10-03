@@ -36,8 +36,14 @@ def nearby(db, evidence_id, seconds=120, direction="around", limit=100, offset=0
         bounds = (shift(timestamp, -seconds), shift(timestamp, seconds))
     else:
         raise ValueError("Unknown temporal direction")
-    return select(db, "c.host_key=? AND " + clause, (event["host_key"], *bounds), limit=limit, offset=offset,
-                  nearest_to=timestamp if nearest else None)
+    return select(
+        db,
+        "c.host_key=? AND " + clause,
+        (event["host_key"], *bounds),
+        limit=limit,
+        offset=offset,
+        nearest_to=timestamp if nearest else None
+    )
 
 
 def events_before(db, evidence_id, seconds, **kwargs):

@@ -34,16 +34,41 @@ def test_unknown_and_provider_collision():
 
 
 def test_powershell_sysmon_and_clear():
-    e = normalize(xml(4104, "Microsoft-Windows-PowerShell", "Microsoft-Windows-PowerShell/Operational", '<Data Name="ScriptBlockText">Get-Date</Data>'), SHA, "x", 1)
+    e = normalize(
+        xml(
+            4104,
+            "Microsoft-Windows-PowerShell",
+            "Microsoft-Windows-PowerShell/Operational",
+            '<Data Name="ScriptBlockText">Get-Date</Data>'
+        ),
+        SHA,
+        "x",
+        1
+    )
     assert e.script_block == "Get-Date"
-    e = normalize(xml(3, "Microsoft-Windows-Sysmon", "Microsoft-Windows-Sysmon/Operational", '<Data Name="DestinationIp">::1</Data><Data Name="DestinationPort">443</Data>'), SHA, "x", 1)
+    e = normalize(
+        xml(
+            3,
+            "Microsoft-Windows-Sysmon",
+            "Microsoft-Windows-Sysmon/Operational",
+            '<Data Name="DestinationIp">::1</Data><Data Name="DestinationPort">443</Data>'
+        ),
+        SHA,
+        "x",
+        1
+    )
     assert e.destination_ip == "::1" and e.destination_port == 443
     e = normalize(xml(1102, "Microsoft-Windows-Eventlog"), SHA, "x", 1)
     assert e.artifact_type == "audit_log_cleared"
 
 
 def test_bad_fields_and_duplicate_payload():
-    e = normalize(xml(data='<Data Name="NewProcessId">bad</Data><Data Name="CommandLine">a</Data><Data Name="CommandLine">b</Data>'), SHA, "x", 1)
+    e = normalize(
+        xml(data='<Data Name="NewProcessId">bad</Data><Data Name="CommandLine">a</Data><Data Name="CommandLine">b</Data>'),
+        SHA,
+        "x",
+        1
+    )
     assert e.process_id is None and e.command_line is None
     assert len(json.loads(e.event_data_json)) == 3
     assert len(json.loads(e.normalization_warnings_json)) == 2
@@ -56,7 +81,8 @@ def test_unsafe_xml():
 
 def test_ingestion_duplicate_and_error(tmp_path):
     a, b = tmp_path / "a.evtx", tmp_path / "b.EVTX"
-    a.write_bytes(b"fixture"); b.write_bytes(a.read_bytes())
+    a.write_bytes(b"fixture")
+    b.write_bytes(a.read_bytes())
     def reader(path):
         yield ParsedRecord(512, 7, xml())
         yield ParsedRecord(600, 8, "<broken")

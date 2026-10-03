@@ -30,7 +30,11 @@ def enrich_result(db, result, max_candidates=500):
                 assembled.add(context_records[eid], group)
     assembled.limits.extend(context["limits"])
     assembled.source_counts.extend(context["source_query_counts"])
-    assembled.source_counts.append({"query": "question", "candidate_count": result.total, "truncated": result.truncated})
+    assembled.source_counts.append({
+        "query": "question",
+        "candidate_count": result.total,
+        "truncated": result.truncated
+    })
     if result.truncated:
         assembled.limits.append("Question retrieval result limit reached")
     return assembled.output({"retrieval_total": result.total, "correlation_anchor": result.records[0]["id"]})
@@ -40,27 +44,42 @@ def retrieve_question(queries, question, date_hint=None, limit=30):
     if not question.strip() or len(question.encode()) > 1000:
         raise ValueError("Question must contain 1..1000 UTF-8 bytes")
     db, lower = queries.db, question.lower()
-    evidence = re.search(r"(?:EVTX|MFT):[a-f0-9]{64}:Offset:\d+|PREFETCH:[a-f0-9]{64}:File|REGISTRY:[a-f0-9]{64}:(?:KeyOffset|ValueOffset):\d+", question)
+    evidence = re.search(
+        r"(?:EVTX|MFT):[a-f0-9]{64}:Offset:\d+|PREFETCH:[a-f0-9]{64}:File|REGISTRY:[a-f0-9]{64}:(?:KeyOffset|ValueOffset):\d+",
+        question
+    )
     if evidence:
         return {"operation": "investigate", "evidence_id": evidence.group()}, investigate(db, evidence.group())
     stamps = re.findall(STAMP, question)
     if len(stamps) == 2:
         return {"operation": "timeline", "start": stamps[0], "end": stamps[1]}, timeline_context(db, *stamps)
-    artifact=re.search(r'\b(mft|prefetch|registry)\b',lower)
-    path=re.search(r'\bpath\s+[\"\']([^\"\']+)[\"\']|\bpath\s+(\S+)',question,re.I)
+    artifact = re.search(r'\b(mft|prefetch|registry)\b', lower)
+    path = re.search(r'\bpath\s+[\"\']([^\"\']+)[\"\']|\bpath\s+(\S+)', question, re.I)
     if artifact or path:
         from forensic_assistant.retrieval.evidence import EvidenceQueries
-        filters={}
-        if artifact:filters['artifact']=artifact.group(1)
-        if path:filters['path']=path.group(1) or path.group(2)
-        process=re.search(r'\b([\w.-]+\.exe)\b',question,re.I)
-        if process and not path:filters['process']=process.group(1)
-        result=EvidenceQueries(db).timeline_around(stamps[0],limit=limit,**filters) if stamps else EvidenceQueries(db).search(limit=limit,**filters)
-        return {'operation':'artifact_search','filters':filters,'notes':['Explicit artifact/path pattern; no semantic search']},enrich_result(db,result)
+        filters = {}
+        if artifact:
+            filters['artifact'] = artifact.group(1)
+        if path:
+            filters['path'] = path.group(1) or path.group(2)
+        process = re.search(r'\b([\w.-]+\.exe)\b', question, re.I)
+        if process and not path:
+            filters['process'] = process.group(1)
+        result = EvidenceQueries(db).timeline_around(stamps[0], limit=limit, **filters) if stamps else EvidenceQueries(db).search(limit=limit, **filters)
+        return {
+            'operation': 'artifact_search',
+            'filters': filters,
+            'notes': ['Explicit artifact/path pattern; no semantic search']
+        }, enrich_result(db, result)
     logon = re.search(r"\b(?:logon[- ]?id|session)\s*[:=]?\s*(0x[0-9a-f]+|\d+)\b", question, re.I)
     if logon:
         host = re.search(r"\bhost(?:name)?\s+([\w.-]+)", question, re.I)
-        result = session(db, logon.group(1), hostname=host.group(1) if host else None, around=stamps[0] if stamps else None)
+        result = session(
+            db,
+            logon.group(1),
+            hostname=host.group(1) if host else None,
+            around=stamps[0] if stamps else None
+        )
         assembled = Assembly(db, 500)
         if result.get("anchor_id"):
             assembled.add(get_event(db, result["anchor_id"]), "anchors")
@@ -71,9 +90,19 @@ def retrieve_question(queries, question, date_hint=None, limit=30):
             assembled.limits.append("Session candidate limit reached")
         return {"operation": "session", "logon_id": logon.group(1)}, assembled.output({})
     if re.search(r"\bword\b", lower) and "powershell" in lower:
-        result = select(db, "c.kind='process' AND (lower(e.parent_process_name)=? OR lower(e.parent_process_name) LIKE ?) AND (lower(e.process_name)=? OR lower(e.process_name) LIKE ?)",
-                        ("winword.exe", "%\\winword.exe", "powershell.exe", "%\\powershell.exe"), limit=limit)
-        return {"operation": "office_powershell_context", "notes": ["Matches reported parent fields; only evidenced tree links establish parent record identity", "First matching event anchors bounded temporal expansion; prior events are context, not an asserted sequence"]}, enrich_result(db, result)
+        result = select(
+            db,
+            "c.kind='process' AND (lower(e.parent_process_name)=? OR lower(e.parent_process_name) LIKE ?) AND (lower(e.process_name)=? OR lower(e.process_name) LIKE ?)",
+            ("winword.exe", "%\\winword.exe", "powershell.exe", "%\\powershell.exe"),
+            limit=limit
+        )
+        return {
+            "operation": "office_powershell_context",
+            "notes": [
+                "Matches reported parent fields; only evidenced tree links establish parent record identity",
+                "First matching event anchors bounded temporal expansion; prior events are context, not an asserted sequence"
+            ]
+        }, enrich_result(db, result)
     if re.search(r"\bdetections?\b", lower):
         assembled = Assembly(db, 500)
         result = detections(db, limit=limit)

@@ -18,8 +18,8 @@ def endpoint_parts(endpoint):
         if host == "localhost":
             host = "127.0.0.1"
         if (parts.scheme != "http" or not host or not ipaddress.ip_address(host).is_loopback
-                or parts.username or parts.password or parts.query or parts.fragment
-                or parts.path.rstrip("/") not in ("", "/v1") or "%" in host):
+            or parts.username or parts.password or parts.query or parts.fragment
+            or parts.path.rstrip("/") not in ("", "/v1") or "%" in host):
             raise ValueError()
         return host, parts.port or 8080
     except ValueError as exc:
@@ -41,21 +41,38 @@ class LocalClient:
             # A peer sending bytes slowly must not extend the total call indefinitely.
             sock = getattr(connection, 'sock', None) or (transport[0] if transport else None)
             if sock is not None:
-                try: sock.shutdown(socket.SHUT_RDWR)
-                except OSError: pass
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
             connection.close()
         watchdog = threading.Timer(self.timeout, expire)
         watchdog.daemon = True
         watchdog.start()
-        body = json.dumps({"messages": messages, "temperature": 0.2, "top_p": 0.95,
-                           "max_tokens": 1024, "stream": False,
-                           "chat_template_kwargs": {"enable_thinking": False},
-                           "response_format": ({"type": "json_schema", "json_schema": {
-                               "name": "forensic_analysis", "strict": True, "schema": schema}}
-                               if schema else {"type": "json_object"})}, ensure_ascii=True).encode()
+        body = json.dumps(
+            {
+                "messages": messages,
+                "temperature": 0.2,
+                "top_p": 0.95,
+                "max_tokens": 1024,
+                "stream": False,
+                "chat_template_kwargs": {"enable_thinking": False},
+                "response_format": ({
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "forensic_analysis", "strict": True, "schema": schema}
+                }
+                                    if schema else {"type": "json_object"})
+            },
+            ensure_ascii=True
+        ).encode()
         try:
-            connection.request("POST", "/v1/chat/completions", body=body,
-                               headers={"Content-Type": "application/json"})
+            connection.request(
+                "POST",
+                "/v1/chat/completions",
+                body=body,
+                headers={"Content-Type": "application/json"}
+            )
             # HTTP/1.0 can detach the socket from HTTPConnection while the response
             # still owns a file object. Keep it reachable for the wall-clock limit.
             transport.append(getattr(connection, 'sock', None))
@@ -72,13 +89,22 @@ class LocalClient:
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
                 raise LLMError("Local model returned an empty answer")
-            self.last_metadata = {'model': str(decoded.get('model', 'not reported'))[:200],
-                                  'identity_basis': 'Local server self-report; weights not attested',
-                                  'finish_reason': str(choice.get('finish_reason', 'not reported'))[:40]}
+            self.last_metadata = {
+                'model': str(decoded.get('model', 'not reported'))[:200],
+                'identity_basis': 'Local server self-report; weights not attested',
+                'finish_reason': str(choice.get('finish_reason', 'not reported'))[:40]
+            }
             usage = decoded.get('usage', {})
             if isinstance(usage, dict):
-                self.last_metadata['usage'] = {k: v for k, v in usage.items()
-                    if k in ('prompt_tokens', 'completion_tokens', 'total_tokens') and type(v) is int and 0 <= v <= 10000000}
+                self.last_metadata['usage'] = {
+                    k: v for k,
+                    v in usage.items()
+                    if k in (
+                        'prompt_tokens',
+                        'completion_tokens',
+                        'total_tokens'
+                    ) and type(v) is int and 0 <= v <= 10000000
+                }
             return text
         except (OSError, http.client.HTTPException) as exc:
             raise LLMError("Cannot reach local llama.cpp. Start llama-server and check the loopback endpoint. Deterministic searches remain available") from exc

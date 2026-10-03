@@ -50,7 +50,7 @@ def register_source(db, sha, size, path):
     db.execute("INSERT INTO source_locations VALUES (?, ?) ON CONFLICT DO NOTHING", (sha, str(path)))
 
 
-def insert_events(db, events,*,parser_name=None,parser_version=None):
+def insert_events(db, events, *, parser_name=None, parser_version=None):
     events = list(events)
     # Identifiers come exclusively from the fixed dataclass, never user input.
     names = [f.name for f in fields(NormalizedEvent)]
@@ -63,5 +63,5 @@ def insert_events(db, events,*,parser_name=None,parser_version=None):
         preserved = [db.execute("SELECT * FROM events WHERE id=?", (e.id,)).fetchone() for e in events]
         insert_context(db, preserved)
         from forensic_assistant.database.artifacts import project_events
-        project_events(db, preserved,parser_name,parser_version)
+        project_events(db, preserved, parser_name, parser_version)
     return inserted

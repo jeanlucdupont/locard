@@ -5,10 +5,26 @@ import uuid
 from forensic_assistant.ingest.normalize import SECURITY, SYSMON, number
 
 CONTEXT_VERSION = "1"
-COLUMNS = ("evidence_id", "host_key", "timestamp_utc", "kind", "pid", "ppid",
-           "process_guid", "parent_process_guid", "subject_logon_key", "target_logon_key",
-           "process_logon_key", "subject_account", "target_account", "subject_sid", "target_sid",
-           "source_ip_key", "version", "warnings_json")
+COLUMNS = (
+    "evidence_id",
+    "host_key",
+    "timestamp_utc",
+    "kind",
+    "pid",
+    "ppid",
+    "process_guid",
+    "parent_process_guid",
+    "subject_logon_key",
+    "target_logon_key",
+    "process_logon_key",
+    "subject_account",
+    "target_account",
+    "subject_sid",
+    "target_sid",
+    "source_ip_key",
+    "version",
+    "warnings_json"
+)
 
 
 def canonical_id(value):
@@ -58,11 +74,21 @@ def extract(event):
             return None
 
     result = dict.fromkeys(COLUMNS)
-    result.update(evidence_id=event["id"], host_key=host_key(event["hostname"]),
-                  timestamp_utc=event["timestamp_utc"], kind=event["artifact_type"],
-                  pid=event["process_id"], ppid=event["parent_process_id"], version=CONTEXT_VERSION)
+    result.update(
+        evidence_id=event["id"],
+        host_key=host_key(event["hostname"]),
+        timestamp_utc=event["timestamp_utc"],
+        kind=event["artifact_type"],
+        pid=event["process_id"],
+        ppid=event["parent_process_id"],
+        version=CONTEXT_VERSION
+    )
     if event["provider"] == SECURITY and event["channel"] == "Security":
-        result["kind"] = {4647: "logoff_request", 4689: "process_end", 4608: "boot"}.get(event["event_id"], result["kind"])
+        result["kind"] = {
+            4647: "logoff_request",
+            4689: "process_end",
+            4608: "boot"
+        }.get(event["event_id"], result["kind"])
         for prefix in ("Subject", "Target"):
             key = prefix.lower()
             result[key + "_logon_key"] = canonical_id(data.get(prefix + "LogonId"))

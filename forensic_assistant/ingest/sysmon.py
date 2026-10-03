@@ -25,7 +25,13 @@ def file_create_timestamps(event, data):
         value, status = utc_timestamp(original + 'Z' if match else original)
         fraction = re.search(r'\.(\d{1,9})(?:Z|[+-]\d\d:\d\d)?$', original)
         precision = 10 ** (9 - len(fraction[1])) if fraction else 1_000_000_000
-        yield dict(slot='Sysmon.' + field, timestamp_utc=value, original_value=original,
-                   encoding='Sysmon UTC text', source='Sysmon EventData ' + field,
-                   meaning=meaning, precision_ns=precision if status == 'normalized' else None,
-                   normalization_status=status)
+        yield dict(
+            slot='Sysmon.' + field,
+            timestamp_utc=value,
+            original_value=original,
+            encoding='Sysmon UTC text',
+            source='Sysmon EventData ' + field,
+            meaning=meaning,
+            precision_ns=precision if status == 'normalized' else None,
+            normalization_status=status
+        )

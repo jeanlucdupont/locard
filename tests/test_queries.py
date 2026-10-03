@@ -31,7 +31,15 @@ def test_filters(queries):
 
 
 def test_predefined(queries):
-    for name, count in [("logons", 2), ("failed_logons", 1), ("processes", 1), ("powershell", 1), ("scheduled_tasks", 1), ("services", 1), ("account_changes", 2)]:
+    for name, count in [
+        ("logons", 2),
+        ("failed_logons", 1),
+        ("processes", 1),
+        ("powershell", 1),
+        ("scheduled_tasks", 1),
+        ("services", 1),
+        ("account_changes", 2)
+    ]:
         assert getattr(queries, "find_" + name)().total == count
 
 

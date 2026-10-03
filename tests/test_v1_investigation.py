@@ -49,7 +49,8 @@ def test_investigate_json_cli(tmp_path, capsys):
     import sqlite3
     path = tmp_path / "case.db"
     target = sqlite3.connect(path)
-    db.backup(target); target.close()
+    db.backup(target)
+    target.close()
     assert main(["--db", str(path), "investigate", event["id"], "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["candidate_count"] == 1

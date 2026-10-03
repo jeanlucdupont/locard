@@ -15,7 +15,10 @@ def old_database(path):
     with db:
         register_source(db, SHA, 1, "original.evtx")
         event = normalize(xml(), SHA, "original.evtx", 512).as_dict()
-        db.execute("INSERT INTO events (" + ",".join(event) + ") VALUES (" + ",".join("?" for _ in event) + ")", list(event.values()))
+        db.execute(
+            "INSERT INTO events (" + ",".join(event) + ") VALUES (" + ",".join("?" for _ in event) + ")",
+            list(event.values())
+        )
     original = dict(db.execute("SELECT * FROM events").fetchone())
     db.close()
     return original
@@ -34,7 +37,8 @@ def test_explicit_migration_preserves_every_field(tmp_path):
     backup = sqlite3.connect(result["backup"])
     assert backup.execute("PRAGMA user_version").fetchone()[0] == 1
     assert migrations.migrate(path)["status"] == "current"
-    backup.close(); db.close()
+    backup.close()
+    db.close()
 
 
 def test_migration_failure_rolls_back(tmp_path, monkeypatch):
@@ -54,7 +58,12 @@ def test_migration_failure_rolls_back(tmp_path, monkeypatch):
 
 
 def test_context_roles_and_unknown_fields():
-    event = normalize(xml(data='<Data Name="SubjectLogonId">0x42</Data><Data Name="TargetLogonId">0x43</Data>'), SHA, "x", 1)
+    event = normalize(
+        xml(data='<Data Name="SubjectLogonId">0x42</Data><Data Name="TargetLogonId">0x43</Data>'),
+        SHA,
+        "x",
+        1
+    )
     context = extract(event.as_dict())
     assert context["subject_logon_key"] == "66"
     assert context["process_logon_key"] == "67"

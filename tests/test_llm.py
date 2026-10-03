@@ -8,22 +8,25 @@ from forensic_assistant.retrieval.queries import QueryResult
 from test_queries import queries
 
 
-@pytest.mark.parametrize("question,key,value", [
-    ("Show suspicious PowerShell activity", "powershell", True),
-    ("Show failed logons", "artifact_types", ["failed_logon"]),
-    ("Show privileged logon", "artifact_types", ["privileged_logon"]),
-    ("Show processes", "artifact_types", ["process"]),
-    ("Show logon activity", "artifact_types", ["logon", "explicit_credentials", "privileged_logon"]),
-    ("Show scheduled tasks", "artifact_types", ["scheduled_task"]),
-    ("Show services", "artifact_types", ["service"]),
-    ("Show account creation", "artifact_types", ["account_creation"]),
-    ("Activity involved user bob?", "username", "bob"),
-    ('Activity for user "DOMAIN\\bob"', "username", "DOMAIN\\bob"),
-    ("Show Event ID 4688", "event_id", 4688),
-    ("Activity for 192.0.2.1", "ip", "192.0.2.1"),
-    ("Activity for 2001:db8::1", "ip", "2001:db8::1"),
-    ("Activity for fe80::12:34", "ip", "fe80::12:34"),
-])
+@pytest.mark.parametrize(
+    "question,key,value",
+    [
+        ("Show suspicious PowerShell activity", "powershell", True),
+        ("Show failed logons", "artifact_types", ["failed_logon"]),
+        ("Show privileged logon", "artifact_types", ["privileged_logon"]),
+        ("Show processes", "artifact_types", ["process"]),
+        ("Show logon activity", "artifact_types", ["logon", "explicit_credentials", "privileged_logon"]),
+        ("Show scheduled tasks", "artifact_types", ["scheduled_task"]),
+        ("Show services", "artifact_types", ["service"]),
+        ("Show account creation", "artifact_types", ["account_creation"]),
+        ("Activity involved user bob?", "username", "bob"),
+        ('Activity for user "DOMAIN\\bob"', "username", "DOMAIN\\bob"),
+        ("Show Event ID 4688", "event_id", 4688),
+        ("Activity for 192.0.2.1", "ip", "192.0.2.1"),
+        ("Activity for 2001:db8::1", "ip", "2001:db8::1"),
+        ("Activity for fe80::12:34", "ip", "fe80::12:34"),
+    ]
+)
 def test_planner(queries, question, key, value):
     assert plan_question(question, queries).filters[key] == value
 
@@ -40,7 +43,10 @@ def test_planner_time_and_combinations(queries):
         plan_question("explain everything", queries)
     with pytest.raises(ValueError):
         plan_question("around 2026-09-15T14:31:00", queries)
-    queries.db.execute("UPDATE events SET timestamp_utc=? WHERE record_offset=?", ("2026-09-16T00:00:00.000000000Z", 512))
+    queries.db.execute(
+        "UPDATE events SET timestamp_utc=? WHERE record_offset=?",
+        ("2026-09-16T00:00:00.000000000Z", 512)
+    )
     with pytest.raises(ValueError, match="needs --date"):
         plan_question("around 14:31", queries)
     assert plan_question("around 14:31", queries, "2026-09-15").timestamp.startswith("2026-09-15")
@@ -61,10 +67,17 @@ def test_evidence_format_and_budget(queries):
 
 
 def valid_answer(evidence_id):
-    return {"findings": [{"finding": "A process event was recorded", "evidence_ids": [evidence_id],
-                          "interpretation": "Execution alone does not establish maliciousness", "confidence": "low",
-                          "alternative_explanations": ["Administration"], "next_evidence": ["Surrounding records"]}],
-            "missing_evidence": ["Auditing may be incomplete"]}
+    return {
+        "findings": [{
+            "finding": "A process event was recorded",
+            "evidence_ids": [evidence_id],
+            "interpretation": "Execution alone does not establish maliciousness",
+            "confidence": "low",
+            "alternative_explanations": ["Administration"],
+            "next_evidence": ["Surrounding records"]
+        }],
+        "missing_evidence": ["Auditing may be incomplete"]
+    }
 
 
 def test_citation_validation(queries):
@@ -88,7 +101,18 @@ def test_unicode_bundle_is_bounded(queries):
     assert len(SYSTEM_PROMPT.encode()) + len(messages(bundle)[1]["content"].encode()) <= PROMPT_BYTES
 
 
-@pytest.mark.parametrize("endpoint", ["https://127.0.0.1:8080", "http://example.com", "http://192.168.1.1", "http://127.0.0.1@evil.com", "http://127.0.0.1/?next=evil", "http://127.0.0.1:8080/other", "http://[::1%25eth0]:8080"])
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://127.0.0.1:8080",
+        "http://example.com",
+        "http://192.168.1.1",
+        "http://127.0.0.1@evil.com",
+        "http://127.0.0.1/?next=evil",
+        "http://127.0.0.1:8080/other",
+        "http://[::1%25eth0]:8080"
+    ]
+)
 def test_remote_endpoints_rejected(endpoint):
     with pytest.raises(ValueError):
         endpoint_parts(endpoint)

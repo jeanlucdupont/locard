@@ -8,7 +8,10 @@ class EventObservation(Rule):
 
     def evaluate(self, db, event, parameters):
         if event["event_id"] == self.event_id:
-            return self.observation(event, f"Provider-qualified Event ID {self.event_id} records {self.name.casefold()}")
+            return self.observation(
+                event,
+                f"Provider-qualified Event ID {self.event_id} records {self.name.casefold()}"
+            )
 
 
 RULES = [

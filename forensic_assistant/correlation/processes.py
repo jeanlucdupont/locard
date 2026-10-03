@@ -15,9 +15,14 @@ def image_matches(left, right):
 
 
 def unresolved(child, reason, ids=None):
-    return Relationship("parent_process", "UNRESOLVED", ids or [child["id"]], reason,
-                        ["No parent creation record is invented; reported parent fields remain in the child evidence"],
-                        target_id=child["id"]).as_dict()
+    return Relationship(
+        "parent_process",
+        "UNRESOLVED",
+        ids or [child["id"]],
+        reason,
+        ["No parent creation record is invented; reported parent fields remain in the child evidence"],
+        target_id=child["id"]
+    ).as_dict()
 
 
 def resolve_parent(db, child, lookback_seconds=300, candidate_limit=100):
@@ -50,7 +55,10 @@ def resolve_parent(db, child, lookback_seconds=300, candidate_limit=100):
     ids = [parent["id"], child["id"]]
     if child["ppid"] is not None and parent["pid"] is not None and child["ppid"] != parent["pid"]:
         return unresolved(child, "Parent GUID and PID disagree", ids)
-    if child["parent_process_name"] and parent["process_name"] and not image_matches(child["parent_process_name"], parent["process_name"]):
+    if child["parent_process_name"] and parent["process_name"] and not image_matches(
+        child["parent_process_name"],
+        parent["process_name"]
+    ):
         return unresolved(child, "Reported parent image conflicts with candidate", ids)
     if not exact:
         if parent["timestamp_utc"] >= child["timestamp_utc"]:
@@ -64,16 +72,37 @@ def resolve_parent(db, child, lookback_seconds=300, candidate_limit=100):
         if parent["username"] and child["username"] and parent["username"].casefold() != child["username"].casefold():
             return unresolved(child, "PID fallback has conflicting account fields", ids)
     # Check the parent's full evidenced lifetime, not just the displayed tree window.
-    blockers = select(db, "c.host_key=? AND c.timestamp_utc>? AND c.timestamp_utc<=? AND (c.kind='boot' OR (c.kind='process_end' AND (c.pid=? OR c.process_guid=?)) OR (c.kind='process' AND c.pid=? AND e.id<>?))",
-                      (child["host_key"], parent["timestamp_utc"], child["timestamp_utc"], parent["pid"], parent["process_guid"], parent["pid"], child["id"]), limit=1)
+    blockers = select(
+        db,
+        "c.host_key=? AND c.timestamp_utc>? AND c.timestamp_utc<=? AND (c.kind='boot' OR (c.kind='process_end' AND (c.pid=? OR c.process_guid=?)) OR (c.kind='process' AND c.pid=? AND e.id<>?))",
+        (
+            child["host_key"],
+            parent["timestamp_utc"],
+            child["timestamp_utc"],
+            parent["pid"],
+            parent["process_guid"],
+            parent["pid"],
+            child["id"]
+        ),
+        limit=1
+    )
     if blockers.total:
-        return unresolved(child, "Observed restart, termination, or PID reuse intervenes", ids + [blockers.records[0]["id"]])
-    return Relationship("parent_process", "CONFIRMED" if exact else "LIKELY", ids,
-                        "Explicit same-host parent/process GUID match" if exact else
-                        f"Unique same-host preceding PID candidate within {lookback_seconds}s, matching parent image and no observed contradictions",
-                        ["Confirmed means supported by the supplied records, not proof of authenticity"] if exact else
-                        ["Incomplete process/termination auditing can hide PID reuse; this is not a confirmed identity"],
-                        parent["id"], child["id"]).as_dict()
+        return unresolved(
+            child,
+            "Observed restart, termination, or PID reuse intervenes",
+            ids + [blockers.records[0]["id"]]
+        )
+    return Relationship(
+        "parent_process",
+        "CONFIRMED" if exact else "LIKELY",
+        ids,
+        "Explicit same-host parent/process GUID match" if exact else
+        f"Unique same-host preceding PID candidate within {lookback_seconds}s, matching parent image and no observed contradictions",
+        ["Confirmed means supported by the supplied records, not proof of authenticity"] if exact else
+        ["Incomplete process/termination auditing can hide PID reuse; this is not a confirmed identity"],
+        parent["id"],
+        child["id"]
+    ).as_dict()
 
 
 def process_tree(db, evidence_id, *, lookback_seconds=300, seconds=300, max_nodes=100, max_depth=8):
@@ -97,7 +126,8 @@ def process_tree(db, evidence_id, *, lookback_seconds=300, seconds=300, max_node
         parent_edge = resolve_parent(db, current, lookback_seconds)
         edge_key = (parent_edge["source_id"], parent_edge["target_id"], parent_edge["status"])
         if edge_key not in seen_edges:
-            seen_edges.add(edge_key); relationships.append(parent_edge)
+            seen_edges.add(edge_key)
+            relationships.append(parent_edge)
         if parent_edge["status"] != "UNRESOLVED":
             parent = get_event(db, parent_edge["source_id"])
             if parent["id"] not in nodes:
@@ -108,9 +138,19 @@ def process_tree(db, evidence_id, *, lookback_seconds=300, seconds=300, max_node
                     limits.append("Maximum graph nodes reached")
         if not current["timestamp_utc"] or not current["host_key"]:
             continue
-        query = select(db, "c.kind='process' AND c.host_key=? AND c.timestamp_utc>=? AND c.timestamp_utc<=? AND e.id<>? AND (c.parent_process_guid=? OR c.ppid=?)",
-                       (current["host_key"], current["timestamp_utc"], shift(current["timestamp_utc"], seconds),
-                        current["id"], current["process_guid"], current["pid"]), limit=max_nodes)
+        query = select(
+            db,
+            "c.kind='process' AND c.host_key=? AND c.timestamp_utc>=? AND c.timestamp_utc<=? AND e.id<>? AND (c.parent_process_guid=? OR c.ppid=?)",
+            (
+                current["host_key"],
+                current["timestamp_utc"],
+                shift(current["timestamp_utc"], seconds),
+                current["id"],
+                current["process_guid"],
+                current["pid"]
+            ),
+            limit=max_nodes
+        )
         if query.truncated:
             limits.append("Child candidate limit reached")
         for child in unique_observations(query.records):
@@ -119,7 +159,8 @@ def process_tree(db, evidence_id, *, lookback_seconds=300, seconds=300, max_node
                 continue
             key = (edge["source_id"], edge["target_id"], edge["status"])
             if key not in seen_edges:
-                seen_edges.add(key); relationships.append(edge)
+                seen_edges.add(key)
+                relationships.append(edge)
             if child["id"] not in nodes:
                 if len(nodes) >= max_nodes:
                     limits.append("Maximum graph nodes reached")
@@ -148,11 +189,19 @@ def process_tree(db, evidence_id, *, lookback_seconds=300, seconds=300, max_node
         missing = [eid for eid in edge["evidence_ids"] if eid not in included]
         if missing:
             edge["omitted_evidence_ids"] = missing
-    return {"anchor_id": evidence_id, "nodes": sorted(nodes.values(), key=order_key),
-            "relationships": relationships, "limits": sorted(set(limits)),
-            "parameters": {"pid_lookback_seconds": lookback_seconds, "child_window_seconds": seconds,
-                           "max_nodes": max_nodes, "max_depth": max_depth},
-            "caution": "Reported relationships are not proof of maliciousness; absent process records remain unresolved"}
+    return {
+        "anchor_id": evidence_id,
+        "nodes": sorted(nodes.values(), key=order_key),
+        "relationships": relationships,
+        "limits": sorted(set(limits)),
+        "parameters": {
+            "pid_lookback_seconds": lookback_seconds,
+            "child_window_seconds": seconds,
+            "max_nodes": max_nodes,
+            "max_depth": max_depth
+        },
+        "caution": "Reported relationships are not proof of maliciousness; absent process records remain unresolved"
+    }
 
 
 def related_process_events(db, evidence_id, **kwargs):

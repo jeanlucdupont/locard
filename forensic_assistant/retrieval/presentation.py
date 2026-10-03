@@ -29,20 +29,27 @@ def detail(event):
     return event.get("command_line") or event.get("script_block") or kind or "Unmapped event"
 
 
-def render_timeline(result,*,methodology=True):
+def render_timeline(result, *, methodology=True):
     lines = ["TIME | EVIDENCE ID | EVENT ID | TYPE | USER | PROCESS | DETAIL"]
     for event in result["records"]:
-        values = [event.get("timestamp_utc"), event["id"], event.get("event_id"),
-                  event.get("kind") or event.get("artifact_type"), event.get("username") or event.get("target_account") or event.get("subject_account"),
-                  event.get("process_name"), detail(event)]
+        values = [
+            event.get("timestamp_utc"),
+            event["id"],
+            event.get("event_id"),
+            event.get("kind") or event.get("artifact_type"),
+            event.get("username") or event.get("target_account") or event.get("subject_account"),
+            event.get("process_name"),
+            detail(event)
+        ]
         lines.append(" | ".join(safe(value) for value in values))
     lines.append(f"Displayed {len(result['records'])} / {result['total']}; truncated={result['truncated']}")
-    if methodology:lines.append("CORRELATION != CAUSATION. Missing logs or auditing may hide activity.")
+    if methodology:
+        lines.append("CORRELATION != CAUSATION. Missing logs or auditing may hide activity.")
     return "\n".join(lines)
 
 
 # Exact parser-provided interpretation cautions, not data-quality diagnoses.
-PREFETCH_CAUTIONS=frozenset({
+PREFETCH_CAUTIONS = frozenset({
     'Prefetch identifier is not a content hash',
     'Run count and retained execution slots are not a complete execution history',
     'Missing Prefetch does not establish non-execution; collection may be disabled or deleted',

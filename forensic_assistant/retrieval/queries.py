@@ -34,23 +34,38 @@ class Queries:
     def __init__(self, db):
         self.db = db
 
-    def search(self, *, start=None, end=None, username=None, ip=None, event_id=None,
-               process=None, hostname=None, artifact_types=None, powershell=False,
-               limit=100, offset=0):
+    def search(
+        self,
+        *,
+        start=None,
+        end=None,
+        username=None,
+        ip=None,
+        event_id=None,
+        process=None,
+        hostname=None,
+        artifact_types=None,
+        powershell=False,
+        limit=100,
+        offset=0
+    ):
         if not 1 <= limit <= 10000 or offset < 0:
             raise ValueError("Limit must be 1..10000 and offset must be nonnegative")
         clauses, params = [], []
         if start:
             start = required_time(start)
-            clauses.append("timestamp_utc >= ?"); params.append(start)
+            clauses.append("timestamp_utc >= ?")
+            params.append(start)
         if end:
             end = required_time(end)
-            clauses.append("timestamp_utc <= ?"); params.append(end)
+            clauses.append("timestamp_utc <= ?")
+            params.append(end)
         if start and end and start > end:
             raise ValueError("Start must not follow end")
         if username:
             if "\\" in username or "@" in username:
-                clauses.append("username = ? COLLATE NOCASE"); params.append(username)
+                clauses.append("username = ? COLLATE NOCASE")
+                params.append(username)
             else:
                 clauses.append("(username = ? COLLATE NOCASE OR username LIKE ? ESCAPE '!' COLLATE NOCASE)")
                 params.extend([username, "%\\" + escape_like(username)])
@@ -61,7 +76,8 @@ class Queries:
             params.extend([ip] * 4)
         for field, value in (("event_id", event_id), ("hostname", hostname)):
             if value is not None:
-                clauses.append(field + " = ? COLLATE NOCASE"); params.append(value)
+                clauses.append(field + " = ? COLLATE NOCASE")
+                params.append(value)
         if process:
             clauses.append("(process_name = ? COLLATE NOCASE OR process_name LIKE ? ESCAPE '!' COLLATE NOCASE)")
             params.extend([process, "%\\" + escape_like(process)])
@@ -76,7 +92,10 @@ class Queries:
             params.extend(["powershell", "powershell.exe", "pwsh.exe", "%\\powershell.exe", "%\\pwsh.exe"])
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         total = self.db.execute("SELECT count(*) FROM events" + where, params).fetchone()[0]
-        rows = self.db.execute("SELECT * FROM events" + where + " ORDER BY timestamp_utc IS NULL, timestamp_utc, id LIMIT ? OFFSET ?", [*params, limit, offset])
+        rows = self.db.execute(
+            "SELECT * FROM events" + where + " ORDER BY timestamp_utc IS NULL, timestamp_utc, id LIMIT ? OFFSET ?",
+            [*params, limit, offset]
+        )
         return QueryResult([dict(row) for row in rows], total, limit, offset)
 
     def events_between(self, start, end, **kwargs):

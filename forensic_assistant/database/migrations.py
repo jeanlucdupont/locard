@@ -41,7 +41,7 @@ def upgrade(db):
 def migrate(path):
     from forensic_assistant.reporting.transcripts import safe_path
     source = safe_path(Path(path).absolute()).resolve(strict=True)
-    db = sqlite3.connect(source.as_uri()+'?mode=rw',uri=True,timeout=.2)
+    db = sqlite3.connect(source.as_uri() + '?mode=rw', uri=True, timeout=.2)
     db.row_factory = sqlite3.Row
     backup = None
     try:
@@ -60,19 +60,22 @@ def migrate(path):
         if version not in (1, 2, 3):
             raise ValueError(f"Cannot migrate schema version {version}; expected schema 1, 2 or 3")
         # Verify the old shape against trusted DDL without modifying the case.
-        reference=sqlite3.connect(':memory:')
+        reference = sqlite3.connect(':memory:')
         try:
             reference.executescript(Path(__file__).with_name('schema.sql').read_text())
-            if version>=2:
-                for sql in STATEMENTS:reference.execute(sql)
-            if version>=3:
+            if version >= 2:
+                for sql in STATEMENTS:
+                    reference.execute(sql)
+            if version >= 3:
                 from forensic_assistant.database.artifacts import DDL
-                for sql in DDL:reference.execute(sql)
+                for sql in DDL:
+                    reference.execute(sql)
             for (name,) in reference.execute("SELECT name FROM sqlite_master WHERE type='table'"):
-                query='PRAGMA table_info("'+name+'")'
+                query = 'PRAGMA table_info("' + name + '")'
                 if [tuple(r)[1:] for r in db.execute(query)] != [tuple(r)[1:] for r in reference.execute(query)]:
-                    raise ValueError('Unsupported legacy table structure: '+name)
-        finally:reference.close()
+                    raise ValueError('Unsupported legacy table structure: ' + name)
+        finally:
+            reference.close()
         backup = source.with_name(source.name + f".schema{version}-backup-" + uuid.uuid4().hex + ".sqlite")
         # Exclusive creation prevents overwriting anything, including another backup.
         with backup.open("xb"):
@@ -87,7 +90,8 @@ def migrate(path):
         if version == 1:
             upgrade(db)
         from forensic_assistant.database.artifacts import upgrade3
-        if version < 3:upgrade3(db)
+        if version < 3:
+            upgrade3(db)
         from forensic_assistant.database.sources import upgrade4
         upgrade4(db)
         if db.execute('PRAGMA foreign_key_check').fetchone() or db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
@@ -96,7 +100,8 @@ def migrate(path):
         return {"status": "migrated", "schema_version": 4, "backup": str(backup)}
     except BaseException as exc:
         db.rollback()
-        if not isinstance(exc,Exception):raise
+        if not isinstance(exc, Exception):
+            raise
         raise ValueError(f"Migration rolled back: {exc}. Backup: {backup or 'not created'}") from exc
     finally:
         db.close()

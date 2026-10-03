@@ -39,7 +39,20 @@ def test_guid_confirmed_and_termination():
     db = database()
     guid = "11111111-1111-1111-1111-111111111111"
     parent = add(db, 1, 1, sysmon=True, data={"ProcessGuid": guid, "ProcessId": "10", "Image": "word.exe"})
-    child = add(db, 2, 1, sysmon=True, time="14:30:10", data={"ProcessGuid": "22222222-2222-2222-2222-222222222222", "ParentProcessGuid": guid, "ProcessId": "20", "ParentProcessId": "10", "ParentImage": "word.exe"})
+    child = add(
+        db,
+        2,
+        1,
+        sysmon=True,
+        time="14:30:10",
+        data={
+            "ProcessGuid": "22222222-2222-2222-2222-222222222222",
+            "ParentProcessGuid": guid,
+            "ProcessId": "20",
+            "ParentProcessId": "10",
+            "ParentImage": "word.exe"
+        }
+    )
     assert resolve_parent(db, child)["status"] == "CONFIRMED"
     add(db, 3, 5, sysmon=True, time="14:30:05", data={"ProcessGuid": guid, "ProcessId": "10"})
     assert resolve_parent(db, child)["status"] == "UNRESOLVED"
@@ -48,7 +61,13 @@ def test_guid_confirmed_and_termination():
 def test_session_roles_boundaries_and_hosts():
     db = database()
     start = add(db, 1, 4624, data={"TargetLogonId": "0x42", "TargetUserName": "bob", "TargetDomainName": "DOMAIN"})
-    add(db, 2, 4672, time="14:30:01", data={"SubjectLogonId": "66", "SubjectUserName": "bob", "SubjectDomainName": "DOMAIN"})
+    add(
+        db,
+        2,
+        4672,
+        time="14:30:01",
+        data={"SubjectLogonId": "66", "SubjectUserName": "bob", "SubjectDomainName": "DOMAIN"}
+    )
     proc = process(db, 3, 20, time="14:30:02", data={"SubjectLogonId": "0x42"})
     add(db, 4, 4648, time="14:30:03", data={"SubjectLogonId": "0x42", "TargetUserName": "administrator"})
     add(db, 5, 4647, time="14:30:04", data={"SubjectLogonId": "0x42"})

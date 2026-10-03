@@ -29,11 +29,19 @@ def select(db, where="1", params=(), *, limit=100, offset=0, nearest_to=None):
     order = "c.timestamp_utc IS NULL,c.timestamp_utc,e.id"
     order_params = []
     if nearest_to:
-        db.create_function("locard_time_distance", 2, lambda a, b: str(abs(time_ns(a) - time_ns(b))).zfill(30), deterministic=True)
+        db.create_function(
+            "locard_time_distance",
+            2,
+            lambda a,
+            b: str(abs(time_ns(a) - time_ns(b))).zfill(30),
+            deterministic=True
+        )
         order = "locard_time_distance(c.timestamp_utc,?),c.timestamp_utc,e.id"
         order_params = [nearest_to]
-    rows = db.execute("SELECT " + CONTEXT_SELECT + base + " ORDER BY " + order + " LIMIT ? OFFSET ?",
-                      [*params, *order_params, limit, offset])
+    rows = db.execute(
+        "SELECT " + CONTEXT_SELECT + base + " ORDER BY " + order + " LIMIT ? OFFSET ?",
+        [*params, *order_params, limit, offset]
+    )
     return QueryResult([dict(row) for row in rows], total, limit, offset)
 
 
@@ -59,8 +67,13 @@ def time_ns(timestamp):
 def observation_key(event):
     """Recognize exact duplicated records across exports without merging evidence."""
     import hashlib
-    return (event.get("host_key"), event.get("channel"), event.get("record_id"),
-            event.get("timestamp_utc"), hashlib.sha256(event["raw_xml"].encode()).hexdigest())
+    return (
+        event.get("host_key"),
+        event.get("channel"),
+        event.get("record_id"),
+        event.get("timestamp_utc"),
+        hashlib.sha256(event["raw_xml"].encode()).hexdigest()
+    )
 
 
 def unique_observations(events):

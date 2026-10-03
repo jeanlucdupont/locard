@@ -39,7 +39,15 @@ def test_timeline_cli_compatibility_filters_and_text(tmp_path, capsys):
     assert main(prefix + ["2026-09-15T14:31:00Z", "--minutes", "1"]) == 0
     old = json.loads(capsys.readouterr().out)
     assert old["total"] == 4
-    assert main(prefix + ["--start", "2026-09-15T14:30:00Z", "--end", "2026-09-15T14:32:00Z", "--hostname", "PC.example", "--json"]) == 0
+    assert main(prefix + [
+        "--start",
+        "2026-09-15T14:30:00Z",
+        "--end",
+        "2026-09-15T14:32:00Z",
+        "--hostname",
+        "PC.example",
+        "--json"
+    ]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["total"] == 3
     assert [e["timestamp_utc"] for e in data["records"]] == sorted(e["timestamp_utc"] for e in data["records"])

@@ -27,18 +27,47 @@ This is analysis, not evidence."""
 # Maximum combined UTF-8 prompt bytes, conservatively below 8192-token context
 # with 1024 output tokens and chat-template overhead. ASCII JSON bounds payload size.
 PROMPT_BYTES = 5600
-FIELDS = ("id", "timestamp_utc", "timestamp_original", "timestamp_status", "hostname",
-          "provider", "channel", "event_id", "record_id", "artifact_type", "user_sid", "username",
-          "process_name", "process_id", "parent_process_name", "parent_process_id", "command_line",
-          "source_ip", "source_port", "destination_ip", "destination_port", "logon_type", "logon_id",
-          "service_name", "task_name", "script_block", "event_data_json", "normalization_warnings_json")
+FIELDS = (
+    "id",
+    "timestamp_utc",
+    "timestamp_original",
+    "timestamp_status",
+    "hostname",
+    "provider",
+    "channel",
+    "event_id",
+    "record_id",
+    "artifact_type",
+    "user_sid",
+    "username",
+    "process_name",
+    "process_id",
+    "parent_process_name",
+    "parent_process_id",
+    "command_line",
+    "source_ip",
+    "source_port",
+    "destination_ip",
+    "destination_port",
+    "logon_type",
+    "logon_id",
+    "service_name",
+    "task_name",
+    "script_block",
+    "event_data_json",
+    "normalization_warnings_json"
+)
 
 
 def evidence_bundle(result, question, coverage=None, budget=PROMPT_BYTES):
-    metadata = {"matching_records": result.total, "retrieved_records": len(result.records),
-                "included_records": 0, "omitted_records": result.total,
-                "limitations": "Selection is bounded and ordered chronologically. Missing logs/auditing are possible.",
-                "coverage": coverage or {}}
+    metadata = {
+        "matching_records": result.total,
+        "retrieved_records": len(result.records),
+        "included_records": 0,
+        "omitted_records": result.total,
+        "limitations": "Selection is bounded and ordered chronologically. Missing logs/auditing are possible.",
+        "coverage": coverage or {}
+    }
     bundle = {"metadata": metadata, "EVIDENCE": [], "QUESTION": question}
 
     def fits():
@@ -78,25 +107,46 @@ def evidence_bundle(result, question, coverage=None, budget=PROMPT_BYTES):
 
 
 def messages(bundle):
-    return [{"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(bundle, ensure_ascii=True)}]
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": json.dumps(bundle, ensure_ascii=True)}
+    ]
 
 
 def answer_schema(supplied_ids):
     """Constrain citation values to supplied IDs at generation as well as validation."""
     text = {"type": "string"}
     strings = {"type": "array", "items": text}
-    properties = {"finding": text, "interpretation": text,
-                  "confidence": {"type": "string", "enum": ["low", "moderate", "high"]},
-                  "evidence_ids": {"type": "array", "minItems": 1,
-                                   "items": {"type": "string", "enum": sorted(supplied_ids)}},
-                  "alternative_explanations": strings, "next_evidence": strings}
-    return {"type": "object", "additionalProperties": False,
-            "required": ["findings", "missing_evidence"],
-            "properties": {"findings": {"type": "array", "maxItems": 3,
-                "items": {"type": "object", "additionalProperties": False,
-                          "required": list(properties), "properties": properties}},
-                "missing_evidence": strings}}
+    properties = {
+        "finding": text,
+        "interpretation": text,
+        "confidence": {"type": "string", "enum": ["low", "moderate", "high"]},
+        "evidence_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "enum": sorted(supplied_ids)}
+        },
+        "alternative_explanations": strings,
+        "next_evidence": strings
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["findings", "missing_evidence"],
+        "properties": {
+            "findings": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": list(properties),
+                    "properties": properties
+                }
+            },
+            "missing_evidence": strings
+        }
+    }
 
 
 def validate_answer(text, supplied_ids):
