@@ -233,13 +233,15 @@ class Shell:
                             print(catalog(build_parser(interactive=True), Palette(enabled(self))))
                             self.last_status = 0
                             continue
-                        if len(words) == 2 and words[1] in ('color', 'case', 'exit', 'quit', 'help'):
+                        if len(words) == 2 and words[1] in ('color', 'case', 'exit', 'quit', 'help', 'version', '?'):
                             print({
                                 'color': 'color [on|off]: text coloring for command output and prompts.',
                                 'case': 'case [path|new]: select or create a case.',
-                                'exit': 'exit: leave Locard.',
-                                'quit': 'quit: leave Locard.',
-                                'help': 'help [command]: show Locard command help.'
+                                'exit': 'exit: leave Locard. (alias for quit)',
+                                'quit': 'quit: leave Locard. (alias for exit)',
+                                'help': 'help [command]: show Locard command help.',
+                                'version': 'version: show Locard version.',
+                                '?': '? [command]: show Locard command help. (alias for help)'
                             }[words[1]])
                             continue
                         words = words[1:] + ['--help']
