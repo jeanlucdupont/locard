@@ -22,6 +22,8 @@
 /tests/**
 !/tests/**/
 !/tests/**/*.py
+!/forensic_assistant/resources/
+!/forensic_assistant/resources/*.txt
 
 # Investigation data and generated output, at any directory depth.
 data/
