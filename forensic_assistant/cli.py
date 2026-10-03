@@ -39,8 +39,8 @@ def get_liner() -> str:
 
 
 def build_parser(*, interactive=False):
-    from forensic_assistant.cli_parser import InteractiveParser, configure_interactive
-    parser = (InteractiveParser if interactive else argparse.ArgumentParser)(
+    from forensic_assistant.cli_parser import LocardParser, InteractiveParser, configure_interactive
+    parser = (InteractiveParser if interactive else LocardParser)(
         prog='locard',
         description="Locard — local evidence-first Windows forensics"
     )

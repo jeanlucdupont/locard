@@ -11,7 +11,17 @@ class InvalidArguments(Exception):
     pass
 
 
-class InteractiveParser(argparse.ArgumentParser):
+class LocardParser(argparse.ArgumentParser):
+    """Retain standard help actions without advertising their switches."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for action in self._actions:
+            if isinstance(action, argparse._HelpAction):
+                action.help = argparse.SUPPRESS
+
+
+class InteractiveParser(LocardParser):
     def print_help(self, file=None):
         import sys
         if file is None:
