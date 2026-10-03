@@ -36,7 +36,7 @@ def pagination(count,total,offset=0):
     return f'Showing {offset+1}\u2013{offset+count} of {total}'
 
 
-def table(headers,rows,palette,*,minimums,maximums,roles,right=(),width=None,tail=()):
+def table(headers,rows,palette,*,minimums,maximums,roles,right=(),width=None,tail=(),format_cell=None):
     width=terminal_width(width)
     cells=[[safe(value) for value in row] for row in rows]
     sizes=[max(len(h),min(maximums[i],max([len(h)]+[len(r[i]) for r in cells]))) for i,h in enumerate(headers)]
@@ -46,16 +46,20 @@ def table(headers,rows,palette,*,minimums,maximums,roles,right=(),width=None,tai
         i=max(candidates,key=lambda i:sizes[i]);sizes[i]-=1
     if sum(sizes)+2*(len(sizes)-1)>width:
         lines=[]
-        for row in cells:
+        for row_index,row in enumerate(cells):
             if lines:lines.append('')
             for i,value in enumerate(row):
-                lines.append(palette('key',headers[i]+': ')+palette(roles[i],(fit_path if i in tail else fit)(value,max(3,width-len(headers[i])-2))))
+                available=max(3,width-len(headers[i])-2)
+                shown=format_cell(row_index,i,value,available) if format_cell else None
+                if shown is None:shown=(fit_path if i in tail else fit)(value,available)
+                lines.append(palette('key',headers[i]+': ')+palette(roles[i],shown))
         return lines
-    def cell(value,i,header):
-        shown=fit_path(value,sizes[i]) if not header and i in tail else fit(value,sizes[i])
+    def cell(value,i,header,row_index):
+        shown=format_cell(row_index,i,value,sizes[i]) if format_cell and not header else None
+        if shown is None:shown=fit_path(value,sizes[i]) if not header and i in tail else fit(value,sizes[i])
         return shown.rjust(sizes[i]) if i in right else shown.ljust(sizes[i])
-    def rowline(row,header=False):
+    def rowline(row,header=False,row_index=0):
         return '  '.join(palette('key' if header else roles[i],
-                               cell(value,i,header))
+                               cell(value,i,header,row_index))
                          for i,value in enumerate(row))
-    return [rowline(headers,True),'  '.join('-'*n for n in sizes),*[rowline(r) for r in cells]]
+    return [rowline(headers,True),'  '.join('-'*n for n in sizes),*[rowline(r,row_index=n) for n,r in enumerate(cells)]]

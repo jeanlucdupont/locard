@@ -313,6 +313,29 @@ only the displayed rows, not observations outside the current result page.
 If several slots have the same anchor time, select `--timestamp-slot` to identify
 one anchor row; Locard does not arbitrarily mark all slots as the anchor.
 
+Sysmon Event 11 (qualified by its provider and Operational channel) is normalized
+as `file_create`: **file creation/overwrite**, not proof of a previously absent
+file, execution, download, or malicious activity. `Image` is the actor process;
+`TargetFilename` is a separate `file_create_target` object. Process search matches
+the actor; path search can match the target. `show` exposes the actor PID/GUID,
+target, and timestamp meanings without inferring a username from a path or SID.
+The primary EVTX time remains `SystemTime`. When present, `Sysmon.UtcTime` and
+`Sysmon.CreationUtcTime` preserve separate payload observations, original values,
+and source precision. Timeline retains both even when their values coincide.
+For temporal context, explicitly choose the intended slot, for example:
+
+```text
+around <event11-id> --timestamp-slot SystemTime --text
+investigate <event11-id> --timestamp-slot SystemTime
+```
+
+Distinct times require disambiguation; investigation without a selected slot
+leaves ambiguous temporal context unresolved. Automatic EVTX cross-artifact
+timing uses only `SystemTime`; the target object is excluded from automatic
+cross-artifact comparison. Event 11 adds no process-tree node or detection rule.
+These projections apply to newly ingested evidence. Existing stored records are
+not backfilled; re-ingesting an existing evidence ID does not rewrite it.
+
 Compact search/timeline output omits repeated generic forensic cautions. This is
 not a change in interpretation: temporal proximity does not establish causation,
 timestamp meanings differ by artifact, and retained timestamps/run counts do not

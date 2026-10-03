@@ -1,5 +1,12 @@
 """Compact display with escaped untrusted text; no interpretation of commands."""
 import json
+import ntpath
+
+
+def file_create_target(event):
+    from forensic_assistant.database.context import payload
+    from forensic_assistant.ingest.normalize import clean
+    return clean(payload(event).get('TargetFilename'))
 
 
 def safe(value):
@@ -8,6 +15,9 @@ def safe(value):
 
 def detail(event):
     kind = event.get("kind") or event.get("artifact_type")
+    if kind == "file_create":
+        actor = ntpath.basename(event.get('process_name') or '?')
+        return f"{actor} - file creation/overwrite: {file_create_target(event) or '?'}"
     if kind == "process":
         return f"{event.get('parent_process_name') or '?'} -> {event.get('process_name') or '?'}"
     if kind in ("logon", "failed_logon"):

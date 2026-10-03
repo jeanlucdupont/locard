@@ -1,5 +1,5 @@
 """Analyst summaries of existing evidence projections, never new conclusions."""
-from .presentation import safe, detail, PREFETCH_CAUTIONS
+from .presentation import safe, detail, file_create_target, PREFETCH_CAUTIONS
 from .layout import pagination
 from forensic_assistant.ingest.validation import is_identifier_note
 from .search_display import timestamp
@@ -45,6 +45,11 @@ def render(record,palette=None):
     else:
         for key in ('event_id','artifact_type','provider','channel','username','process_name','parent_process_name','command_line','source_ip','destination_ip','target_account','subject_account'):
             if record.get(key) is not None:field(key.replace('_',' ').capitalize(),record[key])
+        if record.get('artifact_type') == 'file_create':
+            field('PID',record.get('process_id'))
+            field('Process GUID',record.get('process_guid'))
+            field('System Security UserID',record.get('user_sid'))
+            field('Target',file_create_target(record))
         field('Observation',detail(record))
     times=record.get('timestamps',[]);populated=[t for t in times if t.get('timestamp_utc')]
     if times:

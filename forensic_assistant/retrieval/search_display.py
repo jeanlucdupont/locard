@@ -1,6 +1,7 @@
 """Compact search projections; selection and hydration remain unchanged."""
-from .presentation import safe, detail, PREFETCH_CAUTIONS
-from .layout import table, pagination
+from .presentation import safe, detail, file_create_target, PREFETCH_CAUTIONS
+from .layout import table, pagination, fit, fit_path
+import ntpath
 from forensic_assistant.ingest.validation import is_identifier_note
 from .around_display import display_time
 
@@ -46,7 +47,15 @@ def render(result, palette=None, *, ids=False, width=None):
         maximums=[23,20,32,24,65]
         if kind=='registry':maximums=[23,24,65,32,16]
         if ids:headers=['#']+headers;minimums=[1]+minimums;maximums=[5]+maximums;roles=['number_value']+roles
-        lines+=table(headers,rows,palette,minimums=minimums,maximums=maximums,roles=roles,width=width,tail=(len(headers)-1,) if kind in ('prefetch','mft') else ())
+        def format_cell(row_index,column,value,available):
+            record=group[row_index][1]
+            if kind!='evtx' or column!=len(headers)-1 or record.get('artifact_type')!='file_create':return None
+            actor=safe(ntpath.basename(record.get('process_name') or '?'))
+            prefix=actor+' - file creation/overwrite: '
+            target=safe(file_create_target(record) or '?')
+            if available<=len(prefix)+8:return fit(prefix+target,available)
+            return prefix+fit_path(target,available-len(prefix))
+        lines+=table(headers,rows,palette,minimums=minimums,maximums=maximums,roles=roles,width=width,tail=(len(headers)-1,) if kind in ('prefetch','mft') else (),format_cell=format_cell)
     if not records:lines.append('No matching evidence.')
     if ids:
         for index,r in enumerate(records,1):lines.append(f"{index}: "+palette('evidence_id',safe(r['id'])))

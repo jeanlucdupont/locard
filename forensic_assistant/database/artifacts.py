@@ -112,6 +112,16 @@ def project_events(db, rows,parser_name=None,parser_version=None):
                       normalization_status=e['timestamp_status']))
         for field,role in (('process_name','process_image'),('parent_process_name','parent_image')):
             if e[field]: add_object(db,e['id'],field,role,e[field])
+        from forensic_assistant.ingest.sysmon import is_file_create, file_create_timestamps
+        if is_file_create(e):
+            from forensic_assistant.database.context import payload
+            from forensic_assistant.ingest.normalize import clean
+            data = payload(e)
+            target = clean(data.get('TargetFilename'))
+            if target:
+                add_object(db,e['id'],'TargetFilename','file_create_target',target)
+            for stamp in file_create_timestamps(e, data):
+                add_timestamp(db,e['id'],stamp)
 
 
 def upgrade3(db):

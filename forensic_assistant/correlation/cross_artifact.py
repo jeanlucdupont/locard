@@ -24,6 +24,8 @@ def paths(record):
 
 def relevant_times(record):
     times=record['timestamps']
+    # Payload/file times are distinct observations, not automatic EVTX anchors.
+    if record['source_type']=='evtx':times=[t for t in times if t['slot']=='SystemTime']
     if record['source_type']=='mft':times=[t for t in times if t['source']=='MFT SI Created']
     return [t for t in times if t['timestamp_utc']]
 

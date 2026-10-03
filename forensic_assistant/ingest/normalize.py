@@ -120,5 +120,13 @@ def normalize(xml, sha, source_file, offset):
         for field, key in (("process_id", "ProcessId"), ("parent_process_id", "ParentProcessId"),
                            ("source_port", "SourcePort"), ("destination_port", "DestinationPort")):
             integer(field, data.get(key))
+    elif event.provider == SYSMON and event.channel == "Microsoft-Windows-Sysmon/Operational" and event.event_id == 11:
+        from forensic_assistant.ingest.sysmon import file_create_timestamps
+        event.artifact_type = "file_create"
+        assign({"process_name": "Image", "username": "User"})
+        integer("process_id", data.get("ProcessId"))
+        for stamp in file_create_timestamps(event.as_dict(), data):
+            if stamp['normalization_status'] != 'normalized':
+                warnings.append(f"{stamp['slot']} timestamp is {stamp['normalization_status']}")
     event.normalization_warnings_json = json.dumps(warnings)
     return event
