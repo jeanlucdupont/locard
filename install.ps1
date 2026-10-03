@@ -6,6 +6,7 @@ try {
     . (Join-Path $PSScriptRoot 'scripts\windows-process.ps1')
     . (Join-Path $PSScriptRoot 'scripts\install-support.ps1')
     Invoke-LocardInstall -Root $PSScriptRoot -Python $Python -ReplaceEditable:$ReplaceEditable
+    python -m pip install -e .
     exit 0
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
