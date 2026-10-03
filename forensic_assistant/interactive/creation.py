@@ -84,6 +84,11 @@ def summarize(target):
         print('Stored evidence records: '+safe(counts))
         print('File run outcomes: '+safe(runs))
         print(f'Inserted: {totals[0]}; duplicates: {totals[1]}; recorded errors: {totals[2]}')
+        import json
+        from forensic_assistant.ingest.validation import is_identifier_note,LABEL
+        notes=sum(any(is_identifier_note(note) for note in json.loads(row[0]))
+                  for row in db.execute('SELECT normalization_warnings_json FROM events'))
+        if notes:print('Validation notes:\n  '+LABEL+f': {notes} records')
         for row in db.execute('SELECT stage,message FROM ingestion_errors ORDER BY id'):
             print('Recorded limitation: '+safe(row['stage'])+': '+safe(row['message']))
     return sum(counts.values()), runs

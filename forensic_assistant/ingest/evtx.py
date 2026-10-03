@@ -3,6 +3,8 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 import hashlib
+import json
+from forensic_assistant.ingest.validation import identifier_note,LABEL
 import os
 import tempfile
 from forensic_assistant.database.db import connect, insert_events, register_source, now
@@ -66,6 +68,7 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
     parser_metadata={'parser_name':'python-evtx','parser_version':importlib.metadata.version('python-evtx')} if reader is records else {}
     run_id=None
     errors = 0
+    identifier_discrepancies = 0
 
     def report(stage, message, offset=None, record_id=None):
         nonlocal errors
@@ -98,7 +101,13 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
                         try:
                             event = normalize(record.xml, before, str(path), record.offset)
                             if record.record_id is not None and event.record_id != record.record_id:
-                                report("normalize", "XML EventRecordID differs from binary record number", record.offset, record.record_id)
+                                if event.record_id is not None and event.record_id >= 0:
+                                    notes=json.loads(event.normalization_warnings_json)
+                                    notes.append(identifier_note(record.record_id,event.record_id,record.offset))
+                                    event.normalization_warnings_json=json.dumps(notes)
+                                    identifier_discrepancies += 1
+                                else:
+                                    report("normalize", "XML EventRecordID missing or invalid; EVTX record-header identifier="+str(record.record_id), record.offset, record.record_id)
                             batch.append(event)
                             if len(batch) >= batch_size:
                                 with stage:
@@ -142,7 +151,8 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
             db.execute("UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?",
                        (now(), status, inserted, duplicates, errors, run_id))
     return {"run_id": run_id, "source_file": str(path), "status": status,
-            "inserted": inserted, "duplicates": duplicates, "errors": errors}
+            "inserted": inserted, "duplicates": duplicates, "errors": errors,
+            "validation_notes": {LABEL: identifier_discrepancies} if identifier_discrepancies else {}}
 
 
 def discover(path):

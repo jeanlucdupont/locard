@@ -1,6 +1,7 @@
 """Compact search projections; selection and hydration remain unchanged."""
 from .presentation import safe, detail, PREFETCH_CAUTIONS
 from .layout import table, pagination
+from forensic_assistant.ingest.validation import is_identifier_note
 from .around_display import display_time
 
 
@@ -52,6 +53,7 @@ def render(result, palette=None, *, ids=False, width=None):
     for index,r in enumerate(records,1):
         ctx=r.get('context',{})
         for warning in r.get('warnings',[]):
+            if is_identifier_note(warning):continue
             if r['source_type']!='prefetch' or warning not in PREFETCH_CAUTIONS:
                 lines.append(palette('warning',f'Row {index}: '+safe(warning)))
         if ctx.get('conflicts'):lines.append(palette('warning',f"Row {index}: conflicting context: "+safe(', '.join(ctx['conflicts']))))

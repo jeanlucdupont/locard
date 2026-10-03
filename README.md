@@ -565,3 +565,20 @@ multiple source memberships. Full source IDs remain in `--json`/`--raw`.
 A meaning shared by all displayed timestamp slots is printed once; differing
 meanings remain attached to their slots. Referenced files remain the first five
 in retrieval order, with a count when sampled, not a ranking of importance.
+
+
+EVTX ingestion preserves XML `System/EventRecordID` as `events.record_id`.
+The EVTX record-header identifier may differ. A valid numeric difference is
+retained as a non-fatal validation note, including the header identifier, XML
+identifier, and record offset, in the existing event normalization warnings and
+evidence warning projection. This difference alone establishes neither corruption
+nor failed ingestion. Ingestion results expose aggregate `validation_notes`, and
+interactive case creation summarizes the retained notes once. Search does not
+repeat them; evidence `show` and JSON/raw retain the detail.
+
+Missing or invalid XML identifiers with an available header identifier continue
+through the existing ingestion-error path; the header is never substituted for
+XML-derived metadata. Genuine parser, normalization, structural and integrity
+failures retain their existing handling. Historical runs and errors are not
+rewritten. Re-ingesting creates new run history and does not repair old partial
+runs or replace deduplicated evidence.

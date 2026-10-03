@@ -1,6 +1,7 @@
 """Analyst summaries of existing evidence projections, never new conclusions."""
 from .presentation import safe, detail, PREFETCH_CAUTIONS
 from .layout import pagination
+from forensic_assistant.ingest.validation import is_identifier_note
 from .search_display import timestamp
 
 
@@ -67,6 +68,9 @@ def render(record,palette=None):
         field('Volumes',len(d.get('volumes',[])))
     if ctx.get('conflicts'):lines.append(palette('warning','Conflicting context: '+safe(', '.join(ctx['conflicts']))))
     warnings=list(record.get('warnings',[]))
+    for note in warnings:
+        if is_identifier_note(note):field('Validation',note)
+    warnings=[note for note in warnings if not is_identifier_note(note)]
     if kind=='prefetch':
         # Only consolidate exact known interpretation cautions; unknown parser and
         # data-quality warnings must survive verbatim.
