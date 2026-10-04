@@ -1,4 +1,5 @@
 """Additive V2 CLI. Existing EVTX ingestion and process/session commands remain."""
+from forensic_assistant.command_catalog import COMMANDS
 from forensic_assistant.artifacts.ingest import ingest_artifact, discover
 from forensic_assistant.artifacts.context import bind_context
 from forensic_assistant.database.db import now
@@ -10,7 +11,7 @@ from forensic_assistant.retrieval.presentation import safe
 
 def configure(commands):
     for name in ('ingest-mft', 'ingest-prefetch', 'ingest-registry', 'ingest-all', 'ingest-evtx'):
-        p = commands.add_parser(name, help='Read-only artifact ingestion with source signature validation')
+        p = commands.add_parser(name, help=COMMANDS[name])
         p.add_argument('path')
         p.add_argument('--hostname')
         p.add_argument('--user')

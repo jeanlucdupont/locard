@@ -1,12 +1,13 @@
 """Shared CLI surface for analyst provenance actions."""
+from forensic_assistant.command_catalog import COMMANDS
 from forensic_assistant.database import sources
 
 
 def configure(commands):
-    upgrade = commands.add_parser('case-upgrade', help='Explicit transactional schema upgrade with a case backup')
+    upgrade = commands.add_parser('case-upgrade', help=COMMANDS['case-upgrade'])
     upgrade.add_argument('--yes', action='store_true', help='Confirm upgrading the selected case')
     upgrade.add_argument('--json', action='store_true')
-    parser = commands.add_parser('source', help='Analyst sources, metadata history and retrospective assignments')
+    parser = commands.add_parser('source', help=COMMANDS['source'])
     sub = parser.add_subparsers(dest='source_command', required=True)
     for name in ('list', 'show', 'create', 'update', 'assign'):
         p = sub.add_parser(name)

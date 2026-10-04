@@ -1,4 +1,5 @@
 """Optional V4 commands are routed before the legacy write-capable opener."""
+from forensic_assistant.command_catalog import COMMANDS
 import json
 from pathlib import Path
 import sys
@@ -9,7 +10,7 @@ from .state import Budget
 from .transcript import load, implementation
 
 def configure(commands):
-    p = commands.add_parser('investigate-ai', help='Bounded local model requests for read-only forensic operations')
+    p = commands.add_parser('investigate-ai', help=COMMANDS['investigate-ai'])
     p.add_argument('question')
     p.add_argument('--endpoint', default=Config.endpoint)
     p.add_argument('--date')
@@ -26,7 +27,7 @@ def configure(commands):
         action='store_true',
         help='Require interactive approval for each proposed operation'
     )
-    review = commands.add_parser('investigation', help='Inspect or replay derived investigation transcripts')
+    review = commands.add_parser('investigation', help=COMMANDS['investigation'])
     subs = review.add_subparsers(dest='investigation_command', required=True)
     show = subs.add_parser('show')
     show.add_argument('investigation_id')

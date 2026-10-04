@@ -88,7 +88,7 @@ def test_session_fallback_is_not_observed_end(db):
     result = session(db, '0x123')
     before = copy.deepcopy(result)
     text = render_session(result)
-    assert text.startswith('SESSION\n') and not text.startswith('{')
+    assert text.startswith('Status: CORRELATED\n') and not text.startswith('{')
     for item in ('LAB', 'analyst', 'pc.example', '0x123', '2026-09-15 14:30:00.000 UTC', 'login.exe', 'PID: 12'):
         assert item in text
     assert 'End: Not observed' in text
@@ -140,7 +140,7 @@ def test_investigation_relationships_and_neighbors_separate(db):
     result = investigate(db, child['id'], seconds=5)
     before = copy.deepcopy(result)
     text = render_investigation(result)
-    assert text.startswith('INVESTIGATION\n')
+    assert text.startswith('Anchor\n')
     assert 'downloader.exe [PID 20]' in text and 'downloader.exe /example' in text
     confirmed = text.split('Confirmed relationships\n')[1].split('Nearby evidence')[0]
     assert 'cmd.exe [PID 10] -> downloader.exe [PID 20]' in confirmed
@@ -221,7 +221,7 @@ def test_cli_json_raw_text_and_destinations(stored, db, command, tmp_path, capsy
     assert json.loads(capsys.readouterr().out) == raw
     assert main(args + ['--text']) == 0
     text = capsys.readouterr().out
-    assert text.startswith(command.upper() if command == 'session' else 'INVESTIGATION')
+    assert text.startswith('Status: CORRELATED\n' if command == 'session' else 'Anchor\n')
     captured = []
     monkeypatch.setattr(output, 'page', lambda stream, palette=None: captured.append(stream.read()))
     assert main(args + ['--text', '--page']) == 0 and captured == [text]

@@ -1,10 +1,11 @@
 """Reporting dispatch precedes all database creation/migration paths."""
+from forensic_assistant.command_catalog import COMMANDS
 from pathlib import Path
 from .bundle import generate, inspect, validate
 from .model import Limits
 
 def configure(commands):
-    report = commands.add_parser('report', help='Derived, bounded forensic reporting')
+    report = commands.add_parser('report', help=COMMANDS['report'])
     sub = report.add_subparsers(dest='report_command', required=True)
     create = sub.add_parser('generate')
     inputs = create.add_mutually_exclusive_group(required=True)

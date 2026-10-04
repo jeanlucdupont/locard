@@ -228,21 +228,13 @@ class Shell:
                             print('Color: ' + ('on' if enabled(self) else 'off'))
                         continue
                     if words[0] in ('help', '?'):
+                        from .help import catalog, command_help, SHELL_COMMANDS
                         if len(words) == 1:
-                            from .help import catalog
                             print(catalog(build_parser(interactive=True), Palette(enabled(self))))
                             self.last_status = 0
                             continue
-                        if len(words) == 2 and words[1] in ('color', 'case', 'exit', 'quit', 'help', 'version', '?'):
-                            print({
-                                'color': 'color [on|off]: Turn terminal colors on or off.',
-                                'case': 'case [path|new]: Open or create a case',
-                                'exit': 'exit: leave Locard. (alias for quit)',
-                                'quit': 'quit: leave Locard. (alias for exit)',
-                                'help': 'help [command]: show Locard command help.',
-                                'version': 'version: show Locard version.',
-                                '?': '? [command]: show Locard command help. (alias for help)'
-                            }[words[1]])
+                        if len(words) == 2 and words[1] in SHELL_COMMANDS:
+                            print(command_help(words[1]))
                             continue
                         words = words[1:] + ['--help']
                     parser = build_parser(interactive=True)

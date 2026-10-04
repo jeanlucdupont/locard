@@ -1,4 +1,5 @@
 """V1 command wiring, leaving V0 command behavior in cli.py."""
+from forensic_assistant.command_catalog import COMMANDS
 from forensic_assistant.correlation.models import get_event
 from forensic_assistant.correlation.processes import process_tree
 from forensic_assistant.correlation.sessions import session, logons
@@ -17,7 +18,7 @@ def output_options(parser):
 
 
 def configure(commands):
-    tree = commands.add_parser("process-tree", help="Reconstruct evidenced process relationships")
+    tree = commands.add_parser("process-tree", help=COMMANDS['process-tree'])
     selector = tree.add_mutually_exclusive_group(required=True)
     selector.add_argument("--evidence")
     selector.add_argument("--process")
@@ -27,12 +28,12 @@ def configure(commands):
     tree.add_argument("--pid-window", type=int, default=300)
     tree.add_argument("--max-nodes", type=int, default=100)
     tree.add_argument("--max-depth", type=int, default=8)
-    auth = commands.add_parser("logons", help="Authentication events with explicit subject/target roles")
+    auth = commands.add_parser("logons", help=COMMANDS['logons'])
     for name in ("user", "ip", "hostname", "start", "end"):
         auth.add_argument("--" + name)
     auth.add_argument("--limit", type=int, default=100)
     auth.add_argument("--offset", type=int, default=0)
-    sessions = commands.add_parser("session", help="Host-scoped Logon ID correlation")
+    sessions = commands.add_parser("session", help=COMMANDS['session'])
     sessions.add_argument(
         "--logon-id", required=True,
         help="Windows authentication Logon ID, decimal or hexadecimal (for example 0x1cd8f6); not a Locard evidence ID"
@@ -42,7 +43,7 @@ def configure(commands):
     sessions.add_argument("--evidence", help="Successful-logon evidence ID to disambiguate")
     sessions.add_argument("--max-hours", type=int, default=24)
     sessions.add_argument("--limit", type=int, default=500)
-    detect = commands.add_parser("detections", help="Dynamic deterministic observations requiring review")
+    detect = commands.add_parser("detections", help=COMMANDS['detections'])
     for name in ("start", "end", "user", "hostname", "rule"):
         detect.add_argument("--" + name)
     detect.add_argument("--severity", choices=["low", "medium", "high"])
@@ -50,11 +51,11 @@ def configure(commands):
     detect.add_argument("--candidate-limit", type=int, default=1000)
     detect.add_argument("--failure-threshold", type=int, default=5)
     detect.add_argument("--failure-window", type=int, default=300)
-    investigation = commands.add_parser("investigate", help="Assemble deterministic context without a model")
+    investigation = commands.add_parser("investigate", help=COMMANDS['investigate'])
     investigation.add_argument("evidence_id")
     investigation.add_argument("--seconds", type=int, default=120)
     investigation.add_argument("--candidate-limit", type=int, default=500)
-    analysis = commands.add_parser("analyze-timeline", help="Analyze timeline evidence with the local AI ")
+    analysis = commands.add_parser("analyze-timeline", help=COMMANDS['analyze-timeline'])
     analysis.add_argument("--start", required=True)
     analysis.add_argument("--end", required=True)
     analysis.add_argument("--hostname")

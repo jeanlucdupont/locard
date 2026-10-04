@@ -1,3 +1,4 @@
+from forensic_assistant.command_catalog import COMMANDS
 import argparse
 import json
 import sqlite3
@@ -49,9 +50,9 @@ def build_parser(*, interactive=False):
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling (also respects NO_COLOR)')
     commands = parser.add_subparsers(dest="command", required=True)
     v1_cli.configure(commands)
-    ingest = commands.add_parser("ingest", help="Recursively ingest EVTX files")
+    ingest = commands.add_parser("ingest", help=COMMANDS['ingest'])
     ingest.add_argument("path")
-    search = commands.add_parser("search", help="Deterministic evidence search")
+    search = commands.add_parser("search", help=COMMANDS['search'])
     for name in ("user", "ip", "hostname", "start", "end"):
         search.add_argument("--" + name)
     process = search.add_mutually_exclusive_group()
@@ -74,7 +75,7 @@ def build_parser(*, interactive=False):
         "--kind",
         choices=["logons", "failed-logons", "processes", "powershell", "scheduled-tasks", "services", "account-changes"]
     )
-    timeline = commands.add_parser("timeline")
+    timeline = commands.add_parser("timeline", help=COMMANDS['timeline'])
     timeline.add_argument("timestamp", nargs="?", help="V0-compatible anchor timestamp")
     timeline.add_argument("--around")
     timeline.add_argument("--start")
@@ -85,7 +86,7 @@ def build_parser(*, interactive=False):
     timeline.add_argument("--minutes", type=int, default=5)
     around = commands.add_parser(
         "around",
-        help="Show evidence around a specific point in time",
+        help=COMMANDS['around'],
         description='Compact text rounds timestamps and exact deltas to milliseconds (nearest, ties away from zero). JSON/raw and --ids retain full precision. Temporal proximity is not causation; timestamp meanings differ by artifact.'
     )
     around.add_argument("evidence_id")
@@ -113,13 +114,13 @@ def build_parser(*, interactive=False):
         display.add_argument("--text", action="store_true", help="Compact readable output")
     show = commands.add_parser(
         "show",
-        help="Human-readable evidence summary",
+        help=COMMANDS['show'],
         description="Human summary with populated timestamps and bounded references. --json preserves the structured projection; --raw includes available XML/artifact bytes. Both retain existing 100-object/reference/value-ID bounds and truncation flags."
     )
     show.add_argument("evidence_id")
     show.add_argument("--raw", action="store_true")
-    commands.add_parser("status", help="Show ingestion status and coverage limitations")
-    ask_parser = commands.add_parser("ask", help="Ask the local AI questions about case evidence")
+    commands.add_parser("status", help=COMMANDS['status'])
+    ask_parser = commands.add_parser("ask", help=COMMANDS['ask'])
     ask_parser.add_argument("question")
     ask_parser.add_argument("--endpoint", default=Config.endpoint)
     ask_parser.add_argument("--date", help="UTC date for time-only questions")

@@ -1,10 +1,11 @@
 """CLI registration uses only the standard library until a semantic operation."""
+from forensic_assistant.command_catalog import COMMANDS
 from pathlib import Path
 
 def configure(commands, ask):
     ask.add_argument('--semantic-index')
     ask.add_argument('--embedding-model')
-    semantic = commands.add_parser('semantic', help='Explicit local semantic retrieval (optional dependencies)')
+    semantic = commands.add_parser('semantic', help=COMMANDS['semantic'])
     sub = semantic.add_subparsers(dest='semantic_command', required=True)
     setup = sub.add_parser('setup', help='Explicitly download pinned model files; no evidence is read')
     setup.add_argument('destination')
