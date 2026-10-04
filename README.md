@@ -498,6 +498,11 @@ cd locard
 
 Locard can run with arguments or without arguments. Without argument, Locard switches to interactive (shell) mode.
 
+In the Windows interactive command editor, Tab completes commands, nested
+commands, and visible command options. Ambiguous prefixes extend to their common
+prefix; another Tab lists the matches. Tab on an empty line lists command names.
+Values, quoted arguments, evidence IDs, and filesystem paths are not completed.
+
 ```
 .\locard.ps1
 ```

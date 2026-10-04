@@ -95,7 +95,7 @@ def safe(value):
                    else ascii(c)[1:-1] for c in str(value))
 
 
-def edit(keys, *, history=(), output=None, prompt='', limit=65536):
+def edit(keys, *, history=(), output=None, prompt='', limit=65536, complete=None):
     """Small console editor; key source owns timeout and terminal restoration."""
     output = output or sys.stdout
     buffer = []
@@ -137,6 +137,16 @@ def edit(keys, *, history=(), output=None, prompt='', limit=65536):
             cursor = len(buffer)
         elif key == 'DELETE' and cursor < len(buffer):
             del buffer[cursor]
+        elif key == '\t' and complete is not None:
+            result = complete(''.join(buffer), cursor)
+            if len(result.text) <= limit:
+                buffer = list(result.text)
+                cursor = result.cursor
+            if result.candidates:
+                # Candidates are plain text; the existing redraw restores prompt
+                # styling and cursor position without changing history/draft state.
+                output.write('\n' + '\n'.join(safe(name) for name in result.candidates) + '\n')
+                previous = 0
         elif key == '\x0c':  # Ctrl-L
             output.write('\n')
             output.flush()
@@ -172,7 +182,7 @@ def edit(keys, *, history=(), output=None, prompt='', limit=65536):
     raise TimeoutError('Input timed out')
 
 
-def timed_line(prompt, seconds, *, history=()):
+def timed_line(prompt, seconds, *, history=(), complete=None):
     if not sys.stdin.isatty():
         raise ValueError('Interactive input requires a terminal')
     deadline = time.monotonic() + seconds if seconds is not None else float('inf')
@@ -196,7 +206,7 @@ def timed_line(prompt, seconds, *, history=()):
                 yield key
         with windows_input():
             try:
-                return edit(keys(), history=history, prompt=prompt)
+                return edit(keys(), history=history, prompt=prompt, complete=complete)
             except (TimeoutError, KeyboardInterrupt, EOFError):
                 source.flush()
                 print()
@@ -215,7 +225,7 @@ def timed_line(prompt, seconds, *, history=()):
                     if not key:
                         raise EOFError
                     yield key.decode('utf-8', errors='replace')
-        return edit(keys(), history=history, prompt=prompt)
+        return edit(keys(), history=history, prompt=prompt, complete=complete)
     finally:
         termios.tcsetattr(fd, termios.TCSAFLUSH, original)
 
@@ -227,7 +237,11 @@ class Reader:
         self.history.clear()
     def read(self, prompt, *, remember=False):
         if os.name == 'nt':
-            value = timed_line(prompt, None, history=self.history if remember else ())
+            completer = None
+            if remember:
+                from .completion import complete
+                completer = complete
+            value = timed_line(prompt, None, history=self.history if remember else (), complete=completer)
         else:
             # Native cooked Unicode input; no readline import or disk history.
             value = input(prompt)
