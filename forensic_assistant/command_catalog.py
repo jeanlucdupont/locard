@@ -11,7 +11,7 @@ COMMANDS = MappingProxyType({
     'case': 'Open or create a case',
     'case-upgrade': 'Upgrade an older case to the current database format',
     'color': 'Turn terminal colors on or off',
-    'detections': 'Find evidence matching Locard detection rules',
+    'detections': 'Show  evidence matching Locard detection rules',
     'exit': 'Exit Locard',
     'help': 'Show help for a command',
     'ingest': 'Import EVTX files from a directory',
