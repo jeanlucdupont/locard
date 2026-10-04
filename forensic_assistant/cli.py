@@ -85,7 +85,7 @@ def build_parser(*, interactive=False):
     timeline.add_argument("--minutes", type=int, default=5)
     around = commands.add_parser(
         "around",
-        help="Same-host temporal context around evidence",
+        help="Show evidence around a specific point in time",
         description='Compact text rounds timestamps and exact deltas to milliseconds (nearest, ties away from zero). JSON/raw and --ids retain full precision. Temporal proximity is not causation; timestamp meanings differ by artifact.'
     )
     around.add_argument("evidence_id")
@@ -119,7 +119,7 @@ def build_parser(*, interactive=False):
     show.add_argument("evidence_id")
     show.add_argument("--raw", action="store_true")
     commands.add_parser("status", help="Show ingestion status and coverage limitations")
-    ask_parser = commands.add_parser("ask", help="Retrieve evidence and ask local llama.cpp")
+    ask_parser = commands.add_parser("ask", help="Ask the local AI questions about case evidence")
     ask_parser.add_argument("question")
     ask_parser.add_argument("--endpoint", default=Config.endpoint)
     ask_parser.add_argument("--date", help="UTC date for time-only questions")

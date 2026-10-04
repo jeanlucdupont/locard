@@ -54,7 +54,7 @@ def configure(commands):
     investigation.add_argument("evidence_id")
     investigation.add_argument("--seconds", type=int, default=120)
     investigation.add_argument("--candidate-limit", type=int, default=500)
-    analysis = commands.add_parser("analyze-timeline", help="Local model summary of a deterministic timeline")
+    analysis = commands.add_parser("analyze-timeline", help="Analyze timeline evidence with the local AI ")
     analysis.add_argument("--start", required=True)
     analysis.add_argument("--end", required=True)
     analysis.add_argument("--hostname")

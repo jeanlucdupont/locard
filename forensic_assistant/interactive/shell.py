@@ -235,8 +235,8 @@ class Shell:
                             continue
                         if len(words) == 2 and words[1] in ('color', 'case', 'exit', 'quit', 'help', 'version', '?'):
                             print({
-                                'color': 'color [on|off]: text coloring for command output and prompts.',
-                                'case': 'case [path|new]: select or create a case.',
+                                'color': 'color [on|off]: Turn terminal colors on or off.',
+                                'case': 'case [path|new]: Open or create a case',
                                 'exit': 'exit: leave Locard. (alias for quit)',
                                 'quit': 'quit: leave Locard. (alias for exit)',
                                 'help': 'help [command]: show Locard command help.',

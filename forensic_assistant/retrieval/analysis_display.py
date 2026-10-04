@@ -91,7 +91,7 @@ def warnings(view, records):
 
 def render_session(result, palette=None):
     view = View(palette)
-    view.section('SESSION')
+    #view.section('SESSION')
     view.field('Status', result['status'])
     records = {r['id']: r for r in result.get('records', [])}
     anchor = records.get(result.get('anchor_id'))
@@ -138,7 +138,7 @@ def render_investigation(result, palette=None):
     from forensic_assistant.v2_cli import anchor_time
 
     view = View(palette)
-    view.section('INVESTIGATION')
+    #view.section('INVESTIGATION')
     records = {r['id']: r for r in result['evidence_records']}
     anchor = result['direct_evidence'][0]
     parameters = result['parameters']
