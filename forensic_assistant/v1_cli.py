@@ -33,7 +33,10 @@ def configure(commands):
     auth.add_argument("--limit", type=int, default=100)
     auth.add_argument("--offset", type=int, default=0)
     sessions = commands.add_parser("session", help="Host-scoped Logon ID correlation")
-    sessions.add_argument("--logon-id", required=True)
+    sessions.add_argument(
+        "--logon-id", required=True,
+        help="Windows authentication Logon ID, decimal or hexadecimal (for example 0x1cd8f6); not a Locard evidence ID"
+    )
     sessions.add_argument("--hostname")
     sessions.add_argument("--around")
     sessions.add_argument("--evidence", help="Successful-logon evidence ID to disambiguate")

@@ -605,3 +605,47 @@ XML-derived metadata. Genuine parser, normalization, structural and integrity
 failures retain their existing handling. Historical runs and errors are not
 rewritten. Re-ingesting creates new run history and does not repair old partial
 runs or replace deduplicated evidence.
+
+### Authentication and investigation text views
+
+`search --kind logons --ids` displays the normalized target Windows Logon ID
+for successful logons, in hexadecimal for reuse with `session --logon-id`.
+Subject and linked IDs are not substituted. Failed authentication does not
+establish a session; unavailable IDs display as `-`. Numbered search rows still
+map to full evidence IDs for that output only, not persistent shell identifiers.
+
+`session --logon-id 0x123 --text` distinguishes an observed, confirmed logoff
+from a correlation boundary. A fallback ceiling, restart or later logon is not
+shown as an observed session end. Missing or uncertain logoff evidence remains
+explicit, together with the maximum correlation window and result limits.
+
+`investigate <evidence-id> --text` shows the anchor, relationships with their
+existing statuses and reasons, temporal neighbors, unresolved relationships,
+deterministic detections and retrieval coverage. Nearby evidence is not causal
+evidence. Multiple in-window timestamps retain their slot labels; ambiguous
+anchor timestamps still require explicit selection for temporal analysis.
+Coverage and absent detections describe the bounded returned result, not a
+complete forensic examination.
+
+Both commands retain JSON as their default; `--json` preserves the structured
+contract and `--raw` retains detailed evidence. Human text uses existing color,
+`--page`, `--output` and `--append` behavior; output files are plain text.
+Process-tree and `around` semantics and presentation are unchanged.
+
+#### Linked logons: investigated, not correlated
+
+Microsoft's [Event 4624 documentation](https://learn.microsoft.com/windows/security/threat-protection/auditing/event-4624)
+defines Linked Logon ID (version 2) as a reference to a paired logon session,
+with `0x0` indicating no associated session. Locard retains `TargetLinkedLogonId`
+in original EventData but does not normalize it into a session lookup key.
+Current session correlation uses role-specific target, subject and process
+Logon IDs; reciprocal linked values do not change those associations.
+
+A future evidence-driven implementation could expose an explicit **paired-session
+reference** in session output and investigation context. It should not merge
+activity windows, replace ProcessGuid relationships or infer causation, token
+elevation or maliciousness. Before implementation, define and test host/boot
+scope and identifier reuse, duplicate-field rejection, unique target anchors,
+missing/nonreciprocal references, contradictory accounts, duplicate exports and
+source provenance. Documentation establishes the field's meaning, but these
+Locard identity and ambiguity rules need a separate design and validation task.

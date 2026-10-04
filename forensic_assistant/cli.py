@@ -256,7 +256,11 @@ def _dispatch(args, output, *, existing_only=False):
             if v1_result is not None:
                 if not args.raw:
                     v1_result = v1_cli.omit_raw(v1_result)
-                if args.text:
+                if args.text and not args.raw and args.command in ('session', 'investigate'):
+                    from forensic_assistant.retrieval.analysis_display import render_session, render_investigation
+                    render = render_session if args.command == 'session' else render_investigation
+                    output.write(render(v1_result, output.palette))
+                elif args.text:
                     output.write(v1_cli.render(v1_result, methodology=args.raw))
                 else:
                     emit(v1_result)

@@ -13,6 +13,15 @@ def safe(value):
     return json.dumps(str(value) if value is not None else "-", ensure_ascii=True)[1:-1]
 
 
+def logon_id(event):
+    """Display the established session's target ID, never a subject/linked ID."""
+    from forensic_assistant.database.context import canonical_id
+    if (event.get('kind') or event.get('artifact_type')) != 'logon':
+        return None
+    key = canonical_id(event.get('target_logon_key'))
+    return hex(int(key)) if key else None
+
+
 def detail(event):
     kind = event.get("kind") or event.get("artifact_type")
     if kind == "file_create":

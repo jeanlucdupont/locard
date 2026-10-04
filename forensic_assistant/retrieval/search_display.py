@@ -1,5 +1,5 @@
 """Compact search projections; selection and hydration remain unchanged."""
-from .presentation import safe, detail, file_create_target, PREFETCH_CAUTIONS
+from .presentation import safe, detail, file_create_target, logon_id, PREFETCH_CAUTIONS
 from .layout import table, pagination, fit, fit_path
 import ntpath
 from forensic_assistant.ingest.validation import is_identifier_note
@@ -19,10 +19,11 @@ def render(result, palette=None, *, ids=False, width=None):
     groups = []
     for index, r in enumerate(records, 1):
         kind = r['source_type']
-        if not groups or groups[-1][0] != kind:
-            groups.append((kind, []))
-        groups[-1][1].append((index, r))
-    for kind, group in groups:
+        auth = kind == 'evtx' and (r.get('kind') or r.get('artifact_type')) in ('logon', 'failed_logon')
+        if not groups or groups[-1][:2] != (kind, auth):
+            groups.append((kind, auth, []))
+        groups[-1][2].append((index, r))
+    for kind, auth, group in groups:
         if lines:
             lines.append('')
         if len({r['source_type'] for r in records}) > 1:
@@ -59,6 +60,9 @@ def render(result, palette=None, *, ids=False, width=None):
                     d.get('value_name', '(key)'),
                     d.get('value_type', '-')
                 ]
+            elif auth:
+                row = [timestamp(r.get('timestamp_utc')), r.get('event_id'), host,
+                       r.get('username'), r.get('logon_type'), logon_id(r)]
             else:
                 row = [timestamp(r.get('timestamp_utc')), r.get('event_id'), host, r.get('username'), detail(r)]
             rows.append(([index] if ids else []) + row)
@@ -78,6 +82,14 @@ def render(result, palette=None, *, ids=False, width=None):
         maximums = [23, 20, 32, 24, 65]
         if kind == 'registry':
             maximums = [23, 24, 65, 32, 16]
+        if auth:
+            headers = ['TIME (UTC)', 'EVENT', 'HOST', 'USER', 'TYPE', 'LOGON ID']
+            # Keep the copyable identifier intact, shrinking descriptive cells first.
+            id_width = max(8, *(len(row[-1] or '-') for row in rows))
+            minimums = [23, 5, 7, 7, 4, id_width]
+            maximums = [23, 5, 24, 32, 4, id_width]
+            roles = ['number_value', 'number_value', 'string_value', 'string_value',
+                     'number_value', 'number_value']
         if ids:
             headers = ['#'] + headers
             minimums = [1] + minimums
