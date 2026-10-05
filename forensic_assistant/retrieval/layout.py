@@ -1,7 +1,7 @@
 """Plain-cell layout before centralized styling; escaped values have stable widths."""
 import shutil
 import re
-from .presentation import safe
+from .presentation import safe, safe_path
 
 
 def terminal_width(width=None):
@@ -12,7 +12,7 @@ def fit(text, width):
     return text if len(text) <= width else text[:max(0, width - 3)] + '...'
 
 
-def fit_path(text, width):
+def fit_path(text, width, *, literal=False):
     """Shorten an already safe()-escaped path at separator boundaries.
 
     Preserve the literal suffix, including separator style. If even the final
@@ -20,7 +20,7 @@ def fit_path(text, width):
     """
     if len(text) <= width:
         return text
-    separators = list(re.finditer(r'\\\\|/', text))
+    separators = list(re.finditer(r'\\+|/' if literal else r'\\\\|/', text))
     for match in separators:
         suffix = '...' + text[match.start():]
         if len(suffix) <= width:
@@ -41,9 +41,9 @@ def pagination(count, total, offset=0):
     return f'Showing {offset+1}\u2013{offset+count} of {total}'
 
 
-def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=None, tail=(), format_cell=None):
+def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=None, tail=(), format_cell=None, paths=()):
     width = terminal_width(width)
-    cells = [[safe(value) for value in row] for row in rows]
+    cells = [[(safe_path if i in paths else safe)(value) for i, value in enumerate(row)] for row in rows]
     sizes = [max(len(h), min(maximums[i], max([len(h)] + [len(r[i]) for r in cells]))) for i, h in enumerate(headers)]
     while sum(sizes) + 2 * (len(sizes) - 1) > width:
         candidates = [i for i, n in enumerate(sizes) if n > max(minimums[i], len(headers[i]))]
@@ -60,13 +60,13 @@ def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=
                 available = max(3, width - len(headers[i]) - 2)
                 shown = format_cell(row_index, i, value, available) if format_cell else None
                 if shown is None:
-                    shown = (fit_path if i in tail else fit)(value, available)
+                    shown = fit_path(value, available, literal=i in paths) if i in tail else fit(value, available)
                 lines.append(palette('key', headers[i] + ': ') + palette(roles[i], shown))
         return lines
     def cell(value, i, header, row_index):
         shown = format_cell(row_index, i, value, sizes[i]) if format_cell and not header else None
         if shown is None:
-            shown = fit_path(value, sizes[i]) if not header and i in tail else fit(value, sizes[i])
+            shown = fit_path(value, sizes[i], literal=i in paths) if not header and i in tail else fit(value, sizes[i])
         return shown.rjust(sizes[i]) if i in right else shown.ljust(sizes[i])
     def rowline(row, header=False, row_index=0):
         return '  '.join(

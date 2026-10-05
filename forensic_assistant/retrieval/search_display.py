@@ -1,5 +1,5 @@
 """Compact search projections; selection and hydration remain unchanged."""
-from .presentation import safe, detail, file_create_target, logon_id, PREFETCH_CAUTIONS
+from .presentation import safe, safe_path, detail, file_create_target, logon_id, PREFETCH_CAUTIONS
 from .layout import table, pagination, fit, fit_path
 import ntpath
 from forensic_assistant.ingest.validation import is_identifier_note
@@ -44,10 +44,11 @@ def render(result, palette=None, *, ids=False, width=None):
                     paths[0] if paths else '-'
                 ]
             elif kind == 'mft':
+                from .mft_display import state
                 names = d.get('names', [])
                 row = [
                     f"{d.get('record_number')}/{d.get('sequence_number')}",
-                    d.get('allocated'),
+                    state(d.get('allocated')),
                     d.get('file_size'),
                     host,
                     (names[0].get('reconstructed_path') or names[0].get('filename')) if names else '-'
@@ -68,13 +69,13 @@ def render(result, palette=None, *, ids=False, width=None):
             rows.append(([index] if ids else []) + row)
         headers = {
             'prefetch': ['LAST RUN (UTC)', 'RUNS', 'EXECUTABLE', 'HOST', 'CANDIDATE PATH'],
-            'mft': ['RECORD/SEQ', 'ALLOCATED', 'SIZE', 'HOST', 'NAME/PATH'],
+            'mft': ['RECORD/SEQ', 'STATE', 'SIZE', 'HOST', 'NAME/PATH'],
             'registry': ['KEY TIME (UTC)', 'HOST', 'KEY', 'VALUE', 'TYPE'],
             'evtx': ['TIME (UTC)', 'EVENT', 'HOST', 'USER', 'OBSERVATION']
         }[kind]
         minimums = {
             'prefetch': [23, 4, 10, 7, 14],
-            'mft': [10, 9, 5, 7, 12],
+            'mft': [10, 11, 5, 7, 12],
             'registry': [23, 7, 8, 8, 5],
             'evtx': [23, 5, 7, 7, 12]
         }[kind]
@@ -101,10 +102,10 @@ def render(result, palette=None, *, ids=False, width=None):
                 return None
             actor = safe(ntpath.basename(record.get('process_name') or '?'))
             prefix = actor + ' - file creation/overwrite: '
-            target = safe(file_create_target(record) or '?')
+            target = safe_path(file_create_target(record) or '?')
             if available <= len(prefix) + 8:
                 return fit(prefix + target, available)
-            return prefix + fit_path(target, available - len(prefix))
+            return prefix + fit_path(target, available - len(prefix), literal=True)
         lines += table(
             headers,
             rows,
@@ -114,7 +115,9 @@ def render(result, palette=None, *, ids=False, width=None):
             roles=roles,
             width=width,
             tail=(len(headers) - 1,) if kind in ('prefetch', 'mft') else (),
-            format_cell=format_cell
+            format_cell=format_cell,
+            paths=(len(headers) - 1,) if kind in ('prefetch', 'mft') else
+                  (2 + int(ids),) if kind == 'registry' else ()
         )
     if not records:
         lines.append('No matching evidence.')

@@ -76,10 +76,10 @@ def build_parser(*, interactive=False):
         choices=["logons", "failed-logons", "processes", "powershell", "scheduled-tasks", "services", "account-changes"]
     )
     timeline = commands.add_parser("timeline", help=COMMANDS['timeline'])
-    timeline.add_argument("timestamp", nargs="?", help="V0-compatible anchor timestamp")
-    timeline.add_argument("--around")
-    timeline.add_argument("--start")
-    timeline.add_argument("--end")
+    timeline.add_argument("timestamp", nargs="?", help="Anchor time as ISO 8601 with Z or an explicit UTC offset, e.g. 2026-06-29T19:08:00Z")
+    timeline.add_argument("--around", help="Anchor time as ISO 8601 with Z or an explicit UTC offset, e.g. 2026-06-29T19:08:00Z")
+    timeline.add_argument("--start", help="Start time as ISO 8601 with Z or an explicit UTC offset, e.g. 2026-06-29T19:07:30Z")
+    timeline.add_argument("--end", help="End time as ISO 8601 with Z or an explicit UTC offset, e.g. 2026-06-29T19:08:30Z")
     for name in ("user", "process", "ip", "hostname", "artifact-type"):
         timeline.add_argument("--" + name)
     timeline.add_argument("--event-id", type=int)
@@ -93,7 +93,8 @@ def build_parser(*, interactive=False):
     around.add_argument("--seconds", type=int, default=120)
     around.add_argument("--direction", choices=["before", "after", "around"], default="around")
     for command in (search, timeline):
-        command.add_argument("--limit", type=int, default=100)
+        command.add_argument("--limit", type=int, default=20 if command is search else 100,
+                             help='Maximum results (default: %(default)s)')
         command.add_argument("--offset", type=int, default=0)
         command.add_argument(
             "--raw",

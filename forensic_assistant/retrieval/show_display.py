@@ -1,5 +1,5 @@
 """Analyst summaries of existing evidence projections, never new conclusions."""
-from .presentation import safe, detail, file_create_target, PREFETCH_CAUTIONS
+from .presentation import safe, safe_path, detail, file_create_target, PREFETCH_CAUTIONS
 from .layout import pagination
 from forensic_assistant.ingest.validation import is_identifier_note
 from .search_display import timestamp
@@ -9,8 +9,8 @@ def render(record, palette=None):
     from forensic_assistant.terminal import Palette, value_role
     palette = palette or Palette()
     lines = []
-    def field(name, value):
-        lines.append(palette('key', name + ': ') + palette(value_role(value), safe(value)))
+    def field(name, value, *, path=False):
+        lines.append(palette('key', name + ': ') + palette(value_role(value), (safe_path if path else safe)(value)))
     kind = record['source_type']
     d = record.get('detail') or {}
     ctx = record.get('context', {})
@@ -31,14 +31,14 @@ def render(record, palette=None):
     if ctx.get('username'):
         field('User', ctx['username'])
     if ctx.get('volume_root'):
-        field('Volume root', ctx['volume_root'])
-    field('File', src.get('source_file', record.get('source_file')))
+        field('Volume root', ctx['volume_root'], path=True)
+    field('File', src.get('source_file', record.get('source_file')), path=True)
     field('SHA-256', src.get('sha256', record.get('file_sha256')))
     locations = record.get('source_locations', [])
     if len(locations) > 1:
         field('Observed paths', len(locations))
         for path in locations[:5]:
-            field('Path', path)
+            field('Path', path, path=True)
         footer = pagination(min(5, len(locations)), len(locations))
         if footer:
             lines.append(footer)
@@ -50,17 +50,20 @@ def render(record, palette=None):
         for key in (
             'record_number',
             'sequence_number',
-            'allocated',
-            'directory',
             'file_size',
             'base_record',
             'base_sequence'
         ):
+            if key in ('base_record', 'base_sequence') and d.get('base_record') == 0 and d.get('base_sequence') == 0:
+                continue
             field(key.replace('_', ' ').capitalize(), d.get(key))
+        from .mft_display import state
+        field('State', state(d.get('allocated')))
+        field('Type', {0: 'File', 1: 'Directory'}.get(d.get('directory'), 'Unknown'))
         for name in d.get('names', []):
-            field('Name/path', name.get('reconstructed_path') or name.get('filename'))
+            field('Name/path', name.get('reconstructed_path') or name.get('filename'), path=True)
     elif kind == 'registry':
-        field('Key', d.get('key_path'))
+        field('Key', d.get('key_path'), path=True)
         for key in ('value_name', 'value_type', 'value_data'):
             if key in d:
                 field(key.replace('_', ' ').capitalize(), d[key])
@@ -84,16 +87,32 @@ def render(record, palette=None):
             'subject_account'
         ):
             if record.get(key) is not None:
-                field(key.replace('_', ' ').capitalize(), record[key])
+                field(key.replace('_', ' ').capitalize(), record[key], path=key in ('process_name', 'parent_process_name'))
         if record.get('artifact_type') == 'file_create':
             field('PID', record.get('process_id'))
             field('Process GUID', record.get('process_guid'))
             field('System Security UserID', record.get('user_sid'))
-            field('Target', file_create_target(record))
+            field('Target', file_create_target(record), path=True)
         field('Observation', detail(record))
     times = record.get('timestamps', [])
     populated = [t for t in times if t.get('timestamp_utc')]
-    if times:
+    if times and kind == 'mft':
+        from .mft_display import timestamp_label, ATTRIBUTES, LABELS
+        grouped = {}
+        for t in populated:
+            attribute, label = timestamp_label(t)
+            # Keep separate attribute instances (e.g. multiple FILE_NAME entries).
+            instance = t['slot'].rsplit(':', 1)[0]
+            grouped.setdefault((attribute, instance), []).append((label, t))
+        for (attribute, instance), items in sorted(grouped.items(), key=lambda item: (
+                {'SI': 0, 'FN': 1}.get(item[0][0], 2), item[0][1])):
+            lines += ['', palette('heading', ATTRIBUTES.get(attribute, attribute) + ' [' + safe(instance) + ']')]
+            for label, t in sorted(items, key=lambda item: list(LABELS.values()).index(item[0])
+                                   if item[0] in LABELS.values() else 4):
+                field(label, timestamp(t['timestamp_utc']) + ' UTC  [' + t['slot'] + ']')
+        if len(populated) != len(times):
+            field('Timestamps', f'{len(populated)} of {len(times)} slots populated')
+    elif times:
         lines += ['', palette('heading', f'Timestamps: {len(populated)} of {len(times)} slots populated')]
         meanings = {t.get('meaning') for t in populated}
         common_meaning = next(iter(meanings)) if len(meanings) == 1 else None
@@ -108,14 +127,14 @@ def render(record, palette=None):
     if kind == 'prefetch':
         candidates = sorted({o['original'] for o in record.get('objects', []) if o['role'] == 'executable_path_candidate'})
         for path in candidates:
-            field('Executable path candidate', path)
+            field('Executable path candidate', path, path=True)
         if record.get('objects_truncated') and not candidates:
             lines.append(palette('warning', 'Executable path candidate unavailable in the bounded projection.'))
         refs = d.get('references', [])
         total = d.get('reference_count', len(refs))
         field('Referenced files', total)
         for path in refs[:5]:
-            lines.append('  ' + palette('string_value', safe(path)))
+            lines.append('  ' + palette('string_value', safe_path(path)))
         footer = pagination(min(5, len(refs)), total)
         if footer:
             lines.append(footer)

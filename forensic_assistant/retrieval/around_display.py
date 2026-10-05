@@ -59,6 +59,10 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
     palette = palette or Palette()
     width = terminal_width(width)
     rows = result['records']
+    from . import mft_display
+    grouped = mft_display.groups(rows)
+    collisions = mft_display.precision_collisions(grouped)
+    has_mft = any(r['source_type'] == 'mft' for r in rows)
     slots = [t['slot'] for t in anchor['timestamps'] if t['timestamp_utc'] == stamp
              and (args.timestamp_slot is None or t['slot'] == args.timestamp_slot)]
     selected = slots[0] if len(slots) == 1 else None
@@ -88,6 +92,11 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
         line('Rows source: ' + safe(source_label(rows[0])))
     if selected is None:
         line('Anchor slot ambiguous; select --timestamp-slot to identify one observation.', 'warning')
+    elif anchor['source_type'] == 'mft':
+        selected_stamp = next(t for t in anchor['timestamps'] if t['slot'] == selected)
+        attribute, label = mft_display.timestamp_label(selected_stamp)
+        # Never hide the exact anchor slot, even when outside the retrieved page.
+        lines.append('Anchor: ' + safe(attribute + ' ' + label + ' [' + selected + ']'))
     if args.ids:
         line(f'Anchor: {stamp}; slot: {safe(selected)}')
         if 'Timestamp meaning' in shared:
@@ -107,11 +116,12 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
          if table else 'TIME (UTC) | DELTA; object below'),
         'heading'
     )
-    for r in rows:
-        marker = r['id'] == anchor['id'] and r['timestamp']['slot'] == selected
+    for group in grouped:
+        r = group[0]
+        marker = r['id'] == anchor['id'] and any(item['timestamp']['slot'] == selected for item in group)
         time = display_time(r['timestamp_utc'])
         relative = delta(r['timestamp_utc'], stamp)
-        obj = safe(observation(r))
+        obj = mft_display.object_text(r) if r['source_type'] == 'mft' else safe(observation(r))
         suffix = ' <- anchor' if marker else ''
         obj_room = (room if table else width - 2) - len(suffix)
         shortened = shortened or len(obj) > obj_room
@@ -126,14 +136,24 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
             line(f"{time} | {relative}", 'number_value')
             line('  ' + obj + suffix, 'heading' if marker else 'string_value')
         for name, getter in getters:
+            if r['source_type'] == 'mft' and name == 'Timestamp meaning':
+                continue
             if name not in shared:
                 line(f'  {name}: {safe(source_label(r) if name=="Source" else getter(r))}', 'key')
+        if r['source_type'] == 'mft':
+            line('  State: ' + mft_display.state(r.get('detail', {}).get('allocated')))
+            for label in mft_display.semantics(group, selected if marker else None):
+                # Exact anchor is above; avoid a second anchor marker in the group.
+                line('  ' + label.replace(' <- anchor ', ' [selected] '))
+            if (r['id'], time) in collisions:
+                line('  Exact UTC: ' + safe(r['timestamp_utc']))
         if args.ids:
             # IDs are deliberately never shortened; the shared pager can wrap them.
             lines.append(palette('evidence_id', '  ID: ' + safe(r['id'])))
-            line('  Timestamp: ' + r['timestamp_utc'] + '; slot: ' + safe(r['timestamp']['slot']))
+            for item in group:
+                line('  Timestamp: ' + item['timestamp_utc'] + '; slot: ' + safe(item['timestamp']['slot']))
     from .layout import pagination
-    footer = pagination(len(rows), result['total'], result['offset'])
+    footer = mft_display.footer(result, len(grouped)) if has_mft else pagination(len(rows), result['total'], result['offset'])
     if footer:
         line(footer)
     return '\n'.join(lines)

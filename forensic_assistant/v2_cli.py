@@ -165,7 +165,7 @@ def dispatch(db, args, *, presentation=None):
     if command == 'around':
         from forensic_assistant.correlation.temporal import shift
         anchor = get_evidence(db, args.evidence_id)
-        stamp = anchor_time(anchor, args.timestamp_slot)
+        stamp = anchor_time(anchor, args.timestamp_slot, require_slot=anchor['source_type'] == 'mft')
         if presentation is not None:
             presentation.update(anchor=anchor, stamp=stamp)
         source_ids = anchor['context'].get('source_ids', [])
@@ -191,10 +191,10 @@ def dispatch(db, args, *, presentation=None):
     return None
 
 
-def anchor_time(anchor, slot=None):
+def anchor_time(anchor, slot=None, *, require_slot=False):
     candidates = [t for t in anchor['timestamps'] if t['timestamp_utc'] and (slot is None or t['slot'] == slot)]
     times = {t['timestamp_utc'] for t in candidates}
-    if len(times) != 1:
+    if len(times) != 1 or (require_slot and len(candidates) != 1):
         raise ValueError('Anchor has missing or multiple timestamps; select --timestamp-slot from show output')
     return next(iter(times))
 
@@ -202,6 +202,9 @@ def anchor_time(anchor, slot=None):
 def render(result, *, methodology=True):
     if 'records' not in result:
         return safe(result)
+    if not methodology and any(r['source_type'] == 'mft' for r in result['records']):
+        from forensic_assistant.retrieval.mft_display import render_timeline
+        return render_timeline(result)
     lines = ['UTC | EVIDENCE ID | SOURCE | ARTIFACT TYPE | TIMESTAMP MEANING | OBJECT / OBSERVATION']
     for r in result['records']:
         obj = next((o['original'] for o in r.get('objects', []) if o['role'] not in ('parent_image',)), None)

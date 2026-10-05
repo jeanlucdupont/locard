@@ -381,6 +381,9 @@ detections --append investigation.txt
 timeline --start 2020-01-01T00:00:00Z --end 2020-01-02T00:00:00Z --page
 ```
 
+`search` defaults to 20 evidence records across all artifacts, including JSON.
+Use `--limit` and `--offset` to select another page; `--ids` retains copyable IDs.
+
 `search --process` performs convenient exact matching. These are equivalent
 case-insensitive searches for the Prefetch executable `POWERSHELL.EXE`:
 
@@ -415,6 +418,15 @@ retain their existing matching behavior.
 verbose/raw representation, including its established retrieval bounds.
 Explicit `--json` preserves the structured interface; scripts consuming search
 results should request it. Plain `source show` also uses a human summary; `--details` or `--json` preserves its existing structured view.
+
+MFT text uses Allocated/Unallocated state and SI/FN timestamp labels; `show`
+retains exact copyable timestamp slots. `timeline --text` and `around --text`
+group only observations with the same evidence ID and exact timestamp value.
+Limits and offsets still count timestamp observations, so a page can split a
+display group. JSON/raw retain the individual observations and full precision.
+Multiple MFT timestamp slots require an explicit `--timestamp-slot` for `around`,
+even when their values coincide. Timeline arguments require ISO 8601 with `Z`
+or an explicit UTC offset; timezone-less input is rejected.
 
 | Destination | Behavior |
 |---|---|

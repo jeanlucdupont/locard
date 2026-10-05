@@ -13,6 +13,16 @@ def safe(value):
     return json.dumps(str(value) if value is not None else "-", ensure_ascii=True)[1:-1]
 
 
+def safe_path(value):
+    """Render an actual path, retaining literal separators and escaping controls.
+
+    Do not decode escapes or normalize the evidence value (including UNC paths).
+    Other untrusted strings continue to use safe().
+    """
+    return ''.join(c if c in ('\\', '"') else safe(c)
+                   for c in str(value)) if value is not None else '-'
+
+
 def logon_id(event):
     """Display the established session's target ID, never a subject/linked ID."""
     from forensic_assistant.database.context import canonical_id
