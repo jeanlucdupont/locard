@@ -37,7 +37,7 @@ def groups(records):
     """Group only MFT observations, by evidence ID and full unrounded timestamp.
 
     Retain first-occurrence order and every observation, including duplicate labels
-    from distinct FILE_NAME attributes. Work only with the retrieved page.
+    from distinct FILE_NAME attributes. Pagination is applied after grouping.
     """
     result, positions = [], {}
     for record in records:
@@ -63,17 +63,58 @@ def semantics(group, selected=None):
                        if item[0] in LABELS.values() else 4, item[1]))
         repeated = {label for label, count in Counter(label for label, _ in items).items() if count > 1}
         labels = [label + (f' [{slot}]' if label in repeated else '') +
-                  (f' <- anchor [{slot}]' if slot == selected else '') for label, slot in items]
-        lines.append(safe(kind + ': ' + ', '.join(labels)))
+                  (f' [selected: {slot}]' if slot == selected else '') for label, slot in items]
+        lines.append(safe(kind + '  ' + ', '.join(labels)))
     return lines
 
 
 def footer(result, count):
-    shown, total, offset = len(result['records']), result['total'], result.get('offset', 0)
-    if shown == total and not offset:
+    from .layout import pagination
+    info = result.get('_mft_page')
+    if info is None:
+        if result.get('truncated') or result.get('offset', 0) or len(result['records']) != result['total']:
+            return 'Observation page only; complete-group pagination requires MFT text retrieval.'
         return ''
-    span = f'{offset + 1}-{offset + shown}' if shown else '0'
-    return f'Displayed {count} groups from timestamp observations {span} of {total}; page may split groups.'
+    if info['around']:
+        if count == info['total']:
+            return ''
+        return f"Showing {count} of {info['total']} groups (anchor included" + (
+            f"; neighbor offset {info['offset']}" if info['offset'] else '') + ')'
+    note = pagination(count, info['total'], info['offset'])
+    return note + ' groups' if note else ''
+
+
+def page(result, limit, offset, *, anchor=None, stamp=None):
+    """Pure display projection. Never page incomplete observation windows."""
+    from forensic_assistant.correlation.models import time_ns
+    if not 1 <= limit <= 10000 or offset < 0:
+        raise ValueError('Invalid pagination bounds')
+    if result.get('truncated') or result.get('offset', 0) or len(result['records']) != result['total']:
+        raise ValueError('Complete timestamp window required for grouped MFT text')
+    records = list(result['records'])
+    if anchor is not None:
+        # before/after excludes the anchor time from neighbors. Add only the
+        # known anchor's co-valued observations, never other same-time records.
+        records = [r for r in records if (r['id'], r['timestamp_utc']) != (anchor['id'], stamp)]
+        records += [dict(anchor, timestamp=t, timestamp_utc=stamp,
+                         timeline_id=anchor['id'] + ':Timestamp:' + t['slot'])
+                    for t in anchor['timestamps'] if t['timestamp_utc'] == stamp]
+    if len(records) > 10000:
+        raise ValueError('Grouped MFT text exceeds the 10,000 timestamp-observation safety bound; narrow the window')
+    order = lambda g: (g[0]['timestamp_utc'], g[0]['id'], g[0]['timestamp']['slot'])
+    grouped = sorted(groups(sorted(records, key=lambda r: (r['timestamp_utc'], r['id'], r['timestamp']['slot']))), key=order)
+    if anchor is None:
+        chosen = grouped[offset:offset + limit]
+    else:
+        selected = next((g for g in grouped if (g[0]['id'], g[0]['timestamp_utc']) == (anchor['id'], stamp)), None)
+        if selected is None:
+            raise ValueError('Selected anchor timestamp is unavailable')
+        neighbors = sorted((g for g in grouped if g is not selected), key=lambda g: (
+            abs(time_ns(g[0]['timestamp_utc']) - time_ns(stamp)), *order(g)))
+        chosen = sorted([selected, *neighbors[offset:offset + limit - 1]], key=order)
+    return {**result, 'records': [r for g in chosen for r in g],
+            '_mft_page': dict(total=len(grouped), offset=offset, around=anchor is not None,
+                              precision_collisions=sorted(precision_collisions(grouped)))}
 
 
 def precision_collisions(grouped):
@@ -88,46 +129,95 @@ def precision_collisions(grouped):
     return {key for key, times in values.items() if len(times) > 1}
 
 
-def render_timeline(result, *, width=None):
+def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None, selected=None,
+                  ids=False, collisions=()):
+    """Small width-aware MFT layout, using existing time, delta and palette rules."""
     import textwrap
-    from .around_display import display_time
-    from .layout import terminal_width, fit_path
-    from .presentation import detail
+    from forensic_assistant.terminal import Palette
+    from .around_display import display_time, delta, observation, semantics as other_semantics, source
+    from .layout import terminal_width
+    palette = palette or Palette()
     width = terminal_width(width)
-    grouped = groups(result['records'])
-    collisions = precision_collisions(grouped)
+    around = anchor is not None
+    one_date = around and all(display_time(g[0]['timestamp_utc'])[:10] == display_time(stamp)[:10] for g in grouped)
+    time_width = 12 if one_date else 23
+    delta_width = max([5] + [len(delta(g[0]['timestamp_utc'], stamp)) for g in grouped]) if around else 0
+    headings = ['TIME (UTC)'] + (['DELTA'] if around else []) + ['STATE']
+    sizes = [time_width] + ([delta_width] if around else []) + [11]
+    object_start = sum(sizes) + 2 * len(sizes)
+    aligned = width - object_start >= 16
     lines = []
-    previous_kind = None
-    for group in grouped:
+    def wrapped(value, *, indent='', role='secondary_text'):
+        for part in textwrap.wrap(value, max(1, width - len(indent)), break_on_hyphens=False,
+                                  replace_whitespace=False, expand_tabs=False) or ['']:
+            lines.append(palette(role, indent + part))
+    def columns(values):
+        return '  '.join(value.rjust(n) if around and i == 1 else value.ljust(n)
+                         for i, (value, n) in enumerate(zip(values, sizes)))
+    if aligned:
+        lines += [palette('heading', columns(headings) + '  OBJECT'),
+                  columns(['-' * n for n in sizes]) + '  ' + '-' * (width - object_start)]
+    else:
+        wrapped('  '.join(headings + ['OBJECT']), role='heading')
+    for index, group in enumerate(grouped):
+        if index:
+            lines.append('')
         r = group[0]
-        kind = 'mft' if r['source_type'] == 'mft' else 'other'
-        if kind != previous_kind:
-            if lines:
-                lines.append('')
-            lines.append('TIME (UTC) | STATE | OBJECT / OBSERVATION' if kind == 'mft' else
-                         'UTC | EVIDENCE ID | SOURCE | ARTIFACT TYPE | TIMESTAMP MEANING | OBJECT / OBSERVATION')
-            previous_kind = kind
-        if r['source_type'] != 'mft':
-            # Non-MFT rows keep their existing exact timestamp, ID and semantics.
+        mft = r['source_type'] == 'mft'
+        marker = around and r['id'] == anchor['id'] and any(t['timestamp']['slot'] == selected for t in group)
+        time = display_time(r['timestamp_utc']).replace('T', ' ').removesuffix('Z')
+        if one_date:
+            time = time[11:]
+        values = [time] + ([delta(r['timestamp_utc'], stamp)] if around else []) + [
+            state(r.get('detail', {}).get('allocated')) if mft else '-']
+        obj = (object_text(r) if mft else safe(observation(r))) + (' <- anchor' if marker else '')
+        role = 'heading' if marker else 'secondary_text'
+        if aligned:
+            pieces = textwrap.wrap(obj, width - object_start, break_on_hyphens=False,
+                                   replace_whitespace=False, expand_tabs=False) or ['']
+            lines.append(palette(role, columns(values) + '  ' + pieces[0]))
+            lines.extend(palette(role, ' ' * object_start + part) for part in pieces[1:])
+        else:
+            wrapped('  '.join(values), role=role)
+            wrapped(obj, indent='    ', role=role)
+        labels = semantics(group, selected if marker else None) if mft else [safe(other_semantics(r))]
+        for label in labels:
+            wrapped(label, indent='    ')
+        if around and (not mft or source(r) != source(anchor)):
+            wrapped('Source: ' + safe(source(r)), indent='    ', role='key')
+        if (r['id'], display_time(r['timestamp_utc'])) in collisions:
+            wrapped('Exact UTC: ' + safe(r['timestamp_utc']), indent='    ')
+        if ids:
+            lines.append(palette('evidence_id', '    ID: ' + safe(r['id'])))
+            for item in group:
+                wrapped('Timestamp: ' + item['timestamp_utc'] + '; slot: ' + safe(item['timestamp']['slot']), indent='    ')
+    return lines
+
+
+def render_timeline(result, *, width=None):
+    from itertools import groupby
+    from .presentation import detail
+    grouped = groups(result['records'])
+    collisions = precision_collisions(grouped) | {tuple(k) for k in result.get('_mft_page', {}).get('precision_collisions', [])}
+    lines = []
+    for mft, segment in groupby(grouped, key=lambda g: g[0]['source_type'] == 'mft'):
+        if lines:
+            lines.append('')
+        if mft:
+            lines += render_blocks(list(segment), width=width, collisions=collisions)
+            continue
+        # Non-MFT rows retain their existing exact timestamp, ID and semantics.
+        lines.append('UTC | EVIDENCE ID | SOURCE | ARTIFACT TYPE | TIMESTAMP MEANING | OBJECT / OBSERVATION')
+        for group in segment:
+            r = group[0]
             lines.append(' | '.join(safe(v) for v in (
                 r.get('timestamp_utc'), r['id'], r['source_type'], r.get('artifact_type'),
                 r.get('timestamp', {}).get('source'),
                 detail(r) if r['source_type'] == 'evtx' else next(
                     (o['original'] for o in r.get('objects', []) if o['role'] != 'parent_image'),
                     None) or r.get('observation'))))
-            continue
-        time = display_time(r['timestamp_utc']).replace('T', ' ').removesuffix('Z')
-        prefix = time + ' | ' + state(r.get('detail', {}).get('allocated')) + ' | '
-        if width - len(prefix) >= 20:
-            lines.append(prefix + fit_path(object_text(r), width - len(prefix), literal=True))
-        else:
-            lines.append(time + ' UTC | ' + state(r.get('detail', {}).get('allocated')))
-            lines.append('  ' + fit_path(object_text(r), width - 2, literal=True))
-        for label in semantics(group):
-            lines.extend(textwrap.wrap('  ' + label, width, subsequent_indent='    ', break_on_hyphens=False))
-        # Rounded display must not conceal distinct submillisecond values.
-        if (r['id'], display_time(r['timestamp_utc'])) in collisions:
-            lines.append('  Exact UTC: ' + safe(r['timestamp_utc']))
+    if not grouped:
+        lines.append('No matching evidence.')
     if note := footer(result, len(grouped)):
         lines.append(note)
     return '\n'.join(lines)

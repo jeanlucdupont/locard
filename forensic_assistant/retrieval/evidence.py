@@ -266,6 +266,7 @@ class EvidenceQueries:
         offset=0,
         timeline=False,
         raw=False,
+        require_complete=False,
         **filters
     ):
         if not 1 <= limit <= 10000 or offset < 0:
@@ -302,6 +303,9 @@ class EvidenceQueries:
             order = "(SELECT min(timestamp_utc) FROM evidence_timestamps WHERE evidence_id=e.evidence_id) IS NULL,(SELECT min(timestamp_utc) FROM evidence_timestamps WHERE evidence_id=e.evidence_id),e.evidence_id"
         where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
         total = self.db.execute('SELECT count(*) FROM ' + source + where, params).fetchone()[0]
+        if require_complete and (offset or total > limit):
+            raise ValueError('Grouped MFT text exceeds the 10,000 timestamp-observation safety bound; '
+                             'narrow the time window/filters or use JSON/raw observation pagination')
         order_params = []
         if nearest_to and timeline:
             from forensic_assistant.correlation.models import time_ns
@@ -319,8 +323,17 @@ class EvidenceQueries:
             [*params, *order_params, limit, offset]
         ).fetchall()
         records = []
+        text_evidence = {}
         for row in rows:
-            e = get_evidence(self.db, row['evidence_id'], raw)
+            if require_complete:
+                # Text windows may include many slots from one MFT record.
+                # Hydrate once and share unchanged detail/timestamp structures.
+                eid = row['evidence_id']
+                if eid not in text_evidence:
+                    text_evidence[eid] = get_evidence(self.db, eid, raw)
+                e = dict(text_evidence[eid])
+            else:
+                e = get_evidence(self.db, row['evidence_id'], raw)
             if timeline:
                 stamp = next(t for t in e['timestamps'] if t['slot'] == row['slot'])
                 e.update(
@@ -330,6 +343,21 @@ class EvidenceQueries:
                 )
             records.append(e)
         return QueryResult(records, total, limit, offset)
+
+    def complete_timeline(self, *, around=None, minutes=5, **filters):
+        """Bounded complete text window; count and hydration share a read snapshot.
+
+        No per-group queries or changes to ordinary observation pagination.
+        A savepoint also preserves an existing caller-owned transaction.
+        """
+        self.db.execute('SAVEPOINT locard_mft_text_window')
+        try:
+            options = dict(filters, limit=10000, offset=0, require_complete=True)
+            if around:
+                return self.timeline_around(around, minutes, **options)
+            return self.search(timeline=True, **options)
+        finally:
+            self.db.execute('RELEASE locard_mft_text_window')
 
     def timeline_around(self, stamp, minutes=5, **kwargs):
         from forensic_assistant.correlation.temporal import shift

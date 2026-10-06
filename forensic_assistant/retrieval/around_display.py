@@ -102,6 +102,13 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
         if 'Timestamp meaning' in shared:
             line('Timestamp meaning: ' + safe(shared['Timestamp meaning']))
     line('')
+    if anchor['source_type'] == 'mft':
+        collisions |= {tuple(k) for k in result.get('_mft_page', {}).get('precision_collisions', [])}
+        lines += mft_display.render_blocks(grouped, width=width, palette=palette, anchor=anchor,
+                                           stamp=stamp, selected=selected, ids=args.ids, collisions=collisions)
+        if note := mft_display.footer(result, len(grouped)):
+            line(note)
+        return '\n'.join(lines)
     dates = {display_time(r['timestamp_utc']).split('T')[0] for r in rows}
     one_date = len(dates) == 1
     if one_date and next(iter(dates)) != display_time(stamp).split('T')[0]:

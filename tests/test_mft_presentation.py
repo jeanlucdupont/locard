@@ -97,8 +97,8 @@ def test_around_equal_values_preserves_anchor_and_all_semantics(color):
         plain = SGR.sub('', shown)
         assert plain.count('<- anchor') == 1 and slot in plain
         assert plain.count(r['detail']['names'][0]['reconstructed_path']) == 1
-        assert 'SI: Created, Modified, MFT changed' in plain
-        assert 'FN: Created, Modified, MFT changed' in plain
+        assert 'SI  Created, Modified, MFT changed' in plain
+        assert 'FN  Created, Modified, MFT changed' in plain
         assert 'Accessed' in plain and LIMITATION not in plain
         args.ids = True
         detailed = around_display.render(result, r, TIME, args, width=160)
@@ -112,8 +112,8 @@ def test_same_values_one_group_different_values_and_records_separate():
     shown = v2_cli.render(result, methodology=False)
     assert len(mft_display.groups(result['records'])) == 1
     assert shown.count('sample.zip') == 1 and r['id'] not in shown
-    assert 'SI: Created, Modified, MFT changed, Accessed' in shown
-    assert 'FN: Created, Modified, MFT changed, Accessed' in shown
+    assert 'SI  Created, Modified, MFT changed, Accessed' in shown
+    assert 'FN  Created, Modified, MFT changed, Accessed' in shown
     assert LIMITATION not in shown
     r['timestamps'][1]['timestamp_utc'] = OTHER
     result = timeline(r)
@@ -150,11 +150,11 @@ def test_unnamed_mft_and_page_counts():
     r = example()
     r['detail']['names'] = []
     result = timeline(r)
-    result.update(records=result['records'][:3], total=265, offset=20, truncated=True)
+    result = mft_display.page(result, 1, 0)
     text = mft_display.render_timeline(result)
     assert 'MFT record 8/2' in text and LIMITATION not in text
-    assert '1 groups from timestamp observations 21-23 of 265' in text
-    assert 'page may split groups' in text and '265 records' not in text
+    assert 'Showing' not in text
+    assert 'page may split groups' not in text
 
 
 def test_no_non_mft_aggregation_and_raw_renderer_preserved():

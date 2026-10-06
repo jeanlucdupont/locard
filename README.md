@@ -422,8 +422,14 @@ results should request it. Plain `source show` also uses a human summary; `--det
 MFT text uses Allocated/Unallocated state and SI/FN timestamp labels; `show`
 retains exact copyable timestamp slots. `timeline --text` and `around --text`
 group only observations with the same evidence ID and exact timestamp value.
-Limits and offsets still count timestamp observations, so a page can split a
-display group. JSON/raw retain the individual observations and full precision.
+For MFT text timelines, limits and offsets count complete groups. MFT text
+`around` always includes the anchor within the limit, fills remaining places
+with nearest groups, and displays them chronologically. Its offset skips
+nearest non-anchor groups; the anchor remains visible even past the last page.
+Mixed text windows keep non-MFT observations separate. Complete text windows
+are bounded to 10,000 timestamp observations; narrow the window/filters if that
+bound is exceeded. JSON/raw retain observation-level pagination, individual
+observations and full precision.
 Multiple MFT timestamp slots require an explicit `--timestamp-slot` for `around`,
 even when their values coincide. Timeline arguments require ISO 8601 with `Z`
 or an explicit UTC offset; timezone-less input is rejected.
