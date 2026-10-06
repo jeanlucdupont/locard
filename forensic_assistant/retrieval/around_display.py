@@ -3,7 +3,7 @@ import textwrap
 from datetime import datetime, timedelta
 from forensic_assistant.correlation.models import time_ns
 from forensic_assistant.terminal import Palette
-from .presentation import safe, detail
+from .presentation import safe, detail, human_detail
 from .layout import terminal_width, fit
 
 
@@ -56,6 +56,9 @@ def semantics(record):
 
 
 def render(result, anchor, stamp, args, palette=None, *, width=None):
+    if anchor['source_type'] == 'evtx':
+        from .evtx_display import render_around
+        return render_around(result, anchor, stamp, args, palette, width=width)
     palette = palette or Palette()
     width = terminal_width(width)
     rows = result['records']
@@ -128,7 +131,7 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
         marker = r['id'] == anchor['id'] and any(item['timestamp']['slot'] == selected for item in group)
         time = display_time(r['timestamp_utc'])
         relative = delta(r['timestamp_utc'], stamp)
-        obj = mft_display.object_text(r) if r['source_type'] == 'mft' else safe(observation(r))
+        obj = mft_display.object_text(r) if r['source_type'] == 'mft' else human_detail(r) if r['source_type'] == 'evtx' else safe(observation(r))
         suffix = ' <- anchor' if marker else ''
         obj_room = (room if table else width - 2) - len(suffix)
         shortened = shortened or len(obj) > obj_room

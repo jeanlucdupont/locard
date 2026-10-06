@@ -426,8 +426,14 @@ For MFT text timelines, limits and offsets count complete groups. MFT text
 `around` always includes the anchor within the limit, fills remaining places
 with nearest groups, and displays them chronologically. Its offset skips
 nearest non-anchor groups; the anchor remains visible even past the last page.
-Mixed text windows keep non-MFT observations separate. Complete text windows
-are bounded to 10,000 timestamp observations; narrow the window/filters if that
+EVTX text timelines and EVTX-anchored text `around` also paginate complete
+groups, retaining each timestamp slot's label. Equal-valued Event 11
+CreationUtcTime/UtcTime observations share a display group; a different
+SystemTime remains separate. Process parent/child paths and file actor/target
+paths are shown separately, with optional restrained type/anchor coloring.
+EVTX text `around` keeps the selected anchor within the limit; offsets skip
+nearest non-anchor groups. Prefetch/Registry observations remain separate.
+Complete text windows are bounded to 10,000 timestamp observations; narrow the window/filters if that
 bound is exceeded. JSON/raw retain observation-level pagination, individual
 observations and full precision.
 Multiple MFT timestamp slots require an explicit `--timestamp-slot` for `around`,

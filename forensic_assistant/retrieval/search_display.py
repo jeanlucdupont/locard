@@ -1,5 +1,5 @@
 """Compact search projections; selection and hydration remain unchanged."""
-from .presentation import safe, safe_path, detail, file_create_target, logon_id, PREFETCH_CAUTIONS
+from .presentation import safe, safe_path, detail, human_detail, file_create_target, logon_id, PREFETCH_CAUTIONS
 from .layout import table, pagination, fit, fit_path
 import ntpath
 from forensic_assistant.ingest.validation import is_identifier_note
@@ -98,6 +98,8 @@ def render(result, palette=None, *, ids=False, width=None):
             roles = ['number_value'] + roles
         def format_cell(row_index, column, value, available):
             record = group[row_index][1]
+            if kind == 'evtx' and not auth and column == len(headers) - 1 and record.get('artifact_type') == 'process':
+                return fit(human_detail(record), available)
             if kind != 'evtx' or column != len(headers) - 1 or record.get('artifact_type') != 'file_create':
                 return None
             actor = safe(ntpath.basename(record.get('process_name') or '?'))

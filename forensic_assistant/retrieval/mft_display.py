@@ -33,15 +33,15 @@ def object_text(record):
     return '[unnamed MFT record]'
 
 
-def groups(records):
-    """Group only MFT observations, by evidence ID and full unrounded timestamp.
+def groups(records, *, source_types=('mft',)):
+    """Group opted-in artifacts (MFT by default) by ID and unrounded timestamp.
 
     Retain first-occurrence order and every observation, including duplicate labels
     from distinct FILE_NAME attributes. Pagination is applied after grouping.
     """
     result, positions = [], {}
     for record in records:
-        if record['source_type'] == 'mft':
+        if record['source_type'] in source_types:
             key = record['id'], record['timestamp_utc']
             if key in positions:
                 result[positions[key]].append(record)
@@ -84,13 +84,13 @@ def footer(result, count):
     return note + ' groups' if note else ''
 
 
-def page(result, limit, offset, *, anchor=None, stamp=None):
+def page(result, limit, offset, *, anchor=None, stamp=None, source_types=('mft',)):
     """Pure display projection. Never page incomplete observation windows."""
     from forensic_assistant.correlation.models import time_ns
     if not 1 <= limit <= 10000 or offset < 0:
         raise ValueError('Invalid pagination bounds')
     if result.get('truncated') or result.get('offset', 0) or len(result['records']) != result['total']:
-        raise ValueError('Complete timestamp window required for grouped MFT text')
+        raise ValueError('Complete timestamp window required for grouped text')
     records = list(result['records'])
     if anchor is not None:
         # before/after excludes the anchor time from neighbors. Add only the
@@ -100,9 +100,10 @@ def page(result, limit, offset, *, anchor=None, stamp=None):
                          timeline_id=anchor['id'] + ':Timestamp:' + t['slot'])
                     for t in anchor['timestamps'] if t['timestamp_utc'] == stamp]
     if len(records) > 10000:
-        raise ValueError('Grouped MFT text exceeds the 10,000 timestamp-observation safety bound; narrow the window')
+        raise ValueError('Grouped text exceeds the 10,000 timestamp-observation safety bound; narrow the window')
     order = lambda g: (g[0]['timestamp_utc'], g[0]['id'], g[0]['timestamp']['slot'])
-    grouped = sorted(groups(sorted(records, key=lambda r: (r['timestamp_utc'], r['id'], r['timestamp']['slot']))), key=order)
+    grouped = sorted(groups(sorted(records, key=lambda r: (r['timestamp_utc'], r['id'], r['timestamp']['slot'])),
+                            source_types=source_types), key=order)
     if anchor is None:
         chosen = grouped[offset:offset + limit]
     else:
@@ -114,16 +115,16 @@ def page(result, limit, offset, *, anchor=None, stamp=None):
         chosen = sorted([selected, *neighbors[offset:offset + limit - 1]], key=order)
     return {**result, 'records': [r for g in chosen for r in g],
             '_mft_page': dict(total=len(grouped), offset=offset, around=anchor is not None,
-                              precision_collisions=sorted(precision_collisions(grouped)))}
+                              precision_collisions=sorted(precision_collisions(grouped, source_types=source_types)))}
 
 
-def precision_collisions(grouped):
+def precision_collisions(grouped, *, source_types=('mft',)):
     """Identify rounded labels needing exact precision, in linear time."""
     from .around_display import display_time
     values = {}
     for group in grouped:
         r = group[0]
-        if r['source_type'] == 'mft':
+        if r['source_type'] in source_types:
             key = r['id'], display_time(r['timestamp_utc'])
             values.setdefault(key, set()).add(r['timestamp_utc'])
     return {key for key, times in values.items() if len(times) > 1}
@@ -135,6 +136,7 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
     import textwrap
     from forensic_assistant.terminal import Palette
     from .around_display import display_time, delta, observation, semantics as other_semantics, source
+    from .presentation import human_detail
     from .layout import terminal_width
     palette = palette or Palette()
     width = terminal_width(width)
@@ -170,7 +172,7 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
             time = time[11:]
         values = [time] + ([delta(r['timestamp_utc'], stamp)] if around else []) + [
             state(r.get('detail', {}).get('allocated')) if mft else '-']
-        obj = (object_text(r) if mft else safe(observation(r))) + (' <- anchor' if marker else '')
+        obj = (object_text(r) if mft else human_detail(r) if r['source_type'] == 'evtx' else safe(observation(r))) + (' <- anchor' if marker else '')
         role = 'heading' if marker else 'secondary_text'
         if aligned:
             pieces = textwrap.wrap(obj, width - object_start, break_on_hyphens=False,

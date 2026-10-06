@@ -250,7 +250,7 @@ def _dispatch(args, output, *, existing_only=False):
                     from forensic_assistant.retrieval.around_display import render
                     output.write(render(result, presentation['anchor'], presentation['stamp'], args, output.palette))
                 elif getattr(args, 'text', False):
-                    output.write(v2_cli.render(result, methodology=args.raw))
+                    output.write(v2_cli.render(result, methodology=args.raw, palette=output.palette))
                 else:
                     emit(result)
                 return code

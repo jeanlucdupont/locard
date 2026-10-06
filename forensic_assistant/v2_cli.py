@@ -150,15 +150,15 @@ def dispatch(db, args, *, presentation=None):
             anchor = args.timestamp or args.around
             if args.artifact_type:
                 filters['artifact_types'] = [args.artifact_type]
-            grouped_text = getattr(args, 'text', False) and not args.raw and not getattr(args, 'json', False) and args.artifact in (None, 'mft')
+            grouped_text = getattr(args, 'text', False) and not args.raw and not getattr(args, 'json', False) and args.artifact in (None, 'mft', 'evtx')
             if not 1 <= args.limit <= 10000 or args.offset < 0:
                 raise ValueError('Invalid pagination bounds')
             if anchor:
                 if args.start or args.end:
                     raise ValueError('Do not combine --around with --start/--end')
                 if grouped_text and args.artifact is None:
-                    grouped_text = bool(q.timeline_around(anchor, args.minutes, **dict(
-                        filters, artifact='mft', limit=1, offset=0)).total)
+                    grouped_text = any(q.timeline_around(anchor, args.minutes, **dict(
+                        filters, artifact=kind, limit=1, offset=0)).total for kind in ('mft', 'evtx'))
                 result = q.complete_timeline(around=anchor, minutes=args.minutes, **{
                     k: v for k, v in filters.items() if k not in ('limit', 'offset')
                 }) if grouped_text else q.timeline_around(anchor, args.minutes, **filters)
@@ -166,8 +166,8 @@ def dispatch(db, args, *, presentation=None):
                 if not args.start or not args.end:
                     raise ValueError('Timeline requires --start and --end, or --around')
                 if grouped_text and args.artifact is None:
-                    grouped_text = bool(q.search(start=args.start, end=args.end, timeline=True, **dict(
-                        filters, artifact='mft', limit=1, offset=0)).total)
+                    grouped_text = any(q.search(start=args.start, end=args.end, timeline=True, **dict(
+                        filters, artifact=kind, limit=1, offset=0)).total for kind in ('mft', 'evtx'))
                 result = q.complete_timeline(start=args.start, end=args.end, **{
                     k: v for k, v in filters.items() if k not in ('limit', 'offset')
                 }) if grouped_text else q.search(start=args.start, end=args.end, timeline=True, **filters)
@@ -175,8 +175,9 @@ def dispatch(db, args, *, presentation=None):
         # every observation's full evidence detail and is reserved for serialization.
         output = {**vars(result), 'truncated': result.truncated} if command == 'timeline' and grouped_text else result.as_dict()
         if command == 'timeline' and grouped_text:
-            from forensic_assistant.retrieval.mft_display import page
-            output = page(output, args.limit, args.offset)
+            from forensic_assistant.retrieval import mft_display, evtx_display
+            display = evtx_display if args.artifact == 'evtx' or any(r['source_type'] == 'evtx' for r in output['records']) else mft_display
+            output = display.page(output, args.limit, args.offset)
         output['count_unit'] = 'timestamp_observations' if command == 'timeline' else 'evidence_records'
         output['caution'] = 'Timestamp semantics differ by artifact. Correlation is not causation.'
         return output, 0
@@ -193,7 +194,7 @@ def dispatch(db, args, *, presentation=None):
             raise ValueError('Host context missing or conflicting; cannot select same-host temporal neighbors')
         if not 0 <= args.seconds <= 604800:
             raise ValueError('Seconds must be 0..604800')
-        grouped_text = getattr(args, 'text', False) and not args.raw and not getattr(args, 'json', False) and anchor['source_type'] == 'mft'
+        grouped_text = getattr(args, 'text', False) and not args.raw and not getattr(args, 'json', False) and anchor['source_type'] in ('mft', 'evtx')
         if not 1 <= args.limit <= 10000 or args.offset < 0:
             raise ValueError('Invalid pagination bounds')
         window = dict(
@@ -206,9 +207,10 @@ def dispatch(db, args, *, presentation=None):
             raw=args.raw
         )
         if grouped_text:
-            from forensic_assistant.retrieval.mft_display import page
+            from forensic_assistant.retrieval import mft_display, evtx_display
+            display = evtx_display if anchor['source_type'] == 'evtx' else mft_display
             result = q.complete_timeline(**window)
-            return page({**vars(result), 'truncated': result.truncated}, args.limit, args.offset,
+            return display.page({**vars(result), 'truncated': result.truncated}, args.limit, args.offset,
                         anchor=anchor, stamp=stamp), 0
         result = q.search(timeline=True, limit=args.limit, offset=args.offset, **window)
         return result.as_dict(), 0
@@ -223,9 +225,12 @@ def anchor_time(anchor, slot=None, *, require_slot=False):
     return next(iter(times))
 
 
-def render(result, *, methodology=True):
+def render(result, *, methodology=True, palette=None):
     if 'records' not in result:
         return safe(result)
+    if not methodology and ('_evtx_page' in result or any(r['source_type'] == 'evtx' for r in result['records'])):
+        from forensic_assistant.retrieval.evtx_display import render_timeline
+        return render_timeline(result, palette=palette)
     if not methodology and ('_mft_page' in result or any(r['source_type'] == 'mft' for r in result['records'])):
         from forensic_assistant.retrieval.mft_display import render_timeline
         return render_timeline(result)

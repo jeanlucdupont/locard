@@ -48,6 +48,17 @@ def detail(event):
     return event.get("command_line") or event.get("script_block") or kind or "Unmapped event"
 
 
+def human_detail(event):
+    """Escape each known component, preserving separators only in actual paths."""
+    kind = event.get('kind') or event.get('artifact_type')
+    if kind == 'file_create':
+        actor = safe(ntpath.basename(event.get('process_name') or '?'))
+        return actor + ' - file creation/overwrite: ' + safe_path(file_create_target(event) or '?')
+    if kind == 'process':
+        return safe_path(event.get('parent_process_name') or '?') + ' -> ' + safe_path(event.get('process_name') or '?')
+    return safe(detail(event))
+
+
 def render_timeline(result, *, methodology=True):
     lines = ["TIME | EVIDENCE ID | EVENT ID | TYPE | USER | PROCESS | DETAIL"]
     for event in result["records"]:

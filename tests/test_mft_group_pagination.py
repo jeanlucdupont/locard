@@ -223,7 +223,7 @@ def test_complete_text_hydrates_once_per_evidence_not_per_slot(case, monkeypatch
     assert result.records == snapshots
 
 
-def test_evtx_text_and_observation_pagination_unchanged():
+def test_evtx_structured_pagination_and_text_group_layout():
     from test_v1_temporal import fixture_db
     db = fixture_db()
     try:
@@ -231,15 +231,18 @@ def test_evtx_text_and_observation_pagination_unchanged():
         argv = ['timeline', '--around', '2026-09-15T14:31:00Z', '--limit', '2', '--offset', '1']
         structured, _ = v2_cli.dispatch(db, parser.parse_args(argv + ['--json']))
         text, _ = v2_cli.dispatch(db, parser.parse_args(argv + ['--text']))
-        assert text == structured and '_mft_page' not in text
-        assert 'UTC | EVIDENCE ID | SOURCE' in v2_cli.render(text, methodology=False)
+        assert text['records'] == structured['records'] and '_mft_page' not in text
+        assert structured['limit'] == 2 and structured['offset'] == 1 and '_evtx_page' not in structured
+        shown = v2_cli.render(text, methodology=False)
+        assert 'TIME (UTC)' in shown and 'TYPE' in shown and 'EVIDENCE ID' not in shown
         eid = db.execute('SELECT id FROM events WHERE record_offset=513').fetchone()[0]
         argv = ['around', eid, '--limit', '2', '--offset', '1']
         context = {}
         text, _ = v2_cli.dispatch(db, parser.parse_args(argv + ['--text']), presentation=context)
         structured, _ = v2_cli.dispatch(db, parser.parse_args(argv + ['--json']))
-        assert text == structured
+        assert structured['limit'] == 2 and structured['offset'] == 1 and '_evtx_page' not in structured
+        assert any(r['id'] == eid for r in text['records'])
         shown = around_display.render(text, context['anchor'], context['stamp'], parser.parse_args(argv + ['--text']))
-        assert 'OBJECT / OBSERVATION' in shown and 'STATE' not in shown
+        assert 'OBJECT' in shown and 'TYPE' in shown and 'STATE' not in shown
     finally:
         db.close()

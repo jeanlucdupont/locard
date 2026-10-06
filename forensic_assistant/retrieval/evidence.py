@@ -304,7 +304,7 @@ class EvidenceQueries:
         where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
         total = self.db.execute('SELECT count(*) FROM ' + source + where, params).fetchone()[0]
         if require_complete and (offset or total > limit):
-            raise ValueError('Grouped MFT text exceeds the 10,000 timestamp-observation safety bound; '
+            raise ValueError('Grouped text exceeds the 10,000 timestamp-observation safety bound; '
                              'narrow the time window/filters or use JSON/raw observation pagination')
         order_params = []
         if nearest_to and timeline:

@@ -52,5 +52,6 @@ def test_timeline_cli_compatibility_filters_and_text(tmp_path, capsys):
     assert data["total"] == 3
     assert [e["timestamp_utc"] for e in data["records"]] == sorted(e["timestamp_utc"] for e in data["records"])
     assert main(prefix + ["--around", "2026-09-15T14:31:00Z", "--text"]) == 0
-    assert "EVIDENCE ID" in capsys.readouterr().out
+    shown = capsys.readouterr().out
+    assert "TIME (UTC)" in shown and "TYPE" in shown and "EVIDENCE ID" not in shown
     assert main(prefix + ["--start", "2026-09-15T14:30:00Z"]) == 2
