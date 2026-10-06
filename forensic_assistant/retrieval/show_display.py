@@ -5,7 +5,10 @@ from forensic_assistant.ingest.validation import is_identifier_note
 from .search_display import timestamp
 
 
-def render(record, palette=None):
+def render(record, palette=None, *, registry_values=None):
+    if record['source_type'] == 'registry':
+        from .registry_display import render as render_registry
+        return render_registry(record, palette, values=registry_values)
     from forensic_assistant.terminal import Palette, value_role
     palette = palette or Palette()
     lines = []

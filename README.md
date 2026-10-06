@@ -419,6 +419,41 @@ verbose/raw representation, including its established retrieval bounds.
 Explicit `--json` preserves the structured interface; scripts consuming search
 results should request it. Plain `source show` also uses a human summary; `--details` or `--json` preserves its existing structured view.
 
+Registry search supports `--key "Software\Example"` for an exact literal key
+path and `--key-contains "Example"` for a literal substring. Both use SQLite
+NOCASE matching (ASCII case-insensitive; non-ASCII characters compare exactly),
+include the matching keys and their independent values, and do not expand
+wildcards or normalize filesystem paths. Use `--artifact registry` or omit the
+artifact filter. `--path` retains its existing filesystem/target-path meaning.
+Value-name filters are not provided. The search default remains 20 records.
+Registry search identifies Key/Value rows and shows dirty-hive warnings once
+per hive/source context; structured warnings remain per record.
+
+Registry `show` uses friendly type names and literal string backslashes without
+expanding environment variables or interpreting escapes. Values inherit their
+containing key's LastWrite, never a fabricated value creation time. Key `show`
+lists at most 20 values with explicit omission/truncation notices. Text data is
+bounded to 240 characters (and 10 entries for multi-strings); the key-value
+projection reads at most 4,096 JSON characters per value. Binary data is
+summarized rather than printed. `show --json` retains full provenance, numeric
+types and existing value IDs; `show --raw` retains the raw projection.
+
+Normal `status` is a bounded human summary of evidence, ingestion attempts,
+sources, unfinished batches and limitations. `status --json` preserves the
+existing structured status interface. Historical ingestion statuses are never
+rewritten by this view.
+
+Registry `.LOG1`/`.LOG2` companions with REGF (or HvLE) signatures are discovered
+as Registry inputs but intercepted before standalone hive traversal. Their
+filename-based classification and any possible same-directory companion-hive
+association are recorded in `artifact_runs.parameters_json`; filename matching
+does not verify hive identity. Hashes, observed paths and batch membership are
+retained, with an `unsupported` run status and no fabricated Registry records.
+Replay is unsupported. Dirty-hive warnings remain: an unreplayed snapshot may
+be inconsistent, which does not itself mean corruption. Older companion-log
+attempts are labeled historical in human status, retaining their original
+statuses/errors in the database and JSON output.
+
 MFT text uses Allocated/Unallocated state and SI/FN timestamp labels; `show`
 retains exact copyable timestamp slots. `timeline --text` and `around --text`
 group only observations with the same evidence ID and exact timestamp value.

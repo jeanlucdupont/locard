@@ -54,12 +54,14 @@ def render(result, palette=None, *, ids=False, width=None):
                     (names[0].get('reconstructed_path') or names[0].get('filename')) if names else '-'
                 ]
             elif kind == 'registry':
+                from .registry_display import type_name
                 row = [
                     timestamp(r.get('timestamp_utc')),
                     host,
+                    'Value' if 'value_name' in d else 'Key',
                     d.get('key_path'),
-                    d.get('value_name', '(key)'),
-                    d.get('value_type', '-')
+                    (d['value_name'] or '(Default)') if 'value_name' in d else '-',
+                    type_name(d['value_type']) if 'value_type' in d else '-'
                 ]
             elif auth:
                 row = [timestamp(r.get('timestamp_utc')), r.get('event_id'), host,
@@ -70,19 +72,20 @@ def render(result, palette=None, *, ids=False, width=None):
         headers = {
             'prefetch': ['LAST RUN (UTC)', 'RUNS', 'EXECUTABLE', 'HOST', 'CANDIDATE PATH'],
             'mft': ['RECORD/SEQ', 'STATE', 'SIZE', 'HOST', 'NAME/PATH'],
-            'registry': ['KEY TIME (UTC)', 'HOST', 'KEY', 'VALUE', 'TYPE'],
+            'registry': ['KEY TIME (UTC)', 'HOST', 'KIND', 'KEY', 'VALUE', 'TYPE'],
             'evtx': ['TIME (UTC)', 'EVENT', 'HOST', 'USER', 'OBSERVATION']
         }[kind]
         minimums = {
             'prefetch': [23, 4, 10, 7, 14],
             'mft': [10, 11, 5, 7, 12],
-            'registry': [23, 7, 8, 8, 5],
+            'registry': [23, 7, 5, 8, 8, 5],
             'evtx': [23, 5, 7, 7, 12]
         }[kind]
         roles = ['number_value', 'number_value', 'string_value', 'secondary_text', 'string_value']
         maximums = [23, 20, 32, 24, 65]
         if kind == 'registry':
-            maximums = [23, 24, 65, 32, 16]
+            maximums = [23, 24, 5, 65, 32, 32]
+            roles = ['number_value', 'string_value', 'secondary_text', 'secondary_text', 'secondary_text', 'secondary_text']
         if auth:
             headers = ['TIME (UTC)', 'EVENT', 'HOST', 'USER', 'TYPE', 'LOGON ID']
             # Keep the copyable identifier intact, shrinking descriptive cells first.
@@ -119,16 +122,25 @@ def render(result, palette=None, *, ids=False, width=None):
             tail=(len(headers) - 1,) if kind in ('prefetch', 'mft') else (),
             format_cell=format_cell,
             paths=(len(headers) - 1,) if kind in ('prefetch', 'mft') else
-                  (2 + int(ids),) if kind == 'registry' else ()
+                  (3 + int(ids),) if kind == 'registry' else ()
         )
     if not records:
         lines.append('No matching evidence.')
     if ids:
         for index, r in enumerate(records, 1):
             lines.append(f"{index}: " + palette('evidence_id', safe(r['id'])))
+    dirty_hives = set()
     for index, r in enumerate(records, 1):
         ctx = r.get('context', {})
         for warning in r.get('warnings', []):
+            if r['source_type'] == 'registry':
+                from .registry_display import DIRTY_WARNING, warning_context, warning_label
+                if warning == DIRTY_WARNING:
+                    context = warning_context(r)
+                    if context not in dirty_hives:
+                        lines.append(palette('warning', 'Warning: ' + warning_label(r) + ': ' + safe(warning)))
+                        dirty_hives.add(context)
+                    continue
             if is_identifier_note(warning):
                 continue
             if r['source_type'] != 'prefetch' or warning not in PREFETCH_CAUTIONS:

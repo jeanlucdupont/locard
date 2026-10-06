@@ -25,6 +25,9 @@ def configure(commands):
         p.add_argument('--path')
     for name in ('search', 'show', 'status'):
         commands.choices[name].add_argument('--json', action='store_true')
+    keys = commands.choices['search'].add_mutually_exclusive_group()
+    keys.add_argument('--key', help='Registry key path: exact literal match (SQLite NOCASE); includes its values; no filesystem normalization')
+    keys.add_argument('--key-contains', help='Registry key path: literal substring (SQLite NOCASE); no wildcards; includes matching keys and their values')
     commands.choices['around'].add_argument('--timestamp-slot')
     commands.choices['investigate'].add_argument('--timestamp-slot')
 
@@ -79,7 +82,7 @@ def ingest_sources(db, args, progress=None):
             results.append(result)
             if progress is not None:
                 progress(path, kind, result)
-        status = 'empty' if not results else 'complete' if all(r['status'] == 'complete' for r in results) else 'partial' if any(r['inserted'] or r['duplicates'] for r in results) else 'failed'
+        status = 'empty' if not results else 'complete' if all(r['status'] == 'complete' for r in results) else 'unsupported' if all(r['status'] == 'unsupported' for r in results) else 'partial' if any(r['inserted'] or r['duplicates'] for r in results) else 'failed'
         return results
     except (KeyboardInterrupt, EOFError):
         status = 'cancelled'
@@ -113,7 +116,11 @@ def dispatch(db, args, *, presentation=None):
             'status': 'complete' if results and all(r['status'] == 'complete' for r in results) else 'incomplete'
         }, 0 if results and all(r['status'] == 'complete' for r in results) else 1
     if command == 'show':
-        return get_evidence(db, args.evidence_id, args.raw), 0
+        result = get_evidence(db, args.evidence_id, args.raw)
+        if presentation is not None and not args.raw and not args.json and result['artifact_type'] == 'registry_key':
+            from forensic_assistant.retrieval.registry_display import projected_values
+            presentation['registry_values'] = projected_values(db, result['id'])
+        return result, 0
     if command == 'status':
         from forensic_assistant.database.sources import coverage
         result = Queries(db).coverage()
@@ -123,11 +130,15 @@ def dispatch(db, args, *, presentation=None):
             artifact_counts={r[0]: r[1] for r in db.execute('SELECT source_type,count(*) FROM evidence_records GROUP BY source_type')},
             timeline_observations=db.execute('SELECT count(*) FROM evidence_timestamps WHERE timestamp_utc IS NOT NULL').fetchone()[0]
         )
+        if presentation is not None and not getattr(args, 'raw', False) and not args.json:
+            from forensic_assistant.retrieval.status_display import context
+            presentation['status'] = context(db)
         return result, 0
     if command in ('search', 'timeline'):
         filters = {k: getattr(args, k, None) for k in ('artifact', 'path', 'process', 'hostname', 'ip', 'event_id')}
         filters.update(username=args.user, limit=args.limit, offset=args.offset, raw=args.raw)
         if command == 'search':
+            filters.update(registry_key=getattr(args, 'key', None), registry_key_contains=getattr(args, 'key_contains', None))
             filters['process_exact'] = filters.pop('process')
             filters['process_contains'] = args.process_contains
             filters['source_id'] = getattr(args, 'source', None)

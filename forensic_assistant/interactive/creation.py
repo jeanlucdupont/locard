@@ -236,6 +236,8 @@ def _attempt(shell):
                 'duplicates',
                 'errors'
             )}))
+            if result.get('limitation'):
+                print(safe(result['limitation']))
         args = SimpleNamespace(
             command='ingest-all',
             path=source,

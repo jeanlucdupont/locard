@@ -139,7 +139,10 @@ def ingest_artifact(
     if not 1 <= timeout <= 3600:
         raise ValueError('Parser timeout must be 1..3600 seconds')
     path = str(Path(path).resolve())
-    version = importlib.metadata.version(PARSERS[kind])
+    from .registry_logs import is_log, describe, CLASSIFIER
+    companion = kind == 'registry' and is_log(path)
+    parser = CLASSIFIER if companion else PARSERS[kind]
+    version = '1' if companion else importlib.metadata.version(parser)
     # Validate context before starting a run (no live environment expansion).
     if volume_root:
         import re
@@ -169,12 +172,29 @@ def ingest_artifact(
                 db.execute('UPDATE ingestion_runs SET batch_id=? WHERE id=?', (batch_id, run_id))
             db.execute(
                 'INSERT INTO artifact_runs VALUES (?,?,?,?,?,?,?)',
-                (run_id, kind, PARSERS[kind], version, '1', None, dump(options))
+                (run_id, kind, parser, version, '1', None, dump(options))
             )
         sha = digest(path)
         size = Path(path).stat().st_size
         with db:
             db.execute('UPDATE artifact_runs SET source_sha256=? WHERE run_id=?', (sha, run_id))
+        if companion:
+            classification = describe(path)
+            with db:
+                db.execute('UPDATE artifact_runs SET parameters_json=? WHERE run_id=?', (dump(classification), run_id))
+                if digest(path) != sha or Path(path).stat().st_size != size:
+                    report('Source changed during classification; companion rejected', 'integrity')
+                    status = 'changed'
+                else:
+                    register_source(db, sha, size, path)
+                    bind_context(db, sha, path, hostname, username, volume_root)
+                    db.execute('UPDATE ingestion_runs SET file_sha256=? WHERE id=?', (sha, run_id))
+                    status = 'unsupported'
+                db.execute('UPDATE ingestion_runs SET finished_utc=?,status=?,error_count=? WHERE id=?',
+                           (now(), status, errors, run_id))
+            return dict(run_id=run_id, source_file=path, source_type=kind, status=status,
+                        inserted=0, duplicates=0, errors=errors, parser=parser, parser_version=version,
+                        **classification)
         with tempfile.TemporaryDirectory(prefix='locard-artifact-') as temp:
             stage = Path(temp) / 'stage.db'
             result = runner(kind, path, sha, stage, options, timeout)
@@ -240,7 +260,7 @@ def ingest_artifact(
         inserted=inserted,
         duplicates=duplicates,
         errors=errors,
-        parser=PARSERS[kind],
+        parser=parser,
         parser_version=version
     )
 
@@ -250,7 +270,8 @@ def identify(path):
         head = f.read(84)
     if head.startswith(b'ElfFile\x00'):
         return 'evtx'
-    if head.startswith(b'regf'):
+    from .registry_logs import is_log
+    if head.startswith(b'regf') or (is_log(path) and head.startswith(b'HvLE')):
         return 'registry'
     if head.startswith(b'FILE'):
         return 'mft'

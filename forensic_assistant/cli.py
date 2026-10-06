@@ -245,7 +245,10 @@ def _dispatch(args, output, *, existing_only=False):
                     output.write(render(result, output.palette, ids=args.ids))
                 elif args.command == 'show' and not args.json and not args.raw:
                     from forensic_assistant.retrieval.show_display import render
-                    output.write(render(result, output.palette))
+                    output.write(render(result, output.palette, registry_values=presentation.get('registry_values')))
+                elif args.command == 'status' and not args.json:
+                    from forensic_assistant.retrieval.status_display import render
+                    output.write(render(result, args.db, presentation['status'], output.palette))
                 elif args.command == 'around' and args.text and not args.raw:
                     from forensic_assistant.retrieval.around_display import render
                     output.write(render(result, presentation['anchor'], presentation['stamp'], args, output.palette))

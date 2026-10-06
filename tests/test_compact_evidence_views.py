@@ -69,7 +69,7 @@ def test_prefetch_summary_and_unchanged_structures(case, capsys):
         (
             'registry',
             dict(key_path='Software\\Synthetic', value_name='Run', value_type=1, value_data='sample.exe'),
-            'Value data: sample.exe'
+            'Data: sample.exe'
         ),
         ('evtx', {}, 'Event id: 4688')]
 )
@@ -88,10 +88,12 @@ def test_artifact_show(kind, detail, expected):
     )
     before = copy.deepcopy(record)
     text = show(record)
-    assert expected in text and 'Parser quality warning' in text and '1 of 2 slots populated' in text
+    assert expected in text and 'Parser quality warning' in text
+    if kind != 'registry':
+        assert '1 of 2 slots populated' in text
     assert 'missing:' not in text and '00:00:00.123' in text
     if kind == 'registry':
-        assert 'not the value' in text
+        assert 'Timestamp belongs to the containing key' in text and 'Last write:' in text
     assert record == before
 
 

@@ -136,6 +136,8 @@ class EvidenceQueries:
         artifact=None,
         evidence_kind=None,
         path=None,
+        registry_key=None,
+        registry_key_contains=None,
         username=None,
         hostname=None,
         strict_host=False,
@@ -151,6 +153,18 @@ class EvidenceQueries:
     ):
         clauses = []
         params = []
+        if registry_key is not None or registry_key_contains is not None:
+            if registry_key is not None and registry_key_contains is not None:
+                raise ValueError('Exact and contains Registry key filters are mutually exclusive')
+            if artifact not in (None, 'registry'):
+                raise ValueError('Registry key filters require --artifact registry or no --artifact')
+            value = registry_key if registry_key is not None else registry_key_contains
+            if registry_key_contains is not None and not value:
+                raise ValueError('Registry key substring must not be empty')
+            comparison = 'k.key_path = ? COLLATE NOCASE' if registry_key is not None else "k.key_path LIKE ? ESCAPE '!' COLLATE NOCASE"
+            clauses.append("e.source_type='registry' AND EXISTS (SELECT 1 FROM registry_keys k WHERE "
+                           "(k.evidence_id=e.evidence_id OR k.evidence_id=(SELECT key_id FROM registry_values WHERE evidence_id=e.evidence_id)) AND " + comparison + ')')
+            params.append(value if registry_key is not None else '%' + escape_like(value) + '%')
         schema4 = self.db.execute('PRAGMA user_version').fetchone()[0] == 4
         if source_id or (schema4 and source_scope is not None):
             from forensic_assistant.database.sources import MEMBERSHIP, current, require4

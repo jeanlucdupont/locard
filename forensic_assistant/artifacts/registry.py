@@ -37,6 +37,9 @@ def decode_value(v, raw):
 
 
 def parse(path, sha):
+    from .registry_logs import is_log, LIMITATION
+    if is_log(path):
+        raise ValueError(LIMITATION)
     import pyregf
     with open(path, 'rb') as stream:
         head = stream.read(512)
