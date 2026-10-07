@@ -92,7 +92,7 @@ def test_projection_warnings_actual_availability(case):
     assert 'object projection' not in text and 'Object projection' not in detail
     assert 'candidate unavailable' not in text and 'candidate unavailable' not in detail
     assert 'Referenced files: 220' in detail and 'Showing 5 of 220' in detail
-    assert 'Directory tables are not exposed by this parser binding.' in detail
+    assert 'Directory information is not available with the current Prefetch parser.' in detail.split('Parser limitation')[1]
     assert r == before
     r['objects'] = []
     assert 'candidate unavailable' in search(dict(records=[r], total=1, offset=0))

@@ -130,6 +130,7 @@ def render(result, palette=None, *, ids=False, width=None):
         for index, r in enumerate(records, 1):
             lines.append(f"{index}: " + palette('evidence_id', safe(r['id'])))
     dirty_hives = set()
+    missing_candidates = []
     for index, r in enumerate(records, 1):
         ctx = r.get('context', {})
         for warning in r.get('warnings', []):
@@ -152,10 +153,10 @@ def render(result, palette=None, *, ids=False, width=None):
             if len(paths) > 1:
                 lines.append(palette('warning', f'Row {index}: multiple executable path candidates.'))
             if r.get('objects_truncated') and not paths:
-                lines.append(palette(
-                    'warning',
-                    f'Row {index}: executable path candidate unavailable in the bounded projection.'
-                ))
+                missing_candidates.append(str(index))
+    if missing_candidates:
+        lines.append(palette('warning', 'Note: executable path candidate unavailable in the bounded projection for rows '
+                             + ', '.join(missing_candidates) + '.'))
     footer = pagination(len(records), result['total'], result.get('offset', 0))
     if footer:
         lines += ['', footer]

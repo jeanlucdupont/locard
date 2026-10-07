@@ -245,6 +245,9 @@ def render(result, *, methodology=True, palette=None):
     if not methodology and ('_mft_page' in result or any(r['source_type'] == 'mft' for r in result['records'])):
         from forensic_assistant.retrieval.mft_display import render_timeline
         return render_timeline(result)
+    if not methodology and result['records'] and all(r['source_type'] == 'prefetch' for r in result['records']):
+        from forensic_assistant.retrieval.prefetch_display import render_timeline
+        return render_timeline(result, palette=palette)
     lines = ['UTC | EVIDENCE ID | SOURCE | ARTIFACT TYPE | TIMESTAMP MEANING | OBJECT / OBSERVATION']
     for r in result['records']:
         obj = next((o['original'] for o in r.get('objects', []) if o['role'] not in ('parent_image',)), None)

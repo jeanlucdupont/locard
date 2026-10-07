@@ -46,12 +46,15 @@ def test_prefetch_summary_and_unchanged_structures(case, capsys):
         'Referenced files: 220',
         'Showing 5 of 220',
         'REFERENCE_ONLY_004',
-        '2 of 2 slots populated',
+        'Run times',
+        '[run:1]',
+        '[run:2]',
         'not necessarily executed',
-        'not a content hash'
+        'not a complete execution history'
     ):
         assert value in text
     assert 'REFERENCE_ONLY_005' not in text
+    assert 'Prefetch identifier' not in text
     for flag, data in [('--json', expected), ('--raw', raw)]:
         assert main(['--db', str(path), 'show', eid, flag]) == 0
         assert json.loads(capsys.readouterr().out) == data

@@ -48,7 +48,6 @@ def render(record, palette=None, *, registry_values=None):
     if kind == 'prefetch':
         field('Executable', d.get('executable'))
         field('Recorded run count', d.get('run_count'))
-        field('Prefetch identifier (not a content hash)', d.get('prefetch_identifier'))
     elif kind == 'mft':
         for key in (
             'record_number',
@@ -115,6 +114,22 @@ def render(record, palette=None, *, registry_values=None):
                 field(label, timestamp(t['timestamp_utc']) + ' UTC  [' + t['slot'] + ']')
         if len(populated) != len(times):
             field('Timestamps', f'{len(populated)} of {len(times)} slots populated')
+    elif kind == 'prefetch':
+        lines += ['', palette('heading', 'Run times')]
+        standard_meaning = 'Recorded execution timestamp; not a process-instance identifier'
+        meanings = {t.get('meaning') for t in populated}
+        common_meaning = next(iter(meanings)) if len(meanings) == 1 else None
+        if common_meaning and common_meaning != standard_meaning:
+            field('Meaning', common_meaning)
+        for t in populated:
+            lines.append(palette('number_value', timestamp(t['timestamp_utc']) + ' UTC')
+                         + '  ' + palette('secondary_text', '[' + safe(t['slot']) + ']'))
+            if t.get('meaning') and t['meaning'] != standard_meaning and not common_meaning:
+                field('Meaning', t['meaning'])
+        if not populated:
+            lines.append('No populated run times.')
+        if len(populated) != len(times):
+            field('Populated run slots', f'{len(populated)} of {len(times)}')
     elif times:
         lines += ['', palette('heading', f'Timestamps: {len(populated)} of {len(times)} slots populated')]
         meanings = {t.get('meaning') for t in populated}
@@ -155,12 +170,17 @@ def render(record, palette=None, *, registry_values=None):
         standard = PREFETCH_CAUTIONS
         directory_warning = 'Referenced files are not all executed images; directory tables are not exposed by this binding' in warnings
         warnings = [w for w in warnings if w not in standard]
-        warnings += [
-            'Retained runs are incomplete; missing Prefetch does not establish non-execution (collection may be disabled or deleted).',
-            'Referenced files are not necessarily executed images.'
-        ]
+        lines += ['', palette('heading', 'Forensic notes')]
+        for note in (
+            'Missing Prefetch does not prove a program never ran.',
+            'The run count and retained run times are not a complete execution history.',
+            'Referenced files were accessed or used by the program; they were not necessarily executed.',
+            'Prefetch run times record execution-related timestamps, but they do not identify unique process instances.'
+        ):
+            lines.append(palette('warning', '- ' + note))
         if directory_warning:
-            warnings.append('Directory tables are not exposed by this parser binding.')
+            lines += ['', palette('heading', 'Parser limitation'), palette(
+                'warning', '- Directory information is not available with the current Prefetch parser.')]
     elif record.get('observation'):
         warnings.insert(0, record['observation'])
     if warnings:
