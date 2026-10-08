@@ -28,6 +28,9 @@ def configure(commands):
     keys = commands.choices['search'].add_mutually_exclusive_group()
     keys.add_argument('--key', help='Registry key path: exact literal match (SQLite NOCASE); includes its values; no filesystem normalization')
     keys.add_argument('--key-contains', help='Registry key path: literal substring (SQLite NOCASE); no wildcards; includes matching keys and their values')
+    values = commands.choices['search'].add_mutually_exclusive_group()
+    values.add_argument('--value-name', help='Registry value name: exact raw or decoded UserAssist name (SQLite NOCASE)')
+    values.add_argument('--value-name-contains', help='Registry value name: literal substring of raw or decoded UserAssist name (SQLite NOCASE); no wildcards')
     commands.choices['around'].add_argument('--timestamp-slot')
     commands.choices['investigate'].add_argument('--timestamp-slot')
 
@@ -123,12 +126,13 @@ def dispatch(db, args, *, presentation=None):
         return result, 0
     if command == 'status':
         from forensic_assistant.database.sources import coverage
+        from forensic_assistant.artifacts.userassist import timeline_cte
         result = Queries(db).coverage()
         result.update(
             schema_version=db.execute('PRAGMA user_version').fetchone()[0],
             source_coverage=coverage(db),
             artifact_counts={r[0]: r[1] for r in db.execute('SELECT source_type,count(*) FROM evidence_records GROUP BY source_type')},
-            timeline_observations=db.execute('SELECT count(*) FROM evidence_timestamps WHERE timestamp_utc IS NOT NULL').fetchone()[0]
+            timeline_observations=db.execute(timeline_cte(db) + 'SELECT count(*) FROM locard_times WHERE timestamp_utc IS NOT NULL').fetchone()[0]
         )
         if presentation is not None and not getattr(args, 'raw', False) and not args.json:
             from forensic_assistant.retrieval.status_display import context
@@ -139,6 +143,7 @@ def dispatch(db, args, *, presentation=None):
         filters.update(username=args.user, limit=args.limit, offset=args.offset, raw=args.raw)
         if command == 'search':
             filters.update(registry_key=getattr(args, 'key', None), registry_key_contains=getattr(args, 'key_contains', None))
+            filters.update(value_name=getattr(args, 'value_name', None), value_name_contains=getattr(args, 'value_name_contains', None))
             filters['process_exact'] = filters.pop('process')
             filters['process_contains'] = args.process_contains
             filters['source_id'] = getattr(args, 'source', None)
@@ -229,6 +234,7 @@ def dispatch(db, args, *, presentation=None):
 
 
 def anchor_time(anchor, slot=None, *, require_slot=False):
+    require_slot = require_slot or bool(anchor.get('detail', {}).get('userassist'))
     candidates = [t for t in anchor['timestamps'] if t['timestamp_utc'] and (slot is None or t['slot'] == slot)]
     times = {t['timestamp_utc'] for t in candidates}
     if len(times) != 1 or (require_slot and len(candidates) != 1):
@@ -253,14 +259,19 @@ def render(result, *, methodology=True, palette=None):
         obj = next((o['original'] for o in r.get('objects', []) if o['role'] not in ('parent_image',)), None)
         from forensic_assistant.retrieval.presentation import detail
         observation = detail(r) if r['source_type'] == 'evtx' else obj or r.get('observation')
-        lines.append(' | '.join(safe(v) for v in (
+        values = (
             r.get('timestamp_utc'),
             r['id'],
             r['source_type'],
             r.get('artifact_type'),
             r.get('timestamp', {}).get('source'),
             observation
-        )))
+        )
+        if not methodology and r.get('detail', {}).get('userassist'):
+            from forensic_assistant.retrieval.presentation import safe_path
+            lines.append(' | '.join(safe(v) for v in values[:-1]) + ' | ' + safe_path(values[-1]))
+        else:
+            lines.append(' | '.join(safe(v) for v in values))
     lines.append(f"Displayed {len(result['records'])} / {result['total']}; truncated={result['truncated']}")
     if methodology:
         lines.append('CORRELATION != CAUSATION. Timestamp semantics differ by artifact.')

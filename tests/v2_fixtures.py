@@ -90,7 +90,7 @@ def prefetch_file(path, name='PAYLOAD.EXE', version=17):
     return path
 
 
-def registry_file(path, dirty=False, target=r'C:\Temp\payload.exe'):
+def registry_file(path, dirty=False, target=r'C:\Temp\payload.exe', *, userassist=None, userassist_version=5):
     cells = bytearray(32)
     def cell(data):
         offset = len(cells)
@@ -137,7 +137,13 @@ def registry_file(path, dirty=False, target=r'C:\Temp\payload.exe'):
         'Run',
         values=[value('Example', 1, (target + '\x00').encode('utf-16le')), value('Binary', 3, b'\x00\xff\x1b\x00')]
     )
-    explorer = key('Explorer')
+    ua = []
+    if userassist is not None:
+        count = key('Count', values=[value(name, typ, data) for name, typ, data in userassist])
+        versions = [] if userassist_version is None else [value('Version', 4, userassist_version.to_bytes(4, 'little'))]
+        guid = key('{CEBFF5CD-ACE2-4F4F-9178-9926F41749EA}', [count], versions)
+        ua = [key('UserAssist', [guid])]
+    explorer = key('Explorer', ua)
     current = key('CurrentVersion', [run, explorer])
     windows = key('Windows', [current])
     microsoft = key('Microsoft', [windows])

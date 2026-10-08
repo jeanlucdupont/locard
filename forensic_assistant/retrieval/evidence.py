@@ -100,12 +100,21 @@ def get_evidence(db, eid, raw=False):
                 'SELECT key_path FROM registry_keys WHERE evidence_id=?',
                 (detail['key_id'],)
             ).fetchone()[0]
-            result['timestamps'] = [{**dict(r), 'inherited_from_key': True} for r in db.execute(
+            result['timestamps'] += [{**dict(r), 'inherited_from_key': True} for r in db.execute(
                 'SELECT * FROM evidence_timestamps WHERE evidence_id=?',
                 (detail['key_id'],)
             )]
             result['supporting_evidence_ids'] = [detail['key_id']]
             result['observation'] = 'Registry value in snapshot; associated timestamp belongs to containing key'
+            from forensic_assistant.artifacts.userassist import load, SLOT
+            userassist = load(db, eid)
+            if userassist:
+                detail['userassist'] = userassist
+                stamp = userassist.get('last_execution')
+                if stamp and not any(t['slot'] == SLOT for t in result['timestamps']):
+                    result['timestamps'].insert(0, dict(stamp, evidence_id=eid))
+                result['observation'] = ('UserAssist control/special entry: ' if userassist['status'] == 'control' else
+                                         'UserAssist application reference: ') + userassist['decoded_name']
         detail['hive'] = hive
         detail['views'] = [dict(r) for r in db.execute(
             'SELECT * FROM registry_views WHERE evidence_id=? ORDER BY extractor',
@@ -121,6 +130,9 @@ def get_evidence(db, eid, raw=False):
     if not raw:
         result.pop('raw_xml', None)
     times = [t['timestamp_utc'] for t in result['timestamps'] if t['timestamp_utc']]
+    if kind == 'registry' and result.get('detail', {}).get('userassist'):
+        # The established search summary remains containing-key LastWrite.
+        times = [t['timestamp_utc'] for t in result['timestamps'] if t.get('inherited_from_key') and t['timestamp_utc']]
     if kind != 'evtx':
         result['timestamp_utc'] = min(times) if times else None
     return result
@@ -138,6 +150,8 @@ class EvidenceQueries:
         path=None,
         registry_key=None,
         registry_key_contains=None,
+        value_name=None,
+        value_name_contains=None,
         username=None,
         hostname=None,
         strict_host=False,
@@ -153,6 +167,21 @@ class EvidenceQueries:
     ):
         clauses = []
         params = []
+        if value_name is not None or value_name_contains is not None:
+            if value_name is not None and value_name_contains is not None:
+                raise ValueError('Exact and contains value-name filters are mutually exclusive')
+            if artifact not in (None, 'registry'):
+                raise ValueError('Value-name filters require --artifact registry or no --artifact')
+            value = value_name if value_name is not None else value_name_contains
+            if value_name_contains is not None and not value:
+                raise ValueError('Registry value-name substring must not be empty')
+            from forensic_assistant.artifacts.userassist import decoded_name
+            self.db.create_function('locard_userassist_name', 2, decoded_name, deterministic=True)
+            comparison = '= ? COLLATE NOCASE' if value_name is not None else "LIKE ? ESCAPE '!' COLLATE NOCASE"
+            clauses.append("e.source_type='registry' AND EXISTS (SELECT 1 FROM registry_values v JOIN registry_keys k ON k.evidence_id=v.key_id "
+                           "WHERE v.evidence_id=e.evidence_id AND (v.value_name " + comparison +
+                           " OR locard_userassist_name(k.key_path,v.value_name) " + comparison + '))')
+            params.extend([value if value_name is not None else '%' + escape_like(value) + '%'] * 2)
         if registry_key is not None or registry_key_contains is not None:
             if registry_key is not None and registry_key_contains is not None:
                 raise ValueError('Exact and contains Registry key filters are mutually exclusive')
@@ -290,6 +319,12 @@ class EvidenceQueries:
         if start and end and start > end:
             raise ValueError('Start must not follow end')
         clauses, params = self._where(**filters)
+        prefix = ''
+        timestamp_table = 'evidence_timestamps'
+        if (timeline or start or end or exclude_time) and filters.get('artifact') in (None, 'registry'):
+            from forensic_assistant.artifacts.userassist import timeline_cte
+            prefix = timeline_cte(self.db)
+            timestamp_table = 'locard_times'
         timeclauses = []
         tp = []
         if start:
@@ -302,7 +337,10 @@ class EvidenceQueries:
             timeclauses.append('t.timestamp_utc<>?')
             tp.append(exclude_time)
         if timeline:
-            source = 'evidence_timestamps t JOIN evidence_records e USING(evidence_id)'
+            # Drive derived windows from their bounded timestamps before resolving
+            # host/source context; otherwise SQLite can hydrate an entire hive first.
+            source = (timestamp_table + ' t CROSS JOIN evidence_records e ON e.evidence_id=t.evidence_id'
+                      if prefix else 'evidence_timestamps t JOIN evidence_records e USING(evidence_id)')
             clauses += ['t.timestamp_utc IS NOT NULL', *timeclauses]
             params += tp
             fields = 'e.evidence_id,t.slot,t.timestamp_utc'
@@ -311,12 +349,15 @@ class EvidenceQueries:
             source = 'evidence_records e'
             fields = 'e.evidence_id'
             if timeclauses:
-                # Registry values borrow key context for filtering, never value timestamps.
-                clauses.append('EXISTS (SELECT 1 FROM evidence_timestamps t WHERE (t.evidence_id=e.evidence_id OR t.evidence_id=(SELECT key_id FROM registry_values WHERE evidence_id=e.evidence_id)) AND ' + ' AND '.join(timeclauses) + ')')
+                # Ordinary values borrow key context; UserAssist also has an internal time.
+                clauses.append('EXISTS (SELECT 1 FROM ' + timestamp_table + ' t WHERE (t.evidence_id=e.evidence_id OR t.evidence_id=(SELECT key_id FROM registry_values WHERE evidence_id=e.evidence_id)) AND ' + ' AND '.join(timeclauses) + ')')
                 params += tp
-            order = "(SELECT min(timestamp_utc) FROM evidence_timestamps WHERE evidence_id=e.evidence_id) IS NULL,(SELECT min(timestamp_utc) FROM evidence_timestamps WHERE evidence_id=e.evidence_id),e.evidence_id"
+            # Preserve search order across old cases and new ingestion; the added
+            # internal slot must not silently become a new default ranking signal.
+            order_time = "(SELECT min(timestamp_utc) FROM evidence_timestamps WHERE evidence_id=e.evidence_id AND slot<>'UserAssist.LastExecution')"
+            order = order_time + ' IS NULL,' + order_time + ',e.evidence_id'
         where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
-        total = self.db.execute('SELECT count(*) FROM ' + source + where, params).fetchone()[0]
+        total = self.db.execute(prefix + 'SELECT count(*) FROM ' + source + where, params).fetchone()[0]
         if require_complete and (offset or total > limit):
             raise ValueError('Grouped text exceeds the 10,000 timestamp-observation safety bound; '
                              'narrow the time window/filters or use JSON/raw observation pagination')
@@ -333,7 +374,7 @@ class EvidenceQueries:
             order = 'locard_distance(t.timestamp_utc,?),' + order
             order_params = [nearest_to]
         rows = self.db.execute(
-            'SELECT ' + fields + ' FROM ' + source + where + ' ORDER BY ' + order + ' LIMIT ? OFFSET ?',
+            prefix + 'SELECT ' + fields + ' FROM ' + source + where + ' ORDER BY ' + order + ' LIMIT ? OFFSET ?',
             [*params, *order_params, limit, offset]
         ).fetchall()
         records = []

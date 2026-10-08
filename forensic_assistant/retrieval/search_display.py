@@ -60,7 +60,7 @@ def render(result, palette=None, *, ids=False, width=None):
                     host,
                     'Value' if 'value_name' in d else 'Key',
                     d.get('key_path'),
-                    (d['value_name'] or '(Default)') if 'value_name' in d else '-',
+                    ((d.get('userassist') or {}).get('decoded_name', d['value_name']) or '(Default)') if 'value_name' in d else '-',
                     type_name(d['value_type']) if 'value_type' in d else '-'
                 ]
             elif auth:
@@ -85,6 +85,11 @@ def render(result, palette=None, *, ids=False, width=None):
         maximums = [23, 20, 32, 24, 65]
         if kind == 'registry':
             maximums = [23, 24, 5, 65, 32, 32]
+            if any((r.get('detail') or {}).get('userassist') for _, r in group):
+                maximums[4] = 65
+                minimums[4] = max(12, min(24, max(
+                    len(safe(ntpath.basename(r['detail']['userassist']['decoded_name']))) + 4
+                    for _, r in group if (r.get('detail') or {}).get('userassist'))))
             roles = ['number_value', 'string_value', 'secondary_text', 'secondary_text', 'secondary_text', 'secondary_text']
         if auth:
             headers = ['TIME (UTC)', 'EVENT', 'HOST', 'USER', 'TYPE', 'LOGON ID']
@@ -101,6 +106,8 @@ def render(result, palette=None, *, ids=False, width=None):
             roles = ['number_value'] + roles
         def format_cell(row_index, column, value, available):
             record = group[row_index][1]
+            if kind == 'registry' and column == 4 + int(ids) and (ua := (record.get('detail') or {}).get('userassist')):
+                return fit_path(safe_path(ua['decoded_name'] or '(Default)'), available, literal=True)
             if kind == 'evtx' and not auth and column == len(headers) - 1 and record.get('artifact_type') == 'process':
                 return fit(human_detail(record), available)
             if kind != 'evtx' or column != len(headers) - 1 or record.get('artifact_type') != 'file_create':
@@ -131,11 +138,15 @@ def render(result, palette=None, *, ids=False, width=None):
             lines.append(f"{index}: " + palette('evidence_id', safe(r['id'])))
     dirty_hives = set()
     missing_candidates = []
+    key_corruption_rows = set()
     for index, r in enumerate(records, 1):
         ctx = r.get('context', {})
         for warning in r.get('warnings', []):
             if r['source_type'] == 'registry':
-                from .registry_display import DIRTY_WARNING, warning_context, warning_label
+                from .registry_display import DIRTY_WARNING, KEY_CORRUPTION, warning_context, warning_label
+                if warning == KEY_CORRUPTION:
+                    key_corruption_rows.add(index)
+                    continue
                 if warning == DIRTY_WARNING:
                     context = warning_context(r)
                     if context not in dirty_hives:
@@ -154,6 +165,9 @@ def render(result, palette=None, *, ids=False, width=None):
                 lines.append(palette('warning', f'Row {index}: multiple executable path candidates.'))
             if r.get('objects_truncated') and not paths:
                 missing_candidates.append(str(index))
+    if key_corruption_rows:
+        lines.append(palette('warning', f'Warning: parser reported key corruption for {len(key_corruption_rows)} displayed records; '
+                             'this flag alone does not establish unreadable data.'))
     if missing_candidates:
         lines.append(palette('warning', 'Note: executable path candidate unavailable in the bounded projection for rows '
                              + ', '.join(missing_candidates) + '.'))

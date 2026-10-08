@@ -12,6 +12,24 @@ TYPE_NAMES = ('REG_NONE', 'REG_SZ', 'REG_EXPAND_SZ', 'REG_BINARY', 'REG_DWORD',
               'REG_FULL_RESOURCE_DESCRIPTOR', 'REG_RESOURCE_REQUIREMENTS_LIST', 'REG_QWORD')
 VALUE_LIMIT = 20
 DATA_LIMIT = 240
+KEY_CORRUPTION = 'Parser reports key corruption'
+
+
+def warning_text(warning):
+    if warning == KEY_CORRUPTION:
+        return 'Parser flagged possible key corruption; this flag alone does not establish that the key is unreadable.'
+    return warning
+
+
+def userassist_summary(data, fallback):
+    if not data:
+        return fallback
+    if data['status'] == 'control':
+        return 'Control/special entry; not an application execution'
+    if data['status'] != 'parsed':
+        return fallback + '; UserAssist interpretation unavailable'
+    stamp = data['last_execution']['timestamp_utc']
+    return f"Recorded counter: {data['recorded_count']}; UserAssist time: " + (timestamp(stamp) + ' UTC' if stamp else 'unavailable')
 
 
 def type_name(value):
@@ -51,6 +69,8 @@ def projected_values(db, key_id):
         FROM registry_values WHERE key_id=? ORDER BY value_name COLLATE NOCASE,evidence_id LIMIT ?''', (key_id, VALUE_LIMIT)):
         item = dict(row)
         item['value_data'] = json.loads(item.pop('decoded') or 'null')
+        from forensic_assistant.artifacts.userassist import load
+        item['userassist'] = load(db, item['evidence_id'])
         rows.append(item)
     return dict(values=rows, total=total)
 
@@ -59,8 +79,11 @@ def render(record, palette=None, *, values=None):
     palette = palette or Palette()
     d = record.get('detail') or {}
     value = 'value_name' in d
+    ua = d.get('userassist')
+    from forensic_assistant.artifacts.userassist import COUNT, SLOT
+    ua_key = bool(COUNT.fullmatch(d.get('key_path') or ''))
     ctx = record.get('context') or {}
-    lines = [palette('heading', 'Registry value' if value else 'Registry key')]
+    lines = [palette('heading', 'UserAssist value' if ua else 'Registry value' if value else 'Registry key')]
     def field(label, text):
         lines.append(palette('key', label + ': ') + text)
     field('Evidence ID', palette('evidence_id', safe(record['id'])))
@@ -72,40 +95,65 @@ def render(record, palette=None, *, values=None):
     names = [s['display_name'] for s in ctx.get('source_assertions', [])]
     field('Source', safe('; '.join(names) or 'unassigned'))
     field('Host', safe(ctx.get('hostname') or 'unknown'))
+    if ua and ctx.get('username'):
+        field('User', safe(ctx['username']))
     field('Key', safe_path(d.get('key_path')))
     if value:
-        field('Name', safe(d['value_name'] or '(Default)'))
+        if ua:
+            field('Decoded name', safe_path(ua['decoded_name'] or '(Default)'))
+            field('Raw name', safe_path(d['value_name'] or '(Default)'))
+        else:
+            field('Name', safe(d['value_name'] or '(Default)'))
         field('Type', type_name(d.get('value_type')))
         field('Data', data_text(d.get('value_type'), d.get('value_data')))
     times = [t for t in record.get('timestamps', []) if t.get('timestamp_utc')]
     for t in times:
-        field('Last write', timestamp(t['timestamp_utc']) + ' UTC')
-    if not times:
-        field('Last write', 'unavailable')
+        label = 'UserAssist last execution/interaction' if t['slot'] == SLOT else 'Registry key last write' if ua else 'Last write'
+        field(label, timestamp(t['timestamp_utc']) + ' UTC' + ('  [' + safe(t['slot']) + ']' if ua else ''))
+    if not times or (ua and not any(t.get('inherited_from_key') for t in times)):
+        field('Registry key last write' if ua else 'Last write', 'unavailable')
     lines.append('Note: Timestamp belongs to the containing key; not individual value creation.' if value else
                  'Note: Registry key last-write time; not individual value creation.')
+    if ua:
+        # The old generic note must not label the internal timestamp as key context.
+        lines.pop()
+        if ua['status'] == 'parsed':
+            field('Recorded run counter' if ua['declared_version'] == 3 else 'Recorded run/interaction count', str(ua['recorded_count']))
+            lines.append(safe(ua['count_semantics']))
+            if not ua['last_execution']['timestamp_utc']:
+                field('UserAssist last execution/interaction', 'unavailable')
+        if ua.get('limitation'):
+            lines += ['', palette('heading', 'Interpretation limitation'), palette('warning', safe(ua['limitation']))]
     if not value:
         lines += ['', palette('heading', 'Values')]
         if values is None:
             lines.append('Value details not loaded; use CLI show for the bounded values table (--json exposes value IDs).')
         else:
-            rows = [[v['value_name'] or '(Default)', type_name(v['value_type']),
-                     data_text(v['value_type'], v['value_data'], raw_size=v['raw_size'], omitted=(v['json_size'] or 0) > 4096)]
+            rows = [[(v.get('userassist') or {}).get('decoded_name', v['value_name']) or '(Default)', type_name(v['value_type']),
+                     userassist_summary(v.get('userassist'), data_text(v['value_type'], v['value_data'], raw_size=v['raw_size'], omitted=(v['json_size'] or 0) > 4096))]
                     for v in values['values']]
-            lines += table(['NAME', 'TYPE', 'DATA'], rows, palette,
+            lines += table(['DECODED NAME' if ua_key else 'NAME', 'TYPE', 'DATA'], rows, palette,
                            minimums=[12, 13, 16], maximums=[35, 32, DATA_LIMIT],
-                           roles=['secondary_text'] * 3,
+                           roles=['secondary_text'] * 3, paths=(0,) if ua_key else (),
                            format_cell=lambda row, col, text, room: fit(rows[row][col], room) if col in (1, 2) else None)
             if not rows:
                 lines.append('No values.')
             if note := pagination(len(rows), values['total']):
                 lines.append(note + ' values')
+    if ua or ua_key:
+        lines += ['', palette('heading', 'Forensic notes')]
+        for note in (
+            'UserAssist can indicate recorded execution or user interaction with an application; it does not prove process creation or user intent.',
+            'Registry key LastWrite is separate from the UserAssist internal timestamp.',
+            'Control/special entries are not application executions. Known-folder GUIDs are retained, not resolved to guessed paths.'
+        ):
+            lines.append(palette('warning', '- ' + note))
     warnings = list(dict.fromkeys(record.get('warnings', [])))
     if ctx.get('conflicts'):
         warnings.append('Conflicting context: ' + ', '.join(ctx['conflicts']))
     if warnings:
         lines += ['', palette('heading', 'Limitations / data quality')]
-        lines.extend(palette('warning', safe(w)) for w in warnings)
+        lines.extend(palette('warning', safe(warning_text(w))) for w in warnings)
     return '\n'.join(lines)
 
 

@@ -425,7 +425,11 @@ NOCASE matching (ASCII case-insensitive; non-ASCII characters compare exactly),
 include the matching keys and their independent values, and do not expand
 wildcards or normalize filesystem paths. Use `--artifact registry` or omit the
 artifact filter. `--path` retains its existing filesystem/target-path meaning.
-Value-name filters are not provided. The search default remains 20 records.
+`--value-name` (exact) and `--value-name-contains` (literal substring) match raw
+value names and, only under UserAssist GUID/Count keys, ROT13-decoded names.
+They use the same NOCASE rules and can be combined with `--source` and key
+filters. For example: `search --artifact registry --value-name-contains coreupdater --ids`.
+The search default remains 20 records.
 Registry search identifies Key/Value rows and shows dirty-hive warnings once
 per hive/source context; structured warnings remain per record.
 
@@ -437,6 +441,35 @@ bounded to 240 characters (and 10 entries for multi-strings); the key-value
 projection reads at most 4,096 JSON characters per value. Binary data is
 summarized rather than printed. `show --json` retains full provenance, numeric
 types and existing value IDs; `show --raw` retains the raw projection.
+
+UserAssist Count values additionally expose `detail.userassist`, including the
+decoded name, declared format, interpretation status and supported binary fields.
+Declared version 3 requires exactly 16 bytes; version 5 requires exactly 72 bytes.
+Locard reads the recorded counter and internal FILETIME only. Version-3 counters
+remain explicitly unadjusted; uncertain focus/session fields are not interpreted.
+Missing/unknown versions, wrong lengths/types, and special UEME control entries
+retain their raw data without invented execution fields. Zero/invalid FILETIMEs
+do not produce a usable execution time. Known-folder GUIDs are not expanded.
+
+`UserAssist.LastExecution` is attached to the existing Registry value ID, separate
+from inherited key `LastWrite`. Both are eligible timeline observations; `around`
+requires `--timestamp-slot` when multiple populated semantics exist, even when
+their times coincide. Search continues to display **key time**, not silently
+substitute the UserAssist time. New ingestion stores supported slots in the
+existing timestamp table. Older cases derive the same slots read-only from stored
+bytes, without migration, re-ingestion or duplicate observations. Status counts
+include these projected observations. Raw names/bytes, source membership and
+evidence IDs are unchanged. UserAssist can indicate recorded execution or user
+interaction; it does not prove process creation, command lines or intent. Existing
+host/source isolation remains in effect; no Prefetch correlation is invented.
+
+UserAssist layouts follow the [libyal format reference](https://github.com/libyal/winreg-kb/blob/main/docs/sources/explorer-keys/User-assist.md).
+The libregf key-corruption flag is retained in structured warnings. Human output
+describes it as a parser flag and consolidates repeated key warnings. In the
+tested hive, empty Count keys with a `0xffffffff` value-list offset trigger that
+flag; populated Count keys remain readable. The flag alone therefore does not
+establish unreadable data, and it is not suppressed for other keys. See the
+[upstream flag implementation](https://github.com/libyal/libregf/blob/main/libregf/libregf_key_item.c).
 
 Normal `status` is a bounded human summary of evidence, ingestion attempts,
 sources, unfinished batches and limitations. `status --json` preserves the

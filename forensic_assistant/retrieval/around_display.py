@@ -97,6 +97,8 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
         line('Anchor slot ambiguous; select --timestamp-slot to identify one observation.', 'warning')
     elif anchor['source_type'] == 'prefetch':
         line('Anchor: Prefetch run [' + safe(selected) + ']')
+    elif anchor.get('detail', {}).get('userassist'):
+        line('Anchor: UserAssist value [' + safe(selected) + ']')
     elif anchor['source_type'] == 'mft':
         selected_stamp = next(t for t in anchor['timestamps'] if t['slot'] == selected)
         attribute, label = mft_display.timestamp_label(selected_stamp)
@@ -137,10 +139,17 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
         if r['source_type'] == 'prefetch':
             from .prefetch_display import executable
             obj = safe(executable(r))
+        if ua := r.get('detail', {}).get('userassist'):
+            from .presentation import safe_path
+            obj = safe_path(ua['decoded_name'])
         suffix = ' <- anchor' if marker else ''
         obj_room = (room if table else width - 2) - len(suffix)
         shortened = shortened or len(obj) > obj_room
-        obj = fit(obj, obj_room)
+        if ua:
+            from .layout import fit_path
+            obj = fit_path(obj, obj_room, literal=True)
+        else:
+            obj = fit(obj, obj_room)
         if table:
             shown_time = time.split('T')[1][:-1] if one_date else time
             line(
@@ -150,6 +159,8 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
         else:
             line(f"{time} | {relative}", 'number_value')
             line('  ' + obj + suffix, 'heading' if marker else 'string_value')
+        if ua:
+            line('  Timestamp: ' + safe(r['timestamp']['source']) + ' [' + safe(r['timestamp']['slot']) + ']')
         for name, getter in getters:
             if r['source_type'] == 'mft' and name == 'Timestamp meaning':
                 continue

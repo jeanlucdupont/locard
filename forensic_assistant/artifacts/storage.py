@@ -91,6 +91,10 @@ def store(db, pack, sha, path, parser, version):
                     d['offset']
                 )
             )
+            from .userassist import load
+            userassist = load(db, eid)
+            if userassist and userassist.get('last_execution'):
+                add_timestamp(db, eid, userassist['last_execution'])
     return inserted
 
 
