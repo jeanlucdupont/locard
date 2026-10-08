@@ -183,12 +183,3 @@ def project_events(db, rows, parser_name=None, parser_version=None):
                 add_object(db, e['id'], 'TargetFilename', 'file_create_target', target)
             for stamp in file_create_timestamps(e, data):
                 add_timestamp(db, e['id'], stamp)
-
-
-def upgrade3(db):
-    for sql in DDL:
-        db.execute(sql)
-    cursor = db.execute('SELECT * FROM events ORDER BY id')
-    while rows := cursor.fetchmany(500):
-        project_events(db, rows)
-    db.execute('PRAGMA user_version=3')

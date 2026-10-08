@@ -9,7 +9,6 @@ COMMANDS = MappingProxyType({
     'around': 'Show evidence near a specific event or timestamp',
     'ask': 'Ask the local AI questions about case evidence',
     'case': 'Open or create a case',
-    'case-upgrade': 'Upgrade an older case to the current database format',
     'color': 'Turn terminal colors on or off',
     'detections': 'Show  evidence matching Locard detection rules',
     'exit': 'Exit Locard',

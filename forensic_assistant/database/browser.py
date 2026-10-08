@@ -17,17 +17,9 @@ DDL = (
 )
 
 
-def upgrade5(db):
-    if db.execute('PRAGMA user_version').fetchone()[0] != 4:
-        raise ValueError('Browser migration requires schema 4')
-    for statement in DDL:
-        db.execute(statement)
-    db.execute('PRAGMA user_version=5')
-
-
 def require5(db):
     if db.execute('PRAGMA user_version').fetchone()[0] != 5:
-        raise ValueError('Browser ingestion requires schema 5; explicitly run case-upgrade --yes (creates a backup)')
+        raise ValueError('Browser ingestion requires schema 5; create a new case and ingest the original evidence')
 
 
 def context_id(sha, product, profile):

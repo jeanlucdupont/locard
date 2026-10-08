@@ -147,21 +147,11 @@ identical content imported from different sources shares evidence IDs while
 retaining separate source occurrences. Source membership does not prove a machine's
 identity or that an executable ran.
 
-New cases use schema **5**. Schema-3 and schema-4 cases remain readable without automatic
-migration. Before using source management or ingesting into a legacy case, explicitly
-upgrade it (schema 1, 2, 3 and 4 are supported upgrade inputs):
-
-```text
-locard --db case.db case-upgrade --yes
-```
-
-The upgrade creates a uniquely named SQLite-consistent backup beside the case,
-validates the schema, and applies additive changes transactionally. It preserves
-evidence, IDs, existing `source_contexts` and file runs. Historical sources and
-batches remain unknown; dates and directories are never used to invent membership.
-Keep the backup private: it contains the case's evidence. An upgrade failure rolls
-back the transaction; any backup already created is retained. Case selection and
-ordinary reads never perform this upgrade.
+New cases use schema **5**. Schema-3 and schema-4 cases remain readable without
+changes to their schema. In-place case upgrades are not supported. Source management
+requires schema 4 or 5; browser ingestion requires schema 5. To use features unavailable
+in an older case, create a new case and ingest the original evidence with explicit
+source metadata. Preserve the older case and its provenance separately.
 
 Inside an active case, or prefixed with `locard --db case.db`:
 
@@ -372,8 +362,7 @@ and `help <command>` remain comprehensive, and errors return to the active promp
 Source revisions, batches and assignments participate in the content fingerprint.
 Changes make dependent semantic indexes, investigations and report/case validation
 stale. Rebuild indexes explicitly; historical reports and transcripts are never
-rewritten. A migrated case has a different fingerprint even if its raw evidence is
-unchanged. Validate historical outputs against their original case snapshot when
+rewritten. Validate historical outputs against their original case snapshot when
 appropriate; successful validation still does not prove forensic conclusions.
 
 **Search summarizes. Show explains. Raw exposes.**
@@ -861,11 +850,10 @@ creates a new automatic source for each invocation; use an existing explicit
 source ID to retain an unambiguous source across repeated ingestion.
 
 Browser ingestion requires schema 5. Existing cases are **never upgraded by
-ingestion**. Run `case-upgrade --yes` explicitly: it makes a uniquely named backup,
-validates the old structure, and applies an atomic additive upgrade. Keep the
-backup for older Locard releases, which reject schema 5. Original evidence rows,
-IDs and non-browser source semantics are preserved; no legacy source links are
-inferred. Schema 5 adds only `browser_contexts` and
+ingestion**. For an older case, create a new case and ingest the original evidence.
+Older Locard releases reject schema 5. Existing case evidence and non-browser source
+semantics remain unchanged; no legacy source links are inferred. Schema 5 includes
+`browser_contexts` and
 `browser_record_occurrences`, with indexes. A logical context identifies the
 main/WAL snapshot, product, and exact supplied profile; occurrences link each
 record to a specific run/batch/source. File-hash membership and retrospective

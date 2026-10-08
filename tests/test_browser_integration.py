@@ -56,7 +56,7 @@ def test_browser_ingestion_context_isolation_duplicates_and_queries(tmp_path):
         assert db.execute('SELECT count(*) FROM source_contexts').fetchone()[0] == 0
 
 
-def test_browser_requires_explicit_upgrade_before_source_creation(tmp_path):
+def test_browser_requires_schema5_before_source_creation(tmp_path):
     import pytest
     from test_browser_schema import schema4
     case = tmp_path / 'old.db'
@@ -64,7 +64,7 @@ def test_browser_requires_explicit_upgrade_before_source_creation(tmp_path):
     path = tmp_path / 'History'
     history(path).close()
     with closing(connect(case)) as db:
-        with pytest.raises(ValueError, match='explicitly'):
+        with pytest.raises(ValueError, match='requires schema 5'):
             ingest(db, path)
         assert db.execute('PRAGMA user_version').fetchone()[0] == 4
         assert db.execute('SELECT count(*) FROM sources').fetchone()[0] == 0

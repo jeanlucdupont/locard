@@ -1,4 +1,4 @@
-"""Reporting dispatch precedes all database creation/migration paths."""
+"""Reporting dispatch precedes database creation paths."""
 from forensic_assistant.command_catalog import COMMANDS
 from pathlib import Path
 from .bundle import generate, inspect, validate

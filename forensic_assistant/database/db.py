@@ -4,11 +4,19 @@ from pathlib import Path
 import sqlite3
 from forensic_assistant.model import NormalizedEvent
 from forensic_assistant.database.context import insert_context
-from forensic_assistant.database.migrations import upgrade
 
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def initialize_tables(db):
+    """Create derived and provenance tables for a new, empty case only."""
+    from forensic_assistant.database import context, artifacts, sources, browser
+    for statements in (context.DDL, artifacts.DDL, sources.DDL, browser.DDL):
+        for statement in statements:
+            db.execute(statement)
+    db.execute('PRAGMA user_version=5')
 
 
 def connect(path, *, existing_only=False):
@@ -23,7 +31,7 @@ def connect(path, *, existing_only=False):
         version = db.execute("PRAGMA user_version").fetchone()[0]
         if version in (1, 2):
             db.close()
-            raise ValueError("Unsupported legacy database schema; an existing schema-3 case is required")
+            raise ValueError("Unsupported legacy database schema; supported existing schemas are 3, 4 and 5")
         if version not in (0, 3, 4, 5):
             db.close()
             raise ValueError(f"Unsupported database schema version: {version}")
@@ -34,13 +42,7 @@ def connect(path, *, existing_only=False):
                 raise ValueError("Unversioned nonempty database; refusing to modify it")
             db.executescript(Path(__file__).with_name("schema.sql").read_text())
             with db:
-                upgrade(db)
-                from forensic_assistant.database.artifacts import upgrade3
-                upgrade3(db)
-                from forensic_assistant.database.sources import upgrade4
-                upgrade4(db)
-                from forensic_assistant.database.browser import upgrade5
-                upgrade5(db)
+                initialize_tables(db)
         return db
     except BaseException:
         db.close()

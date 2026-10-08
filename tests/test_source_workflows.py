@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from forensic_assistant.cli import main, build_parser
 from forensic_assistant.database.db import connect
-from forensic_assistant.database import sources, migrations
+from forensic_assistant.database import sources
 from forensic_assistant import v2_cli, source_cli
 from forensic_assistant.retrieval.evidence import EvidenceQueries, get_evidence
 from forensic_assistant.semantic.documents import fingerprint
@@ -166,31 +166,17 @@ def test_source_artifact_conflict_and_separation(tmp_path):
         assert db.execute('SELECT hostname FROM events').fetchone()[0] == 'artifact-host'
 
 
-def test_legacy_file_upgrade_backup_and_retrospective_assignment(tmp_path, monkeypatch):
-    from test_sources_model import connect as legacy
+def test_unassigned_file_retrospective_assignment(tmp_path):
     from forensic_assistant.artifacts.ingest import ingest_artifact
     path = tmp_path / 'legacy.db'
-    with closing(legacy(path)) as db:
+    with closing(connect(path)) as db:
         ingest_artifact(db, prefetch_file(tmp_path / 'old.pf'), 'prefetch')
         old = fingerprint(db)
         sha = db.execute('SELECT sha256 FROM evidence_files').fetchone()[0]
         eid = db.execute('SELECT evidence_id FROM evidence_records').fetchone()[0]
-    # Legacy read is non-mutating and does not manufacture source membership.
+    # Reading unassigned evidence does not manufacture source membership.
     with closing(connect(path)) as db:
         assert fingerprint(db) == old and get_evidence(db, eid)['host_key'] is None
-    original = sources.upgrade4
-    def fail(db):
-        original(db)
-        raise RuntimeError('injected')
-    monkeypatch.setattr(sources, 'upgrade4', fail)
-    with pytest.raises(ValueError, match='rolled back'):
-        migrations.migrate(path)
-    with closing(connect(path)) as db:
-        assert fingerprint(db) == old
-    monkeypatch.setattr(sources, 'upgrade4', original)
-    result = migrations.migrate(path)
-    with closing(connect(result['backup'])) as backup:
-        assert fingerprint(backup) == old
     with closing(connect(path)) as db:
         assert sources.listing(db)['total'] == 0
         assert sources.coverage(db)['unassigned_files'] == 1
@@ -280,27 +266,6 @@ def test_source_update_invalidates_derived_state_without_rewriting_it(tmp_path):
     assert before == {p.name: p.read_bytes() for p in report.iterdir()}
 
 
-def test_legacy_wal_migration_preserves_contexts_and_backup(tmp_path):
-    from test_sources_model import connect as legacy
-    from forensic_assistant.database.db import register_source
-    from forensic_assistant.artifacts.context import bind_context
-    from forensic_assistant.interactive.case import validate
-    path = tmp_path / 'wal.db'
-    with closing(legacy(path)) as db:
-        db.execute('PRAGMA journal_mode=WAL')
-        with db:
-            register_source(db, 'c' * 64, 1, 'synthetic.pf')
-            bind_context(db, 'c' * 64, 'synthetic.pf', 'legacy-host', 'legacy-user', 'C:')
-        old = fingerprint(db)
-        result = migrations.migrate(path)
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 5
-        assert dict(db.execute('SELECT * FROM source_contexts').fetchone())['hostname'] == 'legacy-host'
-        assert sources.coverage(db)['unassigned_files'] == 1
-        assert validate(path) == path
-    with closing(connect(result['backup'])) as db:
-        assert fingerprint(db) == old
-
-
 def test_interactive_source_update_decline_then_confirm(tmp_path):
     from test_interactive_shell import Input
     from forensic_assistant.interactive.shell import Shell
@@ -321,7 +286,7 @@ def test_interactive_source_update_decline_then_confirm(tmp_path):
 
 
 def test_legacy_replay_uses_recorded_schema(tmp_path):
-    from test_sources_model import connect as legacy
+    from schema_fixtures import legacy
     from forensic_assistant.database.db import register_source
     from test_ingest import SHA
     from v1_fixtures import process

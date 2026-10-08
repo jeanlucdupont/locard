@@ -150,7 +150,7 @@ def validate_destination(target, args):
         case = Path(value).absolute()
         protected += [case, *[Path(str(case) + s) for s in ('-wal', '-shm', '-journal')]]
         if case.is_file():
-            # This opener cannot create a case or run migrations.
+            # This opener cannot create a case or alter its schema.
             from forensic_assistant.investigation_ai.case import open_readonly
             with closing(open_readonly(case, deadline=time.monotonic() + 10)) as db:
                 tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}

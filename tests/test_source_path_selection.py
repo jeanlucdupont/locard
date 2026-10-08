@@ -7,12 +7,13 @@ from pathlib import Path
 import pytest
 from forensic_assistant.cli import main, build_parser
 from forensic_assistant import source_cli, v2_cli, terminal, output
-from forensic_assistant.database import sources, migrations, source_selection
+from forensic_assistant.database import sources, source_selection
 from forensic_assistant.database.db import connect, register_source
 from forensic_assistant.database.artifacts import register, add_timestamp, add_object
 from forensic_assistant.semantic.documents import fingerprint
 from forensic_assistant.retrieval.evidence import EvidenceQueries, get_evidence
-from test_sources_model import connect as legacy
+
+from schema_fixtures import legacy
 
 ROOT = r'C:\Evidence\PC01\Prefetch collection'
 
@@ -59,9 +60,8 @@ def populate(db, count=3):
 
 
 def make_case(path, count=3):
-    with closing(legacy(path)) as db:
+    with closing(connect(path)) as db:
         hashes = populate(db, count)
-    migrations.migrate(path)
     with closing(connect(path)) as db:
         with db:
             sid = sources.create(db, name='Synthetic lab', hostname='synthetic-host')
@@ -147,7 +147,7 @@ def test_union_dedup_and_literal_brackets(tmp_path):
         assert source_selection.select(db, paths=[ROOT + '\\[abc].pf'])['file_hashes'] == [hashes[0]]
 
 
-def test_preview_apply_196_migration_integrity_and_correlations(tmp_path):
+def test_preview_apply_196_integrity_and_correlations(tmp_path):
     path = tmp_path / 'case.db'
     sid, hashes = make_case(path, 196)
     with closing(connect(path)) as db:

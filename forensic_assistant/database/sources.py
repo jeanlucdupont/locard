@@ -30,18 +30,9 @@ DDL = (
 )
 
 
-def upgrade4(db):
-    """Caller owns the migration transaction. No historical memberships inferred."""
-    if db.execute('PRAGMA user_version').fetchone()[0] != 3:
-        raise ValueError('Source migration requires schema 3')
-    for sql in DDL:
-        db.execute(sql)
-    db.execute('PRAGMA user_version=4')
-
-
 def require4(db):
     if db.execute('PRAGMA user_version').fetchone()[0] not in (4, 5):
-        raise ValueError('Source operations require schema 4; explicitly upgrade this case first')
+        raise ValueError('Source operations require schema 4 or 5; create a new case and ingest the original evidence')
 
 
 def identifier(prefix):

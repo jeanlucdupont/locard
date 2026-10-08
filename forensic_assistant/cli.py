@@ -186,12 +186,6 @@ def _dispatch(args, output, *, existing_only=False):
     from forensic_assistant.investigation_ai import cli as investigation_cli
     from forensic_assistant.reporting import cli as report_cli
     try:
-        if args.command == 'case-upgrade':
-            if not args.yes:
-                raise ValueError('Case upgrade requires --yes; a consistent backup is created before migration')
-            from forensic_assistant.database.migrations import migrate
-            emit(migrate(args.db))
-            return 0
         if args.command == 'report':
             try:
                 result = report_cli.dispatch(args)

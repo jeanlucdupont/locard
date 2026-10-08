@@ -1,4 +1,4 @@
-"""Existing-case-only access, independent of the database creation/migration API."""
+"""Existing-case-only access, independent of the database creation API."""
 from contextlib import contextmanager
 from pathlib import Path
 import sqlite3

@@ -4,9 +4,6 @@ from forensic_assistant.database import sources
 
 
 def configure(commands):
-    upgrade = commands.add_parser('case-upgrade', help=COMMANDS['case-upgrade'])
-    upgrade.add_argument('--yes', action='store_true', help='Confirm upgrading the selected case')
-    upgrade.add_argument('--json', action='store_true')
     parser = commands.add_parser('source', help=COMMANDS['source'])
     sub = parser.add_subparsers(dest='source_command', required=True)
     for name in ('list', 'show', 'create', 'update', 'assign'):

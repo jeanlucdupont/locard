@@ -125,3 +125,23 @@ def insert_context(db, events):
     sql = "INSERT INTO event_context (" + ",".join(COLUMNS) + ") VALUES (" + ",".join("?" for _ in COLUMNS) + ") ON CONFLICT(evidence_id) DO NOTHING"
     rows = [extract(event.as_dict() if hasattr(event, "as_dict") else dict(event)) for event in events]
     db.executemany(sql, [tuple(row[name] for name in COLUMNS) for row in rows])
+
+
+DDL = (
+    """CREATE TABLE event_context (
+    evidence_id TEXT PRIMARY KEY REFERENCES events(id), host_key TEXT, timestamp_utc TEXT,
+    kind TEXT, pid INTEGER, ppid INTEGER, process_guid TEXT, parent_process_guid TEXT,
+    subject_logon_key TEXT, target_logon_key TEXT, process_logon_key TEXT,
+    subject_account TEXT, target_account TEXT, subject_sid TEXT, target_sid TEXT,
+    source_ip_key TEXT, version TEXT NOT NULL, warnings_json TEXT NOT NULL)""",
+    "CREATE INDEX ctx_host_time ON event_context(host_key,timestamp_utc,evidence_id)",
+    "CREATE INDEX ctx_pid ON event_context(host_key,pid,timestamp_utc)",
+    "CREATE INDEX ctx_ppid ON event_context(host_key,ppid,timestamp_utc)",
+    "CREATE INDEX ctx_guid ON event_context(host_key,process_guid,timestamp_utc)",
+    "CREATE INDEX ctx_parent_guid ON event_context(host_key,parent_process_guid,timestamp_utc)",
+    "CREATE INDEX ctx_subject_logon ON event_context(host_key,subject_logon_key,timestamp_utc)",
+    "CREATE INDEX ctx_target_logon ON event_context(host_key,target_logon_key,timestamp_utc)",
+    "CREATE INDEX ctx_process_logon ON event_context(host_key,process_logon_key,timestamp_utc)",
+    "CREATE INDEX ctx_kind_time ON event_context(kind,timestamp_utc,evidence_id)",
+    "CREATE INDEX ctx_auth ON event_context(host_key,target_account,source_ip_key,timestamp_utc)",
+)

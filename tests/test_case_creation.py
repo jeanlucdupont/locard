@@ -196,7 +196,7 @@ def test_initialization_exception_closes_connection(tmp_path, monkeypatch):
     import forensic_assistant.database.db as database
     def fail(db):
         raise KeyboardInterrupt()
-    monkeypatch.setattr(database, 'upgrade', fail)
+    monkeypatch.setattr(database, 'initialize_tables', fail)
     target = tmp_path / 'failed.db'
     with pytest.raises(KeyboardInterrupt):
         database.connect(target)
