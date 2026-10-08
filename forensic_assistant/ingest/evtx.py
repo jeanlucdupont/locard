@@ -18,6 +18,7 @@ class ParsedRecord:
     record_id: int | None = None
     xml: str | None = None
     error: str | None = None
+    diagnostics: dict | None = None
 
 
 def digest(path):
@@ -28,42 +29,12 @@ def digest(path):
     return sha.hexdigest()
 
 
-def records(path):
-    from Evtx.Evtx import Evtx
-    with Evtx(str(path)) as log:
-        header = log.get_file_header()
-        if not header.verify():
-            yield ParsedRecord(0, error="File header verification failed")
-        seen_chunks = 0
-        for chunk in log.chunks():
-            seen_chunks += 1
-            end = chunk.offset() + 512
-            try:
-                if not chunk.verify():
-                    yield ParsedRecord(chunk.offset(), error="Chunk checksum/header verification failed")
-                for record in chunk.records():
-                    offset = record.offset()
-                    record_id = None
-                    try:
-                        end = offset + record.length()
-                        record_id = record.record_num()
-                        if not record.verify():
-                            yield ParsedRecord(offset, record_id, error="Record size verification failed")
-                        yield ParsedRecord(offset, record_id, xml=record.xml())
-                    except Exception as exc:
-                        yield ParsedRecord(offset, record_id, error=f"{type(exc).__name__}: {exc}")
-                if end != chunk.offset() + chunk.next_record_offset():
-                    yield ParsedRecord(
-                        end,
-                        error="Parser stopped before the declared end of chunk; records may be missing"
-                    )
-            except Exception as exc:
-                yield ParsedRecord(end, error=f"Chunk iteration failed: {exc}")
-        if seen_chunks != header.chunk_count():
-            yield ParsedRecord(None, error="File truncated: fewer chunks than declared")
+def records(path, *, timeout=300):
+    from forensic_assistant.ingest.evtx_recovery import read_records
+    yield from read_records(path, timeout=timeout)
 
 
-def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batch_id=None):
+def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batch_id=None, timeout=300):
     if batch_size < 1:
         raise ValueError("Batch size must be positive")
     path = Path(path).resolve()
@@ -75,15 +46,19 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
     run_id = None
     errors = 0
     identifier_discrepancies = 0
+    diagnostics = []
 
-    def report(stage, message, offset=None, record_id=None):
+    def report(stage, message, offset=None, record_id=None, diagnostic=None):
         nonlocal errors
         errors += 1
         with db:
-            db.execute(
+            error_id = db.execute(
                 "INSERT INTO ingestion_errors(run_id,record_offset,record_id,stage,message) VALUES (?,?,?,?,?)",
                 (run_id, offset, record_id, stage, message)
-            )
+            ).lastrowid
+            if diagnostic is not None:
+                diagnostics.append((error_id, diagnostic))
+                db.execute("INSERT INTO artifact_errors VALUES (?,?)", (error_id, json.dumps(diagnostic)))
         if reporter:
             reporter(f"{path} offset={offset} record={record_id}: {stage}: {message}")
 
@@ -105,9 +80,9 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
                     register_source(stage, before, size, str(path))
                 batch = []
                 try:
-                    for record in reader(path):
+                    for record in (records(path, timeout=timeout) if reader is records else reader(path)):
                         if record.error:
-                            report("parse", record.error, record.offset, record.record_id)
+                            report("parse", record.error, record.offset, record.record_id, record.diagnostics)
                             continue
                         try:
                             event = normalize(record.xml, before, str(path), record.offset)
@@ -133,6 +108,10 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
                             report("normalize", f"{type(exc).__name__}: {exc}", record.offset, record.record_id)
                 except Exception as exc:
                     report("parse", f"File iteration stopped: {type(exc).__name__}: {exc}")
+                with db:
+                    for error_id, diagnostic in diagnostics:
+                        db.execute("UPDATE artifact_errors SET locator_json=? WHERE error_id=?",
+                                   (json.dumps(diagnostic), error_id))
                 with stage:
                     insert_events(stage, batch, **parser_metadata)
                 if digest(path) != before or path.stat().st_size != size:

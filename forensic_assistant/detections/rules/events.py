@@ -5,12 +5,16 @@ class EventObservation(Rule):
     def __init__(self, rule_id, name, event_id, kind, severity="low"):
         super().__init__(rule_id, name, "Review the recorded " + name.casefold(), severity, "1", (kind,))
         object.__setattr__(self, "event_id", event_id)
+        if rule_id == "LOCARD-SVC-001":
+            object.__setattr__(self, "version", "2")
 
     def evaluate(self, db, event, parameters):
-        if event["event_id"] == self.event_id:
+        from forensic_assistant.ingest.service import is_installation
+        service_install = self.rule_id == 'LOCARD-SVC-001' and is_installation(event)
+        if event["event_id"] == self.event_id or service_install:
             return self.observation(
                 event,
-                f"Provider-qualified Event ID {self.event_id} records {self.name.casefold()}"
+                f"Provider-qualified Event ID {event['event_id']} records {self.name.casefold()}"
             )
 
 

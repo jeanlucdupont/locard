@@ -72,7 +72,7 @@ def ingest_sources(db, args, progress=None):
         )
         for path, kind in files:
             if kind == 'evtx':
-                result = ingest_file(db, path, batch_id=batch_id)
+                result = ingest_file(db, path, batch_id=batch_id, timeout=getattr(args, 'parser_timeout', 300))
             else:
                 result = ingest_artifact(
                     db,
@@ -128,6 +128,8 @@ def dispatch(db, args, *, presentation=None):
         from forensic_assistant.database.sources import coverage
         from forensic_assistant.artifacts.userassist import timeline_cte
         result = Queries(db).coverage()
+        from forensic_assistant.retrieval.status_display import error_details
+        result['ingestion_errors'] = error_details(db)
         result.update(
             schema_version=db.execute('PRAGMA user_version').fetchone()[0],
             source_coverage=coverage(db),

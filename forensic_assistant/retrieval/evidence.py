@@ -37,6 +37,10 @@ def get_evidence(db, eid, raw=False):
         context=ctx,
         warnings=json.loads(record['warnings_json'])
     )
+    if kind == 'evtx':
+        from forensic_assistant.ingest.service import is_installation, fields
+        if is_installation(result):
+            result['service_installation'] = fields(result)
     result['source_locations'] = [r[0] for r in db.execute(
         'SELECT source_file FROM source_locations WHERE file_sha256=? ORDER BY source_file',
         (record['file_sha256'],)

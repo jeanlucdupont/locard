@@ -136,6 +136,13 @@ def render(result, palette=None, *, ids=False, width=None):
             paths=(len(headers) - 1,) if kind in ('prefetch', 'mft') else
                   (3 + int(ids),) if kind == 'registry' else ()
         )
+    from forensic_assistant.ingest.service import is_installation, fields
+    for index, record in enumerate(records, 1):
+        if is_installation(record):
+            data = fields(record)
+            lines.append(f"Row {index}: ServiceInstall " + safe(data['service_name']))
+            for name, key in (('Image', 'image_path'), ('Account', 'account'), ('Start type', 'start_type')):
+                lines.append('  ' + name + ': ' + (safe_path if key == 'image_path' else safe)(data[key]))
     if not records:
         lines.append('No matching evidence.')
     if ids:

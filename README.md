@@ -763,3 +763,38 @@ scope and identifier reuse, duplicate-field rejection, unique target anchors,
 missing/nonreciprocal references, contradictory accounts, duplicate exports and
 source provenance. Documentation establishes the field's meaning, but these
 Locard identity and ambiguity rules need a separate design and validation task.
+
+### EVTX recovery and Service Control Manager
+
+EVTX ingestion validates fixed chunk boundaries, chunk checksums, and record
+signatures/sizes before decoding records. A localized failure is recorded;
+recovery proceeds only at a validated record boundary or a later complete chunk.
+It never scans arbitrary bytes for apparent events. For a dirty file with a
+checksum-valid header, independently valid chunks beyond its declared count are
+accepted only while both chunk record ranges continue consecutively. Clean,
+stale, discontinuous, unsupported, and unvalidated tails are not imported.
+
+Parser anomalies keep an ingestion partial even when later records are recovered.
+`status --json` exposes existing ingestion-error rows with optional structured
+EVTX diagnostics: chunk/file offsets, binary record numbers, resume offset, and
+successful XML records parsed after the anomaly. This last count describes parser
+recovery, not necessarily new inserts (normalization failures, duplicate ingestion,
+or source-change rejection can affect publication). Unknown locations remain null.
+Counts are per anomaly and may overlap; do not sum them. A header warning that
+does not interrupt parsing has no resume offset. Header/XML EventRecordID
+differences remain non-fatal validation notes.
+
+EVTX recovery has forward-only bounds and cooperative deadline checks using the
+parser-timeout setting. These checks run between parser operations; EVTX parsing
+is not subprocess-isolated and an individual third-party XML decoding call cannot
+be forcibly interrupted by this deadline. Other artifact worker timeouts are unchanged.
+
+Service Control Manager Event 7045 in the System channel is normalized as `service`
+and rendered as a service-installation observation. Its preserved EventData provides
+service name, image path, service type, start type and service account; the account
+is not assigned as the actor username and the image is not treated as an observed
+process execution. `search --kind services` includes these records. The existing
+`LOCARD-SVC-001` service-installation observation rule (now version 2) also recognizes
+7045; no separate duplicate rule is added. Installation alone does not prove that
+the service successfully started or executed. Hostname and source-conflict rules
+are unchanged. Existing ingested rows are not rewritten automatically.

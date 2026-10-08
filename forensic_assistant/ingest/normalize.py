@@ -115,6 +115,11 @@ def normalize(xml, sha, source_file, offset):
         if event.event_id == 4697:
             # ServiceFileName is a service configuration string, not proof of execution.
             event.process_name = None
+    elif event.provider == "Service Control Manager" and event.channel == "System" and event.event_id == 7045:
+        event.artifact_type = "service"
+        event.service_name = data.get("ServiceName")
+        # ImagePath is service configuration; AccountName is not the actor user.
+        # Remaining fields are projected from duplicate-aware preserved EventData.
     elif event.event_id == 1102 and event.channel == "Security" and event.provider == "Microsoft-Windows-Eventlog":
         event.artifact_type = "audit_log_cleared"
         account("Subject")

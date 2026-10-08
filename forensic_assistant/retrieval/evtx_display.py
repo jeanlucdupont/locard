@@ -61,7 +61,7 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
     one_date = around and all(display_time(g[0]['timestamp_utc'])[:10] == display_time(stamp)[:10] for g in grouped)
     time_width = 12 if one_date else 23
     delta_width = max([5] + [len(delta(g[0]['timestamp_utc'], stamp)) for g in grouped]) if around else 0
-    sizes = [time_width] + ([delta_width] if around else []) + [max([11] + [len(safe(g[0].get('artifact_type'))) for g in grouped])]
+    sizes = [time_width] + ([delta_width] if around else []) + [max([11] + [14 if g[0].get('event_id') == 7045 and g[0].get('artifact_type') == 'service' else len(safe(g[0].get('artifact_type'))) for g in grouped])]
     headings = ['TIME (UTC)'] + (['DELTA'] if around else []) + ['TYPE']
     object_start = sum(sizes) + 2 * len(sizes)
     aligned = width - object_start >= 16
@@ -93,7 +93,9 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
             item['timestamp']['slot'] == selected for item in group)
         time = display_time(r['timestamp_utc']).replace('T', ' ').removesuffix('Z')
         values = [time[11:] if one_date else time] + ([delta(r['timestamp_utc'], stamp)] if around else [])
-        activity = safe(kind)
+        from forensic_assistant.ingest.service import is_installation, fields
+        service = is_installation(r)
+        activity = 'ServiceInstall' if service else safe(kind)
         role = 'key' if kind == 'process' else 'string_value' if kind == 'file_create' else 'secondary_text'
         if kind == 'process':
             obj = safe_path(r.get('parent_process_name') or '?')
@@ -125,6 +127,11 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
                 wrapped('<- anchor', role='heading')
         if detail:
             wrapped(detail)
+        if service:
+            data = fields(r)
+            for name, key in (('Image', 'image_path'), ('Account', 'account'), ('Start type', 'start_type')):
+                wrapped(name + ': ' + (safe_path if key == 'image_path' else safe)(data[key]))
+            wrapped('Source: ' + safe(source(r)))
         for label in semantics(group, selected if marker else None):
             wrapped(label)
         if around and source(r) != source(anchor):

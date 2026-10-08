@@ -44,6 +44,9 @@ def detail(event):
     if kind == "scheduled_task":
         return f"Task {event.get('task_name') or '?'}; Event ID {event.get('event_id')}"
     if kind == "service":
+        from forensic_assistant.ingest.service import is_installation
+        if is_installation(event):
+            return f"ServiceInstall {event.get('service_name') or '?'}"
         return f"Service {event.get('service_name') or '?'}"
     return event.get("command_line") or event.get("script_block") or kind or "Unmapped event"
 

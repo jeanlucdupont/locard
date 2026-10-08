@@ -8,6 +8,19 @@ from .presentation import safe, safe_path
 from .layout import fit
 
 
+def error_details(db):
+    """Existing error rows with optional structured locators; no schema changes."""
+    result = []
+    for row in db.execute('SELECT e.*,a.locator_json FROM ingestion_errors e '
+                          'LEFT JOIN artifact_errors a ON a.error_id=e.id ORDER BY e.id'):
+        item = dict(row)
+        locator = item.pop('locator_json')
+        if locator:
+            item['diagnostics'] = json.loads(locator)
+        result.append(item)
+    return result
+
+
 def context(db):
     # Extra text-only metadata stays outside the established status JSON contract.
     runs = {}
@@ -84,6 +97,13 @@ def render(result, case, details, palette=None):
         limitations.append(f"Recorded error ({error['count']}): " + error['message'])
     if len(details['error_summaries']) > 5 or len(details['hive_warnings']) > 5:
         limitations.append('Additional error/warning groups omitted; inspect detailed evidence and ingestion metadata')
+    for error in result.get('ingestion_errors', []):
+        diagnostic = error.get('diagnostics', {})
+        if diagnostic.get('format') == 'evtx' and diagnostic.get('resume_offset') is not None:
+            limitations.append(
+                f"EVTX recovery resumed at file offset {diagnostic['resume_offset']}; "
+                f"{diagnostic['parsed_records_after_error']} later records parsed successfully "
+                '(parser anomaly remains recorded; see status --json)')
     if result.get('caution'):
         limitations.append(result['caution'])
     limitations = list(dict.fromkeys(limitations))

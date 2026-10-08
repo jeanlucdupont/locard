@@ -95,6 +95,14 @@ def render(record, palette=None, *, registry_values=None):
             field('Process GUID', record.get('process_guid'))
             field('System Security UserID', record.get('user_sid'))
             field('Target', file_create_target(record), path=True)
+        from forensic_assistant.ingest.service import is_installation, fields, NOTE
+        if is_installation(record):
+            field('Computer', record.get('computer'))
+            field('EventRecordID', record.get('record_id'))
+            field('SystemTime (recorded)', record.get('timestamp_original'))
+            for key, value in fields(record).items():
+                field(key.replace('_', ' ').capitalize(), value, path=key == 'image_path')
+            lines += ['', palette('heading', 'Forensic note'), palette('warning', '- ' + NOTE)]
         lines.append(palette('key', 'Observation: ') + palette('string_value', human_detail(record)))
     times = record.get('timestamps', [])
     populated = [t for t in times if t.get('timestamp_utc')]
