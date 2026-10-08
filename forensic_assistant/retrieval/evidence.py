@@ -230,8 +230,16 @@ class EvidenceQueries:
                     clauses.append('NOT EXISTS (SELECT 1 FROM (' + MEMBERSHIP + ') WHERE file_sha256=e.file_sha256)')
         if schema4:
             # Parameterized SQL calls a read-only resolver shared with hydration.
+            # Bounded to this query registration; never retain source revisions
+            # across searches. Repeated rows/counts share one context lookup.
+            from functools import lru_cache
+
+            @lru_cache(maxsize=512)
+            def resolved_context(sha, host, user):
+                return effective_context(self.db, dict(file_sha256=sha, hostname=host, username=user))
+
             def context_value(sha, host, user, key):
-                return effective_context(self.db, dict(file_sha256=sha, hostname=host, username=user)).get(key)
+                return resolved_context(sha, host, user).get(key)
             self.db.create_function('locard_context', 4, context_value)
         # Explicit CLI search policy; existing process callers retain their contract.
         if sum(v is not None for v in (process, process_exact, process_contains)) > 1:
@@ -338,6 +346,8 @@ class EvidenceQueries:
         end = required_time(end) if end else None
         if start and end and start > end:
             raise ValueError('Start must not follow end')
+        if timeline and filters.get('hostname'):
+            filters['strict_host'] = True
         clauses, params = self._where(**filters)
         prefix = ''
         timestamp_table = 'evidence_timestamps'

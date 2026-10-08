@@ -286,10 +286,22 @@ artifact/active analyst hostname assertions; it remains distinct and may find
 records with conflicting assertions, which are shown in their context. The filters
 can be combined. Superseded source revisions do not act as current metadata.
 
+Host context is resolved per evidence record against the current source assertion.
+Matching normalized artifact/source hostnames resolve by agreement; a contradictory
+artifact hostname remains conflicted. With only one available hostname, existing
+artifact-derived or analyst-supplied context is retained; with neither, it stays
+unknown. Superseded source revisions are retained for audit, not current resolution.
+Source `artifact_hostnames` and `host_conflict` remain coverage diagnostics: a mixed
+source does not invalidate its agreeing records. Same-host timeline, around, and
+investigate selection use resolved record hosts. Broad `search --hostname` still
+finds artifact/analyst assertions, including conflicts. Short names and FQDNs are
+not aliases; no DNS, NetBIOS, or fuzzy matching is performed. Same source does not
+imply same host, and temporal proximity does not establish causality.
+
 `around` requires an unambiguous effective hostname and retrieves all supported
 artifact families within the requested window on that host, including different
 sources. A shared source or display name alone does not establish the host.
-Multiple source occurrences, conflicting source/artifact hostnames, and unknown
+Multiple source occurrences, record-level conflicting hostnames, and unknown
 hostnames still block same-host selection. Each neighbor retains its own evidence
 identity, source membership, user attribution and timestamp semantics. Temporal
 proximity does not establish causality or a combined execution.
@@ -796,5 +808,5 @@ is not assigned as the actor username and the image is not treated as an observe
 process execution. `search --kind services` includes these records. The existing
 `LOCARD-SVC-001` service-installation observation rule (now version 2) also recognizes
 7045; no separate duplicate rule is added. Installation alone does not prove that
-the service successfully started or executed. Hostname and source-conflict rules
-are unchanged. Existing ingested rows are not rewritten automatically.
+the service successfully started or executed. Host context follows the per-record
+resolution rules above. Existing ingested rows are not rewritten automatically.

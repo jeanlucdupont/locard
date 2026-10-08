@@ -157,8 +157,12 @@ def test_source_artifact_conflict_and_separation(tmp_path):
         evsha = db.execute("SELECT file_sha256 FROM evidence_records WHERE source_type='evtx'").fetchone()[0]
         with db:
             sources.assign(db, sid, [evsha], reason='Explicit synthetic selection')
-        assert get_evidence(db, eid)['host_key'] is None
-        assert 'source/artifact hostname' in get_evidence(db, eid)['context']['conflicts']
+        assert get_evidence(db, eid)['host_key'] == 'analyst-host'
+        assert get_evidence(db, eid)['context']['conflicts'] == []
+        ev_id = db.execute("SELECT evidence_id FROM evidence_records WHERE source_type='evtx'").fetchone()[0]
+        assert get_evidence(db, ev_id)['host_key'] is None
+        assert 'hostname' in get_evidence(db, ev_id)['context']['conflicts']
+        assert sources.summary(db, sid)['host_conflict'] is True
         assert db.execute('SELECT hostname FROM events').fetchone()[0] == 'artifact-host'
 
 

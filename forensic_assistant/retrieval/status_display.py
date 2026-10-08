@@ -83,7 +83,7 @@ def render(result, case, details, palette=None):
     if coverage.get('unassigned_files'):
         limitations.append(f"Unassigned evidence files: {coverage['unassigned_files']}")
     if any(s.get('host_conflict') for s in coverage.get('sources', [])):
-        limitations.append('Conflicting source/artifact hostname assertions; review source details')
+        limitations.append('Source-level conflicting hostname assertions; record hosts are resolved individually; review source details')
     if log_files:
         limitations.append(f'Registry transaction-log replay is not supported: {len(log_files)} companion file paths in ingestion history')
     if historical:

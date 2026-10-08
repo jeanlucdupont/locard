@@ -163,7 +163,7 @@ def summary(db, source_id):
     if not data['hostname']:
         data['limitations'].append('Analyst hostname unknown; source membership alone does not establish a host')
     if data['host_conflict']:
-        data['limitations'].append('Conflicting source/artifact hostname assertions')
+        data['limitations'].append('Source-level conflicting hostname assertions; record hosts are resolved individually')
     data['ambiguous_files'] = db.execute(
         '''SELECT count(*) FROM (''' + MEMBERSHIP + ''') m WHERE source_id=?
         AND EXISTS (SELECT 1 FROM (''' + MEMBERSHIP + ''') other WHERE other.file_sha256=m.file_sha256 AND other.source_id<>m.source_id)''',
