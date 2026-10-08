@@ -56,6 +56,9 @@ def semantics(record):
 
 
 def render(result, anchor, stamp, args, palette=None, *, width=None):
+    from . import mixed_display
+    if mixed_display.is_mixed(result, anchor):
+        return mixed_display.render(result, palette=palette, width=width, anchor=anchor, stamp=stamp, args=args)
     if anchor['source_type'] == 'evtx':
         from .evtx_display import render_around
         return render_around(result, anchor, stamp, args, palette, width=width)
@@ -179,7 +182,7 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
             for item in group:
                 line('  Timestamp: ' + item['timestamp_utc'] + '; slot: ' + safe(item['timestamp']['slot']))
     from .layout import pagination
-    footer = mft_display.footer(result, len(grouped)) if has_mft else pagination(len(rows), result['total'], result['offset'])
+    footer = mft_display.footer(result, len(grouped)) if has_mft or '_mft_page' in result else pagination(len(rows), result['total'], result['offset'])
     if footer:
         line(footer)
     return '\n'.join(lines)

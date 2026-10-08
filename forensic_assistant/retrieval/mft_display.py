@@ -84,7 +84,7 @@ def footer(result, count):
     return note + ' groups' if note else ''
 
 
-def page(result, limit, offset, *, anchor=None, stamp=None, source_types=('mft',)):
+def page(result, limit, offset, *, anchor=None, stamp=None, source_types=('mft',), selected_slot=None):
     """Pure display projection. Never page incomplete observation windows."""
     from forensic_assistant.correlation.models import time_ns
     if not 1 <= limit <= 10000 or offset < 0:
@@ -107,7 +107,8 @@ def page(result, limit, offset, *, anchor=None, stamp=None, source_types=('mft',
     if anchor is None:
         chosen = grouped[offset:offset + limit]
     else:
-        selected = next((g for g in grouped if (g[0]['id'], g[0]['timestamp_utc']) == (anchor['id'], stamp)), None)
+        selected = next((g for g in grouped if (g[0]['id'], g[0]['timestamp_utc']) == (anchor['id'], stamp)
+                         and (selected_slot is None or any(r['timestamp']['slot'] == selected_slot for r in g))), None)
         if selected is None:
             raise ValueError('Selected anchor timestamp is unavailable')
         neighbors = sorted((g for g in grouped if g is not selected), key=lambda g: (

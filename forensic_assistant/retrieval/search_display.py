@@ -108,6 +108,11 @@ def render(result, palette=None, *, ids=False, width=None):
             record = group[row_index][1]
             if kind == 'registry' and column == 4 + int(ids) and (ua := (record.get('detail') or {}).get('userassist')):
                 return fit_path(safe_path(ua['decoded_name'] or '(Default)'), available, literal=True)
+            if kind == 'registry' and column == 4 + int(ids):
+                from .registry_display import path_name, value_name_text
+                name = (record.get('detail') or {}).get('value_name')
+                if path_name(name):
+                    return fit_path(value_name_text(name), available, literal=True)
             if kind == 'evtx' and not auth and column == len(headers) - 1 and record.get('artifact_type') == 'process':
                 return fit(human_detail(record), available)
             if kind != 'evtx' or column != len(headers) - 1 or record.get('artifact_type') != 'file_create':

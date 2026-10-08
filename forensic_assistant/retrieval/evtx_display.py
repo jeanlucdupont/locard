@@ -14,9 +14,9 @@ def groups(records):
     return mft_display.groups(records, source_types=('mft', 'evtx'))
 
 
-def page(result, limit, offset, *, anchor=None, stamp=None):
+def page(result, limit, offset, *, anchor=None, stamp=None, selected_slot=None):
     projected = mft_display.page(result, limit, offset, anchor=anchor, stamp=stamp,
-                                 source_types=('mft', 'evtx'))
+                                 source_types=('mft', 'evtx'), selected_slot=selected_slot)
     projected['_evtx_page'] = projected.pop('_mft_page')
     return projected
 

@@ -286,14 +286,22 @@ artifact/active analyst hostname assertions; it remains distinct and may find
 records with conflicting assertions, which are shown in their context. The filters
 can be combined. Superseded source revisions do not act as current metadata.
 
-`around` requires an unambiguous effective hostname. For source-assigned anchors it
-also restricts neighbors to the same unique source; another source is not merged
-because its label or analyst hostname matches. Multiple source occurrences or
-conflicting source/artifact hostnames block this correlation. An unknown hostname
-still blocks it. For historical unassigned anchors, the existing conservative host
-checks apply to unassigned neighbors. Returned context distinguishes artifact
-hostname fields, analyst assertions and source membership; temporal proximity is
-not causal evidence.
+`around` requires an unambiguous effective hostname and retrieves all supported
+artifact families within the requested window on that host, including different
+sources. A shared source or display name alone does not establish the host.
+Multiple source occurrences, conflicting source/artifact hostnames, and unknown
+hostnames still block same-host selection. Each neighbor retains its own evidence
+identity, source membership, user attribution and timestamp semantics. Temporal
+proximity does not establish causality or a combined execution.
+
+Mixed `timeline --text` and `around --text` show artifact types, meaningful objects,
+short source labels and exact timestamp slots in chronological order. Excess
+generic Registry LastWrite observations are summarized after three rows per page,
+with an explicit omitted count; the selected anchor is never summarized away.
+Use JSON/raw observation pagination, `around --text --ids`, or a Registry-only
+timeline to inspect all observations. Text windows are bounded to 10,000 timestamp
+observations, with complete MFT/EVTX display groups. Around text reserves an anchor
+group and selects the nearest remaining groups before displaying them chronologically.
 
 `around <evidence-id> --timestamp-slot <slot> --text` presents temporal context
 with a concise object/window header, source label, and selected-slot anchor marker.
@@ -460,8 +468,9 @@ existing timestamp table. Older cases derive the same slots read-only from store
 bytes, without migration, re-ingestion or duplicate observations. Status counts
 include these projected observations. Raw names/bytes, source membership and
 evidence IDs are unchanged. UserAssist can indicate recorded execution or user
-interaction; it does not prove process creation, command lines or intent. Existing
-host/source isolation remains in effect; no Prefetch correlation is invented.
+interaction; it does not prove process creation, command lines or intent. Strict
+effective-host validation remains in effect; cross-source temporal neighbors keep
+their separate provenance and do not establish a combined execution.
 
 UserAssist layouts follow the [libyal format reference](https://github.com/libyal/winreg-kb/blob/main/docs/sources/explorer-keys/User-assist.md).
 The libregf key-corruption flag is retained in structured warnings. Human output
@@ -727,7 +736,7 @@ complete forensic examination.
 Both commands retain JSON as their default; `--json` preserves the structured
 contract and `--raw` retains detailed evidence. Human text uses existing color,
 `--page`, `--output` and `--append` behavior; output files are plain text.
-Process-tree and `around` semantics and presentation are unchanged.
+Process-tree behavior is unchanged. The mixed-artifact `around` view is described above.
 
 #### Linked logons: investigated, not correlated
 

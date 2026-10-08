@@ -85,8 +85,9 @@ def test_mixed_narrow_color_and_untrusted_text():
     colored = render(r, a, a['timestamps'][1]['timestamp_utc'], args, terminal.Palette(True), width=40)
     assert terminal.SGR.sub('', colored) == plain
     assert max(map(len, plain.splitlines())) <= 40 and '...' in plain
-    assert 'Registry key' in plain and 'Prefetch' in plain
-    assert 'key modification' in plain and 'execution' in plain
+    assert 'RegistryKey' in plain and 'Prefetch' in plain and 'TYPE' in plain
+    assert 'Registry LastWrite' in plain and 'Prefetch LastRun' in plain
+    assert '[run:1]' in plain and '[run:2]' in plain
     assert '\x1b' not in plain
 
 

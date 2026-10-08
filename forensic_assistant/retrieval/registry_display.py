@@ -1,5 +1,6 @@
 """Bounded Registry text; values retain independent identities and key timestamps."""
 import json
+import re
 
 from forensic_assistant.terminal import Palette
 from .presentation import safe, safe_path
@@ -13,6 +14,15 @@ TYPE_NAMES = ('REG_NONE', 'REG_SZ', 'REG_EXPAND_SZ', 'REG_BINARY', 'REG_DWORD',
 VALUE_LIMIT = 20
 DATA_LIMIT = 240
 KEY_CORRUPTION = 'Parser reports key corruption'
+
+
+def path_name(value):
+    """Only absolute drive/UNC-shaped value names get literal path separators."""
+    return isinstance(value, str) and bool(re.match(r'^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)', value))
+
+
+def value_name_text(value):
+    return (safe_path if path_name(value) else safe)(value or '(Default)')
 
 
 def warning_text(warning):
@@ -103,7 +113,7 @@ def render(record, palette=None, *, values=None):
             field('Decoded name', safe_path(ua['decoded_name'] or '(Default)'))
             field('Raw name', safe_path(d['value_name'] or '(Default)'))
         else:
-            field('Name', safe(d['value_name'] or '(Default)'))
+            field('Name', value_name_text(d['value_name']))
         field('Type', type_name(d.get('value_type')))
         field('Data', data_text(d.get('value_type'), d.get('value_data')))
     times = [t for t in record.get('timestamps', []) if t.get('timestamp_utc')]
@@ -135,7 +145,8 @@ def render(record, palette=None, *, values=None):
             lines += table(['DECODED NAME' if ua_key else 'NAME', 'TYPE', 'DATA'], rows, palette,
                            minimums=[12, 13, 16], maximums=[35, 32, DATA_LIMIT],
                            roles=['secondary_text'] * 3, paths=(0,) if ua_key else (),
-                           format_cell=lambda row, col, text, room: fit(rows[row][col], room) if col in (1, 2) else None)
+                           format_cell=lambda row, col, text, room: fit(rows[row][col], room) if col in (1, 2) else
+                           fit(value_name_text(rows[row][col]), room) if not ua_key else None)
             if not rows:
                 lines.append('No values.')
             if note := pagination(len(rows), values['total']):
@@ -143,11 +154,13 @@ def render(record, palette=None, *, values=None):
     if ua or ua_key:
         lines += ['', palette('heading', 'Forensic notes')]
         for note in (
-            'UserAssist can indicate recorded execution or user interaction with an application; it does not prove process creation or user intent.',
+            'UserAssist can indicate that an application was launched or interacted with, but it does not prove user intent or a unique process execution.',
             'Registry key LastWrite is separate from the UserAssist internal timestamp.',
-            'Control/special entries are not application executions. Known-folder GUIDs are retained, not resolved to guessed paths.'
+            'Control and special UserAssist entries are not application executions.'
         ):
             lines.append(palette('warning', '- ' + note))
+        lines += ['', palette('heading', 'Parser note'),
+                  '- Known-folder GUIDs are preserved as recorded rather than mapped to guessed paths.']
     warnings = list(dict.fromkeys(record.get('warnings', [])))
     if ctx.get('conflicts'):
         warnings.append('Conflicting context: ' + ', '.join(ctx['conflicts']))

@@ -228,7 +228,7 @@ def test_source_output_json_and_plain_export(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)['source_id'] == sid
 
 
-def test_around_does_not_merge_distinct_sources_with_matching_names(tmp_path, capsys):
+def test_around_spans_same_host_sources_without_merging_provenance(tmp_path, capsys):
     case = tmp_path / 'case.db'
     with closing(connect(case)) as db:
         for exe in ('FIRST.EXE', 'SECOND.EXE'):
@@ -241,7 +241,9 @@ def test_around_does_not_merge_distinct_sources_with_matching_names(tmp_path, ca
                 sources.update(db, s['source_id'], display_name='Same label')
     assert main(['--db', str(case), 'around', ids[0], '--timestamp-slot', 'run:0', '--seconds', '60']) == 0
     result = json.loads(capsys.readouterr().out)
-    assert {r['id'] for r in result['records']} == {ids[0]}
+    assert {r['id'] for r in result['records']} == set(ids)
+    memberships = {tuple(r['context']['source_ids']) for r in result['records']}
+    assert len(memberships) == 2 and all(len(m) == 1 for m in memberships)
 
 
 def test_source_update_invalidates_derived_state_without_rewriting_it(tmp_path):
