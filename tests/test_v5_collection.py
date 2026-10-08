@@ -72,5 +72,5 @@ def test_report_preserves_case_bytes_and_source_location_semantics(tmp_path):
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
     db = sqlite3.connect(path)
     assert db.execute('SELECT source_file FROM events').fetchone()[0] == 'synthetic.evtx'
-    assert db.execute('PRAGMA user_version').fetchone()[0] == 4
+    assert db.execute('PRAGMA user_version').fetchone()[0] == 5
     db.close()

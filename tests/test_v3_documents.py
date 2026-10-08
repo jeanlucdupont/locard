@@ -15,7 +15,7 @@ def test_content_change_without_count_change():
     db.commit()
     with snapshot(db):
         assert fingerprint(db) != old
-    assert db.execute('PRAGMA user_version').fetchone()[0] == 4
+    assert db.execute('PRAGMA user_version').fetchone()[0] == 5
 
 def test_chunks_preserve_identity_and_bound_input():
     db = database()

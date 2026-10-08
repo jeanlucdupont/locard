@@ -10,7 +10,7 @@ import time
 def replay(config, root, investigation_id):
     manifest, events = load(root, investigation_id)
     current = implementation()
-    if manifest.get('schema') not in (3, 4) or any(manifest.get(k) != v for k, v in current.items() if k != 'schema'):
+    if manifest.get('schema') not in (3, 4, 5) or any(manifest.get(k) != v for k, v in current.items() if k != 'schema'):
         raise ValueError('Transcript implementation/policy/schema is incompatible; inspect without replay')
     if manifest.get('status') == 'RUNNING':
         raise ValueError('Incomplete investigation cannot be replayed')

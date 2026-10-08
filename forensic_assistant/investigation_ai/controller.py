@@ -80,7 +80,7 @@ def run(
             seconds=min(budget.tool_seconds, remaining()),
             question=question
         )
-        if response.get('database_changes') != 0 or response.get('schema') not in (3, 4):
+        if response.get('database_changes') != 0 or response.get('schema') not in (3, 4, 5):
             raise WorkerError('Evidence read-only/schema validation failed')
         if fingerprint is not None and response['fingerprint'] != fingerprint:
             raise WorkerError('EVIDENCE_STATE_CHANGED')

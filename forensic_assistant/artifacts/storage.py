@@ -15,6 +15,10 @@ def store(db, pack, sha, path, parser, version):
     for t in pack.get('timestamps', []):
         add_timestamp(db, eid, t)
     for o in pack.get('objects', []):
+        if o['role'] == 'browser_url':
+            db.execute('INSERT INTO evidence_objects VALUES (?,?,?,?,?,?,?,?)',
+                       (eid, o['slot'], o['role'], o['original'], o['original'], None, 'url', '[]'))
+            continue
         add_object(db, eid, o['slot'], o['role'], o['original'])
     d = pack['detail']
     kind = record['source_type']

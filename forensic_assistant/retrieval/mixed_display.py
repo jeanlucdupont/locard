@@ -12,11 +12,14 @@ def is_mixed(result, anchor=None):
     kinds = {r['source_type'] for r in result['records']}
     if anchor:
         kinds.add(anchor['source_type'])
-    return bool(result.get('_mixed_text')) or len(kinds) > 1
+    return bool(result.get('_mixed_text')) or len(kinds) > 1 or 'browser' in kinds
 
 
 def artifact(record):
     kind = record['source_type']
+    if kind == 'browser':
+        from .browser_display import label
+        return label(record)
     if kind == 'registry':
         d = record.get('detail') or {}
         return 'UserAssist' if d.get('userassist') else 'RegistryValue' if 'value_name' in d else 'RegistryKey'
@@ -28,6 +31,9 @@ def artifact(record):
 def object_text(record):
     kind = record['source_type']
     d = record.get('detail') or {}
+    if kind == 'browser':
+        from .browser_display import object_value
+        return safe_path(object_value(record))
     if kind == 'registry':
         from .registry_display import value_name_text
         if ua := d.get('userassist'):
@@ -94,7 +100,7 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
     line(header if aligned else ' | '.join(headings + ['OBJECT']), 'heading')
     if aligned:
         line('  '.join('-' * n for n in sizes) + '  ' + '-' * room)
-    precision = mft_display.precision_collisions(grouped, source_types=('mft', 'evtx', 'prefetch', 'registry'))
+    precision = mft_display.precision_collisions(grouped, source_types=('mft', 'evtx', 'prefetch', 'registry', 'browser'))
     for key in ('_evtx_page', '_mft_page'):
         precision.update(tuple(v) for v in result.get(key, {}).get('precision_collisions', []))
     generic_count = omitted = 0
@@ -113,7 +119,7 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
         time = display_time(r['timestamp_utc']).replace('T', ' ').removesuffix('Z')
         values = [time[11:] if one_date else time] + ([delta(r['timestamp_utc'], stamp)] if around else [])
         kind = artifact(r)
-        role = {'prefetch': 'string_value', 'registry': 'key', 'mft': 'number_value', 'evtx': 'boolean_value'}[r['source_type']]
+        role = {'prefetch': 'string_value', 'registry': 'key', 'mft': 'number_value', 'evtx': 'boolean_value', 'browser': 'heading'}[r['source_type']]
         obj = (object_projection or object_text)(r)
         if aligned:
             prefix = '  '.join(v.rjust(n) if around and i == 1 else v.ljust(n)
@@ -130,6 +136,10 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
             line(obj if wrap_objects else fit_path(obj, width - 4, literal=True), indent='    ')
         if marker:
             line('<- anchor', 'heading', '    ')
+        if r['source_type'] == 'browser':
+            from .browser_display import secondary
+            for name, value in secondary(r):
+                line(name + ': ' + safe(value), indent='    ')
         ctx = r.get('context') or {}
         if ctx.get('username'):
             line('User: ' + safe(ctx['username']), indent='    ')

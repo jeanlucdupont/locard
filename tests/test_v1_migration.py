@@ -33,7 +33,7 @@ def test_explicit_migration_preserves_every_field(tmp_path):
     db = connect(path)
     assert dict(db.execute("SELECT * FROM events").fetchone()) == original
     assert db.execute("SELECT count(*) FROM event_context").fetchone()[0] == 1
-    assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert db.execute("PRAGMA user_version").fetchone()[0] == 5
     backup = sqlite3.connect(result["backup"])
     assert backup.execute("PRAGMA user_version").fetchone()[0] == 1
     assert migrations.migrate(path)["status"] == "current"

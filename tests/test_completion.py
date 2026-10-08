@@ -39,7 +39,7 @@ def test_unique_and_common_prefix(text, expected):
 
 @pytest.mark.parametrize('text,expected', [
     ('', tuple(sorted(COMMANDS))),
-    ('ingest-', ('ingest-all', 'ingest-evtx', 'ingest-mft', 'ingest-prefetch', 'ingest-registry')),
+    ('ingest-', ('ingest-all', 'ingest-browser', 'ingest-evtx', 'ingest-mft', 'ingest-prefetch', 'ingest-registry')),
     ('investigat', ('investigate', 'investigate-ai', 'investigation')),
     ('session --l', ('--limit', '--logon-id')),
 ])

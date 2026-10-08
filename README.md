@@ -147,9 +147,9 @@ identical content imported from different sources shares evidence IDs while
 retaining separate source occurrences. Source membership does not prove a machine's
 identity or that an executable ran.
 
-New cases use schema **4**. Schema-3 cases remain readable without automatic
+New cases use schema **5**. Schema-3 and schema-4 cases remain readable without automatic
 migration. Before using source management or ingesting into a legacy case, explicitly
-upgrade it (schema 1, 2 and 3 are supported upgrade inputs):
+upgrade it (schema 1, 2, 3 and 4 are supported upgrade inputs):
 
 ```text
 locard --db case.db case-upgrade --yes
@@ -836,3 +836,83 @@ process execution. `search --kind services` includes these records. The existing
 7045; no separate duplicate rule is added. Installation alone does not prove that
 the service successfully started or executed. Host context follows the per-record
 resolution rules above. Existing ingested rows are not rewritten automatically.
+
+### Chromium browser History and downloads
+
+`ingest-browser` imports one acquired Chrome or Edge `History` SQLite file.
+Product and profile are explicit analyst metadata, never guessed from paths or
+URLs. Profile names do not establish Windows user identity. This command is
+explicit rather than part of `ingest-all` discovery, which cannot safely infer a
+browser product/profile from an arbitrary SQLite file.
+
+```powershell
+locard --db case.db ingest-browser C:\Acquired\Chrome\Default\History --browser chrome --profile Default --hostname lab-host --user analyst
+locard --db case.db ingest-browser C:\Acquired\Edge\Profile1\History --browser edge --profile "Profile 1" --source src-<existing-id>
+locard --db case.db search --artifact browser --url-contains example.com
+locard --db case.db search --artifact browser --download-path-contains tool.exe --browser chrome
+locard --db case.db show BROWSER:<id> --json
+locard --db case.db timeline --artifact browser --start 2020-01-01T00:00:00Z --end 2020-01-02T00:00:00Z --text
+locard --db case.db around BROWSER:<download-id> --timestamp-slot Browser.DownloadStart --text
+locard --db case.db investigate BROWSER:<download-id> --timestamp-slot Browser.DownloadStart --text
+```
+
+Use actual IDs returned by `search --ids`/JSON. Omission of `--source` in scripts
+creates a new automatic source for each invocation; use an existing explicit
+source ID to retain an unambiguous source across repeated ingestion.
+
+Browser ingestion requires schema 5. Existing cases are **never upgraded by
+ingestion**. Run `case-upgrade --yes` explicitly: it makes a uniquely named backup,
+validates the old structure, and applies an atomic additive upgrade. Keep the
+backup for older Locard releases, which reject schema 5. Original evidence rows,
+IDs and non-browser source semantics are preserved; no legacy source links are
+inferred. Schema 5 adds only `browser_contexts` and
+`browser_record_occurrences`, with indexes. A logical context identifies the
+main/WAL snapshot, product, and exact supplied profile; occurrences link each
+record to a specific run/batch/source. File-hash membership and retrospective
+file assignments **do not establish browser record provenance**. The same
+History bytes supplied as Chrome/Default and Edge/Profile 1 remain distinct.
+The same logical context ingested into multiple sources is explicitly ambiguous,
+not silently attributed to one host.
+
+Original files are read only as bytes. The bounded parser worker opens a private
+copy with SQLite `mode=ro`, extension loading disabled, a restrictive authorizer,
+and the existing worker timeout/memory/process-cleanup controls. Main database
+and available WAL are copied and verified; SHM is reconstructed only in the
+private working directory. Original main/WAL/SHM hashes are checked again before
+publication. Changing/live inputs are rejected; acquire a stable snapshot first.
+A supplied rollback journal is rejected rather than repaired. No checkpoint,
+repair or write is performed on original evidence. If no WAL was supplied,
+records explicitly warn that uncheckpointed activity may be absent. SQLite reads
+committed WAL content; this is not WAL carving. Input files are bounded to 8 GiB,
+SQLite values to 16 MiB, and URL chains to 1,000 entries. Missing required tables,
+columns or stable primary row identities fail cleanly; unavailable optional
+fields are recorded as limitations. This supports current Chromium schemas with
+1601-epoch microsecond timestamps, not historical Unix-second download schemas.
+
+Normalized visits retain URL, title, raw transition, URL-row visit/typed counts,
+product/profile and `Browser.VisitTime`. Counts describe the URL row, not the
+individual visit. Downloads retain supplied target/current/full paths, stored
+URL/referrer, ordered URL chain, MIME/byte counts, raw state/danger type and
+separate `Browser.DownloadStart`/`Browser.DownloadEnd`. Known state codes are
+rendered as in progress, complete, cancelled or interrupted; unknown codes stay
+unknown. Zero/null timestamps remain unset; invalid/out-of-range values remain
+invalid. UTC conversion uses integer arithmetic and preserves microseconds.
+
+Search supports `--url`, `--url-contains`, `--title`, `--title-contains`,
+`--download-path`, `--download-path-contains`, `--browser`, `--profile`, and existing
+time/host/user/source filters. URLs/titles/profile comparisons are literal and
+case-sensitive; contains searches have no wildcard meaning. Exact download-path
+matching uses existing Windows normalization; path substrings use SQLite's
+case-insensitive ASCII matching. URL search includes each recorded redirect-chain
+entry without conflating the first/last URL. JSON retains normalized fields and
+run provenance. Human views use the existing palette and show literal Windows
+paths. Queries use the case database, never reopen History or visit URLs.
+
+Mixed timelines and same-host windows retain timestamp semantics. Deterministic
+summaries may highlight matching download basenames/paths and exact URLs while
+leaving unrelated visits in the nearby evidence. Navigation does not prove that
+a person read a page; download history does not prove file execution or continued
+file existence; missing history is not proof of absence. Matching basenames or
+paths do not establish binary identity or causality. No browser URLs are fetched,
+resolved or sent to a model. Firefox, cookies, credentials, cache and other browser
+stores are outside this feature.

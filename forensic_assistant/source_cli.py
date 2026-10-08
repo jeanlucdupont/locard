@@ -84,7 +84,7 @@ def render_list(data, palette=None, *, ids=False, width=None):
     import textwrap
     from forensic_assistant.terminal import Palette
     palette = palette or Palette()
-    labels = {'prefetch': 'Prefetch', 'mft': 'MFT', 'registry': 'Registry', 'evtx': 'EVTX'}
+    labels = {'prefetch': 'Prefetch', 'mft': 'MFT', 'registry': 'Registry', 'evtx': 'EVTX', 'browser': 'Browser'}
     rows = [[
         r['source_id'],
         r['display_name'],

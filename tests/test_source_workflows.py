@@ -268,7 +268,7 @@ def test_source_update_invalidates_derived_state_without_rewriting_it(tmp_path):
     before = {p.name: p.read_bytes() for p in report.iterdir()}
     with ForensicWorker(config(case)) as worker:
         original = worker.call('check')
-        assert original['schema'] == 4
+        assert original['schema'] == 5
         with closing(connect(case)) as db:
             with db:
                 sources.update(db, sid, hostname='assigned-later')
@@ -293,7 +293,7 @@ def test_legacy_wal_migration_preserves_contexts_and_backup(tmp_path):
             bind_context(db, 'c' * 64, 'synthetic.pf', 'legacy-host', 'legacy-user', 'C:')
         old = fingerprint(db)
         result = migrations.migrate(path)
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 4
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 5
         assert dict(db.execute('SELECT * FROM source_contexts').fetchone())['hostname'] == 'legacy-host'
         assert sources.coverage(db)['unassigned_files'] == 1
         assert validate(path) == path

@@ -20,7 +20,7 @@ MAX_OBSERVATIONS = 8
 # Exact names only: temporal context, never a parent/child or causal assertion.
 ADJACENCY_NAMES = frozenset(('cmd.exe', 'command prompt.lnk', 'conhost.exe', 'sc.exe'))
 SEMANTIC_ORDER = {'service': 0, 'process': 1, 'file': 2, 'userassist': 3,
-                  'prefetch': 4, 'mft': 5, 'registry': 6, 'event': 7}
+                  'browser_download': 2, 'browser_visit': 6, 'prefetch': 4, 'mft': 5, 'registry': 6, 'event': 7}
 ROLES = {'filename', 'file_path', 'file_create_target', 'process_image', 'executable_name'}
 CAUTION = ('Temporal proximity does not establish causality or prove a shared '
            'process instance or process chain.')
@@ -30,6 +30,8 @@ def object_values(record):
     """Exclude parent images and incidental Prefetch referenced files."""
     detail = record.get('detail') or {}
     source = record['source_type']
+    if source == 'browser':
+        return [detail.get('target_path') or detail.get('current_path') or detail.get('full_path')] if record.get('artifact_type') == 'browser_download' else []
     if source == 'prefetch':
         return [executable(record)]
     if ua := detail.get('userassist'):
@@ -51,6 +53,10 @@ def identity(record):
             keys.add(('path', path['normalized']))
             if path['basename']:
                 keys.add(('basename', path['basename']))
+    if record['source_type'] == 'browser':
+        detail = record.get('detail') or {}
+        urls = [detail.get('url'), *(item.get('url') for item in detail.get('url_chain', []))]
+        keys.update(('url', value) for value in urls if isinstance(value, str) and value)
     if record.get('service_name'):
         keys.add(('service', record['service_name'].casefold()))
     for obj in record.get('objects', []):
@@ -66,6 +72,11 @@ def semantics(record, timestamp):
     values = sorted(filter(None, object_values(record)), key=lambda x: (x.casefold(), x))
     name = values[0] if values else None
     ua = detail.get('userassist')
+    if source == 'browser':
+        if slot == 'Browser.VisitTime':
+            return 'browser_visit', detail.get('url')
+        if slot in ('Browser.DownloadStart', 'Browser.DownloadEnd'):
+            return 'browser_download', name
     if source == 'registry':
         if ua and ua.get('status') == 'parsed' and slot == UA_SLOT:
             return 'userassist', ntpath.basename(ua['decoded_name'])
@@ -113,6 +124,15 @@ def select(result, anchor, stamp):
     if not host:
         return [], 0
     anchor_keys = identity(anchor)
+    # Only visits sharing an exact URL with a relevant in-window download may
+    # follow that download into the summary; unrelated browser rows stay below.
+    download_urls = set()
+    for record in result['evidence_records']:
+        if record.get('artifact_type') == 'browser_download' and record.get('host_key') == host and not record.get('context', {}).get('conflicts'):
+            keys = identity(record)
+            in_window = any(t.get('timestamp_utc') and abs(time_ns(t['timestamp_utc']) - time_ns(stamp)) <= result['parameters']['seconds'] * 1_000_000_000 for t in record['timestamps'])
+            if in_window and anchor_keys & keys:
+                download_urls.update(key for key in keys if key[0] == 'url')
     detected = {eid for d in result['detections'] for eid in d.get('evidence_ids', [])}
     observations = {}
     for record in result['evidence_records']:
@@ -122,7 +142,7 @@ def select(result, anchor, stamp):
         if len(context.get('source_ids', [])) > 1 or {'hostname', 'source membership', 'source/artifact hostname'} & set(context.get('conflicts', [])):
             continue
         keys = identity(record)
-        matches = frozenset(anchor_keys & keys)
+        matches = frozenset((anchor_keys | (download_urls if record.get('artifact_type') == 'browser_visit' else set())) & keys)
         known_tool = any(('basename', name) in keys for name in ADJACENCY_NAMES)
         detection = record['id'] in detected
         for timestamp in record['timestamps']:
@@ -165,6 +185,9 @@ def assessment(anchor, stamp, selected, anchor_slot):
             nearest = min(paired, key=lambda o: (abs(time_ns(o.timestamp['timestamp_utc']) - time_ns(stamp)), o.key))
             separation = delta(nearest.timestamp['timestamp_utc'], stamp).lstrip('+-')
             lines.append(f'UserAssist and Prefetch observations for {name} are approximately {separation} apart.')
+    anchor_kind, _ = semantics(anchor, {'slot': anchor_slot})
+    if any(o.kind == 'browser_download' or anchor_kind == 'browser_download' for o in selected if o.matches):
+        lines.append('Browser download and nearby observations agree only on the recorded URL, basename, or path; this does not prove execution of the downloaded file or binary identity.')
     commands = [o for o in selected if o.kind in ('userassist', 'prefetch', 'process')
                 and ntpath.basename(o.name).casefold() in ('cmd.exe', 'command prompt.lnk')]
     if commands:
@@ -207,13 +230,16 @@ def render(view, result, anchor, stamp, anchor_slot):
             text = {'userassist': 'UserAssist recorded ', 'prefetch': 'Prefetch recorded ',
                     'process': 'EVTX recorded process observation for ', 'file': 'Sysmon file creation observation: ',
                     'mft': 'MFT metadata timestamp for ', 'registry': 'Registry key LastWrite for ',
+                    'browser_visit': 'Browser recorded visit to ', 'browser_download': 'Browser recorded download for ',
                     'event': 'EVTX observation: '}[obs.kind] + name
         if obs.kind == 'registry' and (r.get('detail') or {}).get('userassist'):
             text += ' (containing-key timestamp; not an execution time)'
         if obs.kind == 'file' and t['slot'] == 'Sysmon.CreationUtcTime':
             text = 'Sysmon-reported target-file creation timestamp for ' + name
-        role = {'prefetch': 'string_value', 'registry': 'key', 'mft': 'number_value', 'evtx': 'boolean_value'}[r['source_type']]
+        role = {'prefetch': 'string_value', 'registry': 'key', 'mft': 'number_value', 'evtx': 'boolean_value', 'browser': 'heading'}[r['source_type']]
         line(delta(t['timestamp_utc'], stamp) + '  ' + text + ' [' + t['slot'] + ']', role)
+        if obs.kind == 'browser_download':
+            line('    State: ' + (r.get('detail') or {}).get('state_name', 'unknown'))
         if obs.kind == 'userassist' and r.get('username') and 'username' not in r.get('context', {}).get('conflicts', []):
             line('    User: ' + r['username'])
         if obs.kind == 'service':

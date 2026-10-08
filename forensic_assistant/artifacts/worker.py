@@ -10,14 +10,16 @@ from forensic_assistant.database.db import connect, register_source, now
 from forensic_assistant.database.artifacts import dump
 from forensic_assistant.artifacts.storage import store
 
-PARSERS = {'mft': 'dissect.ntfs', 'prefetch': 'libscca-python', 'registry': 'libregf-python'}
+PARSERS = {'mft': 'dissect.ntfs', 'prefetch': 'libscca-python', 'registry': 'libregf-python', 'browser': 'sqlite3'}
 MAX_RECORD_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 5_000_000
 
 
 def run(kind, path, sha, stage_path, options, reader=None):
     module = importlib.import_module('forensic_assistant.artifacts.' + kind)
-    version = importlib.metadata.version(PARSERS[kind])
+    version = sqlite3.sqlite_version if kind == 'browser' else importlib.metadata.version(PARSERS[kind])
+    options = dict(options)
+    source_path = options.pop('_source_path', path)
     db = connect(stage_path)
     inserted = errors = 0
     try:
@@ -45,7 +47,7 @@ def run(kind, path, sha, stage_path, options, reader=None):
                     continue
                 if len(dump(pack).encode()) > MAX_RECORD_BYTES:
                     raise ValueError('Parsed record exceeds size limit')
-                inserted += store(db, pack, sha, path, PARSERS[kind], version)
+                inserted += store(db, pack, sha, source_path, PARSERS[kind], version)
                 if index % 500 == 0:
                     db.commit()
         except Exception as exc:

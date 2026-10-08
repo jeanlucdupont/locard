@@ -43,6 +43,9 @@ def render(result, case, details, palette=None):
     lines.append('  Total evidence records: ' + f'{sum(counts.values()):,}')
     for kind, count in sorted(counts.items()):
         lines.append('  ' + safe(kind.capitalize()) + ': ' + f'{count:,}')
+        if kind == 'browser':
+            for label, key in [('Visits', 'browser_visit'), ('Downloads', 'browser_download')]:
+                lines.append('    ' + label + ': ' + str(result.get('browser_counts', {}).get(key, 0)))
     lines.append('  Timeline observations: ' + f"{result.get('timeline_observations', 0):,}")
     outcomes, companions, historical = Counter(), Counter(), Counter()
     log_files = set()

@@ -75,7 +75,7 @@ def test_dirty_header_tail_recovery(tmp_path, decode):
     assert errors[0]['diagnostics']['resume_offset'] is None
     assert errors[1]['diagnostics']['parsed_records_after_error'] == 2
     assert errors[1]['diagnostics']['recovery'] == 'validated_contiguous_dirty_tail'
-    assert db.execute('PRAGMA user_version').fetchone()[0] == 4
+    assert db.execute('PRAGMA user_version').fetchone()[0] == 5
     db.close()
 
 

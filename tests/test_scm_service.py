@@ -45,7 +45,7 @@ def test_fields_identity_timestamp_and_show():
                      'Start type: auto start','Account: LocalSystem',NOTE):
         assert expected in text
     assert 'Unmapped event' not in text
-    assert db.execute('PRAGMA user_version').fetchone()[0]==4
+    assert db.execute('PRAGMA user_version').fetchone()[0]==5
     db.close()
 
 

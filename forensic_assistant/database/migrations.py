@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 from forensic_assistant.database.context import insert_context
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 STATEMENTS = (
     """CREATE TABLE event_context (
     evidence_id TEXT PRIMARY KEY REFERENCES events(id), host_key TEXT, timestamp_utc TEXT,
@@ -57,8 +57,8 @@ def migrate(path):
             check_structure(db)
             db.rollback()
             return {"status": "current", "schema_version": version, "backup": None}
-        if version not in (1, 2, 3):
-            raise ValueError(f"Cannot migrate schema version {version}; expected schema 1, 2 or 3")
+        if version not in (1, 2, 3, 4):
+            raise ValueError(f"Cannot migrate schema version {version}; expected schema 1, 2, 3 or 4")
         # Verify the old shape against trusted DDL without modifying the case.
         reference = sqlite3.connect(':memory:')
         try:
@@ -69,6 +69,10 @@ def migrate(path):
             if version >= 3:
                 from forensic_assistant.database.artifacts import DDL
                 for sql in DDL:
+                    reference.execute(sql)
+            if version >= 4:
+                from forensic_assistant.database.sources import DDL as SOURCE_DDL
+                for sql in SOURCE_DDL:
                     reference.execute(sql)
             for (name,) in reference.execute("SELECT name FROM sqlite_master WHERE type='table'"):
                 query = 'PRAGMA table_info("' + name + '")'
@@ -93,11 +97,14 @@ def migrate(path):
         if version < 3:
             upgrade3(db)
         from forensic_assistant.database.sources import upgrade4
-        upgrade4(db)
+        if version < 4:
+            upgrade4(db)
+        from forensic_assistant.database.browser import upgrade5
+        upgrade5(db)
         if db.execute('PRAGMA foreign_key_check').fetchone() or db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
-            raise ValueError('Schema-4 integrity validation failed')
+            raise ValueError('Schema-5 integrity validation failed')
         db.commit()
-        return {"status": "migrated", "schema_version": 4, "backup": str(backup)}
+        return {"status": "migrated", "schema_version": 5, "backup": str(backup)}
     except BaseException as exc:
         db.rollback()
         if not isinstance(exc, Exception):

@@ -10,9 +10,12 @@ from forensic_assistant.retrieval.presentation import safe
 
 
 def configure(commands):
-    for name in ('ingest-mft', 'ingest-prefetch', 'ingest-registry', 'ingest-all', 'ingest-evtx'):
+    for name in ('ingest-mft', 'ingest-prefetch', 'ingest-registry', 'ingest-all', 'ingest-evtx', 'ingest-browser'):
         p = commands.add_parser(name, help=COMMANDS[name])
         p.add_argument('path')
+        if name == 'ingest-browser':
+            p.add_argument('--browser', required=True, choices=['chrome', 'edge'], help='Explicit browser product; never inferred')
+            p.add_argument('--profile', required=True, help='Explicit browser profile; separate from Windows user')
         p.add_argument('--hostname')
         p.add_argument('--user')
         p.add_argument('--volume-root')
@@ -21,8 +24,14 @@ def configure(commands):
         p.add_argument('--json', action='store_true')
     for name in ('search', 'timeline'):
         p = commands.choices[name]
-        p.add_argument('--artifact', choices=['evtx', 'mft', 'prefetch', 'registry'])
+        p.add_argument('--artifact', choices=['evtx', 'mft', 'prefetch', 'registry', 'browser'])
         p.add_argument('--path')
+    for field in ('url', 'title', 'download-path'):
+        group = commands.choices['search'].add_mutually_exclusive_group()
+        group.add_argument('--' + field, help='Exact browser field match')
+        group.add_argument('--' + field + '-contains', help='Literal browser field substring; no wildcards')
+    commands.choices['search'].add_argument('--browser', choices=['chrome', 'edge'])
+    commands.choices['search'].add_argument('--profile')
     for name in ('search', 'show', 'status'):
         commands.choices[name].add_argument('--json', action='store_true')
     keys = commands.choices['search'].add_mutually_exclusive_group()
@@ -41,6 +50,14 @@ def ingest_sources(db, args, progress=None):
     from forensic_assistant.ingest.evtx import discover as evtx_discover
     sources.require4(db)
     requested = args.command.removeprefix('ingest-')
+    if requested == 'browser':
+        from forensic_assistant.database.browser import require5
+        from forensic_assistant.artifacts.browser import validate_options
+        from pathlib import Path
+        require5(db)
+        validate_options(args.browser, args.profile)
+        if not Path(args.path).is_file():
+            raise ValueError('Browser ingestion requires a single History file')
     results = []
     source_id = getattr(args, 'source', None)
     supplied = {k: getattr(args, k, None) for k in ('hostname', 'user', 'volume_root')}
@@ -70,6 +87,8 @@ def ingest_sources(db, args, progress=None):
             args.path,
             None if requested == 'all' else requested
         )
+        if requested == 'browser':
+            files = [(args.path, 'browser')]
         for path, kind in files:
             if kind == 'evtx':
                 result = ingest_file(db, path, batch_id=batch_id, timeout=getattr(args, 'parser_timeout', 300))
@@ -80,7 +99,8 @@ def ingest_sources(db, args, progress=None):
                     kind,
                     timeout=args.parser_timeout,
                     record_size=args.record_size,
-                    batch_id=batch_id
+                    batch_id=batch_id,
+                    **({'browser_product': args.browser, 'profile': args.profile} if kind == 'browser' else {})
                 )
             results.append(result)
             if progress is not None:
@@ -133,6 +153,7 @@ def dispatch(db, args, *, presentation=None):
         result.update(
             schema_version=db.execute('PRAGMA user_version').fetchone()[0],
             source_coverage=coverage(db),
+            browser_counts={r[0]: r[1] for r in db.execute("SELECT artifact_type,count(*) FROM evidence_records WHERE source_type='browser' GROUP BY artifact_type")},
             artifact_counts={r[0]: r[1] for r in db.execute('SELECT source_type,count(*) FROM evidence_records GROUP BY source_type')},
             timeline_observations=db.execute(timeline_cte(db) + 'SELECT count(*) FROM locard_times WHERE timestamp_utc IS NOT NULL').fetchone()[0]
         )
@@ -144,6 +165,7 @@ def dispatch(db, args, *, presentation=None):
         filters = {k: getattr(args, k, None) for k in ('artifact', 'path', 'process', 'hostname', 'ip', 'event_id')}
         filters.update(username=args.user, limit=args.limit, offset=args.offset, raw=args.raw)
         if command == 'search':
+            filters.update({key: getattr(args, key, None) for key in ('url', 'url_contains', 'title', 'title_contains', 'download_path', 'download_path_contains', 'browser', 'profile')})
             filters.update(registry_key=getattr(args, 'key', None), registry_key_contains=getattr(args, 'key_contains', None))
             filters.update(value_name=getattr(args, 'value_name', None), value_name_contains=getattr(args, 'value_name_contains', None))
             filters['process_exact'] = filters.pop('process')
@@ -168,17 +190,17 @@ def dispatch(db, args, *, presentation=None):
             anchor = args.timestamp or args.around
             if args.artifact_type:
                 filters['artifact_types'] = [args.artifact_type]
-            grouped_text = getattr(args, 'text', False) and not args.raw and not getattr(args, 'json', False) and args.artifact in (None, 'mft', 'evtx')
+            grouped_text = getattr(args, 'text', False) and not args.raw and not getattr(args, 'json', False) and args.artifact in (None, 'mft', 'evtx', 'browser')
             if not 1 <= args.limit <= 10000 or args.offset < 0:
                 raise ValueError('Invalid pagination bounds')
             if anchor:
                 if args.start or args.end:
                     raise ValueError('Do not combine --around with --start/--end')
                 if grouped_text and args.artifact is None:
-                    kinds = {kind for kind in ('mft', 'evtx', 'prefetch', 'registry')
+                    kinds = {kind for kind in ('mft', 'evtx', 'prefetch', 'registry', 'browser')
                              if q.timeline_around(anchor, args.minutes, **dict(
                                  filters, artifact=kind, limit=1, offset=0)).total}
-                    grouped_text = len(kinds) > 1 or bool(kinds & {'mft', 'evtx'})
+                    grouped_text = len(kinds) > 1 or bool(kinds & {'mft', 'evtx', 'browser'})
                 result = q.complete_timeline(around=anchor, minutes=args.minutes, **{
                     k: v for k, v in filters.items() if k not in ('limit', 'offset')
                 }) if grouped_text else q.timeline_around(anchor, args.minutes, **filters)
@@ -186,10 +208,10 @@ def dispatch(db, args, *, presentation=None):
                 if not args.start or not args.end:
                     raise ValueError('Timeline requires --start and --end, or --around')
                 if grouped_text and args.artifact is None:
-                    kinds = {kind for kind in ('mft', 'evtx', 'prefetch', 'registry')
+                    kinds = {kind for kind in ('mft', 'evtx', 'prefetch', 'registry', 'browser')
                              if q.search(start=args.start, end=args.end, timeline=True, **dict(
                                  filters, artifact=kind, limit=1, offset=0)).total}
-                    grouped_text = len(kinds) > 1 or bool(kinds & {'mft', 'evtx'})
+                    grouped_text = len(kinds) > 1 or bool(kinds & {'mft', 'evtx', 'browser'})
                 result = q.complete_timeline(start=args.start, end=args.end, **{
                     k: v for k, v in filters.items() if k not in ('limit', 'offset')
                 }) if grouped_text else q.search(start=args.start, end=args.end, timeline=True, **filters)

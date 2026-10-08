@@ -133,7 +133,7 @@ class Assembly:
             "candidate_count": len(self.known_ids),
             "candidate_count_is_lower_bound": bool(self.limits),
             "retrieved_record_count": len(self.records),
-            "artifact_distribution": {kind: sum(eid.startswith(kind.upper() + ':') for eid in self.known_ids) for kind in ('evtx', 'mft', 'prefetch', 'registry')},
+            "artifact_distribution": {kind: sum(eid.startswith(kind.upper() + ':') for eid in self.known_ids) for kind in ('evtx', 'mft', 'prefetch', 'registry', 'browser')},
             "source_query_counts": self.source_counts,
             "limits": sorted(set(self.limits)),
             "coverage": {

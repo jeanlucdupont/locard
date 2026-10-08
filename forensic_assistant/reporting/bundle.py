@@ -60,7 +60,7 @@ def structure(report):
             keys.add('redaction_notice')
         if set(data) != keys:
             raise ValueError('Unexpected structured report fields')
-        if data['format'] != FORMAT or data['schema'] not in (3, 4) or data['status'] not in ('COMPLETE', 'COMPLETE_WITH_LIMITATIONS'):
+        if data['format'] != FORMAT or data['schema'] not in (3, 4, 5) or data['status'] not in ('COMPLETE', 'COMPLETE_WITH_LIMITATIONS'):
             raise ValueError('Invalid report status/schema')
         if data['input_mode'] not in ('explicit_evidence_ids', 'investigations'):
             raise ValueError('Invalid input mode')
@@ -294,7 +294,7 @@ def inspect_payloads(payloads):
         'integrity_meaning'
     }:
         raise ValueError('Unexpected manifest fields')
-    if manifest['format'] != FORMAT or manifest['schema'] not in (3, 4) or manifest['derived_data'] is not True:
+    if manifest['format'] != FORMAT or manifest['schema'] not in (3, 4, 5) or manifest['derived_data'] is not True:
         raise ValueError('Invalid manifest format/schema')
     if manifest['claim_ids'] != [c['claim_id'] for c in report['data']['claims']] or manifest['evidence_ids'] != sorted(report['data']['evidence']):
         raise ValueError('Manifest reference mismatch')

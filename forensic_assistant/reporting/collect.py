@@ -69,7 +69,7 @@ def build(
             if remaining <= 0:
                 raise ValueError('Report runtime exhausted')
             response = worker.call(op, args, fingerprint=expected, seconds=min(45, remaining))
-            if response['schema'] not in (3, 4) or response['database_changes'] != 0:
+            if response['schema'] not in (3, 4, 5) or response['database_changes'] != 0:
                 raise ValueError('Read-only report gate failed')
             case_schema = response['schema']
             expected = response['fingerprint']

@@ -75,6 +75,7 @@ def preview(db, source_id, selection, reason):
     hashes = selection['file_hashes']
     counts = {}
     evidence = 0
+    browser_excluded = 0
     provenance = dict(
         unassigned=0,
         already_assigned_here=0,
@@ -87,10 +88,13 @@ def preview(db, source_id, selection, reason):
         if sha in members:
             members[sha].add(sid)
     for sha in hashes:
-        for kind, count in db.execute(
-            'SELECT artifact_type,count(*) FROM evidence_records WHERE file_sha256=? GROUP BY artifact_type',
+        for source_type, kind, count in db.execute(
+            'SELECT source_type,artifact_type,count(*) FROM evidence_records WHERE file_sha256=? GROUP BY source_type,artifact_type',
             (sha,)
         ):
+            if source_type == 'browser':
+                browser_excluded += count
+                continue
             counts[kind] = counts.get(kind, 0) + count
             evidence += count
         ids = members[sha]
@@ -102,7 +106,7 @@ def preview(db, source_id, selection, reason):
             'SELECT count(*) FROM source_locations WHERE file_sha256=?',
             (sha,)
         ).fetchone()[0] > 1
-    return dict(
+    result = dict(
         source=sources.summary(db, source_id),
         **selection,
         files=len(hashes),
@@ -118,6 +122,11 @@ def preview(db, source_id, selection, reason):
             'Recorded paths do not prove machine identity. This does not reconstruct historical ingestion batches.'
         ]
     )
+    if browser_excluded:
+        result['browser_records_excluded'] = browser_excluded
+        result['limitations'][0] = 'Selection assigns content hashes, not individual path occurrences; only non-browser evidence records inherit this assignment.'
+        result['limitations'].append(f'{browser_excluded} browser records excluded: browser provenance follows explicit context/run occurrences; use ingest-browser with --source for a new occurrence.')
+    return result
 
 
 def assignment_basis(selection):

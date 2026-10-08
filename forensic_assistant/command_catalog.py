@@ -16,6 +16,7 @@ COMMANDS = MappingProxyType({
     'help': 'Show help for a command',
     'ingest': 'Import EVTX files from a directory',
     'ingest-all': 'Import all supported forensic artifacts',
+    'ingest-browser': 'Ingest Chrome or Edge browsing history and downloads',
     'ingest-evtx': 'Import Windows Event Logs (EVTX)',
     'ingest-mft': 'Import NTFS Master File Table (MFT) evidence',
     'ingest-prefetch': 'Import Windows Prefetch evidence',

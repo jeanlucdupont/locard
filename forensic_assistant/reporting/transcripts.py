@@ -34,7 +34,7 @@ def load(root, investigation_id):
     events_raw = read(directory / 'events.jsonl', 4 * 1024 * 1024)
     try:
         manifest = loads(manifest_raw)
-        if (type(manifest['format']) is not int or manifest['format'] != 1 or manifest['policy_version'] != 'v4-1' or manifest['schema'] not in (3, 4)
+        if (type(manifest['format']) is not int or manifest['format'] != 1 or manifest['policy_version'] != 'v4-1' or manifest['schema'] not in (3, 4, 5)
             # Producer release is provenance; format/policy/schema govern compatibility.
             # Accept current two-part and historical three-part release syntax.
             or not isinstance(manifest['application_version'], str)

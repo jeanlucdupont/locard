@@ -12,8 +12,8 @@ def open_readonly(path, deadline=None):
     db = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=.2)
     db.row_factory = sqlite3.Row
     try:
-        if db.execute('PRAGMA user_version').fetchone()[0] not in (3, 4):
-            raise ValueError('An existing schema-3 or schema-4 case is required')
+        if db.execute('PRAGMA user_version').fetchone()[0] not in (3, 4, 5):
+            raise ValueError('An existing schema-3, schema-4 or schema-5 case is required')
         db.execute('PRAGMA query_only=ON')
         db.execute('PRAGMA trusted_schema=OFF')
         db.enable_load_extension(False)

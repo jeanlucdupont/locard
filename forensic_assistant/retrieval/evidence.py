@@ -124,6 +124,9 @@ def get_evidence(db, eid, raw=False):
             'SELECT * FROM registry_views WHERE evidence_id=? ORDER BY extractor',
             (eid,)
         )]
+    elif kind == 'browser':
+        detail = json.loads(record['original_json'])
+        result['observation'] = 'Browser-recorded activity; not proof of reading a page, file execution, or binary identity'
     else:
         detail = None
     if detail:
@@ -183,10 +186,16 @@ class EvidenceQueries:
         artifact_types=None,
         powershell=False,
         source_id=None,
-        source_scope=None
+        source_scope=None,
+        url=None, url_contains=None, title=None, title_contains=None,
+        download_path=None, download_path_contains=None, browser=None, profile=None
     ):
         clauses = []
         params = []
+        from forensic_assistant.retrieval.browser_query import filters as browser_filters
+        extra, values = browser_filters(artifact, url, url_contains, title, title_contains, download_path, download_path_contains, browser, profile)
+        clauses.extend(extra)
+        params.extend(values)
         if value_name is not None or value_name_contains is not None:
             if value_name is not None and value_name_contains is not None:
                 raise ValueError('Exact and contains value-name filters are mutually exclusive')
@@ -214,20 +223,21 @@ class EvidenceQueries:
             clauses.append("e.source_type='registry' AND EXISTS (SELECT 1 FROM registry_keys k WHERE "
                            "(k.evidence_id=e.evidence_id OR k.evidence_id=(SELECT key_id FROM registry_values WHERE evidence_id=e.evidence_id)) AND " + comparison + ')')
             params.append(value if registry_key is not None else '%' + escape_like(value) + '%')
-        schema4 = self.db.execute('PRAGMA user_version').fetchone()[0] == 4
+        schema4 = self.db.execute('PRAGMA user_version').fetchone()[0] in (4, 5)
         if source_id or (schema4 and source_scope is not None):
-            from forensic_assistant.database.sources import MEMBERSHIP, current, require4
+            from forensic_assistant.database.sources import record_membership, current, require4
+            MEMBERSHIP = record_membership(self.db)
             require4(self.db)
             if source_id:
                 current(self.db, source_id)
-                clauses.append('e.file_sha256 IN (SELECT file_sha256 FROM (' + MEMBERSHIP + ') WHERE source_id=?)')
+                clauses.append('e.evidence_id IN (SELECT evidence_id FROM (' + MEMBERSHIP + ') WHERE source_id=?)')
                 params.append(source_id)
             if source_scope is not None:
                 if source_scope:
-                    clauses.append('(SELECT count(*) FROM (' + MEMBERSHIP + ') WHERE file_sha256=e.file_sha256)=1 AND e.file_sha256 IN (SELECT file_sha256 FROM (' + MEMBERSHIP + ') WHERE source_id=?)')
+                    clauses.append('(SELECT count(*) FROM (' + MEMBERSHIP + ') WHERE evidence_id=e.evidence_id)=1 AND e.evidence_id IN (SELECT evidence_id FROM (' + MEMBERSHIP + ') WHERE source_id=?)')
                     params.append(source_scope)
                 else:
-                    clauses.append('NOT EXISTS (SELECT 1 FROM (' + MEMBERSHIP + ') WHERE file_sha256=e.file_sha256)')
+                    clauses.append('NOT EXISTS (SELECT 1 FROM (' + MEMBERSHIP + ') WHERE evidence_id=e.evidence_id)')
         if schema4:
             # Parameterized SQL calls a read-only resolver shared with hydration.
             # Bounded to this query registration; never retain source revisions
@@ -236,7 +246,8 @@ class EvidenceQueries:
 
             @lru_cache(maxsize=512)
             def resolved_context(sha, host, user):
-                return effective_context(self.db, dict(file_sha256=sha, hostname=host, username=user))
+                return effective_context(self.db, dict(file_sha256=sha, hostname=host, username=user,
+                                                       source_type='browser' if sha.startswith('BROWSER:') else None, evidence_id=sha))
 
             def context_value(sha, host, user, key):
                 return resolved_context(sha, host, user).get(key)
@@ -256,7 +267,7 @@ class EvidenceQueries:
                 clauses.append(clause)
                 params.extend(values)
         if artifact:
-            if artifact not in ('evtx', 'mft', 'prefetch', 'registry'):
+            if artifact not in ('evtx', 'mft', 'prefetch', 'registry', 'browser'):
                 raise ValueError('Unknown artifact source')
             clauses.append('e.source_type=?')
             params.append(artifact)
@@ -267,14 +278,14 @@ class EvidenceQueries:
             from forensic_assistant.database.context import host_key
             if schema4:
                 if strict_host:
-                    clauses.append("locard_context(e.file_sha256,e.hostname,e.username,'hostname')=?")
+                    clauses.append("locard_context(CASE WHEN e.source_type='browser' THEN e.evidence_id ELSE e.file_sha256 END,e.hostname,e.username,'hostname')=?")
                     params.append(host_key(hostname))
                 else:
                     from forensic_assistant.database.sources import MEMBERSHIP
-                    clauses.append('''(e.hostname=? OR e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE hostname=?) OR
+                    clauses.append('''((e.source_type='browser' AND locard_context(e.evidence_id,e.hostname,e.username,'hostname')=?) OR (e.source_type<>'browser' AND (e.hostname=? OR e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE hostname=?) OR
                         e.file_sha256 IN (SELECT m.file_sha256 FROM (''' + MEMBERSHIP + ''') m JOIN source_assertions a USING(source_id)
-                        WHERE a.hostname=? AND NOT EXISTS (SELECT 1 FROM source_assertions n WHERE n.supersedes=a.assertion_id)))''')
-                    params.extend([host_key(hostname)] * 3)
+                        WHERE a.hostname=? AND NOT EXISTS (SELECT 1 FROM source_assertions n WHERE n.supersedes=a.assertion_id)))))''')
+                    params.extend([host_key(hostname)] * 4)
             else:
                 clauses.append('(e.hostname=? OR e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE hostname=?))')
                 params.extend([host_key(hostname)] * 2)
@@ -283,8 +294,8 @@ class EvidenceQueries:
                 params.extend([host_key(hostname)] * 2)
         if username:
             suffix = '%\\' + escape_like(username) if '\\' not in username and '@' not in username else escape_like(username)
-            extra = " OR locard_context(e.file_sha256,e.hostname,e.username,'username')=? COLLATE NOCASE OR locard_context(e.file_sha256,e.hostname,e.username,'username') LIKE ? ESCAPE '!' COLLATE NOCASE" if schema4 else ''
-            clauses.append('(e.username=? COLLATE NOCASE OR e.username LIKE ? ESCAPE \'!\' COLLATE NOCASE OR e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE username=? COLLATE NOCASE OR username LIKE ? ESCAPE \'!\' COLLATE NOCASE)' + extra + ')')
+            extra = " OR locard_context(CASE WHEN e.source_type='browser' THEN e.evidence_id ELSE e.file_sha256 END,e.hostname,e.username,'username')=? COLLATE NOCASE OR locard_context(CASE WHEN e.source_type='browser' THEN e.evidence_id ELSE e.file_sha256 END,e.hostname,e.username,'username') LIKE ? ESCAPE '!' COLLATE NOCASE" if schema4 else ''
+            clauses.append("""(e.username=? COLLATE NOCASE OR e.username LIKE ? ESCAPE '!' COLLATE NOCASE OR (e.source_type<>'browser' AND e.file_sha256 IN (SELECT file_sha256 FROM source_contexts WHERE username=? COLLATE NOCASE OR username LIKE ? ESCAPE '!' COLLATE NOCASE))""" + extra + ')')
             params.extend([username, suffix, username, suffix])
             if schema4:
                 params.extend([username, suffix])
@@ -297,7 +308,7 @@ class EvidenceQueries:
                 # A Prefetch candidate path must identify its represented executable.
                 role += " AND (e.source_type<>'prefetch' OR (o.role='executable_path_candidate' AND o.basename IN (SELECT i.basename FROM evidence_objects i WHERE i.evidence_id=e.evidence_id AND i.role='executable_name')))"
             if ntpath.dirname(value):
-                volume = "lower(locard_context(e.file_sha256,e.hostname,e.username,'volume_root'))||o.normalized=?" if schema4 else "EXISTS (SELECT 1 FROM source_contexts c WHERE c.file_sha256=e.file_sha256 AND lower(c.volume_root)||o.normalized=? AND NOT EXISTS (SELECT 1 FROM source_contexts x WHERE x.file_sha256=e.file_sha256 AND x.volume_root<>c.volume_root))"
+                volume = "lower(locard_context(CASE WHEN e.source_type='browser' THEN e.evidence_id ELSE e.file_sha256 END,e.hostname,e.username,'volume_root'))||o.normalized=?" if schema4 else "EXISTS (SELECT 1 FROM source_contexts c WHERE c.file_sha256=e.file_sha256 AND lower(c.volume_root)||o.normalized=? AND NOT EXISTS (SELECT 1 FROM source_contexts x WHERE x.file_sha256=e.file_sha256 AND x.volume_root<>c.volume_root))"
                 clauses.append("EXISTS (SELECT 1 FROM evidence_objects o WHERE o.evidence_id=e.evidence_id AND (o.normalized=? OR (o.path_kind='volume_relative' AND " + volume + "))" + role + ')')
                 params.extend([p['normalized']] * 2)
             else:

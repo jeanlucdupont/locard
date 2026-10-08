@@ -40,7 +40,7 @@ def upgrade4(db):
 
 
 def require4(db):
-    if db.execute('PRAGMA user_version').fetchone()[0] != 4:
+    if db.execute('PRAGMA user_version').fetchone()[0] not in (4, 5):
         raise ValueError('Source operations require schema 4; explicitly upgrade this case first')
 
 
@@ -109,7 +109,7 @@ MEMBERSHIP = '''SELECT b.source_id,r.file_sha256 FROM ingestion_batches b
 
 
 def memberships(db, sha):
-    if db.execute('PRAGMA user_version').fetchone()[0] != 4:
+    if db.execute('PRAGMA user_version').fetchone()[0] not in (4, 5):
         return []
     ids = [r[0] for r in db.execute(
         'SELECT source_id FROM (' + MEMBERSHIP + ') WHERE file_sha256=? ORDER BY source_id LIMIT 101',
@@ -135,6 +135,15 @@ def assign(db, source_id, hashes, *, reason, selection_basis=None):
     return aid
 
 
+def record_membership(db):
+    """Record scope uses explicit browser occurrences; other artifacts keep file scope."""
+    if db.execute('PRAGMA user_version').fetchone()[0] < 5:
+        return 'SELECT e.evidence_id,m.source_id FROM evidence_records e JOIN (' + MEMBERSHIP + ') m USING(file_sha256)'
+    from .browser import MEMBERSHIP as BROWSER_MEMBERSHIP
+    return ("SELECT e.evidence_id,m.source_id FROM evidence_records e JOIN (" + MEMBERSHIP +
+            ") m USING(file_sha256) WHERE e.source_type<>'browser' UNION " + BROWSER_MEMBERSHIP)
+
+
 def summary(db, source_id):
     data = current(db, source_id)
     data['batches'] = db.execute('SELECT count(*) FROM ingestion_batches WHERE source_id=?', (source_id,)).fetchone()[0]
@@ -144,13 +153,13 @@ def summary(db, source_id):
     ).fetchone()[0]
     data['artifacts'] = {r[0]: r[1] for r in db.execute(
         '''SELECT e.source_type,count(*) FROM evidence_records e
-        JOIN (''' + MEMBERSHIP + ''') m USING(file_sha256) WHERE m.source_id=? GROUP BY e.source_type''',
+        JOIN (''' + record_membership(db) + ''') m USING(evidence_id) WHERE m.source_id=? GROUP BY e.source_type''',
         (source_id,)
     )}
     data['evidence_count'] = sum(data['artifacts'].values())
     data['artifact_hostnames'] = [r[0] for r in db.execute(
         '''SELECT DISTINCT e.hostname FROM evidence_records e
-        JOIN (''' + MEMBERSHIP + ''') m USING(file_sha256) WHERE m.source_id=? AND e.hostname IS NOT NULL ORDER BY e.hostname LIMIT 101''',
+        JOIN (''' + record_membership(db) + ''') m USING(evidence_id) WHERE m.source_id=? AND e.hostname IS NOT NULL ORDER BY e.hostname LIMIT 101''',
         (source_id,)
     )]
     data['artifact_hostnames_truncated'] = len(data['artifact_hostnames']) > 100
@@ -250,7 +259,7 @@ def detail(db, source_id, limit=100, offset=0):
 
 
 def coverage(db):
-    if db.execute('PRAGMA user_version').fetchone()[0] != 4:
+    if db.execute('PRAGMA user_version').fetchone()[0] not in (4, 5):
         return dict(
             schema=3,
             limitations=['Legacy source and batch membership unknown; no historical batches inferred']

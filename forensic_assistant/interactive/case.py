@@ -18,14 +18,16 @@ def normalize(path):
     return target.resolve(strict=True)
 
 
-@lru_cache(maxsize=2)
-def expected_schema(version=4):
+@lru_cache(maxsize=3)
+def expected_schema(version=5):
     # Cache only trusted application schema metadata, never case data.
     from forensic_assistant.database.db import connect
     with closing(connect(':memory:')) as reference:
         names = [r[0] for r in reference.execute("SELECT name FROM sqlite_master WHERE type='table'")]
         result = []
         for name in names:
+            if version < 5 and name in ('browser_contexts', 'browser_record_occurrences'):
+                continue
             if version == 3 and name in (
                 'sources',
                 'source_assertions',
@@ -42,8 +44,8 @@ def expected_schema(version=4):
 
 def check_structure(db):
     version = db.execute('PRAGMA user_version').fetchone()[0]
-    if version not in (3, 4):
-        raise ValueError('An existing schema-3 or schema-4 Locard database is required')
+    if version not in (3, 4, 5):
+        raise ValueError('An existing schema-3, schema-4 or schema-5 Locard database is required')
     if db.execute("SELECT 1 FROM sqlite_master WHERE type IN ('trigger','view') LIMIT 1").fetchone():
         raise ValueError('Unexpected executable schema objects in case')
     for name, columns in expected_schema(version):

@@ -132,8 +132,17 @@ def ingest_artifact(
     timeout=300,
     record_size=None,
     runner=worker,
-    batch_id=None
+    batch_id=None,
+    browser_product=None,
+    profile=None
 ):
+    if kind == 'browser':
+        from forensic_assistant.database.browser import require5
+        from .browser import validate_options
+        require5(db)
+        validate_options(browser_product, profile)
+        if batch_id is None or not db.execute('SELECT 1 FROM ingestion_batches WHERE batch_id=?', (batch_id,)).fetchone():
+            raise ValueError('Browser ingestion requires an explicit source-associated ingestion batch')
     if kind not in PARSERS:
         raise ValueError('Unknown artifact type')
     if not 1 <= timeout <= 3600:
@@ -142,7 +151,7 @@ def ingest_artifact(
     from .registry_logs import is_log, describe, CLASSIFIER
     companion = kind == 'registry' and is_log(path)
     parser = CLASSIFIER if companion else PARSERS[kind]
-    version = '1' if companion else importlib.metadata.version(parser)
+    version = '1' if companion else sqlite3.sqlite_version if kind == 'browser' else importlib.metadata.version(parser)
     # Validate context before starting a run (no live environment expansion).
     if volume_root:
         import re
@@ -197,8 +206,19 @@ def ingest_artifact(
                         **classification)
         with tempfile.TemporaryDirectory(prefix='locard-artifact-') as temp:
             stage = Path(temp) / 'stage.db'
-            result = runner(kind, path, sha, stage, options, timeout)
-            if digest(path) != sha or Path(path).stat().st_size != size:
+            parse_path = path
+            if kind == 'browser':
+                from .browser import snapshot, inventory
+                parse_path = str(Path(temp) / 'History')
+                options = snapshot(path, parse_path, browser_product, profile)
+                if options['manifest']['']['sha256'] != sha:
+                    raise ValueError('History changed before snapshot; rejected')
+                options['_source_path'] = path
+                with db:
+                    db.execute('UPDATE artifact_runs SET parameters_json=? WHERE run_id=?', (dump(options), run_id))
+            result = runner(kind, parse_path, sha, stage, options, timeout)
+            changed_companions = kind == 'browser' and inventory(path) != options['manifest']
+            if changed_companions or digest(path) != sha or Path(path).stat().st_size != size:
                 with db:
                     report('Source changed during ingestion; staged records rejected', 'integrity')
                 status = 'changed'
@@ -216,13 +236,19 @@ def ingest_artifact(
                             if table == 'evidence_records':
                                 inserted = count
                         duplicates = result['records'] - inserted
-                        bind_context(db, sha, path, hostname, username, volume_root)
+                        if kind == 'browser':
+                            db.execute('INSERT INTO browser_contexts VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING',
+                                       (options['context_id'], sha, browser_product, profile, options['snapshot_sha256'], dump(options['manifest'])))
+                            db.execute('INSERT INTO browser_record_occurrences SELECT evidence_id,?,? FROM artifact_stage.evidence_records',
+                                       (options['context_id'], run_id))
+                        else:
+                            bind_context(db, sha, path, hostname, username, volume_root)
                         db.execute('UPDATE ingestion_runs SET file_sha256=? WHERE id=?', (sha, run_id))
                 finally:
                     db.rollback()
                     db.execute('DETACH DATABASE artifact_stage')
                     attached = False
-                status = 'partial' if errors else 'complete'
+                status = ('partial' if inserted or duplicates else 'failed') if errors and kind == 'browser' else 'partial' if errors else 'complete'
         with db:
             db.execute(
                 'UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?',

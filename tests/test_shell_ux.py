@@ -130,7 +130,7 @@ def test_color_output_json_files_and_pager(tmp_path, monkeypatch, capsys, color)
     assert text == paged[1] + '\n' + paged[1] and '\x1b' not in text
     stdout = capsys.readouterr().out
     structured = stdout[stdout.index('{'):]
-    assert '\x1b' not in structured and json.loads(structured)['schema_version'] == 4
+    assert '\x1b' not in structured and json.loads(structured)['schema_version'] == 5
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows console API')

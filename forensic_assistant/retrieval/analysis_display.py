@@ -16,6 +16,9 @@ def utc(value):
 def label(record):
     if record is None:
         return 'Evidence outside returned set'
+    if record.get('source_type') == 'browser':
+        from .browser_display import object_value
+        return object_value(record)
     if record.get('kind') == 'process':
         name = ntpath.basename(record.get('process_name') or 'Unknown process')
         return name + f" [PID {record.get('pid') if record.get('pid') is not None else '-'}]"

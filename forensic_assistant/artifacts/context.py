@@ -22,14 +22,22 @@ def bind_context(db, sha, source_file, hostname=None, username=None, volume_root
 
 
 def effective_context(db, record):
-    rows = [dict(r) for r in db.execute(
+    browser = record.get('source_type') == 'browser'
+    rows = [] if browser else [dict(r) for r in db.execute(
         'SELECT * FROM source_contexts WHERE file_sha256=? ORDER BY context_id',
         (record['file_sha256'],)
     )]
-    from forensic_assistant.database.sources import memberships
-    members = memberships(db, record['file_sha256'])
+    if browser:
+        from forensic_assistant.database.browser import provenance
+        rows = []  # File-wide assertions never establish browser occurrence context.
+        members, occurrences = provenance(db, record['evidence_id'])
+    else:
+        from forensic_assistant.database.sources import memberships
+        members = memberships(db, record['file_sha256'])
     result = {'assertions': rows, 'conflicts': []}
-    if db.execute('PRAGMA user_version').fetchone()[0] == 4:
+    if browser:
+        result['browser_occurrences'] = occurrences
+    if db.execute('PRAGMA user_version').fetchone()[0] in (4, 5):
         result.update(source_ids=[s['source_id'] for s in members], source_assertions=members)
     for name in ('hostname', 'username', 'volume_root'):
         values = {r[name] for r in [*rows, *members] if r[name]}
