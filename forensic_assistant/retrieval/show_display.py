@@ -171,16 +171,12 @@ def render(record, palette=None, *, registry_values=None):
         directory_warning = 'Referenced files are not all executed images; directory tables are not exposed by this binding' in warnings
         warnings = [w for w in warnings if w not in standard]
         lines += ['', palette('heading', 'Forensic notes')]
-        for note in (
-            'Missing Prefetch does not prove a program never ran.',
-            'The run count and retained run times are not a complete execution history.',
-            'Referenced files were accessed or used by the program; they were not necessarily executed.',
-            'Prefetch run times record execution-related timestamps, but they do not identify unique process instances.'
-        ):
+        from .artifact_notes import PREFETCH, PREFETCH_PARSER
+        for note in PREFETCH:
             lines.append(palette('warning', '- ' + note))
         if directory_warning:
             lines += ['', palette('heading', 'Parser limitation'), palette(
-                'warning', '- Directory information is not available with the current Prefetch parser.')]
+                'warning', '- ' + PREFETCH_PARSER)]
     elif record.get('observation'):
         warnings.insert(0, record['observation'])
     if warnings:

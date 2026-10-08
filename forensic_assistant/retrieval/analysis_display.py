@@ -136,14 +136,20 @@ def render_session(result, palette=None):
 
 def render_investigation(result, palette=None):
     from forensic_assistant.v2_cli import anchor_time
+    from . import mixed_display
+    from types import SimpleNamespace
 
     view = View(palette)
     #view.section('INVESTIGATION')
     records = {r['id']: r for r in result['evidence_records']}
     anchor = result['direct_evidence'][0]
     parameters = result['parameters']
+    def project(record):
+        # Parent/child arrows belong in investigate's relationship section.
+        # Keep its established process/PID label in temporal context.
+        return safe(label(record)) if record.get('kind') == 'process' else mixed_display.object_text(record)
     try:
-        stamp = anchor_time(anchor, parameters.get('timestamp_slot'))
+        stamp = anchor_time(anchor, parameters.get('timestamp_slot'), require_slot=True)
     except ValueError:
         stamp = None
     view.section('Anchor')
@@ -152,33 +158,55 @@ def render_investigation(result, palette=None):
         slots = [t['slot'] for t in anchor['timestamps'] if t['timestamp_utc'] == stamp
                  and (not parameters.get('timestamp_slot') or t['slot'] == parameters['timestamp_slot'])]
         view.field('Timestamp slot', ', '.join(slots))
-    view.line(label(anchor))
+    view.field('Type', mixed_display.artifact(anchor))
+    obj = project(anchor)
+    # The shared object projection is already escaped, with literal path separators.
+    view.lines.append(view.palette('key', 'Object: ') + view.palette('string_value', obj))
     view.field('Host', 'CONFLICT' if anchor.get('context', {}).get('conflicts') else anchor.get('hostname'))
-    view.field('User', anchor.get('username'))
+    if anchor.get('username'):
+        view.field('User', anchor['username'])
+    view.field('Source', '; '.join(s['display_name'] for s in anchor.get('context', {}).get('source_assertions', [])) or 'unassigned')
+    if not stamp:
+        slots = [t['slot'] for t in anchor['timestamps'] if t['timestamp_utc']]
+        view.line('Temporal investigation requires a timestamp slot.' if slots else 'No usable timestamp slots; temporal investigation not performed.', 'warning')
+        if slots:
+            view.line('Available slots:')
+            for slot in slots:
+                view.line('  ' + slot)
+            view.line('Re-run with --timestamp-slot "<one of the slots above>".')
     if anchor.get('command_line'):
         view.field('Command', anchor['command_line'])
     relationships(view, result['correlated_evidence'], records)
     view.section('Nearby evidence')
-    if result['temporal_neighbor_ids']:
+    temporal_searched = any(c.get('query') == 'temporal' for c in result['source_query_counts'])
+    if result['temporal_neighbor_ids'] and stamp:
         view.line('Temporal proximity only; not a causal relationship.')
+        rows = []
+        for eid in result['temporal_neighbor_ids']:
+            record = records.get(eid)
+            if record is None:
+                continue
+            for t in record['timestamps']:
+                value = t['timestamp_utc']
+                if value and abs(time_ns(value) - time_ns(stamp)) <= parameters['seconds'] * 1_000_000_000:
+                    rows.append(dict(record, timestamp=t, timestamp_utc=value))
+        # Preserve investigate's nearest-first policy, with stable observation ties.
+        rows.sort(key=lambda r: (abs(time_ns(r['timestamp_utc']) - time_ns(stamp)),
+                                 r['timestamp_utc'], r['id'], r['timestamp']['slot']))
+        view.lines.append(mixed_display.render(
+            dict(records=rows, total=len(rows), offset=0, truncated=False), palette=view.palette,
+            anchor=anchor, stamp=stamp, args=SimpleNamespace(timestamp_slot=parameters.get('timestamp_slot'), ids=False),
+            anchor_header=False, warning_summary=False, retain_userassist=True, wrap_objects=True,
+            omission_help='use investigate --json or --raw to inspect all retrieved evidence and timestamp slots.',
+            object_projection=project))
+    elif not temporal_searched:
+        view.line('Temporal search not performed; resolve the anchor timestamp and host context.')
     else:
         view.line('None in the returned result.')
-    for eid in result['temporal_neighbor_ids']:
-        record = records.get(eid)
-        view.line(label(record))
-        if not record or not stamp:
-            view.line('  Relative time unavailable.')
-            continue
-        # Hydrated records can contain several timestamps. Show every in-window
-        # observation with its slot; do not guess an event's single "real" time.
-        for time in record['timestamps']:
-            value = time['timestamp_utc']
-            if value and abs(time_ns(value) - time_ns(stamp)) <= parameters['seconds'] * 1_000_000_000:
-                view.line(f"  {delta(value, stamp)} | {utc(value)} | {time['slot']}")
     relationships(view, result['unresolved_relationships'], records)
     view.section('Detections')
     if not result['detections']:
-        view.line('None in the returned result.')
+        view.line('None in the returned result.' if stamp else 'Not evaluated; temporal anchor unresolved.')
     for finding in result['detections']:
         view.line(f"{finding['severity']} | {finding['rule_id']} | {finding['rule_name']}")
         view.line(finding['reason'])
@@ -190,8 +218,10 @@ def render_investigation(result, palette=None):
     # artifact_distribution includes known-but-omitted records; count only the
     # returned evidence for this summary instead of mislabeling that distribution.
     kinds = sorted({r['source_type'].upper() for r in records.values()})
-    view.line(f"{len(records)} evidence records retrieved | " + ', '.join(kinds))
-    view.field('Temporal search window', '+/- ' + str(parameters['seconds']) + ' seconds')
+    view.line(f"{len(records)} evidence records retrieved | " + ', '.join(kinds) if temporal_searched else
+              f"{len(records)} evidence records retained for anchor/snapshot review; temporal search not performed.")
+    if temporal_searched:
+        view.field('Temporal search window', '+/- ' + str(parameters['seconds']) + ' seconds')
     for limitation in result['limits']:
         view.line(limitation, 'warning')
     coverage = result['coverage']
@@ -199,5 +229,50 @@ def render_investigation(result, palette=None):
         view.line(f"Case contains {coverage['events_without_utc']} events without UTC timestamps.", 'warning')
     if coverage['incomplete_ingestion_runs']:
         view.line(f"Case contains {coverage['incomplete_ingestion_runs']} incomplete ingestion runs.", 'warning')
-    warnings(view, records.values())
+    investigation_notes(view, records.values())
     return view.result()
+
+
+def investigation_notes(view, records):
+    """Group interpretation notes once; retain actual unknown warnings/truncation."""
+    from .artifact_notes import PREFETCH, PREFETCH_PARSER, USERASSIST, USERASSIST_PARSER
+    from .presentation import PREFETCH_CAUTIONS
+    from .registry_display import KEY_CORRUPTION
+    records = list(records)
+    prefetch = [r for r in records if r['source_type'] == 'prefetch']
+    userassist = [r for r in records if (r.get('detail') or {}).get('userassist')]
+    for title, selected, notes, parser in (
+        ('Prefetch', prefetch, PREFETCH, PREFETCH_PARSER),
+        ('UserAssist', userassist, USERASSIST, USERASSIST_PARSER)
+    ):
+        if not selected:
+            continue
+        view.section(title + ' forensic notes')
+        for note in notes:
+            view.line('- ' + note, 'warning')
+        if title == 'UserAssist' or any('Referenced files are not all executed images; directory tables are not exposed by this binding'
+                                      in r.get('warnings', []) for r in selected):
+            view.section(title + ' parser note')
+            view.line('- ' + parser)
+    registry = [r for r in records if r['source_type'] == 'registry']
+    if registry:
+        view.section('Registry forensic note')
+        view.line('Registry key LastWrite does not establish individual value creation time.')
+    corrupt = {r['id'] for r in registry if KEY_CORRUPTION in r.get('warnings', [])}
+    if corrupt:
+        view.line(f'Warning: parser reported key corruption for {len(corrupt)} retrieved Registry records; '
+                  'the flag alone does not establish unreadable data.', 'warning')
+    projected = []
+    standard = {
+        'Prefetch records execution timestamps; retained runs are incomplete',
+        'Registry key last-write; not individual value creation',
+        'Registry value in snapshot; associated timestamp belongs to containing key'
+    }
+    for record in records:
+        r = dict(record)
+        r['warnings'] = [w for w in r.get('warnings', []) if w != KEY_CORRUPTION and
+                         not (r['source_type'] == 'prefetch' and w in PREFETCH_CAUTIONS)]
+        if r.get('observation') in standard or (r.get('detail') or {}).get('userassist'):
+            r.pop('observation', None)
+        projected.append(r)
+    warnings(view, projected)

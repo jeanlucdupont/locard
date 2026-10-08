@@ -205,7 +205,6 @@ def dispatch(db, args, *, presentation=None):
         output['caution'] = 'Timestamp semantics differ by artifact. Correlation is not causation.'
         return output, 0
     if command == 'around':
-        from forensic_assistant.correlation.temporal import shift
         anchor = get_evidence(db, args.evidence_id)
         stamp = anchor_time(anchor, args.timestamp_slot, require_slot=anchor['source_type'] == 'mft')
         if presentation is not None:
@@ -222,14 +221,8 @@ def dispatch(db, args, *, presentation=None):
             raise ValueError('Invalid pagination bounds')
         # Same-host temporal context may cross source memberships; the shared
         # strict resolver still excludes unknown, ambiguous and conflicting hosts.
-        window = dict(
-            start=shift(stamp, -args.seconds) if args.direction != 'after' else stamp,
-            end=shift(stamp, args.seconds) if args.direction != 'before' else stamp,
-            exclude_time=stamp if args.direction != 'around' else None,
-            hostname=anchor['host_key'],
-            strict_host=True,
-            raw=args.raw
-        )
+        from forensic_assistant.retrieval.evidence import same_host_window
+        window = dict(same_host_window(anchor, stamp, args.seconds, direction=args.direction), raw=args.raw)
         if grouped_text:
             from forensic_assistant.retrieval import mft_display, evtx_display, mixed_display
             result = q.complete_timeline(**window)

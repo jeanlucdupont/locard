@@ -65,10 +65,11 @@ def relation(anchor, candidate, status, reason, matched=None, comparison=None):
     return result
 
 
-def correlate(db, anchor_id, limit=100):
+def correlate(db, anchor_id, limit=100, *, hydrate=None):
     if not 1 <= limit <= 1000:
         raise ValueError('Cross-artifact candidate limit must be 1..1000')
-    anchor = get_evidence(db, anchor_id)
+    load = hydrate or (lambda eid: get_evidence(db, eid))
+    anchor = load(anchor_id)
     apaths = paths(anchor)
     basenames = sorted({p['basename'] for p in apaths if p['basename']})
     if not basenames:
@@ -89,7 +90,7 @@ def correlate(db, anchor_id, limit=100):
     ).fetchall()
     relations = []
     for row in rows:
-        candidate = get_evidence(db, row[0])
+        candidate = load(row[0])
         cp = paths(candidate)
         host = anchor['host_key']
         other = candidate['host_key']

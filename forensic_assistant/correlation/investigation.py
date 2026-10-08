@@ -5,7 +5,7 @@ from forensic_assistant.correlation.sessions import related_logon_events
 from forensic_assistant.correlation.temporal import events_around, shift
 from forensic_assistant.detections.engine import detections, available_rules
 from forensic_assistant.retrieval.queries import Queries, required_time
-from forensic_assistant.retrieval.evidence import get_evidence, EvidenceQueries
+from forensic_assistant.retrieval.evidence import get_evidence, EvidenceQueries, same_host_window
 from forensic_assistant.correlation.cross_artifact import correlate
 
 
@@ -35,6 +35,13 @@ class Assembly:
         self.limits = []
         self.detected = []
         self.source_counts = []
+        self._evidence = {}
+
+    def load(self, eid):
+        """Canonical evidence retained only for this bounded command assembly."""
+        if eid not in self._evidence:
+            self._evidence[eid] = evidence(self.db, eid)
+        return self._evidence[eid]
 
     def add(self, event, group):
         self.known_ids.add(event["id"])
@@ -65,7 +72,7 @@ class Assembly:
             if order.index(group) >= worst_rank:
                 self.limits.append("Investigation candidate-record limit reached")
                 return
-        self.add(self.records.get(evidence_id) or evidence(self.db, evidence_id), group)
+        self.add(self.records.get(evidence_id) or self.load(evidence_id), group)
 
     def add_relationships(self, relationships):
         for relation in relationships:
@@ -110,7 +117,7 @@ class Assembly:
 
     def output(self, parameters):
         # Hydrate only selected bounded records, preserving original EVTX fields.
-        self.records = {eid: evidence(self.db, eid) for eid in self.records}
+        self.records = {eid: self.load(eid) for eid in self.records}
         for relation in self.relationships + self.unresolved:
             relation["omitted_evidence_ids"] = [eid for eid in relation["evidence_ids"] if eid not in self.records]
         for finding in self.detected:
@@ -140,9 +147,22 @@ class Assembly:
 def investigate(db, evidence_id, *, seconds=120, max_candidates=500, timestamp_slot=None):
     if not 0 <= seconds <= 86400:
         raise ValueError("Investigation seconds must be 0..86400")
-    anchor = evidence(db, evidence_id)
     assembled = Assembly(db, max_candidates)
+    anchor = assembled.load(evidence_id)
     assembled.add(anchor, "anchors")
+    parameters = {"seconds": seconds, "max_candidates": max_candidates, "timestamp_slot": timestamp_slot}
+    from forensic_assistant.v2_cli import anchor_time
+    try:
+        # Equal values do not make distinct timestamp semantics interchangeable.
+        stamp = anchor_time(anchor, timestamp_slot, require_slot=True)
+    except ValueError as exc:
+        if timestamp_slot:
+            raise
+        slots = [t['slot'] for t in anchor['timestamps'] if t['timestamp_utc']]
+        assembled.unresolved.append(dict(
+            relationship='temporal', status='UNRESOLVED', evidence_ids=[evidence_id],
+            reason=str(exc) + ('. Available slots: ' + ', '.join(slots) if slots else '. No usable timestamp slots.')))
+        return assembled.output(parameters)
     for eid in anchor.get('supporting_evidence_ids', []):
         assembled.reference(eid, 'correlated')
     if anchor['source_type'] == 'evtx' and anchor["kind"] == "process":
@@ -167,7 +187,7 @@ def investigate(db, evidence_id, *, seconds=120, max_candidates=500, timestamp_s
         if anchor['detail']['values_truncated'] or len(anchor['detail']['value_ids']) > 20:
             assembled.limits.append('Registry value correlation seed limit reached')
     for seed in seeds:
-        cross = correlate(db, seed, limit=min(100, max_candidates))
+        cross = correlate(db, seed, limit=min(100, max_candidates), hydrate=assembled.load)
         assembled.add_relationships(cross['relationships'])
         assembled.source_counts.append({
             'query': 'cross_artifact',
@@ -176,19 +196,6 @@ def investigate(db, evidence_id, *, seconds=120, max_candidates=500, timestamp_s
         })
         if cross['truncated']:
             assembled.limits.append('Cross-artifact candidate cap reached')
-    from forensic_assistant.v2_cli import anchor_time
-    try:
-        stamp = anchor_time(anchor, timestamp_slot)
-    except ValueError as exc:
-        if timestamp_slot:
-            raise
-        stamp = None
-        assembled.unresolved.append({
-            'relationship': 'temporal',
-            'status': 'UNRESOLVED',
-            'evidence_ids': [evidence_id],
-            'reason': str(exc)
-        })
     if stamp and anchor["host_key"]:
         result = detections(
             db,
@@ -196,7 +203,8 @@ def investigate(db, evidence_id, *, seconds=120, max_candidates=500, timestamp_s
             end=shift(stamp, seconds),
             hostname=anchor["host_key"],
             candidate_limit=max_candidates,
-            limit=min(100, max_candidates)
+            limit=min(100, max_candidates),
+            hydrate=assembled.load
         )
         # Always evaluate the anchor even if chronological query limits exclude it.
         existing = {d["detection_id"] for d in result["detections"]}
@@ -206,11 +214,8 @@ def investigate(db, evidence_id, *, seconds=120, max_candidates=500, timestamp_s
                 if item and item["detection_id"] not in existing:
                     result["detections"].append(item)
         assembled.add_detections(result)
-        neighbors = EvidenceQueries(db).search(
-            start=shift(stamp, -seconds),
-            end=shift(stamp, seconds),
-            hostname=anchor['host_key'],
-            strict_host=True,
+        neighbors = EvidenceQueries(db, hydrate=assembled.load).search(
+            **same_host_window(anchor, stamp, seconds),
             timeline=True,
             limit=max_candidates,
             nearest_to=stamp
@@ -242,7 +247,7 @@ def investigate(db, evidence_id, *, seconds=120, max_candidates=500, timestamp_s
                     assembled.detected.append(item)
                     for eid in item['evidence_ids']:
                         assembled.reference(eid, 'detections')
-    return assembled.output({"seconds": seconds, "max_candidates": max_candidates, "timestamp_slot": timestamp_slot})
+    return assembled.output(parameters)
 
 
 def distance(left, right):

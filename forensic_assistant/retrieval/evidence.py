@@ -138,9 +138,25 @@ def get_evidence(db, eid, raw=False):
     return result
 
 
+def same_host_window(anchor, stamp, seconds, *, direction='around'):
+    """Shared temporal scope for around/investigate; source identity is not host identity."""
+    from forensic_assistant.correlation.temporal import shift
+    if len(anchor['context'].get('source_ids', [])) > 1:
+        raise ValueError('Multiple source occurrences; cannot select an unambiguous source')
+    if not anchor['host_key']:
+        raise ValueError('Host context missing or conflicting; cannot select same-host temporal neighbors')
+    if not 0 <= seconds <= 604800 or direction not in ('around', 'before', 'after'):
+        raise ValueError('Invalid temporal window')
+    return dict(start=shift(stamp, -seconds) if direction != 'after' else stamp,
+                end=shift(stamp, seconds) if direction != 'before' else stamp,
+                exclude_time=stamp if direction != 'around' else None,
+                hostname=anchor['host_key'], strict_host=True)
+
+
 class EvidenceQueries:
-    def __init__(self, db):
+    def __init__(self, db, *, hydrate=None):
         self.db = db
+        self.hydrate = hydrate
 
     def _where(
         self,
@@ -350,8 +366,14 @@ class EvidenceQueries:
             fields = 'e.evidence_id'
             if timeclauses:
                 # Ordinary values borrow key context; UserAssist also has an internal time.
-                clauses.append('EXISTS (SELECT 1 FROM ' + timestamp_table + ' t WHERE (t.evidence_id=e.evidence_id OR t.evidence_id=(SELECT key_id FROM registry_values WHERE evidence_id=e.evidence_id)) AND ' + ' AND '.join(timeclauses) + ')')
-                params += tp
+                # Build the bounded ID set once, rather than re-running the derived
+                # UserAssist timeline in a correlated EXISTS for every evidence row.
+                bounded = ' FROM ' + timestamp_table + ' t WHERE ' + ' AND '.join(timeclauses)
+                inherited = (' FROM ' + timestamp_table + ' t CROSS JOIN registry_values v '
+                             'ON v.key_id=t.evidence_id WHERE ' + ' AND '.join(timeclauses))
+                source = ('(SELECT t.evidence_id' + bounded + ' UNION SELECT v.evidence_id' + inherited +
+                          ') selected CROSS JOIN evidence_records e ON e.evidence_id=selected.evidence_id')
+                params = [*tp, *tp, *params]
             # Preserve search order across old cases and new ingestion; the added
             # internal slot must not silently become a new default ranking signal.
             order_time = "(SELECT min(timestamp_utc) FROM evidence_timestamps WHERE evidence_id=e.evidence_id AND slot<>'UserAssist.LastExecution')"
@@ -380,7 +402,11 @@ class EvidenceQueries:
         records = []
         text_evidence = {}
         for row in rows:
-            if require_complete:
+            if self.hydrate is not None:
+                # An invocation-owned loader may retain canonical evidence across
+                # correlation, temporal selection and final assembly.
+                e = dict(self.hydrate(row['evidence_id']))
+            elif require_complete:
                 # Text windows may include many slots from one MFT record.
                 # Hydrate once and share unchanged detail/timestamp structures.
                 eid = row['evidence_id']

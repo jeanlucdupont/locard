@@ -27,7 +27,8 @@ def detections(
     limit=100,
     candidate_limit=1000,
     failure_threshold=5,
-    failure_window_seconds=300
+    failure_window_seconds=300,
+    hydrate=None
 ):
     if not 1 <= limit <= 10000 or not 1 <= candidate_limit <= 10000:
         raise ValueError("Detection limits must be 1..10000")
@@ -47,7 +48,7 @@ def detections(
             continue
         if getattr(rule, 'sources', None):
             from forensic_assistant.retrieval.evidence import EvidenceQueries
-            candidates = EvidenceQueries(db).search(
+            candidates = EvidenceQueries(db, hydrate=hydrate).search(
                 artifact=rule.sources[0],
                 evidence_kind=rule.kinds[0],
                 start=start,

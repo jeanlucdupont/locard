@@ -44,7 +44,9 @@ def object_text(record):
     return human_detail(record)
 
 
-def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=None):
+def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=None,
+           anchor_header=True, warning_summary=True, retain_userassist=False,
+           wrap_objects=False, omission_help=None, object_projection=None):
     palette = palette or Palette()
     width = terminal_width(width)
     rows = result['records']
@@ -70,7 +72,7 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
         return '; '.join(sorted(s['display_name'] + (f" [{s['source_id']}]" if ids or len(names[s['display_name']]) > 1 else '')
                                 for s in r.get('context', {}).get('source_assertions', []))) or 'unassigned'
 
-    if around:
+    if around and anchor_header:
         line(display_time(stamp).replace('T', ' ').removesuffix('Z') + ' UTC | ' +
              safe(anchor.get('host_key') or anchor.get('context', {}).get('hostname') or 'unknown'), 'key')
         label = 'Prefetch run' if anchor['source_type'] == 'prefetch' else artifact(anchor)
@@ -101,6 +103,8 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
         marker = around and (r['id'], r['timestamp_utc']) == (anchor['id'], stamp) and any(
             t['timestamp']['slot'] == selected for t in group)
         generic = r['source_type'] == 'registry' and all(t['timestamp']['slot'] == 'LastWrite' for t in group)
+        if retain_userassist and (r.get('detail') or {}).get('userassist'):
+            generic = False
         if generic:
             generic_count += 1
             if generic_count > 3 and not marker and not ids:
@@ -110,16 +114,20 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
         values = [time[11:] if one_date else time] + ([delta(r['timestamp_utc'], stamp)] if around else [])
         kind = artifact(r)
         role = {'prefetch': 'string_value', 'registry': 'key', 'mft': 'number_value', 'evtx': 'boolean_value'}[r['source_type']]
-        obj = object_text(r)
+        obj = (object_projection or object_text)(r)
         if aligned:
             prefix = '  '.join(v.rjust(n) if around and i == 1 else v.ljust(n)
                                for i, (v, n) in enumerate(zip(values, sizes)))
-            lines.append(palette('secondary_text', prefix) + '  ' + palette(role, kind.ljust(type_width)) + '  ' +
-                         fit_path(obj, room, literal=True))
+            lead = palette('secondary_text', prefix) + '  ' + palette(role, kind.ljust(type_width))
+            if wrap_objects and len(obj) > room:
+                lines.append(lead)
+                line(obj, indent='    ')
+            else:
+                lines.append(lead + '  ' + fit_path(obj, room, literal=True))
         else:
             line(' | '.join(values))
             line(kind, role)
-            line(fit_path(obj, width - 4, literal=True), indent='    ')
+            line(obj if wrap_objects else fit_path(obj, width - 4, literal=True), indent='    ')
         if marker:
             line('<- anchor', 'heading', '    ')
         ctx = r.get('context') or {}
@@ -143,11 +151,11 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
         line()
     if omitted:
         line(f'{omitted} additional Registry LastWrite observations omitted from this compact page; '
-             'use --json/--raw (with observation pagination), around --text --ids, or timeline --artifact registry --text.', 'warning')
+             + (omission_help or 'use --json/--raw (with observation pagination), around --text --ids, or timeline --artifact registry --text.'), 'warning')
     # Count distinct evidence records, not co-valued timestamp slots.
     from .registry_display import KEY_CORRUPTION
     corrupted = {r['id'] for r in rows if r['source_type'] == 'registry' and KEY_CORRUPTION in r.get('warnings', [])}
-    if corrupted:
+    if corrupted and warning_summary:
         line(f'Warning: parser reported key corruption for {len(corrupted)} records in this page '
              '(including compactly summarized observations); the flag alone does not establish unreadable data.', 'warning')
     if '_evtx_page' in result:

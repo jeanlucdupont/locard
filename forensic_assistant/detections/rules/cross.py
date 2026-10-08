@@ -50,7 +50,9 @@ class CrossRule(Rule):
 class PersistenceRule(Rule):
     sources = ('registry',)
     def evaluate(self, db, event, parameters):
-        e = get_evidence(db, event['id'])
+        # Artifact candidates (including the explicit anchor) are already fully
+        # hydrated. Retain the ID-only caller fallback without reopening evidence.
+        e = event if event.get('source_type') == 'registry' and 'detail' in event and 'objects' in event else get_evidence(db, event['id'])
         matches = [o for o in e['objects'] if o['role'] == 'persistence_target' and re.search(
             r'(\\users\\[^\\]+\\(appdata|downloads|desktop)\\|\\windows\\temp\\|^[a-z]:\\temp\\|^%temp%\\)',
             o['original'],

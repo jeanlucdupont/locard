@@ -730,6 +730,14 @@ existing statuses and reasons, temporal neighbors, unresolved relationships,
 deterministic detections and retrieval coverage. Nearby evidence is not causal
 evidence. Multiple in-window timestamps retain their slot labels; ambiguous
 anchor timestamps still require explicit selection for temporal analysis.
+Unresolved anchors return their available timestamp slots before correlation,
+detection evaluation or temporal retrieval. Resolved temporal retrieval uses the
+same bounded, strict same-host window as `around`. Nearby observations are shown
+nearest first, with stable timestamp, evidence-ID and slot tie-breakers.
+The compact text view shows meaningful artifact objects and summarizes excess
+Registry LastWrite observations with an omitted count. UserAssist and other
+artifact observations remain visible; JSON/raw retain the full retrieved evidence.
+Artifact-family forensic notes and parser warnings are grouped rather than repeated.
 Coverage and absent detections describe the bounded returned result, not a
 complete forensic examination.
 

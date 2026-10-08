@@ -153,14 +153,11 @@ def render(record, palette=None, *, values=None):
                 lines.append(note + ' values')
     if ua or ua_key:
         lines += ['', palette('heading', 'Forensic notes')]
-        for note in (
-            'UserAssist can indicate that an application was launched or interacted with, but it does not prove user intent or a unique process execution.',
-            'Registry key LastWrite is separate from the UserAssist internal timestamp.',
-            'Control and special UserAssist entries are not application executions.'
-        ):
+        from .artifact_notes import USERASSIST, USERASSIST_PARSER
+        for note in USERASSIST:
             lines.append(palette('warning', '- ' + note))
         lines += ['', palette('heading', 'Parser note'),
-                  '- Known-folder GUIDs are preserved as recorded rather than mapped to guessed paths.']
+                  '- ' + USERASSIST_PARSER]
     warnings = list(dict.fromkeys(record.get('warnings', [])))
     if ctx.get('conflicts'):
         warnings.append('Conflicting context: ' + ', '.join(ctx['conflicts']))
