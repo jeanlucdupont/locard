@@ -174,6 +174,7 @@ class Shell:
         print('\nLocard session ended.')
         if self.active is not None:
             print('Case: ' + safe(self.active))
+        print(get_liner())
         return result
 
     def _run_session(self):
