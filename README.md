@@ -753,6 +753,32 @@ Artifact-family forensic notes and parser warnings are grouped rather than repea
 Coverage and absent detections describe the bounded returned result, not a
 complete forensic examination.
 
+`investigate --text` adds a deterministic Investigation summary after the anchor.
+It selects at most eight already-retrieved, same-host observations in the selected
+window, then displays those selections chronologically. Selection ranks exact
+object comparisons first, followed by semantic class (service, process, file
+creation, UserAssist, Prefetch, MFT, Registry, other EVTX), detection relevance,
+temporal distance, and stable timestamp/evidence-ID/slot tie-breakers. Comparisons
+use normalized paths, exact basenames, service names or Registry keys; basename
+agreement does not establish identical paths or the same file.
+
+Unrelated Prefetch, generic Registry LastWrite and unmapped EVTX are normally
+excluded from the summary unless an exact object match or existing detection
+qualifies them. Exact names `cmd.exe`, `Command Prompt.lnk`, `conhost.exe` and
+`sc.exe` also qualify as named-tool temporal context for supported UserAssist,
+Prefetch or process observations. This display priority does not create a forensic
+relationship or establish program authenticity, intent, or a process chain.
+UserAssist execution/interaction wording requires its internal LastExecution slot;
+a containing-key LastWrite is never described as execution. Service accounts are
+labelled separately from users; attribution is not copied between observations.
+
+Fixed assessment templates retain causality and process-instance cautions. Brief
+rule references point to the existing Detections section without repeating its
+explanations. No model, embedding, additional case search, schema change or new
+evidence ID is involved. The summary leaves Nearby evidence and JSON/raw intact,
+including their existing limits and compaction. An unresolved timestamp produces
+no summary; empty summaries describe only the returned bounded evidence.
+
 Both commands retain JSON as their default; `--json` preserves the structured
 contract and `--raw` retains detailed evidence. Human text uses existing color,
 `--page`, `--output` and `--append` behavior; output files are plain text.

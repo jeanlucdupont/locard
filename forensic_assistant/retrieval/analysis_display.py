@@ -176,6 +176,9 @@ def render_investigation(result, palette=None):
             view.line('Re-run with --timestamp-slot "<one of the slots above>".')
     if anchor.get('command_line'):
         view.field('Command', anchor['command_line'])
+    if stamp:
+        from .investigation_summary import render as render_summary
+        render_summary(view, result, anchor, stamp, parameters.get('timestamp_slot') or (slots[0] if len(slots) == 1 else ''))
     relationships(view, result['correlated_evidence'], records)
     view.section('Nearby evidence')
     temporal_searched = any(c.get('query') == 'temporal' for c in result['source_query_counts'])
