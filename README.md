@@ -121,7 +121,7 @@ Explicit `--json`, `--output`, and `--append` remain plain; exported content nev
 contains added ANSI styling. The internal pager preserves colors and ignores ANSI
 styles when calculating line width. Colors are reset before pager prompts. No
 external pager, new dependency, or terminal configuration change is required.
-The active-case prompt is bright white, without a background, when color is
+The active-case prompt uses the configured prompt style when color is
 enabled; its style resets before typed input. In the interactive shell, use
 `color` to report the effective state, `color off` to disable styling, and
 `color on` to restore it on a capable terminal. This preference is session-only,
@@ -130,6 +130,15 @@ authoritative; `color on` explains when it prevents styling. A command-specific
 `--no-color` remains supported and does not change the session preference.
 Interactive command help omits the repeated color option; `help` and `help color`
 document it. Direct CLI help continues listing `--no-color`.
+
+The command prompt shows only the selected database basename, for example
+`[mixeddesktop]>` or `[case.db]>`, retaining the current prompt style. A valid case
+is still required before entering the command loop. Normal `exit`, `quit`, or EOF
+prints `Locard session ended.` and the selected case path, if any. Ctrl+C continues
+to cancel the current input or command without ending the session.
+
+Human path fields retain literal separators and printable Unicode while escaping
+terminal controls. Structured JSON retains standard JSON escaping.
 
 Use `cls` (no arguments) to clear the screen and return to the active-case prompt.
 It uses terminal controls or the native Windows console API, never an external
@@ -189,9 +198,10 @@ assertions remain intact and can still expose conflicts; a new source assertion
 does not silently supersede a legacy assertion of uncertain scope.
 
 Without `--yes`, scripted updates and assignments preview the actual scope without
-applying it. Interactive mode shows the preview and requests confirmation, even if
-`--yes` was supplied. If the case changes after the interactive preview, the action
-is rejected so the analyst can review it again. Source commands reuse `--page`,
+applying it. Interactive mode shows the preview and requests confirmation unless
+`--yes` was supplied. With `--yes`, both modes validate and apply without prompting.
+If the case changes after the interactive preview, the action is rejected so the
+analyst can review it again. Source commands reuse `--page`,
 `--output`, `--append`, `--json` and `--no-color`; JSON remains plain structured data.
 `source list` file counts are distinct content hashes, not path or import counts.
 Its aligned table adapts to terminal width and uses restrained, optional colors.

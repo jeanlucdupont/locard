@@ -208,7 +208,7 @@ def test_candidate_redraw_middle_cursor_repeated_tab_and_ctrl_l(monkeypatch, col
     monkeypatch.setattr('shutil.get_terminal_size', lambda: os.terminal_size((width, 24)))
     cleared = []
     monkeypatch.setattr(console, 'clear_screen', lambda: cleared.append(True))
-    prompt = Palette(color)('prompt', 'locard[case/db]> ')
+    prompt = Palette(color)('prompt', '[db]> ')
     stream = io.StringIO()
     text = 'ingest- tail'
     keys = [*text, *(['LEFT'] * 5), '\t', '\t', '\x0c', 'a', '\r']

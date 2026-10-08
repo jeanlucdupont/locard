@@ -1,6 +1,7 @@
 """Compact display with escaped untrusted text; no interpretation of commands."""
 import json
 import ntpath
+import unicodedata
 
 
 def file_create_target(event):
@@ -19,7 +20,7 @@ def safe_path(value):
     Do not decode escapes or normalize the evidence value (including UNC paths).
     Other untrusted strings continue to use safe().
     """
-    return ''.join(c if c in ('\\', '"') else safe(c)
+    return ''.join(c if c.isprintable() and not unicodedata.category(c).startswith('C') else safe(c)
                    for c in str(value)) if value is not None else '-'
 
 

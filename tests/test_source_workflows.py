@@ -274,7 +274,7 @@ def test_interactive_source_update_decline_then_confirm(tmp_path):
     with closing(connect(path)) as db:
         with db:
             sid = sources.create(db)
-    command = f'source update {sid} --hostname changed --yes'
+    command = f'source update {sid} --hostname changed'
     shell = Shell(State(None), Input(str(path), command, 'n', 'exit'))
     assert shell.run() == 0
     with closing(connect(path)) as db:

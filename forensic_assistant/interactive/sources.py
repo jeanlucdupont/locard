@@ -33,7 +33,8 @@ def prepare(shell, args):
         return True
     if args.command == 'source' and args.source_command in ('update', 'assign'):
         from forensic_assistant.source_cli import dispatch
-        args.yes = False
+        if args.yes:
+            return True  # Dispatch still validates and applies the action transactionally.
         with closing(open_existing(shell.active)) as db:
             preview = dispatch(db, args)
             args.confirmation_fingerprint = preview['confirmation_fingerprint']
@@ -42,7 +43,9 @@ def prepare(shell, args):
             from forensic_assistant.terminal import Palette, enabled, render_json
             print(render_json(preview, Palette()) if args.json else render_assignment(preview, Palette(enabled(args))))
         else:
-            print(safe(preview['preview']))
+            from forensic_assistant.source_cli import render_update_preview
+            from forensic_assistant.terminal import Palette, enabled
+            print(render_update_preview(preview['preview'], Palette(enabled(args))))
         if shell.reader.read('Apply this analyst-supplied change? [y/N]: ').strip().lower() not in ('y', 'yes'):
             return False
         args.yes = True

@@ -169,6 +169,14 @@ class Shell:
                 return False
 
     def run(self):
+        result = self._run_session()
+        # Render only after normal return and command cleanup, never on a fatal error.
+        print('\nLocard session ended.')
+        if self.active is not None:
+            print('Case: ' + safe(self.active))
+        return result
+
+    def _run_session(self):
         from forensic_assistant.cli import build_parser, dispatch
         from forensic_assistant.cli_parser import UnknownCommand, InvalidArguments
         from forensic_assistant.terminal import Palette, enabled, clear_screen
@@ -187,12 +195,12 @@ class Shell:
                     self.reader.clear()
                     if not self.menu():
                         return 0
-                label = safe(self.active.parent.name + '/' + self.active.name)
+                label = safe(self.active.name)
                 if len(label) > 80:
                     label = label[:38] + '...' + label[-39:]
                 executing = False
                 try:
-                    prompt = Palette(enabled(self))('prompt', 'locard[' + label + ']> ')
+                    prompt = Palette(enabled(self))('prompt', '[' + label + ']> ')
                     words = split(self.reader.read(prompt, remember=True))
                     if not words:
                         continue

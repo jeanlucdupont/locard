@@ -35,7 +35,7 @@ def configure(commands):
             p.add_argument(
                 '--yes',
                 action='store_true',
-                help='Apply the explicit analyst action; otherwise preview only'
+                help='Apply without interactive confirmation; otherwise confirm in the shell or preview in scripts'
             )
         if name == 'assign':
             p.add_argument(
@@ -178,9 +178,22 @@ def dispatch(db, args):
         db.rollback()
 
 
+def render_update_preview(preview, palette):
+    """Human fields rather than Python repr of the proposed metadata dictionary."""
+    from forensic_assistant.retrieval.presentation import safe, safe_path
+    source = preview['source']
+    lines = ['Source: ' + safe(source['source_id'])]
+    for key, value in preview['proposed'].items():
+        render = safe_path if key == 'volume_root' else safe
+        lines.append(palette('key', key.replace('_', ' ').capitalize() + ': ')
+                     + render(source.get(key)) + ' -> ' + render(value))
+    lines.append(safe(preview['basis']))
+    return '\n'.join(lines)
+
+
 def render_assignment(data, palette=None):
     from forensic_assistant.terminal import Palette
-    from forensic_assistant.retrieval.presentation import safe
+    from forensic_assistant.retrieval.presentation import safe, safe_path
     palette = palette or Palette()
     p = data.get('preview', data.get('scope'))
     s = p['source']
@@ -190,7 +203,7 @@ def render_assignment(data, palette=None):
         'Analyst hostname: ' + safe(s['hostname'] or 'unknown')
     ]
     for path in p['paths']:
-        lines.append('Recorded path: ' + safe(path))
+        lines.append('Recorded path: ' + safe_path(path))
     if p['explicit_hashes']:
         lines.append('Explicit hash selectors: ' + str(len(p['explicit_hashes'])))
     lines += [
@@ -216,11 +229,11 @@ def render_assignment(data, palette=None):
 
 def render_show(data, palette=None):
     from forensic_assistant.terminal import Palette, value_role
-    from forensic_assistant.retrieval.presentation import safe
+    from forensic_assistant.retrieval.presentation import safe, safe_path
     palette = palette or Palette()
     lines = []
-    def field(name, value):
-        lines.append(palette('key', name + ': ') + palette(value_role(value), safe(value)))
+    def field(name, value, *, path=False):
+        lines.append(palette('key', name + ': ') + palette(value_role(value), (safe_path if path else safe)(value)))
     for name, key in [
         ('Source', 'display_name'),
         ('Source ID', 'source_id'),
@@ -236,7 +249,7 @@ def render_show(data, palette=None):
         ('Evidence records', 'evidence_count'),
         ('Files with multiple source memberships', 'ambiguous_files')
     ]:
-        field(name, data.get(key))
+        field(name, data.get(key), path=key == 'volume_root')
     # Source-wide assertions cannot establish each file's effective host: legacy
     # file assertions and multiple memberships are resolved at evidence retrieval.
     field('Artifact hostnames', ', '.join(data.get('artifact_hostnames', [])) or 'unknown')

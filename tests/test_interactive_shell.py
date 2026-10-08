@@ -101,7 +101,7 @@ def test_unusable_remembered_path_reselects(tmp_path, remembered):
 def test_startup_can_exit_without_main_prompt(tmp_path, cancel):
     reader = Input(cancel)
     assert Shell(State(None), reader).run() == 0
-    assert not any(p.startswith('locard[') for p in reader.prompts)
+    assert reader.prompts == ['Selection (or existing database path): ']
 
 
 def test_switch_isolates_defaults_and_preserves_report_case_semantics(tmp_path, monkeypatch):

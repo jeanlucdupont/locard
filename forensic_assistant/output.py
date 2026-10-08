@@ -7,7 +7,7 @@ import shutil
 import sys
 import tempfile
 import time
-from forensic_assistant.retrieval.presentation import safe
+from forensic_assistant.retrieval.presentation import safe, safe_path
 from forensic_assistant.terminal import Palette, enabled, render_json, wrap_line, message
 
 
@@ -262,7 +262,7 @@ class Output:
                     if temporary is not None:
                         temporary.unlink(missing_ok=True)
                 verb = 'written to'
-            message('Output ' + verb + ': ' + safe(self.target), self.args, role='success')
+            message('Output ' + verb + ': ' + safe_path(self.target), self.args, role='success')
         else:
             page(self.stream, self.palette)
 

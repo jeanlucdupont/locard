@@ -78,7 +78,7 @@ def test_empty_case_first_run_and_recent(tmp_path):
     shell = Shell(State(tmp_path / 'ui.json'), Input(*lines))
     assert shell.run() == 0 and shell.active == target
     assert State(shell.state.path).load().recent == [str(target)]
-    assert any(p.startswith('locard[nested/case.db]') for p in shell.reader.prompts)
+    assert any(p.startswith('[case.db]') for p in shell.reader.prompts)
 
 
 @pytest.mark.parametrize('kind', ['file', 'directory', 'database'])

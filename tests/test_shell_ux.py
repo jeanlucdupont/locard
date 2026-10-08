@@ -36,11 +36,11 @@ def test_prompt_switch_toggle_session_and_dispatch(tmp_path, monkeypatch, capsys
     state = State(None)
     shell = Shell(state, reader)
     assert shell.run() == 0
-    prompts = [p for p in reader.prompts if 'locard[' in p]
-    assert prompts[0] == terminal.Palette(True)('prompt', 'locard[A/a.db]> ')
-    assert prompts[2] == 'locard[A/a.db]> '
-    assert prompts[4] == 'locard[B/b.db]> '
-    assert prompts[5] == terminal.Palette(True)('prompt', 'locard[B/b.db]> ')
+    prompts = [p for p in reader.prompts if terminal.SGR.sub('', p).startswith('[')]
+    assert prompts[0] == terminal.Palette(True)('prompt', '[a.db]> ')
+    assert prompts[2] == '[a.db]> '
+    assert prompts[4] == '[b.db]> '
+    assert prompts[5] == terminal.Palette(True)('prompt', '[b.db]> ')
     assert [a.no_color for a in seen] == [True, False, True, False]
     assert seen[1].command == 'investigate-ai'
     assert 'Color: on' in capsys.readouterr().out
@@ -65,7 +65,7 @@ def test_effective_color_constraints(tmp_path, monkeypatch, capsys, no_color_env
 
 def test_prompt_editor_redraw_resets_before_typed_input(color, monkeypatch):
     monkeypatch.setattr('shutil.get_terminal_size', lambda: os.terminal_size((40, 24)))
-    prompt = terminal.Palette(True)('prompt', 'locard[A/a.db]> ')
+    prompt = terminal.Palette(True)('prompt', '[a.db]> ')
     colored = io.StringIO()
     plain = io.StringIO()
     keys = list('status') + ['LEFT', 'DELETE', 's', '\r']
@@ -129,7 +129,8 @@ def test_color_output_json_files_and_pager(tmp_path, monkeypatch, capsys, color)
     text = dest.read_text(encoding='utf-8')
     assert text == paged[1] + '\n' + paged[1] and '\x1b' not in text
     stdout = capsys.readouterr().out
-    structured = stdout[stdout.index('{'):]
+    structured, ending = stdout[stdout.index('{'):].split('\nLocard session ended.\n', 1)
+    assert ending == 'Case: ' + str(path) + '\n'
     assert '\x1b' not in structured and json.loads(structured)['schema_version'] == 5
 
 
