@@ -171,6 +171,7 @@ class Shell:
     def run(self):
         result = self._run_session()
         # Render only after normal return and command cleanup, never on a fatal error.
+        print(get_liner())
         print('\nLocard session ended.')
         if self.active is not None:
             print('Case: ' + safe(self.active))
