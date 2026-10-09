@@ -10,11 +10,16 @@ from forensic_assistant.correlation.investigation import investigate
 from forensic_assistant.llm.timeline import analyze_timeline
 
 
-def output_options(parser):
+def output_options(parser, *, interactive_text=False):
     display = parser.add_mutually_exclusive_group()
-    display.add_argument("--json", action="store_true", help="JSON output (default)")
-    display.add_argument("--text", action="store_true")
+    display.add_argument("--json", action="store_true", help="Structured JSON output")
+    display.add_argument("--text", action="store_true", help="Human-readable text output")
     parser.add_argument("--raw", action="store_true")
+    if interactive_text:
+        parser.set_defaults(_interactive_text=True)
+        parser.epilog = ('Interactive shell defaults to human text; direct CLI defaults to JSON. '
+                         '--raw retains diagnostic output, defaulting to JSON. '
+                         'Use --text for human paging; JSON paging is not supported.')
 
 
 def configure(commands):
@@ -28,7 +33,7 @@ def configure(commands):
     tree.add_argument("--pid-window", type=int, default=300)
     tree.add_argument("--max-nodes", type=int, default=100)
     tree.add_argument("--max-depth", type=int, default=8)
-    auth = commands.add_parser("logons", help=COMMANDS['logons'])
+    auth = commands.add_parser("logons", help=COMMANDS['logons'], description=COMMANDS['logons'])
     for name in ("user", "ip", "hostname", "start", "end"):
         auth.add_argument("--" + name)
     auth.add_argument("--limit", type=int, default=100)
@@ -64,8 +69,9 @@ def configure(commands):
     analysis.add_argument("--endpoint", default="http://127.0.0.1:8080")
     analysis.add_argument("--timeout", type=float, default=120)
     analysis.add_argument("--dry-run", action="store_true")
-    for command in (tree, auth, sessions, detect, investigation, analysis):
-        output_options(command)
+    for command in (tree, auth, sessions, detect, investigation):
+        output_options(command, interactive_text=True)
+    output_options(analysis)
 
 
 def dispatch(db, args):

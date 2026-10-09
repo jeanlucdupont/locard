@@ -851,6 +851,46 @@ runs or replace deduplicated evidence.
 
 ### Authentication and investigation text views
 
+In the interactive shell, `logons`, `detections`, `session`, `process-tree`, and
+`investigate` default to human-readable text. Direct CLI invocations retain their
+JSON default. Explicit `--json` and `--text` select the format in either context
+and remain mutually exclusive. `--raw` retains its existing diagnostic behavior,
+defaulting to JSON even in the shell; `--raw --text` retains the detailed legacy
+view. Other commands' defaults are unchanged.
+
+`--output` and `--append` use the resolved format and always write plain UTF-8
+without presentation ANSI escapes. Interactive `--page` uses the human view;
+direct CLI paging requires `--text`. JSON paging is not supported. Audit argv
+records what the analyst entered, without an invented `--text`; the existing
+command parameters separately record the resolved `text`/`json` flags.
+
+`logons` reviews the normalized Windows Event Log kinds `logon`, `failed_logon`,
+`privileged_logon`, `explicit_credentials`, `logoff_request`, and `logoff`.
+The human view groups category, time, user, available logon type/source IP/process
+and host with the full evidence ID. No service/system-account noise filter is
+applied. Green logons, red failed logons, yellow privilege/credential observations,
+and cyan logoffs identify event categories, not maliciousness. Missing fields
+remain `-`. Empty results distinguish no EVTX records in the case from no matching
+events; neither establishes that no logons occurred or that Security logs are absent.
+Partial ingestion history for file bytes represented on the page is noted once
+per file, without claiming which run created each event or that every partial
+attempt was a recovery. This text-only context does not change JSON.
+
+`detections --text` groups each finding with its complete detection/evidence IDs,
+reason, and record-specific limitations. Shared cautions appear once. Severity
+is static review priority: high is red, medium yellow, low cyan; it is not
+confidence or probability of compromise. **DETECTION != COMPROMISE.** Missing
+matches do not prove absence of activity. Rule coverage summarizes evaluated
+rules, rules with displayed matches, candidate evaluations across rules (not
+unique evidence), and candidate truncation. Counts are bounded by evaluation and
+display limits; full rule coverage remains in JSON.
+
+`process-tree --text` presents supported parent/child links as an indented graph,
+retaining `CONFIRMED` versus `LIKELY` status and reasons. Unresolved or undisplayed
+relationships remain separate with full references; no missing parent or child
+is invented. PID lookback, child window, maximum nodes/depth, and reached limits
+are explicit. Color emphasizes structure rather than maliciousness.
+
 `search --kind logons --ids` displays the normalized target Windows Logon ID
 for successful logons, in hexadecimal for reuse with `session --logon-id`.
 Subject and linked IDs are not substituted. Failed authentication does not
@@ -904,10 +944,11 @@ evidence ID is involved. The summary leaves Nearby evidence and JSON/raw intact,
 including their existing limits and compaction. An unresolved timestamp produces
 no summary; empty summaries describe only the returned bounded evidence.
 
-Both commands retain JSON as their default; `--json` preserves the structured
-contract and `--raw` retains detailed evidence. Human text uses existing color,
+Both commands retain JSON as their direct CLI default and use human text by
+default in the interactive shell. `--json` preserves the structured contract
+and `--raw` retains detailed evidence. Human text uses existing color,
 `--page`, `--output` and `--append` behavior; output files are plain text.
-Process-tree behavior is unchanged. The mixed-artifact `around` view is described above.
+Process-tree reconstruction semantics are unchanged. The mixed-artifact `around` view is described above.
 
 #### Linked logons: investigated, not correlated
 

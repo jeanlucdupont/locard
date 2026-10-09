@@ -20,6 +20,16 @@ class LocardParser(argparse.ArgumentParser):
             if isinstance(action, argparse._HelpAction):
                 action.help = argparse.SUPPRESS
 
+    def parse_args(self, args=None, namespace=None):
+        parsed = super().parse_args(args, namespace)
+        if getattr(parsed, '_interactive_text', False):
+            # Resolve presentation after parsing; never insert synthetic argv.
+            # Raw diagnostic output keeps its existing default JSON contract.
+            if not parsed.json and not parsed.text:
+                parsed.text = isinstance(self, InteractiveParser) and not parsed.raw
+            parsed.json = not parsed.text
+        return parsed
+
 
 class InteractiveParser(LocardParser):
     def print_help(self, file=None):

@@ -92,7 +92,7 @@ def warnings(view, records):
             view.line(message, 'warning')
 
 
-def render_session(result, palette=None):
+def render_session(result, palette=None, *, context=None):
     view = View(palette)
     #view.section('SESSION')
     view.field('Status', result['status'])
@@ -134,6 +134,13 @@ def render_session(result, palette=None):
     if result.get('truncated'):
         view.line('Session candidate limit reached; results are incomplete.', 'warning')
     warnings(view, records.values())
+    if context is not None:
+        from .analyst_display import evtx_notes
+        notes = evtx_notes(context)
+        if notes:
+            view.section('Forensic notes')
+            for note in notes:
+                view.line('- ' + note, 'warning')
     return view.result()
 
 

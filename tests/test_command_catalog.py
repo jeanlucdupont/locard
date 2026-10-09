@@ -22,7 +22,7 @@ around|Show evidence near a specific event or timestamp
 ask|Ask the local AI questions about case evidence
 case|Open or create a case
 color|Turn terminal colors on or off
-detections|Show  evidence matching Locard detection rules
+detections|Show evidence matching Locard detection rules
 exit|Exit Locard
 help|Show help for a command
 ingest-all|Import all supported forensic artifacts
@@ -34,7 +34,7 @@ ingest-registry|Import Windows Registry evidence
 investigate|Gather related evidence around an event
 investigate-ai|Analyze case evidence using the local AI model
 investigation|Review or replay saved AI investigations
-logons|Review Windows logon activity
+logons|Review Windows logon-related activity from normalized Windows Event Log evidence
 process-tree|Reconstruct process parent-child relationships
 quit|Exit Locard
 report|Generate a forensic investigation report
@@ -116,7 +116,13 @@ def test_shell_help_catalog_and_details(prefix, tmp_path, capsys):
 def test_representative_parser_contracts(args, expected):
     normal = vars(build_parser().parse_args(args))
     interactive = vars(build_parser(interactive=True).parse_args(args))
-    assert normal == interactive
+    if args[0] in ('session', 'process-tree'):
+        assert normal['json'] and not normal['text']
+        assert interactive['text'] and not interactive['json']
+        assert {k: v for k, v in normal.items() if k not in ('json', 'text')} == {
+            k: v for k, v in interactive.items() if k not in ('json', 'text')}
+    else:
+        assert normal == interactive
     assert {key: normal[key] for key in expected} == expected
 
 

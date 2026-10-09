@@ -285,12 +285,26 @@ def _dispatch(args, output, *, existing_only=False):
                 return code
             v1_result = v1_cli.dispatch(db, args)
             if v1_result is not None:
+                activity.result_count(v1_result)
                 if not args.raw:
                     v1_result = v1_cli.omit_raw(v1_result)
-                if args.text and not args.raw and args.command in ('session', 'investigate'):
+                if args.text and not args.raw and args.command in ('logons', 'detections', 'process-tree'):
+                    from forensic_assistant.retrieval import analyst_display
+                    if args.command == 'logons':
+                        context = analyst_display.evtx_context(db, v1_result['records'])
+                        text = analyst_display.render_logons(v1_result, output.palette, context=context)
+                    elif args.command == 'detections':
+                        text = analyst_display.render_detections(v1_result, output.palette)
+                    else:
+                        text = analyst_display.render_process_tree(v1_result, output.palette)
+                    output.write(text)
+                elif args.text and not args.raw and args.command in ('session', 'investigate'):
                     from forensic_assistant.retrieval.analysis_display import render_session, render_investigation
-                    render = render_session if args.command == 'session' else render_investigation
-                    output.write(render(v1_result, output.palette))
+                    if args.command == 'session':
+                        from forensic_assistant.retrieval.analyst_display import evtx_context
+                        output.write(render_session(v1_result, output.palette, context=evtx_context(db, v1_result['records'])))
+                    else:
+                        output.write(render_investigation(v1_result, output.palette))
                 elif args.text:
                     output.write(v1_cli.render(v1_result, methodology=args.raw))
                 else:
