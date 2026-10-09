@@ -12,6 +12,7 @@ from forensic_assistant.interactive.case import validate, open_existing
 from forensic_assistant.retrieval.presentation import safe_text as safe
 from forensic_assistant.reporting.transcripts import safe_path
 from forensic_assistant import v2_cli
+from forensic_assistant.terminal import Palette, enabled
 
 
 def destination(value):
@@ -43,13 +44,14 @@ def preflight(source):
     return list(v2_cli.discover(source, include_browser=True))
 
 
-def browser_choices(found, read):
+def browser_choices(found, read, palette=None):
     """Every History has explicit analyst-supplied product/profile; no path inference."""
     from forensic_assistant.artifacts.browser import validate_options
     choices = []
+    palette = palette or Palette()
     candidates = [file for file, kind in found if kind == 'browser']
     if candidates:
-        print(f'Found {len(candidates)} Chromium History databases:')
+        print(palette('key', f'Found {len(candidates)} Chromium History databases:'))
     for index, file in enumerate(candidates, 1):
         print(f'  {index}. ' + safe(file))
         while True:
@@ -58,7 +60,7 @@ def browser_choices(found, read):
                 raise EOFError
             if product in ('chrome', 'edge'):
                 break
-            print('Choose chrome or edge explicitly; product is not inferred from the path.')
+            print(palette('warning', 'Choose chrome or edge explicitly; product is not inferred from the path.'))
         while True:
             profile = read('  Profile (required): ')
             if not profile or profile.casefold() in ('cancel', 'exit', 'quit'):
@@ -67,7 +69,7 @@ def browser_choices(found, read):
                 validate_options(product, profile)
                 break
             except ValueError as exc:
-                print(human_error(exc))
+                print(palette('error', human_error(exc)))
         choices.append((file, product, profile))
     return choices
 
@@ -113,25 +115,56 @@ def initialize(target, create_parents=False, on_publish=None):
     return target
 
 
-def summarize(target):
+class IngestionProgress:
+    """Display primary results immediately; defer only identified unsupported companions."""
+    def __init__(self, browsers=(), palette=None):
+        self.browsers = {str(path): product.capitalize() + ' / ' + profile for path, product, profile in browsers}
+        self.palette = palette or Palette()
+        self.companions = []
+
+    def __call__(self, file, kind, result):
+        from forensic_assistant.artifacts.registry_logs import CLASSIFIER
+        if result.get('parser') == CLASSIFIER and result['status'] == 'unsupported' and not result['errors']:
+            self.companions.append(str(file))
+            return
+        label = self.browsers.get(str(file), str(file))
+        role = 'success' if result['status'] == 'complete' and not result['errors'] else (
+            'warning' if result['status'] == 'unsupported' and not result['errors'] else 'error')
+        print(self.palette(role, '  ' + safe(label) + f"   {result['inserted']:,} records"))
+        if result['duplicates'] or result['errors'] or result['status'] != 'complete':
+            print(self.palette(role, f"    {result['status']} | {result['duplicates']:,} duplicates | {result['errors']:,} errors"))
+        if result.get('limitation'):
+            print(self.palette('warning', safe(result['limitation'])))
+
+    def finish(self):
+        if self.companions:
+            print(self.palette('key', 'Skipped companion transaction logs:'))
+            for file in self.companions:
+                print(self.palette('warning', '  ' + safe(file)))
+            print(self.palette('warning', 'Limitation: Registry transaction-log replay is not supported; companion logs were not parsed as hives.'))
+            self.companions.clear()
+
+
+def summarize(target, palette=None):
+    palette = palette or Palette()
     with closing(open_existing(target)) as db:
         counts = v2_cli.dispatch(db, SimpleNamespace(command='status'))[0]['artifact_counts']
         runs = {r[0]: r[1] for r in db.execute('SELECT status,count(*) FROM ingestion_runs GROUP BY status')}
         totals = db.execute('SELECT coalesce(sum(inserted_count),0),coalesce(sum(duplicate_count),0),coalesce(sum(error_count),0) FROM ingestion_runs').fetchone()
-        print(f'Evidence: {sum(counts.values()):,} records | {totals[2]:,} errors')
+        print(palette('error' if totals[2] else 'success', f'Evidence: {sum(counts.values()):,} records | {totals[2]:,} errors'))
         if totals[1]:
-            print(f'Duplicates: {totals[1]:,}')
+            print(palette('warning', f'Duplicates: {totals[1]:,}'))
         for status, count in runs.items():
             if status != 'complete':
-                print(f'File outcomes: {count:,} {status}')
+                print(palette('warning' if status == 'unsupported' else 'error', f'File outcomes: {count:,} {status}'))
         import json
         from forensic_assistant.ingest.validation import is_identifier_note, LABEL
         notes = sum(any(is_identifier_note(note) for note in json.loads(row[0]))
                     for row in db.execute('SELECT normalization_warnings_json FROM events'))
         if notes:
-            print('Validation notes:\n  ' + LABEL + f': {notes} records')
+            print(palette('key', 'Validation notes:') + '\n  ' + palette('warning', LABEL + f': {notes} records'))
         for row in db.execute('SELECT stage,message FROM ingestion_errors ORDER BY id'):
-            print('Recorded limitation: ' + safe(row['stage']) + ': ' + safe(row['message']))
+            print(palette('error', 'Recorded limitation: ' + safe(row['stage']) + ': ' + safe(row['message'])))
     return sum(counts.values()), runs
 
 
@@ -146,6 +179,7 @@ def create(shell):
 
 
 def _attempt(shell):
+    palette = Palette(enabled(shell))
     target = None
     published = False
     initializing = False
@@ -155,7 +189,7 @@ def _attempt(shell):
         nonlocal published
         published = True
     def read(prompt):
-        return shell.reader.read(prompt).strip()
+        return shell.reader.read(palette('prompt', prompt)).strip()
     def path(prompt):
         value = read(prompt)
         if not value or value.casefold() in ('cancel', 'exit', 'quit'):
@@ -189,7 +223,7 @@ def _attempt(shell):
                         continue
                 break
             except (ValueError, OSError, sqlite3.Error) as exc:
-                print('Invalid destination: ' + human_error(exc))
+                print(palette('error', 'Invalid destination: ' + human_error(exc)))
         while True:
             try:
                 source = source_path(path('Evidence file or directory: '), target)
@@ -197,17 +231,17 @@ def _attempt(shell):
                 if found:
                     break
                 from forensic_assistant.artifacts.ingest import DISCOVERY_LABELS
-                print('No supported artifacts found (' + ', '.join(DISCOVERY_LABELS.values()) + ').')
+                print(palette('warning', 'No supported artifacts found (' + ', '.join(DISCOVERY_LABELS.values()) + ').'))
                 choice = read('Choose another source [A], create an empty case [E], or cancel [C]: ').casefold()
                 if choice == 'e':
                     break
                 if choice != 'a':
                     return False
             except (ValueError, OSError) as exc:
-                print('Invalid evidence source: ' + human_error(exc))
-        browsers = browser_choices(found, read)
+                print(palette('error', 'Invalid evidence source: ' + human_error(exc)))
+        browsers = browser_choices(found, read, palette)
         if found:
-            print('Optional source information')
+            print(palette('key', 'Optional source information'))
             source_name = read('Source name [' + safe(target.stem) + ']: ') or target.stem
             hostname = read('Hostname (Enter = unknown): ') or None
             username = read('User (Enter = unknown): ') or None
@@ -217,8 +251,8 @@ def _attempt(shell):
                     volume = normalize_volume_root(read('Original drive, e.g. C: (Enter = unknown): '))
                     break
                 except ValueError as exc:
-                    print(human_error(exc))
-        print('New case\n  Case: ' + safe(target) + '\n  Evidence: ' + safe(source))
+                    print(palette('error', human_error(exc)))
+        print(palette('key', 'New case') + '\n  Case: ' + safe(target) + '\n  Evidence: ' + safe(source))
         if found:
             for label, value in [('Source', source_name), ('Hostname', hostname), ('User', username), ('Original drive', volume)]:
                 print('  ' + label + ': ' + safe(value or 'unknown'))
@@ -244,7 +278,7 @@ def _attempt(shell):
         if not found:
             print('Empty case explicitly requested; no ingestion performed.')
             shell.activate(target, activity_session=audit_session, announce=False)
-            print('Case ready: ' + safe(target))
+            print(palette('success', 'Case ready: ' + safe(target)))
             return True
         from forensic_assistant.database import sources
         with closing(open_existing(target)) as db:
@@ -252,14 +286,7 @@ def _attempt(shell):
                 source_id = sources.create(db, name=source_name, hostname=hostname,
                                            username=username, volume_root=volume)
                 audit_result.update(source_id=source_id, assertion=sources.current(db, source_id))
-        print('Ingesting evidence...')
-        def progress(file, kind, result):
-            label = next((product.capitalize() + ' / ' + profile for path, product, profile in browsers if str(path) == str(file)), str(file))
-            print('  ' + safe(label) + f"   {result['inserted']:,} records")
-            if result['duplicates'] or result['errors'] or result['status'] != 'complete':
-                print(f"    {result['status']} | {result['duplicates']:,} duplicates | {result['errors']:,} errors")
-            if result.get('limitation'):
-                print(safe(result['limitation']))
+        print(palette('key', 'Ingesting evidence...'))
         args = SimpleNamespace(
             command='ingest-all',
             path=source,
@@ -272,29 +299,36 @@ def _attempt(shell):
         )
         while True:
             source_path(args.path, target)
-            with closing(open_existing(target)) as db:
-                results = []
-                if any(kind != 'browser' for _, kind in found):
-                    results.extend(v2_cli.ingest_sources(db, args, progress))
-                for file, product, profile in browsers:
-                    options = SimpleNamespace(**{**vars(args), 'command': 'ingest-browser',
-                                                'path': file, 'browser': product, 'profile': profile})
-                    results.extend(v2_cli.ingest_sources(db, options, progress))
-            stored, runs = summarize(target)
+            progress = IngestionProgress(browsers, palette)
+            try:
+                with closing(open_existing(target)) as db:
+                    results = []
+                    if any(kind != 'browser' for _, kind in found):
+                        results.extend(v2_cli.ingest_sources(db, args, progress))
+                    for file, product, profile in browsers:
+                        options = SimpleNamespace(**{**vars(args), 'command': 'ingest-browser',
+                                                    'path': file, 'browser': product, 'profile': profile})
+                        results.extend(v2_cli.ingest_sources(db, options, progress))
+            finally:
+                progress.finish()
+            stored, runs = summarize(target, palette)
             if stored:
                 complete = bool(results) and set(runs) == {'complete'} and all(r['status'] == 'complete' for r in results)
                 if not complete:
-                    print('Ingestion completed with errors/limitations; committed evidence retained.')
+                    has_errors = any(r['errors'] or r['status'] not in ('complete', 'unsupported') for r in results)
+                    has_errors = has_errors or any(status not in ('complete', 'unsupported') for status in runs)
+                    outcome = 'errors/limitations' if has_errors else 'limitations'
+                    print(palette('error' if has_errors else 'warning', 'Ingestion completed with ' + outcome + '; committed evidence retained.'))
                 shell.activate(target, activity_session=audit_session, announce=False)
-                print('Case ready: ' + safe(target))
+                print(palette('success', 'Case ready: ' + safe(target)))
                 return True
-            print('No evidence records were stored. This is not a successful evidence ingestion.')
+            print(palette('warning', 'No evidence records were stored. This is not a successful evidence ingestion.'))
             if not results:
                 print('No supported artifacts remained at ingestion time.')
             choice = read('Choose another source [A], activate empty/failed-ingestion case [E], or cancel [C]: ').casefold()
             if choice == 'e':
                 shell.activate(target, activity_session=audit_session, announce=False)
-                print('Case ready: ' + safe(target))
+                print(palette('success', 'Case ready: ' + safe(target)))
                 return True
             if choice != 'a':
                 print('Database retained without activation: ' + safe(target))
@@ -304,11 +338,11 @@ def _attempt(shell):
                     args.path = source_path(path('Evidence file or directory: '), target)
                     found = preflight(args.path)
                     if found:
-                        browsers = browser_choices(found, read)
+                        browsers = browser_choices(found, read, palette)
                         break
                     print('No supported artifacts found; select another source or cancel.')
                 except (OSError, ValueError) as exc:
-                    print('Invalid evidence source: ' + human_error(exc))
+                    print(palette('error', 'Invalid evidence source: ' + human_error(exc)))
             if not yes('Begin ingestion from ' + safe(args.path) + '? [y/N]: '):
                 return False
     except (EOFError, KeyboardInterrupt):
@@ -319,16 +353,16 @@ def _attempt(shell):
             print('Any analyst-requested directories already created are retained.')
         if published:
             print('Database retained: ' + safe(target) + '. Already committed evidence was not rolled back.')
-            summarize(target)
+            summarize(target, palette)
         return False
     except (ValueError, OSError, sqlite3.Error) as exc:
         if audit_session:
             audit_session.record('CASE_PREPARATION', 'failure', **activity.error_data(exc))
-        print('Creation/ingestion failed: ' + human_error(exc))
+        print(palette('error', 'Creation/ingestion failed: ' + human_error(exc)))
         print('Any analyst-requested directories are retained; existing files were not overwritten.')
         if published:
             print('Database retained: ' + safe(target) + '. Already committed evidence was not rolled back.')
-            summarize(target)
+            summarize(target, palette)
             try:
                 if yes('Open the retained database explicitly? [y/N]: '):
                     shell.activate(target)

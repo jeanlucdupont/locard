@@ -7,7 +7,6 @@ import sys
 from contextlib import closing
 from forensic_assistant.config import Config
 from forensic_assistant.database.db import connect
-from forensic_assistant.ingest.evtx import discover, ingest_file
 from forensic_assistant.retrieval.queries import Queries
 from forensic_assistant.llm.ask import ask
 from forensic_assistant.llm.client import LLMError
@@ -51,8 +50,6 @@ def build_parser(*, interactive=False):
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling (also respects NO_COLOR)')
     commands = parser.add_subparsers(dest="command", required=True)
     v1_cli.configure(commands)
-    ingest = commands.add_parser("ingest", help=COMMANDS['ingest'])
-    ingest.add_argument("path")
     search = commands.add_parser("search", help=COMMANDS['search'])
     for name in ("user", "ip", "hostname", "start", "end"):
         search.add_argument("--" + name)
@@ -313,14 +310,6 @@ def _dispatch(args, output, *, existing_only=False):
                     embedding_model=args.embedding_model
                 ))
                 return 0
-            if args.command == "ingest":
-                results = v2_cli.ingest_sources(db, args)
-                for result in results:
-                    emit(result)
-                if not results:
-                    print("No EVTX files found.", file=sys.stderr)
-                    return 1
-                return 1 if any(r['status'] != 'complete' for r in results) else 0
             if args.command == "status":
                 emit(queries.coverage())
                 return 0

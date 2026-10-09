@@ -12,7 +12,7 @@ locard --db data\case.db investigation replay '<investigation-id>' --no-semantic
 Acquire offline files using appropriate forensic acquisition procedures. Locard
 parses supplied copies; it does not acquire live hives, unlock files, mount images,
 recover deleted content, or replay Registry transaction logs. Missing companion
-hives are allowed. `ingest` retains its original EVTX-only behavior. New commands
+hives are allowed. `ingest-evtx` imports Windows event logs. New commands
 validate signatures rather than relying on filenames:
 
 ```powershell
@@ -356,8 +356,8 @@ the subcommand; its default is `data/forensic.db` relative to the current direct
 Use a separate database per investigation. Keep databases outside source evidence folders.
 
 ```powershell
-.\.venv\Scripts\python.exe -m forensic_assistant.cli ingest 'C:\Evidence'
-.\.venv\Scripts\python.exe -m forensic_assistant.cli --db data\case1.db ingest 'C:\Evidence\Security.evtx'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ingest-evtx 'C:\Evidence'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli --db data\case1.db ingest-evtx 'C:\Evidence\Security.evtx'
 .\.venv\Scripts\python.exe -m forensic_assistant.cli status
 ```
 

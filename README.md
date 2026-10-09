@@ -163,7 +163,10 @@ Records contain an audit-format version, microsecond UTC `timestamp_utc`, a uniq
 active-case `session_id`, monotonic per-case `sequence`, `action`, `outcome`, and
 action-specific fields. Each script invocation gets its own session. Switching
 cases ends the previous session. Normal exit/EOF records an end; a fatal crash
-does not fabricate one. The dispatcher owns command invocation/completion and
+does not fabricate one. Successful case activation appends `CASE_OPEN` before
+`SESSION_START`; a failed open starts no session. New-case creation/ingestion
+events precede activation. Historical log entries are never reordered.
+The dispatcher owns command invocation/completion and
 show/around/investigate anchors; the shell owns session/open/create events;
 source, ingestion, and output adapters own their semantic actions. Successful
 shell help/version/color commands are also recorded. Blank input, completion,
@@ -222,11 +225,32 @@ counts and meaningful duplicates/errors rather than Python dictionaries. An
 explicit empty case creates no placeholder source and asks no source metadata.
 Existing directories are rejected with a create-specific destination message.
 
+On a capable terminal, case-creation phases use the existing cyan key style;
+successful counts/completion use green, limitations use yellow, and actual errors
+use red. Prompts reuse the existing prompt style. `color off`, `NO_COLOR`, and
+redirected output suppress these styles. JSON, audit records, and exported files
+receive no presentation escape sequences.
+
+Registry creation progress shows primary hive results first, then groups
+identified unsupported `.LOG1`/`.LOG2` companions under **Skipped companion
+transaction logs**, with one replay limitation. The stored attempts remain
+`unsupported`, not failed or successfully parsed hives. If there are only
+limitations, the summary says **completed with limitations**; actual errors and
+partial/failed runs remain explicit. No transaction-log replay is performed.
+
 Tab completion after `help` or `?` reuses the same command/parser hierarchy:
 `help sour<Tab>`, `help source <Tab>`, and `help source up<Tab>` navigate to
 `source` and its subcommands. Help-target completion does not suggest options.
 
 ### Sources, ingestion batches, and evidence identity (0.10.0)
+
+The ingestion commands are `ingest-all`, `ingest-browser`, `ingest-evtx`,
+`ingest-mft`, `ingest-prefetch`, and `ingest-registry`. Explicit `ingest-evtx`
+discovers both `.evtx`-named files (including damaged headers, so attempts and
+errors retain provenance) and signature-recognized EVTX files with other names.
+The existing parser decides their outcomes; discovery does not assert validity.
+Directory traversal retains its symlink exclusions. General artifact discovery
+remains signature-based.
 
 A case can contain many sources. A **source** is an analyst-defined origin, with
 an immutable generated ID and a display name independent of hostname. A **batch**
@@ -755,7 +779,17 @@ Copyright © 2026 Jean-Luc Dupont
 ### Compact evidence and source views
 
 Normal `search` uses artifact-specific tables with millisecond timestamps.
-`search --ids` adds numbered, full copyable evidence IDs for `show` and `around`.
+`search --ids` places each full copyable evidence ID directly beneath its result
+for every artifact family, for use with `show` and `around`. IDs are never moved
+into a detached numbered list. Without `--ids`, compact tables remain available;
+JSON selection, ordering, and fields are unchanged.
+
+Registry search groups exact dirty-hive limitations under **Forensic notes**,
+once per hive/source context. Ambiguous hive names retain identifying path/hash
+and source information. Dirty does not mean corrupted: transaction logs were not
+replayed and the snapshot may be inconsistent. Record-specific anomalies, including
+key-corruption flags, stay beneath their records. Full warnings/provenance remain
+in JSON; UserAssist interpretation and timestamp semantics are unchanged.
 Table paths may be shortened for terminal width; full projected values remain
 available through `show`, `--json`, and `--raw`. No values in evidence are changed.
 `around --text` begins with anchor time and source/artifact context; `--ids`

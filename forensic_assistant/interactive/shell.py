@@ -61,6 +61,10 @@ class Shell:
 
     def activate(self, path, *, activity_session=None, announce=True):
         target = validate(path)
+        from contextlib import closing
+        from .case import open_existing
+        with closing(open_existing(target)) as db:
+            version = db.execute('PRAGMA user_version').fetchone()[0]
         from forensic_assistant import activity
         if self.audit:
             self.audit.end('case switch')
@@ -72,10 +76,6 @@ class Shell:
             self.state.remember(target)
         except (OSError, ValueError) as exc:
             print('Recent case not saved: ' + human_error(exc))
-        from contextlib import closing
-        from .case import open_existing
-        with closing(open_existing(target)) as db:
-            version = db.execute('PRAGMA user_version').fetchone()[0]
         if announce:
             print('Database: ' + safe(target) + '\n')
 

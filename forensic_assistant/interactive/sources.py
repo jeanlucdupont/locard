@@ -6,7 +6,7 @@ from forensic_assistant.database import sources
 
 
 def prepare(shell, args):
-    if args.command == 'ingest' or args.command.startswith('ingest-'):
+    if args.command.startswith('ingest-'):
         if getattr(args, 'source', None):
             return True
         with closing(open_existing(shell.active)) as db:

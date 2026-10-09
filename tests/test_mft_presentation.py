@@ -231,7 +231,7 @@ def test_ingested_observations_source_update_paths_and_pagination(tmp_path):
         assert q.search(path=r'\\payload.exe').total == 0
         assert q.search(limit=1, offset=1).records[0]['id'] == rows[1]['id']
         text = search_display.render(dict(records=[projected], total=1), ids=True)
-        assert '1: ' + r['id'] in text and 'Unallocated' in text
+        assert '    ID: ' + r['id'] in text and 'Unallocated' in text
         assert len(projected['timestamps']) == 8
         assert before == list(map(tuple, db.execute('SELECT * FROM evidence_timestamps ORDER BY evidence_id,slot')))
     finally:

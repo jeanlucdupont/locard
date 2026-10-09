@@ -39,7 +39,7 @@ def test_failed_verification_can_export_diagnostics(case, tmp_path):
     main(['--db', str(path), 'status'])
     log = activity.sidecar(path)
     # Damage an interior entry; preserve a valid tail so output intent can append.
-    content = log.read_bytes().replace(b'SESSION_START', b'CHANGED_START', 1)
+    content = log.read_bytes().replace(b'CASE_OPEN', b'CHANGED_OPEN', 1)
     log.write_bytes(content)
     destination = tmp_path / 'verification.json'
     assert main(['--db', str(path), 'activity', '--verify', '--json', '--output', str(destination)]) == 2

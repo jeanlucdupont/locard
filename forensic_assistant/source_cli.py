@@ -58,7 +58,7 @@ def configure(commands):
                 help='Reason for retrospective assignment (does not reconstruct ingestion)'
             )
     for name, p in commands.choices.items():
-        if name == 'ingest' or name.startswith('ingest-'):
+        if name.startswith('ingest-'):
             p.add_argument(
                 '--source',
                 help='Reuse this source ID; omitted in scripts creates a NEW automatic source for this invocation, never inferred or reused'

@@ -317,11 +317,17 @@ def identify(path, *, include_browser=False):
 
 
 def discover(path, kind=None, *, include_browser=False):
+    def classify(candidate):
+        # Explicit EVTX ingestion also records attempts for damaged .evtx files.
+        # Keep signature recognition for renamed files and the traversal guards below.
+        if kind == 'evtx' and candidate.suffix.casefold() == '.evtx':
+            return 'evtx'
+        return identify(candidate, include_browser=include_browser)
     root = Path(path)
     if not root.exists():
         raise ValueError('Evidence path does not exist')
     if root.is_file():
-        found = identify(root, include_browser=include_browser)
+        found = classify(root)
         if kind and found != kind:
             raise ValueError('Source signature does not match requested artifact type')
         if not found:
@@ -336,6 +342,6 @@ def discover(path, kind=None, *, include_browser=False):
             p = Path(parent) / name
             if p.is_symlink():
                 continue
-            found = identify(p, include_browser=include_browser)
+            found = classify(p)
             if found and (not kind or found == kind):
                 yield p, found

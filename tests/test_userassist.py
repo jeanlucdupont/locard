@@ -202,7 +202,8 @@ def test_warning_consolidation_keeps_raw_record_warnings(case):
     result = dict(records=[copy.deepcopy(r) for _ in range(3)], total=3)
     before = copy.deepcopy(result)
     text = search_text(result)
-    assert text.count('parser reported key corruption') == 1 and '3 displayed records' in text
+    assert text.count('Parser flagged possible key corruption') == 3
+    assert '3 displayed records' not in text
     assert 'Synthetic unknown warning' in text and result == before
     assert 'Parser flagged possible key corruption' in render(r)
 

@@ -177,3 +177,29 @@ def warning_label(record):
     path = record.get('source', {}).get('source_file', record.get('source_file'))
     sha, _ = warning_context(record)
     return safe_path(path or 'Unknown hive') + ' [' + safe(sha) + ']'
+
+
+def search_notes(records, palette):
+    """Only the exact hive-level dirty note is shared; row anomalies stay inline."""
+    import ntpath
+    from collections import Counter
+    hives = {}
+    for record in records:
+        if record['source_type'] == 'registry' and DIRTY_WARNING in record.get('warnings', []):
+            hives.setdefault(warning_context(record), record)
+    if not hives:
+        return []
+    def name(record):
+        path = record.get('source', {}).get('source_file', record.get('source_file'))
+        return ntpath.basename(path) if path else 'Unknown hive'
+    names = Counter(name(record).casefold() for record in hives.values())
+    lines = ['', palette('heading', 'Forensic notes')]
+    for context, record in hives.items():
+        label = safe_path(name(record))
+        if names[name(record).casefold()] > 1:
+            label = warning_label(record)
+            if context[1]:
+                label += ' Sources: ' + ', '.join(safe(source) for source in context[1])
+        lines.append(palette('warning', '- ' + label + ': ' + DIRTY_WARNING))
+    lines.append(palette('warning', '- Dirty does not mean corrupted.'))
+    return lines

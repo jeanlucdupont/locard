@@ -23,7 +23,7 @@ def fresh_metadata():
 
 @pytest.mark.parametrize('text,expected', [
     ('ver', 'version '), ('qui', 'quit '), ('exi', 'exit '), ('?', '? '),
-    ('inv', 'investigat'), ('ing', 'ingest'),
+    ('inv', 'investigat'), ('ing', 'ingest-'),
     ('session --lo', 'session --logon-id '),
     ('investigate --time', 'investigate --timestamp-slot '),
     ('source a', 'source assign '), ('report sh', 'report show '),

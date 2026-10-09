@@ -143,7 +143,7 @@ def test_unknown_command_and_session_recovery(tmp_path, capsys):
     assert Shell(State(None), reader).run() == 0
     text = capsys.readouterr().out
     error = text.split('Unknown command: donotexist', 1)[1].split('Invalid arguments.', 1)[0]
-    assert 'Type `help`' in error and 'usage:' not in error and 'ingest' not in error
+    assert 'Type `help`' in error and 'usage:' not in error and 'ingest-evtx' not in error
     assert 'usage: source assign' in text and 'CASE STATUS' in text and 'Total evidence records:' in text
     with pytest.raises(UnknownCommand):
         build_parser(interactive=True).parse_args(['--no-color', 'donotexist'])

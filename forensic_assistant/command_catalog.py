@@ -14,7 +14,6 @@ COMMANDS = MappingProxyType({
     'detections': 'Show  evidence matching Locard detection rules',
     'exit': 'Exit Locard',
     'help': 'Show help for a command',
-    'ingest': 'Import EVTX files from a directory',
     'ingest-all': 'Import all supported forensic artifacts',
     'ingest-browser': 'Ingest Chrome or Edge browsing history and downloads',
     'ingest-evtx': 'Import Windows Event Logs (EVTX)',

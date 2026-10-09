@@ -60,7 +60,7 @@ def test_logon_search_target_only_and_ids(db, target, expected):
     rendered = search_display(result, ids=True, width=120)
     assert 'LOGON ID' in rendered and expected in rendered
     assert '0x456' not in rendered and '0x789' not in rendered
-    assert f"1: {event['id']}" in rendered
+    assert f"    ID: {event['id']}" in rendered
     assert result == before
     # Vertical layout still retains the copyable Logon ID.
     assert 'LOGON ID: ' + expected in search_display(result, width=35)
@@ -78,8 +78,9 @@ def test_mixed_search_preserves_numbering_and_query_order(db):
     third = logon(db, 3, event_id=4625)
     records = [get_evidence(db, e['id']) for e in (first, second, third)]
     text = search_display(dict(records=records, total=3), ids=True, width=120)
-    for index, record in enumerate(records, 1):
-        assert f"{index}: {record['id']}" in text
+    for record in records:
+        assert f"    ID: {record['id']}" in text
+    assert text.index(first['id']) < text.index(second['id']) < text.index(third['id'])
     assert text.index('0x123') < text.index('example.exe') < text.index('4625')
 
 
@@ -242,7 +243,7 @@ def test_search_cli_supplies_session_input(stored, capsys):
     assert main(['--db', str(path), 'search', '--kind', 'logons', '--ids']) == 0
     text = capsys.readouterr().out
     assert 'LOGON ID' in text and '0x123' in text
-    assert '1: EVTX:' in text and '0x456' not in text and '0x789' not in text
+    assert '    ID: EVTX:' in text and '0x456' not in text and '0x789' not in text
 
 
 @pytest.mark.parametrize('command', ['session', 'investigate'])

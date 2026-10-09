@@ -142,7 +142,8 @@ def test_interactive_lifecycle_commands_and_evidence_privacy(case, capsys):
                                      f'investigate {eid} --timestamp-slot run:1', 'show missing', 'exit'))
     assert shell.run() == 0
     entries = records(path)
-    assert entries[0]['action'] == 'SESSION_START' and entries[-1]['action'] == 'SESSION_END'
+    assert [e['action'] for e in entries[:2]] == ['CASE_OPEN', 'SESSION_START']
+    assert entries[-1]['action'] == 'SESSION_END'
     assert len({e['session_id'] for e in entries}) == 1
     searches = [e for e in entries if e['action'] == 'COMMAND' and e.get('command') == 'search' and e['outcome'] == 'success']
     assert searches[0]['parameters']['limit'] == 1 and searches[0]['result_count'] == 1

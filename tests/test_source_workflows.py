@@ -107,7 +107,7 @@ def test_unknown_then_corrected_hostname_and_source_search(tmp_path, capsys):
 
 @pytest.mark.parametrize(
     'command',
-    ['ingest', 'ingest-evtx', 'ingest-all', 'ingest-prefetch', 'ingest-mft', 'ingest-registry']
+    ['ingest-evtx', 'ingest-all', 'ingest-prefetch', 'ingest-mft', 'ingest-registry']
 )
 def test_existing_commands_without_source_create_empty_batch(tmp_path, capsys, command):
     directory = tmp_path / 'empty'

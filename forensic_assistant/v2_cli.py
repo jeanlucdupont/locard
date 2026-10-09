@@ -61,7 +61,6 @@ def ingest_sources(db, args, progress=None):
 
 def _ingest_sources(db, args, progress=None):
     from forensic_assistant.database import sources
-    from forensic_assistant.ingest.evtx import discover as evtx_discover
     sources.require4(db)
     requested = args.command.removeprefix('ingest-')
     if requested == 'browser':
@@ -101,7 +100,7 @@ def _ingest_sources(db, args, progress=None):
         if not getattr(args, 'source', None):
             activity.event('SOURCE_CREATE', required=True, source_id=source_id, assertion=sources.current(db, source_id),
                            basis='ingestion', batch_id=batch_id)
-        files = ((p, 'evtx') for p in evtx_discover(args.path)) if args.command == 'ingest' else discover(
+        files = discover(
             args.path,
             None if requested == 'all' else requested
         )

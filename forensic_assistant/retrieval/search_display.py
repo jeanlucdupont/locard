@@ -127,6 +127,22 @@ def render(result, palette=None, *, ids=False, width=None):
             if available <= len(prefix) + 8:
                 return fit(prefix + target, available)
             return prefix + fit_path(target, available - len(prefix), literal=True)
+        def row_details(row_index):
+            record = group[row_index][1]
+            details = []
+            if ids:
+                details.append('    ID: ' + palette('evidence_id', safe(record['id'])))
+            if kind == 'registry':
+                from .registry_display import DIRTY_WARNING, warning_text
+                for warning in dict.fromkeys(record.get('warnings', [])):
+                    if warning != DIRTY_WARNING:
+                        details.append('    ' + palette('warning', safe(warning_text(warning))))
+                conflicts = record.get('context', {}).get('conflicts')
+                if conflicts:
+                    details.append('    ' + palette('warning', 'Conflicting context: ' + safe(', '.join(conflicts))))
+            if ids and row_index + 1 < len(group):
+                details.append('')
+            return details
         lines += table(
             headers,
             rows,
@@ -137,6 +153,7 @@ def render(result, palette=None, *, ids=False, width=None):
             width=width,
             tail=(len(headers) - 1,) if kind in ('prefetch', 'mft') else (),
             format_cell=format_cell,
+            after_row=row_details if ids or kind == 'registry' else None,
             paths=(len(headers) - 1,) if kind in ('prefetch', 'mft') else
                   (3 + int(ids),) if kind == 'registry' else ()
         )
@@ -149,35 +166,19 @@ def render(result, palette=None, *, ids=False, width=None):
                 lines.append('  ' + name + ': ' + (safe_path if key == 'image_path' else safe)(data[key]))
     if not records:
         lines.append('No matching evidence.')
-    if ids:
-        for index, r in enumerate(records, 1):
-            if r['source_type'] == 'browser':
-                continue
-            lines.append(f"{index}: " + palette('evidence_id', safe(r['id'])))
-    dirty_hives = set()
     missing_candidates = []
-    key_corruption_rows = set()
     for index, r in enumerate(records, 1):
         if r['source_type'] == 'browser':
             continue  # Browser-specific warnings/IDs stay directly below their record.
         ctx = r.get('context', {})
         for warning in r.get('warnings', []):
             if r['source_type'] == 'registry':
-                from .registry_display import DIRTY_WARNING, KEY_CORRUPTION, warning_context, warning_label
-                if warning == KEY_CORRUPTION:
-                    key_corruption_rows.add(index)
-                    continue
-                if warning == DIRTY_WARNING:
-                    context = warning_context(r)
-                    if context not in dirty_hives:
-                        lines.append(palette('warning', 'Warning: ' + warning_label(r) + ': ' + safe(warning)))
-                        dirty_hives.add(context)
-                    continue
+                continue  # Record-specific notes are inline; hive notes are grouped below.
             if is_identifier_note(warning):
                 continue
             if r['source_type'] != 'prefetch' or warning not in PREFETCH_CAUTIONS:
                 lines.append(palette('warning', f'Row {index}: ' + safe(warning)))
-        if ctx.get('conflicts'):
+        if ctx.get('conflicts') and r['source_type'] != 'registry':
             lines.append(palette('warning', f"Row {index}: conflicting context: " + safe(', '.join(ctx['conflicts']))))
         if r['source_type'] == 'prefetch':
             paths = {o['original'] for o in r.get('objects', []) if o['role'] == 'executable_path_candidate'}
@@ -185,14 +186,15 @@ def render(result, palette=None, *, ids=False, width=None):
                 lines.append(palette('warning', f'Row {index}: multiple executable path candidates.'))
             if r.get('objects_truncated') and not paths:
                 missing_candidates.append(str(index))
-    if key_corruption_rows:
-        lines.append(palette('warning', f'Warning: parser reported key corruption for {len(key_corruption_rows)} displayed records; '
-                             'this flag alone does not establish unreadable data.'))
     if missing_candidates:
         lines.append(palette('warning', 'Note: executable path candidate unavailable in the bounded projection for rows '
                              + ', '.join(missing_candidates) + '.'))
     from .browser_display import shared_notes
-    lines += shared_notes(records, palette)
+    from .registry_display import search_notes
+    registry_notes = search_notes(records, palette)
+    browser_notes = shared_notes(records, palette)
+    lines += registry_notes
+    lines += browser_notes[2:] if registry_notes and browser_notes else browser_notes
     footer = pagination(len(records), result['total'], result.get('offset', 0))
     if footer:
         lines += ['', footer]
