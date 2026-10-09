@@ -41,9 +41,9 @@ def pagination(count, total, offset=0):
     return f'Showing {offset+1}\u2013{offset+count} of {total}'
 
 
-def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=None, tail=(), format_cell=None, paths=()):
+def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=None, tail=(), format_cell=None, paths=(), text=safe, after_row=None):
     width = terminal_width(width)
-    cells = [[(safe_path if i in paths else safe)(value) for i, value in enumerate(row)] for row in rows]
+    cells = [[(safe_path if i in paths else text)(value) for i, value in enumerate(row)] for row in rows]
     sizes = [max(len(h), min(maximums[i], max([len(h)] + [len(r[i]) for r in cells]))) for i, h in enumerate(headers)]
     while sum(sizes) + 2 * (len(sizes) - 1) > width:
         candidates = [i for i, n in enumerate(sizes) if n > max(minimums[i], len(headers[i]))]
@@ -62,6 +62,8 @@ def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=
                 if shown is None:
                     shown = fit_path(value, available, literal=i in paths) if i in tail else fit(value, available)
                 lines.append(palette('key', headers[i] + ': ') + palette(roles[i], shown))
+            if after_row:
+                lines.extend(after_row(row_index))
         return lines
     def cell(value, i, header, row_index):
         shown = format_cell(row_index, i, value, sizes[i]) if format_cell and not header else None
@@ -77,8 +79,9 @@ def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=
             for i,
             value in enumerate(row)
         )
-    return [
-        rowline(headers, True),
-        '  '.join('-' * n for n in sizes),
-        *[rowline(r, row_index=n) for n, r in enumerate(cells)]
-    ]
+    lines = [rowline(headers, True), '  '.join('-' * n for n in sizes)]
+    for n, row in enumerate(cells):
+        lines.append(rowline(row, row_index=n))
+        if after_row:
+            lines.extend(after_row(n))
+    return lines

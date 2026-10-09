@@ -2,13 +2,18 @@
 from forensic_assistant.artifacts.paths import normalize_path
 
 
-def filters(artifact, url, url_contains, title, title_contains, download_path, download_path_contains, browser, profile):
-    requested = (url, url_contains, title, title_contains, download_path, download_path_contains, browser, profile)
+def filters(artifact, url, url_contains, title, title_contains, download_path, download_path_contains, browser, profile, browser_kind=None):
+    requested = (url, url_contains, title, title_contains, download_path, download_path_contains, browser, profile, browser_kind)
     if not any(value is not None for value in requested):
         return [], []
     if artifact not in (None, 'browser'):
         raise ValueError('Browser filters require --artifact browser or no --artifact')
     clauses, params = ["e.source_type='browser'"], []
+    if browser_kind is not None:
+        if browser_kind not in ('visit', 'download'):
+            raise ValueError('Browser kind must be visit or download')
+        clauses.append('e.artifact_type=?')
+        params.append('browser_' + browser_kind)
     for field, exact, contains in [('url', url, url_contains), ('title', title, title_contains)]:
         if exact is not None and contains is not None:
             raise ValueError('Exact and contains browser filters are mutually exclusive')

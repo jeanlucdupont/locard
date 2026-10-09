@@ -1,3 +1,4 @@
+from shell_output import before_shutdown
 import copy
 import json
 import os
@@ -171,7 +172,7 @@ def test_source_output_modes_and_session_color(tmp_path, monkeypatch, capsys):
     reader = Input(str(path), 'color on', 'source list', 'color off', 'source list', 'exit')
     assert Shell(State(None), reader).run() == 0
     text = capsys.readouterr().out
-    before, after = text.split('Color: off\n')
+    before, after = before_shutdown(text).split('Color: off\n')
     assert '\x1b[' in before and '\x1b' not in after
     monkeypatch.setenv('NO_COLOR', '')
     assert main(base) == 0 and '\x1b' not in capsys.readouterr().out

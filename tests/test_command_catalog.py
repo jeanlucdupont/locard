@@ -1,3 +1,4 @@
+from shell_output import before_shutdown
 """Command summaries share one authority; detailed parsing remains local."""
 import argparse
 
@@ -93,7 +94,7 @@ def test_shell_help_catalog_and_details(prefix, tmp_path, capsys):
     commands += [prefix + ' ' + name for name in SHELL_COMMANDS]
     shell = Shell(State(None), Input(str(database), 'color off', *commands, 'exit'))
     assert shell.run() == 0 and shell.last_status == 0
-    text = capsys.readouterr().out.split('Color: off\n', 1)[1]
+    text = before_shutdown(capsys.readouterr().out).split('Color: off\n', 1)[1]
     assert '\x1b' not in text
     assert catalog(build_parser(interactive=True)) in text
     assert 'usage: session ' in text and '--logon-id LOGON_ID' in text

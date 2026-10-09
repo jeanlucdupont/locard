@@ -1,3 +1,4 @@
+from shell_output import before_shutdown
 """Help remains an early-exit action, including required and nested commands."""
 import argparse
 import pytest
@@ -71,7 +72,7 @@ def test_interactive_help_routes_equivalent(color, tmp_path, monkeypatch, capsys
         text = capsys.readouterr().out
         # Exclude the independently styled startup banner and case-selection output.
         marker = 'Color: ' + ('on' if color else 'off') + '\n'
-        documentation = text.split(marker, 1)[1]
+        documentation = before_shutdown(text).split(marker, 1)[1]
         assert ('\x1b[' in documentation) == color
         plain = terminal.SGR.sub('', documentation)
         assert plain.startswith('usage: session ')

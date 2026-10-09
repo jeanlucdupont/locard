@@ -14,14 +14,32 @@ def safe(value):
     return json.dumps(str(value) if value is not None else "-", ensure_ascii=True)[1:-1]
 
 
-def safe_path(value):
-    """Render an actual path, retaining literal separators and escaping controls.
+def safe_text(value):
+    """Render readable Unicode and literal separators while escaping controls.
 
     Do not decode escapes or normalize the evidence value (including UNC paths).
-    Other untrusted strings continue to use safe().
     """
     return ''.join(c if c.isprintable() and not unicodedata.category(c).startswith('C') else safe(c)
                    for c in str(value)) if value is not None else '-'
+
+
+def safe_path(value):
+    """Literal path text, without normalization or decoding stored escapes."""
+    return safe_text(value)
+
+
+def human_error(error):
+    """OSError filenames are structured attributes, not repr-formatted prose."""
+    if isinstance(error, OSError) and error.filename is not None:
+        import os
+        code = getattr(error, 'winerror', None)
+        prefix = f'[WinError {code}] ' if code is not None else (
+            f'[Errno {error.errno}] ' if error.errno is not None else '')
+        text = prefix + (error.strerror or type(error).__name__) + ': ' + os.fsdecode(error.filename)
+        if error.filename2 is not None:
+            text += ' -> ' + os.fsdecode(error.filename2)
+        return safe_text(text)
+    return safe_text(error)
 
 
 def logon_id(event):

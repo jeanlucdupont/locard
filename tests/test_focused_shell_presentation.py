@@ -1,3 +1,4 @@
+from shell_output import before_shutdown
 """Focused shell navigation and presentation regressions; synthetic inputs only."""
 import argparse
 import copy
@@ -48,7 +49,7 @@ def test_shell_help_and_detailed_help(case, monkeypatch, capsys, setting, no_col
     text = capsys.readouterr().out
     startup = '                         Version ' + version('locard-forensics') + '\n' + get_liner() + '\n'
     assert text.startswith(startup)
-    text = text[len(startup):]
+    text = before_shutdown(text)[len(startup):]
     plain = terminal.SGR.sub('', text)
     assert 'Type `help <command>` for details.' in plain and 'usage: source assign' in plain and '--file-hash' in plain and '--path' in plain
     assert 'usage: Locard shell' not in plain

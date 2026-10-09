@@ -71,7 +71,7 @@ def test_unknown_then_corrected_hostname_and_source_search(tmp_path, capsys):
     around = ['--db', str(case), 'around', eid, '--timestamp-slot', 'run:0']
     assert main(around) == 2
     capsys.readouterr()
-    update = ['--db', str(case), 'source', 'update', sid, '--hostname', 'HostA']
+    update = ['--db', str(case), 'source', 'update', sid, '--hostname', 'HostA', '--json']
     assert main(update) == 0
     assert json.loads(capsys.readouterr().out)['applied'] is False
     assert main(update + ['--yes']) == 0

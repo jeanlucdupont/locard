@@ -16,6 +16,9 @@ MAX_RECORDS = 5_000_000
 
 
 def run(kind, path, sha, stage_path, options, reader=None):
+    if kind == 'browser_probe':
+        from .browser_probe import check
+        return check(path, Path(stage_path).parent)
     module = importlib.import_module('forensic_assistant.artifacts.' + kind)
     version = sqlite3.sqlite_version if kind == 'browser' else importlib.metadata.version(PARSERS[kind])
     options = dict(options)

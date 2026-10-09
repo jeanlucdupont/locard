@@ -1,4 +1,5 @@
 from forensic_assistant.command_catalog import COMMANDS
+from forensic_assistant.retrieval.presentation import human_error
 import argparse
 import json
 import sqlite3
@@ -172,7 +173,7 @@ def dispatch(args, *, existing_only=False):
         return code
     except (ValueError, OSError, sqlite3.Error) as exc:
         from forensic_assistant.terminal import message
-        message('Locard output: ' + json.dumps(str(exc)), args)
+        message(human_error(exc), args)
         return 2
     finally:
         if output is not None:
@@ -222,6 +223,8 @@ def _dispatch(args, output, *, existing_only=False):
                     output.write(source_cli.render_list(result, output.palette, ids=args.ids))
                 elif args.source_command == 'show' and not args.json and not args.details:
                     output.write(source_cli.render_show(result, output.palette))
+                elif args.source_command == 'update' and not args.json:
+                    output.write(source_cli.render_update(result, output.palette))
                 elif args.source_command == 'assign' and not args.json:
                     output.write(source_cli.render_assignment(result, output.palette))
                 else:
@@ -340,7 +343,7 @@ def _dispatch(args, output, *, existing_only=False):
             return 0
     except (ValueError, OSError, sqlite3.Error, OverflowError, LLMError) as exc:
         from forensic_assistant.terminal import message
-        message("Locard: " + json.dumps(str(exc)), args)
+        message(human_error(exc), args)
         return 2
 
 

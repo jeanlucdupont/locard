@@ -1,3 +1,4 @@
+from shell_output import before_shutdown
 import io
 import json
 import os
@@ -129,8 +130,7 @@ def test_color_output_json_files_and_pager(tmp_path, monkeypatch, capsys, color)
     text = dest.read_text(encoding='utf-8')
     assert text == paged[1] + '\n' + paged[1] and '\x1b' not in text
     stdout = capsys.readouterr().out
-    structured, ending = stdout[stdout.index('{'):].split('\nLocard session ended.\n', 1)
-    assert ending == 'Case: ' + str(path) + '\n'
+    structured = before_shutdown(stdout)[stdout.index('{'):]
     assert '\x1b' not in structured and json.loads(structured)['schema_version'] == 5
 
 

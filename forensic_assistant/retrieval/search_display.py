@@ -28,6 +28,10 @@ def render(result, palette=None, *, ids=False, width=None):
             lines.append('')
         if len({r['source_type'] for r in records}) > 1:
             lines.append(palette('heading', kind.upper()))
+        if kind == 'browser':
+            from .browser_display import search_group
+            lines += search_group(group, palette, ids, width)
+            continue
         rows = []
         for index, r in group:
             d = r.get('detail') or {}
@@ -63,9 +67,6 @@ def render(result, palette=None, *, ids=False, width=None):
                     ((d.get('userassist') or {}).get('decoded_name', d['value_name']) or '(Default)') if 'value_name' in d else '-',
                     type_name(d['value_type']) if 'value_type' in d else '-'
                 ]
-            elif kind == 'browser':
-                from .browser_display import label, object_value
-                row = [timestamp(r.get('timestamp_utc')), label(r), d.get('browser_product', '').capitalize(), host, object_value(r)]
             elif auth:
                 row = [timestamp(r.get('timestamp_utc')), r.get('event_id'), host,
                        r.get('username'), r.get('logon_type'), logon_id(r)]
@@ -73,14 +74,12 @@ def render(result, palette=None, *, ids=False, width=None):
                 row = [timestamp(r.get('timestamp_utc')), r.get('event_id'), host, r.get('username'), detail(r)]
             rows.append(([index] if ids else []) + row)
         headers = {
-            'browser': ['TIME (UTC)', 'TYPE', 'BROWSER', 'HOST', 'OBJECT'],
             'prefetch': ['LAST RUN (UTC)', 'RUNS', 'EXECUTABLE', 'HOST', 'CANDIDATE PATH'],
             'mft': ['RECORD/SEQ', 'STATE', 'SIZE', 'HOST', 'NAME/PATH'],
             'registry': ['KEY TIME (UTC)', 'HOST', 'KIND', 'KEY', 'VALUE', 'TYPE'],
             'evtx': ['TIME (UTC)', 'EVENT', 'HOST', 'USER', 'OBSERVATION']
         }[kind]
         minimums = {
-            'browser': [23, 15, 6, 7, 14],
             'prefetch': [23, 4, 10, 7, 14],
             'mft': [10, 11, 5, 7, 12],
             'registry': [23, 7, 5, 8, 8, 5],
@@ -136,15 +135,11 @@ def render(result, palette=None, *, ids=False, width=None):
             maximums=maximums,
             roles=roles,
             width=width,
-            tail=(len(headers) - 1,) if kind in ('prefetch', 'mft', 'browser') else (),
+            tail=(len(headers) - 1,) if kind in ('prefetch', 'mft') else (),
             format_cell=format_cell,
-            paths=(len(headers) - 1,) if kind in ('prefetch', 'mft', 'browser') else
+            paths=(len(headers) - 1,) if kind in ('prefetch', 'mft') else
                   (3 + int(ids),) if kind == 'registry' else ()
         )
-    from .browser_display import secondary
-    for index, record in enumerate(records, 1):
-        if record['source_type'] == 'browser':
-            lines.append(f'Row {index}: ' + '; '.join(name + ': ' + safe(value) for name, value in secondary(record)))
     from forensic_assistant.ingest.service import is_installation, fields
     for index, record in enumerate(records, 1):
         if is_installation(record):
@@ -156,11 +151,15 @@ def render(result, palette=None, *, ids=False, width=None):
         lines.append('No matching evidence.')
     if ids:
         for index, r in enumerate(records, 1):
+            if r['source_type'] == 'browser':
+                continue
             lines.append(f"{index}: " + palette('evidence_id', safe(r['id'])))
     dirty_hives = set()
     missing_candidates = []
     key_corruption_rows = set()
     for index, r in enumerate(records, 1):
+        if r['source_type'] == 'browser':
+            continue  # Browser-specific warnings/IDs stay directly below their record.
         ctx = r.get('context', {})
         for warning in r.get('warnings', []):
             if r['source_type'] == 'registry':
@@ -192,6 +191,8 @@ def render(result, palette=None, *, ids=False, width=None):
     if missing_candidates:
         lines.append(palette('warning', 'Note: executable path candidate unavailable in the bounded projection for rows '
                              + ', '.join(missing_candidates) + '.'))
+    from .browser_display import shared_notes
+    lines += shared_notes(records, palette)
     footer = pagination(len(records), result['total'], result.get('offset', 0))
     if footer:
         lines += ['', footer]

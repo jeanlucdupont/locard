@@ -1,3 +1,4 @@
+from shell_output import before_shutdown
 import io
 import json
 import os
@@ -193,7 +194,7 @@ def test_shell_no_color_session(case, color, capsys):
     banner = '                         Version ' + version('locard-forensics') + '\n' + get_liner() + '\n'
     assert captured.startswith(banner)
 
-    session_output = captured[len(banner):]
+    session_output = before_shutdown(captured)[len(banner):]
     assert '\x1b' not in session_output
 
 def test_no_external_process(case, color, monkeypatch, capsys):

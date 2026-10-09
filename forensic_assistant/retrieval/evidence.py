@@ -188,12 +188,12 @@ class EvidenceQueries:
         source_id=None,
         source_scope=None,
         url=None, url_contains=None, title=None, title_contains=None,
-        download_path=None, download_path_contains=None, browser=None, profile=None
+        download_path=None, download_path_contains=None, browser=None, profile=None, browser_kind=None
     ):
         clauses = []
         params = []
         from forensic_assistant.retrieval.browser_query import filters as browser_filters
-        extra, values = browser_filters(artifact, url, url_contains, title, title_contains, download_path, download_path_contains, browser, profile)
+        extra, values = browser_filters(artifact, url, url_contains, title, title_contains, download_path, download_path_contains, browser, profile, browser_kind)
         clauses.extend(extra)
         params.extend(values)
         if value_name is not None or value_name_contains is not None:

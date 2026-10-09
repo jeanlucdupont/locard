@@ -32,6 +32,8 @@ def configure(commands):
         group.add_argument('--' + field + '-contains', help='Literal browser field substring; no wildcards')
     commands.choices['search'].add_argument('--browser', choices=['chrome', 'edge'])
     commands.choices['search'].add_argument('--profile')
+    commands.choices['search'].add_argument('--browser-kind', choices=['visit', 'download'],
+                                          help='Browser evidence subtype (one record per visit or download)')
     for name in ('search', 'show', 'status'):
         commands.choices[name].add_argument('--json', action='store_true')
     keys = commands.choices['search'].add_mutually_exclusive_group()
@@ -165,7 +167,7 @@ def dispatch(db, args, *, presentation=None):
         filters = {k: getattr(args, k, None) for k in ('artifact', 'path', 'process', 'hostname', 'ip', 'event_id')}
         filters.update(username=args.user, limit=args.limit, offset=args.offset, raw=args.raw)
         if command == 'search':
-            filters.update({key: getattr(args, key, None) for key in ('url', 'url_contains', 'title', 'title_contains', 'download_path', 'download_path_contains', 'browser', 'profile')})
+            filters.update({key: getattr(args, key, None) for key in ('url', 'url_contains', 'title', 'title_contains', 'download_path', 'download_path_contains', 'browser', 'profile', 'browser_kind')})
             filters.update(registry_key=getattr(args, 'key', None), registry_key_contains=getattr(args, 'key_contains', None))
             filters.update(value_name=getattr(args, 'value_name', None), value_name_contains=getattr(args, 'value_name_contains', None))
             filters['process_exact'] = filters.pop('process')

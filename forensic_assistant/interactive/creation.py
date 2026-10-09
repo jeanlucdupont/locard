@@ -1,4 +1,5 @@
 """Confirmed analyst-side creation; all forensic ingestion stays in the shared engine."""
+from forensic_assistant.retrieval.presentation import human_error
 from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,12 +39,36 @@ def source_path(value, target):
 
 
 def preflight(source):
-    # Discovery is reused, read-only, and repeated by ingestion. No parsing/hashing here.
-    iterator = v2_cli.discover(source)
-    try:
-        return next(iterator, None) is not None
-    finally:
-        iterator.close()
+    # Browser candidates are validated by the bounded worker on private copies.
+    return list(v2_cli.discover(source, include_browser=True))
+
+
+def browser_choices(found, read):
+    """Every History has explicit analyst-supplied product/profile; no path inference."""
+    from forensic_assistant.artifacts.browser import validate_options
+    choices = []
+    for file, kind in found:
+        if kind != 'browser':
+            continue
+        print('Chromium History: ' + safe(file))
+        while True:
+            product = read('Browser product [chrome/edge] (Enter cancels): ').casefold()
+            if not product or product in ('cancel', 'exit', 'quit'):
+                raise EOFError
+            if product in ('chrome', 'edge'):
+                break
+            print('Choose chrome or edge explicitly; product is not inferred from the path.')
+        while True:
+            profile = read('Browser profile (required; Enter cancels): ')
+            if not profile or profile.casefold() in ('cancel', 'exit', 'quit'):
+                raise EOFError
+            try:
+                validate_options(product, profile)
+                break
+            except ValueError as exc:
+                print(human_error(exc))
+        choices.append((file, product, profile))
+    return choices
 
 
 def initialize(target, create_parents=False, on_publish=None):
@@ -156,38 +181,44 @@ def _attempt(shell):
                         continue
                 break
             except (ValueError, OSError, sqlite3.Error) as exc:
-                print('Invalid destination: ' + safe(exc))
+                print('Invalid destination: ' + human_error(exc))
         while True:
             try:
                 source = source_path(path('Evidence file or directory (Enter cancels): '), target)
                 found = preflight(source)
                 if found:
                     break
-                print('No supported artifacts found (EVTX, MFT, Prefetch, Registry).')
+                from forensic_assistant.artifacts.ingest import DISCOVERY_LABELS
+                print('No supported artifacts found (' + ', '.join(DISCOVERY_LABELS.values()) + ').')
                 choice = read('Choose another source [A], create an empty case [E], or cancel [C]: ').casefold()
                 if choice == 'e':
                     break
                 if choice != 'a':
                     return False
             except (ValueError, OSError) as exc:
-                print('Invalid evidence source: ' + safe(exc))
-        source_name = read('Source name (Enter = generated label): ') or None
-        hostname = read('Source hostname (Enter = unknown): ') or None
-        username = read('Source user (Enter = unknown): ') or None
-        from forensic_assistant.artifacts.context import normalize_volume_root
-        while True:
-            try:
-                volume = normalize_volume_root(read('Original drive, e.g. C: (Enter = unknown): '))
-                break
-            except ValueError as exc:
-                print(safe(exc))
+                print('Invalid evidence source: ' + human_error(exc))
+        browsers = browser_choices(found, read)
+        if found:
+            source_name = read('Source name (Enter = generated label): ') or None
+            hostname = read('Source hostname (Enter = unknown): ') or None
+            username = read('Source user (Enter = unknown): ') or None
+            from forensic_assistant.artifacts.context import normalize_volume_root
+            while True:
+                try:
+                    volume = normalize_volume_root(read('Original drive, e.g. C: (Enter = unknown): '))
+                    break
+                except ValueError as exc:
+                    print(human_error(exc))
         print('New case:\n  Database: ' + safe(target) + '\n  Evidence: ' + safe(source))
-        print('Analyst-supplied metadata: ' + safe(dict(
-            name=source_name,
-            hostname=hostname,
-            user=username,
-            volume_root=volume
-        )))
+        if found:
+            print('Analyst-supplied metadata: ' + safe(dict(
+                name=source_name,
+                hostname=hostname,
+                user=username,
+                volume_root=volume
+            )))
+        for file, product, profile in browsers:
+            print('  Browser: ' + safe(file) + ' | ' + product + ' / ' + safe(profile))
         if parents:
             print('Requested directories will be created and retained even if later steps fail.')
         action = read(('Create empty case' if not found else 'Create case and begin ingestion') + '? [y/N; B = back]: ').casefold()
@@ -200,35 +231,15 @@ def _attempt(shell):
         initializing = True
         initialize(target, parents, on_publish=mark_published)
         print('Initialized database: ' + safe(target))
-        from forensic_assistant.database import sources
-        with closing(open_existing(target)) as db:
-            with db:
-                source_id = sources.create(
-                    db,
-                    name=source_name,
-                    hostname=hostname,
-                    username=username,
-                    volume_root=volume
-                )
         if not found:
-            from forensic_assistant.database.db import now
-            with closing(open_existing(target)) as db:
-                with db:
-                    db.execute(
-                        'INSERT INTO ingestion_batches VALUES (?,?,?,?,?,?,?)',
-                        (
-                            sources.identifier('batch'),
-                            source_id,
-                            now(),
-                            now(),
-                            str(source),
-                            'case new: empty preflight selection',
-                            'empty'
-                        )
-                    )
             print('Empty case explicitly requested; no ingestion performed.')
             shell.activate(target)
             return True
+        from forensic_assistant.database import sources
+        with closing(open_existing(target)) as db:
+            with db:
+                source_id = sources.create(db, name=source_name, hostname=hostname,
+                                           username=username, volume_root=volume)
         def progress(file, kind, result):
             print(safe(file) + ' [' + kind + ']: ' + safe({k: result[k] for k in (
                 'status',
@@ -251,7 +262,13 @@ def _attempt(shell):
         while True:
             source_path(args.path, target)
             with closing(open_existing(target)) as db:
-                results = v2_cli.ingest_sources(db, args, progress)
+                results = []
+                if any(kind != 'browser' for _, kind in found):
+                    results.extend(v2_cli.ingest_sources(db, args, progress))
+                for file, product, profile in browsers:
+                    options = SimpleNamespace(**{**vars(args), 'command': 'ingest-browser',
+                                                'path': file, 'browser': product, 'profile': profile})
+                    results.extend(v2_cli.ingest_sources(db, options, progress))
             stored, runs = summarize(target)
             if stored:
                 complete = bool(results) and set(runs) == {'complete'} and all(r['status'] == 'complete' for r in results)
@@ -271,11 +288,13 @@ def _attempt(shell):
             while True:
                 try:
                     args.path = source_path(path('Evidence file or directory (Enter cancels): '), target)
-                    if preflight(args.path):
+                    found = preflight(args.path)
+                    if found:
+                        browsers = browser_choices(found, read)
                         break
                     print('No supported artifacts found; select another source or cancel.')
                 except (OSError, ValueError) as exc:
-                    print('Invalid evidence source: ' + safe(exc))
+                    print('Invalid evidence source: ' + human_error(exc))
             if not yes('Begin ingestion from ' + safe(args.path) + '? [y/N]: '):
                 return False
     except (EOFError, KeyboardInterrupt):
@@ -287,7 +306,7 @@ def _attempt(shell):
             summarize(target)
         return False
     except (ValueError, OSError, sqlite3.Error) as exc:
-        print('Creation/ingestion failed: ' + safe(exc))
+        print('Creation/ingestion failed: ' + human_error(exc))
         print('Any analyst-requested directories are retained; existing files were not overwritten.')
         if published:
             print('Database retained: ' + safe(target) + '. Already committed evidence was not rolled back.')

@@ -185,12 +185,15 @@ imports. To group several commands under one source, explicitly repeat its
 `--source` ID. Metadata changes to an existing source use `source update`, not
 ingestion metadata flags alongside `--source`.
 
-Interactive case creation asks for a source name and optional metadata. Additional
+Interactive case creation asks for a source name and optional metadata when ingesting evidence.
+Explicit empty-case creation asks for no source metadata and creates no source or ingestion batch. Additional
 interactive ingestion offers existing sources or a new source; selection is not
 retained as an implicit default for later commands. A blank name produces a neutral
 label, never a guessed hostname. Cancelled creation does not activate the new case.
 
 `source update` supports `--name`, `--hostname`, `--user` and `--volume-root`.
+Human results summarize the actual old/new values and retained prior assertion;
+`--json` returns the complete structured result.
 Use an empty quoted value to clear optional metadata to unknown. Updates append
 revisions linked by supersession; old assertions remain available in `source show`.
 Raw evidence and artifact-derived fields are never rewritten. Legacy file-level
@@ -844,16 +847,30 @@ URLs. Profile names do not establish Windows user identity. This command is
 explicit rather than part of `ingest-all` discovery, which cannot safely infer a
 browser product/profile from an arbitrary SQLite file.
 
+The interactive new-case wizard also discovers Chromium History candidates by
+validating the supported SQLite schema on private copies in a bounded worker.
+A filename alone is insufficient. Each detected History requires explicit `chrome`
+or `edge` and a nonempty profile before confirmation; directory names are only
+path hints. The wizard reuses the existing ingestion commands. Original databases
+and companions are not opened by SQLite during discovery.
+
 ```powershell
 locard --db case.db ingest-browser C:\Acquired\Chrome\Default\History --browser chrome --profile Default --hostname lab-host --user analyst
 locard --db case.db ingest-browser C:\Acquired\Edge\Profile1\History --browser edge --profile "Profile 1" --source src-<existing-id>
-locard --db case.db search --artifact browser --url-contains example.com
-locard --db case.db search --artifact browser --download-path-contains tool.exe --browser chrome
+locard --db case.db search --artifact browser --browser-kind visit --url-contains example.com
+locard --db case.db search --artifact browser --browser-kind download --download-path-contains tool.exe --browser chrome
 locard --db case.db show BROWSER:<id> --json
 locard --db case.db timeline --artifact browser --start 2020-01-01T00:00:00Z --end 2020-01-02T00:00:00Z --text
 locard --db case.db around BROWSER:<download-id> --timestamp-slot Browser.DownloadStart --text
 locard --db case.db investigate BROWSER:<download-id> --timestamp-slot Browser.DownloadStart --text
 ```
+
+`--browser-kind visit` selects BrowserVisit records; `--browser-kind download`
+selects BrowserDownload records, not separate start/end observations. Default
+ordering is unchanged. Human browser search keeps metadata, optional full IDs,
+and record-specific warnings directly under each result. Exact shared forensic
+notes appear once per result set; readable Unicode is retained while terminal
+controls remain escaped. JSON retains the complete structured records.
 
 Use actual IDs returned by `search --ids`/JSON. Omission of `--source` in scripts
 creates a new automatic source for each invocation; use an existing explicit

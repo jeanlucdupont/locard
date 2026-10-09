@@ -1,6 +1,6 @@
 """Browser text projections use existing terminal escaping and palette roles."""
 from forensic_assistant.terminal import Palette, value_role
-from .presentation import safe, safe_path
+from .presentation import safe_text as safe, safe_path
 
 
 def label(record):
@@ -74,3 +74,55 @@ def render(record, palette=None):
     for warning in record['warnings']:
         lines.append(palette('warning', '- ' + safe(warning)))
     return '\n'.join(lines)
+
+
+# Exact parser notes only; unknown anomalies/conflicts stay with each record.
+SHARED_NOTES = (
+    'Browser history may be deleted, expired, synchronized, or absent from the supplied profile; missing history is not proof of no activity.',
+    'No WAL supplied; uncheckpointed browser activity may be absent.',
+    'Committed WAL content read by SQLite from a private copy; no WAL carving performed.',
+    'Browser-recorded navigation does not prove that a user read or interacted with the page.',
+    'A download record does not prove execution or that the file still exists.',
+)
+
+
+def search_group(group, palette, ids, width):
+    from .layout import table
+    from .search_display import timestamp
+    rows = []
+    for index, record in group:
+        d, ctx = record.get('detail') or {}, record.get('context') or {}
+        rows.append([index, timestamp(record.get('timestamp_utc')), label(record),
+                     d.get('browser_product', '').capitalize(),
+                     'CONFLICT' if ctx.get('conflicts') else ctx.get('hostname') or 'unknown', object_value(record)])
+    def details(index):
+        record = group[index][1]
+        lines = ['    ' + palette('key', name + ': ') + safe(value)
+                 for name, value in secondary(record) if name != 'Browser' and value is not None]
+        if ids:
+            lines.append('    ID: ' + palette('evidence_id', safe(record['id'])))
+        for warning in record.get('warnings', []):
+            if warning not in SHARED_NOTES:
+                lines.append('    ' + palette('warning', safe(warning)))
+        ctx = record.get('context') or {}
+        if ctx.get('conflicts'):
+            lines.append('    ' + palette('warning', 'Conflicting context: ' + safe(', '.join(ctx['conflicts']))))
+        if record.get('objects_truncated'):
+            lines.append('    ' + palette('warning', 'Object projection is bounded; inspect show/JSON for details.'))
+        return lines
+    return table(['#', 'TIME (UTC)', 'TYPE', 'BROWSER', 'HOST', 'OBJECT'], rows, palette,
+                 minimums=[1, 23, 15, 6, 7, 14], maximums=[5, 23, 15, 6, 24, 65],
+                 roles=['number_value', 'number_value', 'string_value', 'string_value', 'secondary_text', 'string_value'],
+                 width=width, tail=(5,), paths=(5,), text=safe, after_row=details)
+
+
+def shared_notes(records, palette):
+    applicable = {warning for record in records if record['source_type'] == 'browser'
+                  for warning in record.get('warnings', []) if warning in SHARED_NOTES}
+    if not applicable:
+        return []
+    lines = ['', palette('heading', 'Forensic notes')]
+    for note in SHARED_NOTES:
+        if note in applicable:
+            lines.append(palette('warning', '- ' + note))
+    return lines

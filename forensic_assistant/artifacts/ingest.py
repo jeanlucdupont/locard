@@ -291,9 +291,16 @@ def ingest_artifact(
     )
 
 
-def identify(path):
+DISCOVERY_LABELS = {'evtx': 'EVTX', 'mft': 'MFT', 'prefetch': 'Prefetch', 'registry': 'Registry', 'browser': 'Browser'}
+
+
+def identify(path, *, include_browser=False):
     with open(path, 'rb') as f:
         head = f.read(84)
+    if include_browser and head.startswith(b'SQLite format 3\x00'):
+        with tempfile.TemporaryDirectory(prefix='locard-discovery-') as directory:
+            result = worker('browser_probe', str(path), '', Path(directory) / 'probe', {}, 60)
+        return 'browser' if result.get('supported') is True else None
     if head.startswith(b'ElfFile\x00'):
         return 'evtx'
     from .registry_logs import is_log
@@ -306,12 +313,12 @@ def identify(path):
     return None
 
 
-def discover(path, kind=None):
+def discover(path, kind=None, *, include_browser=False):
     root = Path(path)
     if not root.exists():
         raise ValueError('Evidence path does not exist')
     if root.is_file():
-        found = identify(root)
+        found = identify(root, include_browser=include_browser)
         if kind and found != kind:
             raise ValueError('Source signature does not match requested artifact type')
         if not found:
@@ -326,6 +333,6 @@ def discover(path, kind=None):
             p = Path(parent) / name
             if p.is_symlink():
                 continue
-            found = identify(p)
+            found = identify(p, include_browser=include_browser)
             if found and (not kind or found == kind):
                 yield p, found

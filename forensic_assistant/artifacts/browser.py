@@ -42,8 +42,8 @@ def inventory(path):
     return result
 
 
-def snapshot(path, destination, product, profile):
-    validate_options(product, profile)
+def copy_snapshot(path, destination):
+    """Copy and validate History/companions without asserting browser identity."""
     before = inventory(path)
     for suffix in ('', '-wal'):
         if suffix in before:
@@ -57,8 +57,14 @@ def snapshot(path, destination, product, profile):
     # SHM is a reconstructible index, never the identity of committed evidence.
     identity = {key: before[key] for key in ('', '-wal') if key in before}
     sha = hashlib.sha256(dump(identity).encode()).hexdigest()
-    return dict(browser_product=product, profile=profile, snapshot_sha256=sha,
-                context_id=context_id(sha, product, profile), manifest=before)
+    return dict(snapshot_sha256=sha, manifest=before)
+
+
+def snapshot(path, destination, product, profile):
+    validate_options(product, profile)
+    copied = copy_snapshot(path, destination)
+    return dict(browser_product=product, profile=profile,
+                context_id=context_id(copied['snapshot_sha256'], product, profile), **copied)
 
 
 def timestamp(value, slot):
@@ -69,6 +75,29 @@ def timestamp(value, slot):
     if value not in (None, 0) and type(value) is not int:
         result['normalization_status'] = 'invalid'
     return result
+
+
+def schema_columns(db):
+    """Shared supported-schema gate; no evidence records are read here."""
+    definitions = db.execute("SELECT name,type,sql FROM sqlite_master WHERE name IN ('urls','visits','downloads','downloads_url_chains')").fetchall()
+    if any(row['type'] != 'table' or 'VIRTUAL' in (row['sql'] or '').upper() for row in definitions):
+        raise ValueError('Unsupported Chromium History schema: executable table/view refused')
+    layouts = {name: list(db.execute('PRAGMA table_info(' + name + ')')) for name in TABLES}
+    columns = {name: {r['name'] for r in layout} for name, layout in layouts.items()}
+    for table in ('urls', 'visits', 'downloads'):
+        if columns[table] and [r['name'] for r in layouts[table] if r['pk']] != ['id']:
+            raise ValueError('Unsupported Chromium History schema: stable primary row identity required: ' + table)
+    required = {'urls': {'id', 'url'}, 'visits': {'id', 'url', 'visit_time'}}
+    for table, names in required.items():
+        if not names <= columns[table]:
+            raise ValueError('Unsupported Chromium History schema: required table/column missing: ' + table)
+    if columns['downloads'] and not {'id', 'start_time'} <= columns['downloads']:
+        raise ValueError('Unsupported Chromium History schema: required download columns missing')
+    if 'full_path' in columns['downloads'] and not {'target_path', 'current_path'} & columns['downloads']:
+        raise ValueError('Unsupported Chromium History schema: legacy download timestamp epoch; no conversion guessed')
+    if columns['downloads_url_chains'] and not {'id', 'chain_index', 'url'} <= columns['downloads_url_chains']:
+        raise ValueError('Unsupported Chromium History schema: required URL-chain columns missing')
+    return columns
 
 
 def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, manifest):
@@ -82,24 +111,7 @@ def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, m
         db.execute('PRAGMA query_only=ON')
         db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 16 * 1024 * 1024)
         db.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 65536)
-        definitions = db.execute("SELECT name,type,sql FROM sqlite_master WHERE name IN ('urls','visits','downloads','downloads_url_chains')").fetchall()
-        if any(row['type'] != 'table' or 'VIRTUAL' in (row['sql'] or '').upper() for row in definitions):
-            raise ValueError('Unsupported Chromium History schema: executable table/view refused')
-        layouts = {name: list(db.execute('PRAGMA table_info(' + name + ')')) for name in TABLES}
-        columns = {name: {r['name'] for r in layout} for name, layout in layouts.items()}
-        for table in ('urls', 'visits', 'downloads'):
-            if columns[table] and [r['name'] for r in layouts[table] if r['pk']] != ['id']:
-                raise ValueError('Unsupported Chromium History schema: stable primary row identity required: ' + table)
-        required = {'urls': {'id', 'url'}, 'visits': {'id', 'url', 'visit_time'}}
-        for table, names in required.items():
-            if not names <= columns[table]:
-                raise ValueError('Unsupported Chromium History schema: required table/column missing: ' + table)
-        if columns['downloads'] and not {'id', 'start_time'} <= columns['downloads']:
-            raise ValueError('Unsupported Chromium History schema: required download columns missing')
-        if 'full_path' in columns['downloads'] and not {'target_path', 'current_path'} & columns['downloads']:
-            raise ValueError('Unsupported Chromium History schema: legacy download timestamp epoch; no conversion guessed')
-        if columns['downloads_url_chains'] and not {'id', 'chain_index', 'url'} <= columns['downloads_url_chains']:
-            raise ValueError('Unsupported Chromium History schema: required URL-chain columns missing')
+        columns = schema_columns(db)
         allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ}
         db.set_authorizer(lambda action, a, b, c, d: sqlite3.SQLITE_OK if action in allowed else sqlite3.SQLITE_DENY)
         warnings = ['Browser history may be deleted, expired, synchronized, or absent from the supplied profile; missing history is not proof of no activity.']

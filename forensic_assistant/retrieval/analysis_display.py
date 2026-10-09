@@ -278,6 +278,12 @@ def investigation_notes(view, records):
         r = dict(record)
         r['warnings'] = [w for w in r.get('warnings', []) if w != KEY_CORRUPTION and
                          not (r['source_type'] == 'prefetch' and w in PREFETCH_CAUTIONS)]
+        if r['source_type'] == 'browser':
+            from .browser_display import SHARED_NOTES
+            notes = r.get('warnings', []) + json.loads(r.get('warnings_json') or '[]')
+            if (r.get('observation') == 'Browser-recorded activity; not proof of reading a page, file execution, or binary identity'
+                    and any(note in notes for note in SHARED_NOTES[-2:])):
+                r.pop('observation', None)
         if r.get('observation') in standard or (r.get('detail') or {}).get('userassist'):
             r.pop('observation', None)
         projected.append(r)

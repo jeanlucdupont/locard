@@ -14,7 +14,7 @@ def wizard(tmp_path, *tail, missing=False):
     source = tmp_path / 'evidence'
     source.mkdir()
     target = tmp_path / ('nested/case.db' if missing else 'case.db')
-    reader = Input(str(target), *(['yes'] if missing else []), str(source), 'e', '', '', '', '', 'yes', *tail)
+    reader = Input(str(target), *(['yes'] if missing else []), str(source), 'e', 'yes', *tail)
     return Shell(State(None), reader), target, source
 
 
@@ -61,7 +61,7 @@ def test_before_confirmation_no_filesystem_changes(tmp_path, cancel):
     source = tmp_path / 'evidence'
     source.mkdir()
     target = tmp_path / 'new' / 'case.db'
-    shell = Shell(State(None), Input(str(target), 'yes', str(source), 'e', '', '', '', cancel))
+    shell = Shell(State(None), Input(str(target), 'yes', str(source), 'e', cancel))
     assert not creation.create(shell)
     assert not target.parent.exists() and shell.active is None and not shell.state.recent
 
@@ -74,7 +74,7 @@ def test_decline_missing_parent_returns_destination(tmp_path):
 
 def test_empty_case_first_run_and_recent(tmp_path):
     shell, target, source = wizard(tmp_path, missing=True)
-    lines = ['1', str(target), 'yes', str(source), 'e', '', '', '', '', 'yes', 'exit']
+    lines = ['1', str(target), 'yes', str(source), 'e', 'yes', 'exit']
     shell = Shell(State(tmp_path / 'ui.json'), Input(*lines))
     assert shell.run() == 0 and shell.active == target
     assert State(shell.state.path).load().recent == [str(target)]
@@ -310,7 +310,7 @@ def test_directory_race_to_file_preserved(tmp_path, monkeypatch):
 
 def test_back_leaves_filesystem_unchanged(tmp_path):
     shell, target, source = wizard(tmp_path)
-    shell.reader = Input(str(target), str(source), 'e', '', '', '', '', 'b', '')
+    shell.reader = Input(str(target), str(source), 'e', 'b', '')
     assert not creation.create(shell) and not target.exists()
 
 

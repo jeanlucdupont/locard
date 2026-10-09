@@ -191,6 +191,21 @@ def render_update_preview(preview, palette):
     return '\n'.join(lines)
 
 
+def render_update(data, palette):
+    """Concise human projection; the complete structured result is unchanged."""
+    from forensic_assistant.retrieval.presentation import safe_text
+    if not data['applied']:
+        return render_update_preview(data['preview'], palette) + '\nPreview only. Repeat with --yes to apply.'
+    old, new = data['scope']['source'], data['result']
+    labels = {'display_name': 'Name', 'hostname': 'Hostname', 'username': 'User', 'volume_root': 'Volume root'}
+    lines = [palette('success', 'Source updated.')]
+    for key in data['scope']['proposed']:
+        lines.append(palette('key', labels[key] + ': ') + safe_text(old.get(key) or 'unknown')
+                     + ' -> ' + safe_text(new.get(key) or 'unknown'))
+    lines.append('Previous assertion retained.')
+    return '\n'.join(lines)
+
+
 def render_assignment(data, palette=None):
     from forensic_assistant.terminal import Palette
     from forensic_assistant.retrieval.presentation import safe, safe_path

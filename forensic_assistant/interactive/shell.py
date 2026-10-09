@@ -1,4 +1,5 @@
 """Synchronous interface over the ordinary Locard parser and dispatcher."""
+from forensic_assistant.retrieval.presentation import human_error
 import gc
 import os
 import sqlite3
@@ -64,7 +65,7 @@ class Shell:
         try:
             self.state.remember(target)
         except (OSError, ValueError) as exc:
-            print('Recent case not saved: ' + safe(exc))
+            print('Recent case not saved: ' + human_error(exc))
         from contextlib import closing
         from .case import open_existing
         with closing(open_existing(target)) as db:
@@ -106,7 +107,7 @@ class Shell:
                 self.activate(path)
                 return True
             except (OSError, ValueError, sqlite3.Error) as exc:
-                print('Cannot select database: ' + safe(exc))
+                print('Cannot select database: ' + human_error(exc))
             except (EOFError, KeyboardInterrupt):
                 print()
                 return False
@@ -121,7 +122,7 @@ class Shell:
             try:
                 validate(self.state.recent[0])
             except (OSError, ValueError, sqlite3.Error) as exc:
-                print('Remembered database unavailable: ' + safe(exc))
+                print('Remembered database unavailable: ' + human_error(exc))
                 return self.menu()
             except (EOFError, KeyboardInterrupt):
                 print()
@@ -134,7 +135,7 @@ class Shell:
                         self.activate(self.state.recent[0])
                         return True
                     except (OSError, ValueError, sqlite3.Error) as exc:
-                        print('Remembered database unavailable: ' + safe(exc))
+                        print('Remembered database unavailable: ' + human_error(exc))
                 elif response in ('exit', 'quit'):
                     return False
             except (EOFError, KeyboardInterrupt):
@@ -163,7 +164,7 @@ class Shell:
                     if self.choose(choice):
                         return True
             except (OSError, ValueError, sqlite3.Error) as exc:
-                print("Cannot select database: " + safe(exc))
+                print("Cannot select database: " + human_error(exc))
             except (EOFError, KeyboardInterrupt):
                 print()
                 return False
@@ -192,7 +193,7 @@ class Shell:
                     print('\nValidation interrupted; retrying before accepting commands.')
                     continue
                 except (OSError, ValueError, sqlite3.Error) as exc:
-                    print('Active case unavailable: ' + safe(exc))
+                    print('Active case unavailable: ' + human_error(exc))
                     self.active = None
                     self.reader.clear()
                     if not self.menu():
@@ -276,7 +277,7 @@ class Shell:
                     print('\n' + Palette(enabled(self))('error', text))
                     self.last_status = 130
                 except (ValueError, OSError, sqlite3.Error) as exc:
-                    print(Palette(enabled(self))('error', 'Locard: ' + safe(exc)))
+                    print(Palette(enabled(self))('error', 'Locard: ' + human_error(exc)))
                     self.last_status = 2
                 finally:
                     # Release cyclic command-local objects; retain only schema metadata.
