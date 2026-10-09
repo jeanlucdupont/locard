@@ -62,7 +62,7 @@ def test_requires_valid_case_before_prompt_and_remembers(tmp_path, capsys):
     before = good.read_bytes()
     assert Shell(state, reader).run() == 0
     assert 'Cannot select' in capsys.readouterr().out
-    assert reader.prompts[:2] == ['Selection (or existing database path): '] * 2
+    assert reader.prompts[:2] == ['Selection or case path: '] * 2
     assert not missing.exists() and good.read_bytes() == before
     assert State(state.path).load().recent == [str(good.resolve())]
 
@@ -101,7 +101,7 @@ def test_unusable_remembered_path_reselects(tmp_path, remembered):
 def test_startup_can_exit_without_main_prompt(tmp_path, cancel):
     reader = Input(cancel)
     assert Shell(State(None), reader).run() == 0
-    assert reader.prompts == ['Selection (or existing database path): ']
+    assert reader.prompts == ['Selection or case path: ']
 
 
 def test_switch_isolates_defaults_and_preserves_report_case_semantics(tmp_path, monkeypatch):

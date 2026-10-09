@@ -69,7 +69,7 @@ def test_before_confirmation_no_filesystem_changes(tmp_path, cancel):
 def test_decline_missing_parent_returns_destination(tmp_path):
     shell = Shell(State(None), Input(str(tmp_path / 'new' / 'case.db'), 'n', ''))
     assert not creation.create(shell) and not (tmp_path / 'new').exists()
-    assert shell.reader.prompts[-1].startswith('New database')
+    assert shell.reader.prompts[-1].startswith('Case name or path')
 
 
 def test_empty_case_first_run_and_recent(tmp_path):
@@ -142,7 +142,7 @@ def test_mixed_real_parsers_and_additional_ingestion(tmp_path, capsys):
         assert {r[0] for r in db.execute('SELECT DISTINCT source_type FROM evidence_records')} == {'mft', 'prefetch', 'registry'}
         assert db.execute('SELECT count(*) FROM ingestion_runs').fetchone()[0] == 6
     assert before == {p.name: p.read_bytes() for p in source.iterdir()}
-    assert 'Stored evidence records' in capsys.readouterr().out
+    assert 'Evidence:' in capsys.readouterr().out
 
 
 @pytest.mark.parametrize('failure', [OSError('discovery failed'), KeyboardInterrupt()])

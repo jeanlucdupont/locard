@@ -295,6 +295,9 @@ DISCOVERY_LABELS = {'evtx': 'EVTX', 'mft': 'MFT', 'prefetch': 'Prefetch', 'regis
 
 
 def identify(path, *, include_browser=False):
+    from forensic_assistant.activity import is_sidecar
+    if is_sidecar(path):
+        return None
     with open(path, 'rb') as f:
         head = f.read(84)
     if include_browser and head.startswith(b'SQLite format 3\x00'):

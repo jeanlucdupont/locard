@@ -1,5 +1,6 @@
 """Explicit derived output destinations. Never invokes an operating-system shell."""
 import argparse
+import hashlib
 from contextlib import contextmanager, closing
 import os
 from pathlib import Path
@@ -19,6 +20,8 @@ def configure(commands):
             default=argparse.SUPPRESS,
             help='Disable terminal styling (also respects NO_COLOR)'
         )
+        parser.add_argument('--force', action='store_true', default=argparse.SUPPRESS,
+                            help='Permit replacing an existing derived output file without confirmation')
         group = parser.add_mutually_exclusive_group()
         group.add_argument(
             '--page',
@@ -32,7 +35,7 @@ def configure(commands):
                 dest='output_file',
                 metavar='FILE',
                 default=argparse.SUPPRESS,
-                help='Replace a derived output file (UTF-8)'
+                help='Write a derived UTF-8 file; existing files require confirmation or --force'
             )
         group.add_argument(
             '--append',
@@ -133,6 +136,9 @@ def same_path(a, b):
 
 def validate_destination(target, args):
     """Reject known evidence/case inputs, aliases and SQLite files before writing."""
+    from forensic_assistant.activity import is_sidecar
+    if is_sidecar(target):
+        raise ValueError('Output destination is an activity sidecar')
     if not target.parent.is_dir():
         raise ValueError('Output parent directory does not exist')
     for part in (target, *target.parents):
@@ -148,7 +154,7 @@ def validate_destination(target, args):
         if not value or value == ':memory:':
             continue
         case = Path(value).absolute()
-        protected += [case, *[Path(str(case) + s) for s in ('-wal', '-shm', '-journal')]]
+        protected += [case, *[Path(str(case) + s) for s in ('-wal', '-shm', '-journal', '.audit.jsonl')]]
         if case.is_file():
             # This opener cannot create a case or alter its schema.
             from forensic_assistant.investigation_ai.case import open_readonly
@@ -199,6 +205,26 @@ def validate_destination(target, args):
                 raise ValueError('Output destination has a forensic artifact signature')
 
 
+def file_hash(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def file_state(path):
+    if not path.exists():
+        return None
+    before = path.stat()
+    digest = file_hash(path)
+    after = path.stat()
+    identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns)
+    if identity(before) != identity(after):
+        raise ValueError('Output destination changed while hashing; retry after reviewing it')
+    return (*identity(after), digest)
+
+
 class Output:
     def __init__(self, args):
         self.args = args
@@ -215,6 +241,20 @@ class Output:
         self.palette = Palette(enabled(args, file_output=bool(self.target)))
         if self.target:
             validate_destination(self.target, args)
+            self.before = file_state(self.target)
+            if self.before is not None and not self.append and not getattr(args, 'force', False):
+                from forensic_assistant import activity
+                confirm = getattr(args, '_confirm', None)
+                if confirm is None:
+                    raise ValueError('Output file already exists; use --force to overwrite: ' + str(self.target))
+                print('File already exists: ' + safe_path(self.target))
+                try:
+                    approved = confirm('Overwrite? [y/N]: ').strip().casefold() in ('y', 'yes')
+                except (EOFError, KeyboardInterrupt):
+                    approved = False
+                if not approved:
+                    activity.event('OUTPUT_OVERWRITE', 'cancelled', path=str(self.target), command=args.command)
+                    raise activity.Cancelled('Output overwrite cancelled.')
         self.stream = tempfile.SpooledTemporaryFile(
             mode='w+',
             encoding='utf-8',
@@ -235,33 +275,49 @@ class Output:
             return
         self.stream.seek(0)
         if self.target:
+            from forensic_assistant import activity
             validate_destination(self.target, self.args)
-            if self.append:
-                # No truncation. A failure may leave a partial append; report it honestly.
-                with self.target.open('a', encoding='utf-8', newline='\n') as out:
-                    if out.tell():
-                        out.write('\n')
-                    shutil.copyfileobj(self.stream, out)
-                verb = 'appended to'
-            else:
-                temporary = None
-                try:
-                    with tempfile.NamedTemporaryFile(
-                        mode='w',
-                        encoding='utf-8',
-                        newline='\n',
-                        dir=self.target.parent,
-                        prefix='.locard-output-',
-                        delete=False
-                    ) as out:
-                        temporary = Path(out.name)
+            if file_state(self.target) != self.before:
+                raise ValueError('Output destination changed after selection; review it and retry')
+            action = 'OUTPUT_APPEND' if self.append else 'OUTPUT_OVERWRITE' if self.before is not None else 'OUTPUT_WRITE'
+            command = activity.COMMAND.get()
+            fields = dict(path=str(self.target), command=command.name if command else self.args.command)
+            if action != 'OUTPUT_WRITE':
+                fields['previous_sha256'] = self.before[-1] if self.before else None
+            with activity.mutation(action, **fields) as record:
+                if self.append:
+                    # A failed append may leave partial data; the audit records failure.
+                    with self.target.open('a', encoding='utf-8', newline='\n') as out:
+                        if out.tell():
+                            out.write('\n')
                         shutil.copyfileobj(self.stream, out)
-                    validate_destination(self.target, self.args)
-                    os.replace(temporary, self.target)
-                finally:
-                    if temporary is not None:
-                        temporary.unlink(missing_ok=True)
-                verb = 'written to'
+                        out.flush()
+                        os.fsync(out.fileno())
+                    verb = 'appended to'
+                else:
+                    temporary = None
+                    try:
+                        with tempfile.NamedTemporaryFile(
+                            mode='w', encoding='utf-8', newline='\n', dir=self.target.parent,
+                            prefix='.locard-output-', delete=False
+                        ) as out:
+                            temporary = Path(out.name)
+                            shutil.copyfileobj(self.stream, out)
+                            out.flush()
+                            os.fsync(out.fileno())
+                        validate_destination(self.target, self.args)
+                        if file_state(self.target) != self.before:
+                            raise ValueError('Output destination changed before publication; existing file retained')
+                        if self.before is None:
+                            # Atomic no-overwrite publication, including a competing first write.
+                            os.link(temporary, self.target)
+                        else:
+                            os.replace(temporary, self.target)
+                    finally:
+                        if temporary is not None:
+                            temporary.unlink(missing_ok=True)
+                    verb = 'overwritten' if self.before else 'written to'
+                record['new_sha256'] = file_hash(self.target)
             message('Output ' + verb + ': ' + safe_path(self.target), self.args, role='success')
         else:
             page(self.stream, self.palette)

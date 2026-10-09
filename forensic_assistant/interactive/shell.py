@@ -55,11 +55,17 @@ class Shell:
         self.state = state
         self.reader = reader or Reader()
         self.active = None
+        self.audit = None
         self.last_status = 0
         self.no_color = no_color
 
-    def activate(self, path):
+    def activate(self, path, *, activity_session=None, announce=True):
         target = validate(path)
+        from forensic_assistant import activity
+        if self.audit:
+            self.audit.end('case switch')
+        self.audit = activity_session or activity.Session(target)
+        self.audit.start()
         self.active = target
         self.reader.clear()
         try:
@@ -70,7 +76,8 @@ class Shell:
         from .case import open_existing
         with closing(open_existing(target)) as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-        print('Database: ' + safe(target) + '\n')
+        if announce:
+            print('Database: ' + safe(target) + '\n')
 
     def choose(self, path=None):
         if path is not None:
@@ -149,9 +156,9 @@ class Shell:
 
     def menu(self):
         while True:
-            print("No active case.\n[1] Create a new case\n[2] Open an existing case\n[3] Exit")
+            print("[1] Create case\n[2] Open case\n[3] Exit")
             try:
-                choice = self.reader.read("Selection (or existing database path): ").strip()
+                choice = self.reader.read("Selection or case path: ").strip()
                 if choice in ("", "3", "exit", "quit"):
                     return False
                 if choice == "1":
@@ -171,6 +178,8 @@ class Shell:
 
     def run(self):
         result = self._run_session()
+        if self.audit:
+            self.audit.end()
         # Render only after normal return and command cleanup, never on a fatal error.
         print(get_liner())
         print('\nLocard session ended.')
@@ -194,6 +203,10 @@ class Shell:
                     continue
                 except (OSError, ValueError, sqlite3.Error) as exc:
                     print('Active case unavailable: ' + human_error(exc))
+                    if self.audit:
+                        self.audit.record('CASE_UNAVAILABLE', 'failure', message=human_error(exc))
+                        self.audit.end('case unavailable')
+                        self.audit = None
                     self.active = None
                     self.reader.clear()
                     if not self.menu():
@@ -216,6 +229,7 @@ class Shell:
                             raise ValueError('version takes no arguments')
                         from forensic_assistant import __version__
                         print('Locard version ' + __version__)
+                        self.audit.record('COMMAND', command='version', argv=words)
                         self.last_status = 0
                         continue
                     if words[0] == 'case':
@@ -237,15 +251,18 @@ class Shell:
                             print('Color remains disabled because the terminal does not support styling.')
                         else:
                             print('Color: ' + ('on' if enabled(self) else 'off'))
+                        self.audit.record('COMMAND', command='color', argv=words)
                         continue
                     if words[0] in ('help', '?'):
                         from .help import catalog, command_help, SHELL_COMMANDS
                         if len(words) == 1:
                             print(catalog(build_parser(interactive=True), Palette(enabled(self))))
+                            self.audit.record('COMMAND', command='help', argv=words)
                             self.last_status = 0
                             continue
                         if len(words) == 2 and words[1] in SHELL_COMMANDS:
                             print(command_help(words[1]))
+                            self.audit.record('COMMAND', command='help', argv=words)
                             continue
                         words = words[1:] + ['--help']
                     parser = build_parser(interactive=True)
@@ -253,6 +270,8 @@ class Shell:
                     try:
                         args = parser.parse_args(['--db', str(self.active), *words])
                     except SystemExit as exc:
+                        if not exc.code:
+                            self.audit.record('COMMAND', command='help', argv=words)
                         self.last_status = int(exc.code)
                         continue
                     except (UnknownCommand, InvalidArguments) as exc:
@@ -266,9 +285,26 @@ class Shell:
                         raise ValueError('Use case to change the active database')
                     executing = True
                     from .sources import prepare
-                    if not prepare(self, args):
-                        continue
-                    self.last_status = dispatch(args, existing_only=True)
+                    from forensic_assistant import activity
+                    args._argv = list(words)
+                    args._audit_session = self.audit
+                    args._confirm = self.reader.read
+                    with activity.bind(self.audit):
+                        try:
+                            prepared = prepare(self, args)
+                        except (EOFError, KeyboardInterrupt):
+                            self.audit.record('COMMAND', 'cancelled', command=args.command, argv=activity.redact_argv(words))
+                            raise
+                        except (ValueError, OSError, sqlite3.Error) as exc:
+                            self.audit.record('COMMAND', 'failure', command=args.command,
+                                              argv=activity.redact_argv(words), **activity.error_data(exc))
+                            raise
+                        if not prepared:
+                            self.audit.record('COMMAND', 'cancelled', command=args.command, argv=activity.redact_argv(words))
+                            if args.command == 'source':
+                                self.audit.record('SOURCE_' + args.source_command.upper(), 'cancelled', source_id=args.source_id)
+                            continue
+                        self.last_status = dispatch(args, existing_only=True)
                 except EOFError:
                     print()
                     return 0

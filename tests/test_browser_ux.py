@@ -245,7 +245,7 @@ def test_source_update_human_and_complete_json(browser_case, capsys):
     assert main(base + ['--hostname', 'Host-A', '--user', 'alice', '--yes']) == 0
     text = capsys.readouterr().out
     assert 'Source updated.' in text and 'Hostname: unknown -> host-a' in text
-    assert 'User:' in text and 'Previous assertion retained.' in text
+    assert 'User:' in text and 'Previous assertion retained.' not in text
     assert '"scope"' not in text and '"applied"' not in text
     assert main(base + ['--hostname', 'host-b']) == 0
     assert 'Preview only' in capsys.readouterr().out

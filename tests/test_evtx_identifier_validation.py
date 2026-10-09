@@ -60,7 +60,7 @@ def test_repeated_summary_and_failure_paths(tmp_path, capsys):
         assert EvidenceQueries(db).search().total == 3
     summarize(case)
     text = capsys.readouterr().out
-    assert text.count(LABEL) == 1 and ': 3 records' in text and 'recorded errors: 0' in text
+    assert text.count(LABEL) == 1 and ': 3 records' in text and 'Evidence: 3 records | 0 errors' in text
     assert 'Recorded limitation:' not in text
     def bad_reader(path):
         yield ParsedRecord(7000, 4, error='Structural verification failed')

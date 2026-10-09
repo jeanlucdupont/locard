@@ -122,8 +122,9 @@ def dispatch(db, args):
         return sources.listing(db, args.limit, args.offset)
     if action == 'show':
         return sources.detail(db, args.source_id, args.limit, args.offset)
+    from forensic_assistant import activity
     if action == 'create':
-        with db:
+        with activity.mutation('SOURCE_CREATE', metadata=changes(args)) as audit_result, db:
             sid = sources.create(
                 db,
                 name=args.name,
@@ -131,6 +132,7 @@ def dispatch(db, args):
                 username=args.user,
                 volume_root=args.volume_root
             )
+            audit_result.update(source_id=sid, assertion=sources.current(db, sid))
         return sources.summary(db, sid)
     # Hold a write reservation so preview, scope counts and mutation use one state.
     db.execute('BEGIN IMMEDIATE')
@@ -153,7 +155,11 @@ def dispatch(db, args):
                     confirmation='Repeat with --yes to apply',
                     confirmation_fingerprint=fingerprint(db)
                 )
-            result = sources.update(db, args.source_id, **values)
+            audit_fields = dict(source_id=args.source_id, changes={key: dict(previous_value=scope.get(key), new_value=value) for key, value in values.items()})
+            with activity.mutation('SOURCE_UPDATE', **audit_fields) as audit_result:
+                result = sources.update(db, args.source_id, **values)
+                audit_result['changes'] = {key: dict(previous_value=scope.get(key), new_value=result[key]) for key in values}
+                db.commit()
         else:
             from forensic_assistant.database import source_selection
             selection = source_selection.select(db, args.file_hash, getattr(args, 'path', None))
@@ -165,13 +171,13 @@ def dispatch(db, args):
                     confirmation='Repeat with --yes to apply',
                     confirmation_fingerprint=fingerprint(db)
                 )
-            result = dict(assignment_id=sources.assign(
-                db,
-                args.source_id,
-                selection['file_hashes'],
-                reason=args.reason,
-                selection_basis=source_selection.assignment_basis(selection)
-            ))
+            with activity.mutation('SOURCE_ASSIGN', source_id=args.source_id,
+                                   file_hashes=selection['file_hashes'], reason=args.reason) as audit_result:
+                result = dict(assignment_id=sources.assign(
+                    db, args.source_id, selection['file_hashes'], reason=args.reason,
+                    selection_basis=source_selection.assignment_basis(selection)))
+                db.commit()
+                audit_result.update(result)
         db.commit()
         return dict(applied=True, result=result, scope=preview)
     finally:
@@ -202,7 +208,6 @@ def render_update(data, palette):
     for key in data['scope']['proposed']:
         lines.append(palette('key', labels[key] + ': ') + safe_text(old.get(key) or 'unknown')
                      + ' -> ' + safe_text(new.get(key) or 'unknown'))
-    lines.append('Previous assertion retained.')
     return '\n'.join(lines)
 
 

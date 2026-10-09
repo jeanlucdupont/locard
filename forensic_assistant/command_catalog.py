@@ -5,6 +5,7 @@ from types import MappingProxyType
 
 COMMANDS = MappingProxyType({
     '?': 'Show help for a command',
+    'activity': 'Review and verify analyst activity',
     'analyze-timeline': 'Analyze timeline evidence using the local AI model',
     'around': 'Show evidence near a specific event or timestamp',
     'ask': 'Ask the local AI questions about case evidence',

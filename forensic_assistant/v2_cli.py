@@ -48,6 +48,18 @@ def configure(commands):
 
 
 def ingest_sources(db, args, progress=None):
+    from forensic_assistant import activity
+    with activity.mutation('INGEST_BATCH', command=args.command, path=str(args.path),
+                           source_id=getattr(args, 'source', None)) as audit_result:
+        results = _ingest_sources(db, args, progress)
+        audit_result.update(files=len(results), inserted=sum(r['inserted'] for r in results),
+                            duplicates=sum(r['duplicates'] for r in results), errors=sum(r['errors'] for r in results))
+        if not results or any(r['status'] != 'complete' for r in results):
+            audit_result['_outcome'] = 'failure'
+        return results
+
+
+def _ingest_sources(db, args, progress=None):
     from forensic_assistant.database import sources
     from forensic_assistant.ingest.evtx import discover as evtx_discover
     sources.require4(db)
@@ -83,8 +95,12 @@ def ingest_sources(db, args, progress=None):
             'INSERT INTO ingestion_batches VALUES (?,?,?,?,?,?,?)',
             (batch_id, source_id, now(), None, str(args.path), args.command, 'running')
         )
+    from forensic_assistant import activity
     status = 'failed'
     try:
+        if not getattr(args, 'source', None):
+            activity.event('SOURCE_CREATE', required=True, source_id=source_id, assertion=sources.current(db, source_id),
+                           basis='ingestion', batch_id=batch_id)
         files = ((p, 'evtx') for p in evtx_discover(args.path)) if args.command == 'ingest' else discover(
             args.path,
             None if requested == 'all' else requested
@@ -92,18 +108,23 @@ def ingest_sources(db, args, progress=None):
         if requested == 'browser':
             files = [(args.path, 'browser')]
         for path, kind in files:
-            if kind == 'evtx':
-                result = ingest_file(db, path, batch_id=batch_id, timeout=getattr(args, 'parser_timeout', 300))
-            else:
-                result = ingest_artifact(
-                    db,
-                    path,
-                    kind,
-                    timeout=args.parser_timeout,
-                    record_size=args.record_size,
-                    batch_id=batch_id,
-                    **({'browser_product': args.browser, 'profile': args.profile} if kind == 'browser' else {})
-                )
+            with activity.mutation('INGEST', source_id=source_id, batch_id=batch_id,
+                                   source_file=str(path), artifact_type=kind) as audit_result:
+                if kind == 'evtx':
+                    result = ingest_file(db, path, batch_id=batch_id, timeout=getattr(args, 'parser_timeout', 300))
+                else:
+                    result = ingest_artifact(
+                        db,
+                        path,
+                        kind,
+                        timeout=args.parser_timeout,
+                        record_size=args.record_size,
+                        batch_id=batch_id,
+                        **({'browser_product': args.browser, 'profile': args.profile} if kind == 'browser' else {})
+                    )
+                audit_result.update({key: result[key] for key in ('status', 'inserted', 'duplicates', 'errors')})
+                if result['status'] != 'complete':
+                    audit_result['_outcome'] = 'failure'
             results.append(result)
             if progress is not None:
                 progress(path, kind, result)

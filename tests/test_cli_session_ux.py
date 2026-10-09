@@ -191,6 +191,8 @@ def test_output_paths_and_file_behavior(tmp_path, monkeypatch, capsys, colors, m
     target = tmp_path / name
     target.write_text('original\n', encoding='utf-8')
     words = ['--db', str(path), 'status', mode, name]
+    if mode == '--output':
+        words.append('--force')
     if json_output:
         words.append('--json')
     if not color:
@@ -200,7 +202,7 @@ def test_output_paths_and_file_behavior(tmp_path, monkeypatch, capsys, colors, m
     assert captured.out == ''
     assert ('\x1b[' in captured.err) == (color and not json_output)
     text = terminal.SGR.sub('', captured.err)
-    verb = 'appended to' if mode == '--append' else 'written to'
+    verb = 'appended to' if mode == '--append' else 'overwritten'
     assert text == 'Output ' + verb + ': ' + str(target) + '\n'
     contents = target.read_text(encoding='utf-8')
     if mode == '--append':

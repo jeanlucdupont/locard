@@ -142,6 +142,8 @@ def build_parser(*, interactive=False):
     report_cli.configure(commands)
     from forensic_assistant import source_cli
     source_cli.configure(commands)
+    from forensic_assistant import activity
+    activity.configure(commands)
     from forensic_assistant.output import configure
     configure(commands)
     if interactive:
@@ -160,33 +162,56 @@ def main(argv=None):
         print(banner(get_banner(), argparse.Namespace(no_color=no_color)))
         from forensic_assistant.interactive.shell import run
         return run(no_color=True) if no_color else run()
-    return dispatch(build_parser().parse_args(argv))
+    args = build_parser().parse_args(argv)
+    args._argv = argv
+    return dispatch(args)
 
 
 def dispatch(args, *, existing_only=False):
     from forensic_assistant.output import Output
+    from forensic_assistant import activity
     output = None
-    try:
-        output = Output(args)
-        code = _dispatch(args, output, existing_only=existing_only)
-        output.finish()
-        return code
-    except (ValueError, OSError, sqlite3.Error) as exc:
-        from forensic_assistant.terminal import message
-        message(human_error(exc), args)
-        return 2
-    finally:
-        if output is not None:
-            output.close()
+    with activity.Command(args) as command:
+        try:
+            output = Output(args)
+            command.code = _dispatch(args, output, existing_only=existing_only)
+            output.finish()
+            return command.code
+        except activity.Cancelled as exc:
+            from forensic_assistant.terminal import message
+            activity.note_error(exc)
+            message(human_error(exc), args, role='warning')
+            command.code = 130
+            return 130
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            from forensic_assistant.terminal import message
+            activity.note_error(exc)
+            message(human_error(exc), args)
+            command.code = 2
+            return 2
+        finally:
+            if output is not None:
+                output.close()
 
 
 def _dispatch(args, output, *, existing_only=False):
+    from forensic_assistant import activity
     def emit(value):
+        activity.result_count(value)
         output.json(value)
     from forensic_assistant.semantic import cli as semantic_cli
     from forensic_assistant.investigation_ai import cli as investigation_cli
     from forensic_assistant.reporting import cli as report_cli
     try:
+        if args.command == 'activity':
+            if activity.CURRENT.get() is None:
+                raise ValueError('Activity requires an existing valid Locard case')
+            result = activity.inspect(activity.sidecar(args.db), args.limit)
+            if args.json:
+                emit(result)
+            else:
+                output.write(activity.render(result, verify=args.verify, palette=output.palette))
+            return 0 if result['valid'] else 2
         if args.command == 'report':
             try:
                 result = report_cli.dispatch(args)
@@ -198,10 +223,11 @@ def _dispatch(args, output, *, existing_only=False):
                     'evidence_grounding'
                 )) else 0
             except (ValueError, OSError, KeyError, TypeError) as exc:
+                activity.note_error(exc)
                 emit({
                     'status': 'FAILED',
                     'error': str(exc),
-                    'published': False if args.report_command == 'generate' else None
+                    'published': getattr(exc, 'action_completed', False) if args.report_command == 'generate' else None
                 })
                 return 2
         if args.command in ('investigate-ai', 'investigation'):
@@ -215,7 +241,12 @@ def _dispatch(args, output, *, existing_only=False):
             from pathlib import Path
             if not Path(args.db).is_file():
                 raise ValueError('Semantic commands require an existing evidence database')
+        from pathlib import Path
+        was_missing = str(args.db) != ':memory:' and not Path(args.db).exists()
         with closing(connect(args.db, existing_only=True) if existing_only or args.command == 'source' else connect(args.db)) as db:
+            command = activity.COMMAND.get()
+            if command:
+                command.attach(args.db, created=was_missing)
             if args.command == 'source':
                 from forensic_assistant import source_cli
                 result = source_cli.dispatch(db, args)
@@ -237,6 +268,7 @@ def _dispatch(args, output, *, existing_only=False):
             v2_result = v2_cli.dispatch(db, args, presentation=presentation)
             if v2_result is not None:
                 result, code = v2_result
+                activity.result_count(result)
                 if args.command == 'search' and not args.json and not args.raw:
                     from forensic_assistant.retrieval.search_display import render
                     output.write(render(result, output.palette, ids=args.ids))
@@ -343,6 +375,7 @@ def _dispatch(args, output, *, existing_only=False):
             return 0
     except (ValueError, OSError, sqlite3.Error, OverflowError, LLMError) as exc:
         from forensic_assistant.terminal import message
+        activity.note_error(exc)
         message(human_error(exc), args)
         return 2
 

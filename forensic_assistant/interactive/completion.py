@@ -150,6 +150,11 @@ def complete(text, cursor):
         words = split(text[:start])
     except ValueError:
         return unchanged
+    help_target = bool(words and words[0] in ('help', '?'))
+    if help_target:
+        words = words[1:]
+        if prefix.startswith('-'):
+            return unchanged
     if not words:
         names = COMMANDS
     else:
@@ -164,7 +169,7 @@ def complete(text, cursor):
         parser, remaining = context
         if remaining and isinstance(remaining[0], argparse._SubParsersAction) and not prefix.startswith('-'):
             names = remaining[0].choices
-        elif prefix.startswith('-') or (not prefix and not any(a.required for a in remaining)):
+        elif not help_target and (prefix.startswith('-') or (not prefix and not any(a.required for a in remaining))):
             names = [name for name, action in _options(parser).items() if action.help != argparse.SUPPRESS]
         else:
             return unchanged

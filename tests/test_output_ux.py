@@ -130,6 +130,9 @@ def test_files_create_replace_append(case, tmp_path, monkeypatch, capsys, mode, 
     assert capsys.readouterr().out == ''
     if mode == '--output':
         target.write_text('old output', encoding='utf-8')
+        assert main(args) == 2
+        assert target.read_text(encoding='utf-8') == 'old output'
+        args += ['--force']
     assert main(args) == 0
     second = target.read_text(encoding='utf-8')
     assert second == (first if mode == '--output' else first + '\n' + first)
@@ -175,7 +178,7 @@ def test_unregistered_database_and_artifact_protection(case, tmp_path):
     for name, data in [('other.txt', b'SQLite format 3\x00'), ('artifact.txt', b'ElfFile\x00synthetic')]:
         target = tmp_path / name
         target.write_bytes(data)
-        assert main(['--db', str(path), 'status', '--output', str(target)]) == 2
+        assert main(['--db', str(path), 'status', '--output', str(target), '--force']) == 2
         assert target.read_bytes() == data
 
 
@@ -186,7 +189,7 @@ def test_replace_failure_preserves_old_file(case, tmp_path, monkeypatch, capsys)
     def fail(*a):
         raise PermissionError('synthetic denied')
     monkeypatch.setattr(output.os, 'replace', fail)
-    assert main(['--db', str(path), 'status', '--output', str(target)]) == 2
+    assert main(['--db', str(path), 'status', '--output', str(target), '--force']) == 2
     assert target.read_text() == 'old' and not list(tmp_path.glob('.locard-output-*'))
     assert 'synthetic denied' in capsys.readouterr().err
 

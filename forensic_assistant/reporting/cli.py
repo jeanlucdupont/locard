@@ -45,6 +45,20 @@ def configure(commands):
     check.add_argument('--transcript-root', help='Original transcripts for investigation-report grounding')
 
 def dispatch(args):
+    if args.report_command != 'generate':
+        return _dispatch(args)
+    from forensic_assistant import activity
+    from forensic_assistant.output import file_hash
+    with activity.mutation('OUTPUT_WRITE', path=str(Path(args.output).absolute()), command='report generate',
+                           output_kind='report_bundle') as record:
+        result = _dispatch(args)
+        from .bundle import FILES
+        record['sha256'] = {name: file_hash(Path(args.output) / name) for name in FILES}
+        record['report_id'] = result['report_id']
+        return result
+
+
+def _dispatch(args):
     if args.report_command == 'show':
         report, _ = inspect(args.directory)
         return dict(

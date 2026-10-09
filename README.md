@@ -146,6 +146,86 @@ command. Redirected or unsupported terminals receive a short notice instead.
 Clearing works independently of the color preference. `help color` and `help cls`
 describe these shell-only commands; they are not OS command execution.
 
+### Analyst activity
+
+Each selected case has a derived `<case-path>.audit.jsonl` activity sidecar.
+It is not forensic evidence, never participates in evidence counts or queries,
+and is excluded from artifact discovery. Protect it as analyst work product:
+explicit query filters, paths, and source assertions can themselves be sensitive.
+
+```text
+activity
+activity --limit 50 --json
+activity --verify
+```
+
+Records contain an audit-format version, microsecond UTC `timestamp_utc`, a unique
+active-case `session_id`, monotonic per-case `sequence`, `action`, `outcome`, and
+action-specific fields. Each script invocation gets its own session. Switching
+cases ends the previous session. Normal exit/EOF records an end; a fatal crash
+does not fabricate one. The dispatcher owns command invocation/completion and
+show/around/investigate anchors; the shell owns session/open/create events;
+source, ingestion, and output adapters own their semantic actions. Successful
+shell help/version/color commands are also recorded. Blank input, completion,
+unknown-command typos, and harmless menu navigation are not logged.
+
+Source updates record actual before/after values. Ingestion records batch and
+per-file outcomes/counts alongside the authoritative database provenance. Output
+records distinguish write, overwrite, and append, with previous/resulting SHA-256
+where applicable; report bundles record their completed member-file hashes.
+Returned evidence objects, browser URLs, and result lists are not copied into
+the log. Explicit analyst query strings are retained. Recognized long-option
+values are replaced by `<redacted>` for names ending at a hyphen/underscore word
+boundary in `password`, `passwd`, `token`, `secret`, `credentials`, `authorization`,
+or `api-key`/`api_key` (for example `--access-token` and `--client-secret`). Both
+`--option value` and `--option=value` are supported. This is deterministic option
+redaction, not a general secret detector for arbitrary positional text.
+
+Appends use short-lived interprocess locks, bounded tail reads, flush and fsync.
+No persistent database or log handle is retained between commands. Mutations
+require a durable `pending` intent before changing sources, ingesting, or writing
+output; completion follows the database commit/file publication. SQLite and the
+sidecar are **not one transaction**. If completion logging fails, Locard reports
+that the action completed and leaves its intent for reconciliation against
+database provenance/output. A crash can likewise leave an unresolved intent.
+Read-only commands warn visibly if logging fails and may continue. Failed or
+cancelled actions are recorded where the sidecar remains writable. Logging is
+otherwise silent. Case creation is recorded after database publication; failure
+there retains the database and reports failure without automatically activating it.
+
+Each entry hashes canonical JSON (sorted keys, compact separators, ASCII escapes,
+no non-finite numbers), excluding its own `entry_hash` and including
+`previous_entry_hash`; the first previous hash is `null`. `activity --verify`
+streams and checks every entry, sequence and link and reports the first invalid
+entry. Ordinary appends validate only the tail for bounded work, not the entire
+history. Verification detects altered, reordered or missing interior records and
+partial/malformed tails. Without an externally trusted head hash or signature,
+it cannot detect deletion of a valid suffix, deletion of the whole log, or a
+fully recomputed replacement chain. This is tamper evidence, not signing or
+non-repudiation. No automatic repair or history rewriting occurs.
+
+`activity` displays a verified snapshot with at most 20 recent records by default
+(maximum requested limit 1000). Its own command-completion event is appended
+after the snapshot, so it appears on the next invocation. Verification is linear
+in log size; routine appends do not rescan the evidence database or audit history.
+
+### Creating a case interactively
+
+The selector offers `Create case`, `Open case`, and `Exit`, and still accepts an
+existing case path. Creation asks for a case name/path and evidence, discovers
+supported artifacts, and requires explicit browser product and profile for each
+Chromium History database. A source display name defaults to the case filename;
+an optional override lets analysts label the source independently. Hostname,
+user, and original drive remain unknown unless supplied. A concise preview and
+affirmative confirmation precede filesystem changes. Progress shows record
+counts and meaningful duplicates/errors rather than Python dictionaries. An
+explicit empty case creates no placeholder source and asks no source metadata.
+Existing directories are rejected with a create-specific destination message.
+
+Tab completion after `help` or `?` reuses the same command/parser hierarchy:
+`help sour<Tab>`, `help source <Tab>`, and `help source up<Tab>` navigate to
+`source` and its subcommands. Help-target completion does not suggest options.
+
 ### Sources, ingestion batches, and evidence identity (0.10.0)
 
 A case can contain many sources. A **source** is an analyst-defined origin, with
@@ -535,7 +615,7 @@ or an explicit UTC offset; timezone-less input is rejected.
 |---|---|
 | Default | Render to the terminal |
 | `--page` | Internal Python pager: Space advances a page, Enter a line, Q/q quits; Ctrl+C also leaves paging |
-| `--output FILE` | Write UTF-8 output, replacing an existing derived file through a temporary file and atomic replacement |
+| `--output FILE` | Write UTF-8 output; existing files require interactive confirmation (default No) or `--force` |
 | `--append FILE` | Append UTF-8 output, creating a missing file; separate successive outputs with a newline |
 
 The pager uses terminal dimensions with a fallback and restores console input
@@ -547,11 +627,19 @@ stored evidence. Explicit `--json --page` is rejected. `--page`, `--output`, and
 File paths may be relative to the caller's directory or absolute; quote paths
 containing spaces. Parent directories must already exist. Confirmations and errors
 go to stderr; file output is not also dumped to stdout. Write failures return a
-nonzero status and leave the interactive shell usable. Replacement is atomic;
+nonzero status and leave the interactive shell usable. Scripts fail without
+prompting when an output file exists unless `--force` is supplied. `--yes` is
+for action confirmation and does not authorize output replacement. First writes
+need no confirmation; append never asks to overwrite. Success distinguishes
+`Output written to:`, `Output overwritten:`, and `Output appended to:`.
+Replacement uses a complete temporary file and atomic publication, with target
+identity/content checked again before publication. These checks detect observed
+concurrent changes but are not an adversarial filesystem transaction. Explicitly
+requested failure/partial-result diagnostics remain exportable. Replacement is atomic;
 an interrupted or failed append may leave a partial appended section. Appending
 JSON produces separate JSON documents, not one combined JSON array.
 
-Output guards reject the active/explicit case database and its SQLite sidecars,
+Output guards reject audit sidecars, the active/explicit case database and its SQLite sidecars,
 recorded evidence paths (including hard-link aliases), recognized artifact/SQLite
 files, symbolic-link/junction destinations, and overlapping command inputs.
 These are safeguards for known inputs, not a way to identify every possible
@@ -559,7 +647,8 @@ unregistered evidence file. Choose a separate analyst output path.
 
 For nested commands, destination options can follow the final subcommand. One
 existing option is deliberately preserved: `report generate --output` still names
-the new report **bundle directory**. To also save its console result, put the new
+the new report **bundle directory**. Bundles remain create-only; `--force` does
+not replace an existing bundle. To also save its console result, put the new
 file destination before `generate`:
 
 ```text
