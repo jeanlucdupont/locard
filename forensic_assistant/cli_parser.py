@@ -20,6 +20,17 @@ class LocardParser(argparse.ArgumentParser):
             if isinstance(action, argparse._HelpAction):
                 action.help = argparse.SUPPRESS
 
+    def selector_guidance(self, message):
+        if message == 'one of the arguments --evidence --process is required':
+            return getattr(self, 'missing_selector_guidance', None)
+        return None
+
+    def error(self, message):
+        guidance = self.selector_guidance(message)
+        if guidance:
+            self._print_message(guidance + '\n')
+        super().error(message)
+
     def parse_args(self, args=None, namespace=None):
         parsed = super().parse_args(args, namespace)
         if getattr(parsed, '_interactive_text', False):
@@ -58,6 +69,9 @@ class InteractiveParser(LocardParser):
 
     def error(self, message):
         parser = self.context.get('active', self)
+        guidance = parser.selector_guidance(message)
+        if guidance:
+            raise InvalidArguments(guidance)
         if parser.prog == 'Locard shell':
             raise InvalidArguments('Invalid arguments. Type `help` for command syntax.')
         raise InvalidArguments('Invalid arguments.\n' + parser.format_usage().rstrip() +

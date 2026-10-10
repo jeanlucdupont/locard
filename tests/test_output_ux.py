@@ -226,6 +226,7 @@ class Terminal(io.StringIO):
 )
 def test_pager_keys(monkeypatch, keys, expected):
     terminal = Terminal()
+    monkeypatch.setattr(output, 'redraw_viewport', lambda lines, footer: terminal.write('\n'.join([*lines, footer]) + '\n') or True)
     monkeypatch.setattr(output.sys, 'stdout', terminal)
     monkeypatch.setattr(output.sys, 'stdin', Terminal())
     monkeypatch.setattr(output.shutil, 'get_terminal_size', lambda **kw: os.terminal_size((80, 4)))
@@ -245,6 +246,7 @@ def test_pager_keys(monkeypatch, keys, expected):
 
 def test_pager_size_fallback_and_nonterminal(monkeypatch):
     terminal = Terminal()
+    monkeypatch.setattr(output, 'redraw_viewport', lambda lines, footer: terminal.write('\n'.join([*lines, footer]) + '\n') or True)
     monkeypatch.setattr(output.sys, 'stdout', terminal)
     monkeypatch.setattr(output.sys, 'stdin', Terminal())
     def fail(**kw):

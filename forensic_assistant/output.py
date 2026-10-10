@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 from forensic_assistant.retrieval.presentation import safe, safe_path
-from forensic_assistant.terminal import Palette, enabled, render_json, wrap_line, message
+from forensic_assistant.terminal import Palette, enabled, render_json, wrap_line, message, redraw_viewport
 
 
 def configure(commands):
@@ -27,7 +27,7 @@ def configure(commands):
             '--page',
             action='store_true',
             default=argparse.SUPPRESS,
-            help='Review output with the internal pager (Space/Enter/Q)'
+            help='Review output with the internal pager (Up/Down, PgUp/PgDn, Home/End, Q)'
         )
         if not report_generate:
             group.add_argument(
@@ -76,9 +76,80 @@ def keyboard():
         original = termios.tcgetattr(fd)
         try:
             tty.setcbreak(fd)
-            yield lambda: os.read(fd, 1).decode('utf-8', errors='replace')
+            import select
+            def read():
+                return terminal_key(lambda: os.read(fd, 1).decode('utf-8', errors='replace'),
+                                    lambda: bool(select.select([fd], [], [], .03)[0]))
+            yield read
         finally:
             termios.tcsetattr(fd, termios.TCSAFLUSH, original)
+
+
+def terminal_key(read, ready):
+    """Decode bounded POSIX escape sequences; a lone Escape exits immediately."""
+    key = read()
+    if key != '\x1b' or not ready():
+        return key
+    suffix = read()
+    if suffix not in ('[', 'O'):
+        return '\x1b'
+    while len(suffix) < 6 and ready():
+        char = read()
+        if not char:
+            return 'UNKNOWN'
+        suffix += char
+        if char.isalpha() or char == '~':
+            break
+    return {'[A': 'UP', '[B': 'DOWN', '[5~': 'PAGEUP', '[6~': 'PAGEDOWN',
+            '[H': 'HOME', '[F': 'END', 'OH': 'HOME', 'OF': 'END',
+            '[1~': 'HOME', '[4~': 'END', '[7~': 'HOME', '[8~': 'END'}.get(suffix, 'UNKNOWN')
+
+
+class Pager:
+    """Navigation over rendered rows only; no database or query references."""
+    def __init__(self, lines):
+        self.original = list(lines)
+        self.lines = []
+        self.top = 0
+        self.height = 1
+        self.width = None
+
+    def resize(self, height, width):
+        self.height = max(1, height)
+        width = max(1, width)
+        if width != self.width:
+            self.lines = [row for line in self.original for row in wrap_line(line, width)]
+            self.width = width
+        self.top = min(self.top, max(0, len(self.lines) - 1))
+
+    def move(self, key):
+        if key in ('q', 'Q', '\x1b', '\x03', '\x04', '\x1a', ''):
+            return False
+        last = max(0, len(self.lines) - 1)
+        if key in ('DOWN', 'j', '\r', '\n'):
+            self.top += 1
+        elif key in ('UP', 'k'):
+            self.top -= 1
+        elif key in (' ', 'PAGEDOWN'):
+            self.top += self.height
+        elif key in ('b', 'PAGEUP'):
+            self.top -= self.height
+        elif key in ('HOME', 'g'):
+            self.top = 0
+        elif key in ('END', 'G'):
+            self.top = (last // self.height) * self.height
+        self.top = max(0, min(self.top, last))
+        return True
+
+    @property
+    def visible(self):
+        return self.lines[self.top:self.top + self.height]
+
+    @property
+    def footer(self):
+        start = self.top + 1 if self.lines else 0
+        end = min(self.top + self.height, len(self.lines))
+        return f'Lines {start}-{end} of {len(self.lines)} | Up Down PgUp PgDn Home End Q'
 
 
 def page(stream, palette=None):
@@ -86,46 +157,31 @@ def page(stream, palette=None):
     if not sys.stdout.isatty() or not sys.stdin.isatty():
         shutil.copyfileobj(stream, sys.stdout)
         return
-    try:
-        size = shutil.get_terminal_size(fallback=(80, 24))
-        height, width = max(1, size.lines - 2), max(1, size.columns - 1)
-    except (OSError, ValueError):
-        height, width = 22, 79
-    # Account for wrapping, including full evidence IDs and verbose JSON lines.
-    def rows():
-        for line in stream:
-            line = line.rstrip('\n')
-            yield from wrap_line(line, width)
-    iterator = iter(rows())
-    pending = next(iterator, None)
-    prompt = '-- More -- Space: page, Enter: line, Q: quit'
+    pager = Pager(line.rstrip('\n') for line in stream)
+    if not pager.original:
+        return
     try:
         with keyboard() as read:
-            allowance = height
-            while pending is not None:
-                for _ in range(allowance):
-                    print(pending)
-                    pending = next(iterator, None)
-                    if pending is None:
-                        return
-                print(palette('info_bar', prompt), end='', flush=True)
+            while True:
                 try:
-                    while True:
-                        key = read()
-                        if key in ('q', 'Q', '\x03', '\x04', '\x1a', ''):
-                            return
-                        if key == ' ':
-                            allowance = height
-                            break
-                        if key in ('\r', '\n'):
-                            allowance = 1
-                            break
-                finally:
-                    print('\r' + ' ' * len(prompt) + '\r', end='', flush=True)
+                    size = shutil.get_terminal_size(fallback=(80, 24))
+                    height, width = max(1, size.lines - 2), max(1, size.columns - 1)
+                except (OSError, ValueError):
+                    height, width = 22, 79
+                pager.resize(height, width)
+                # Keep the status on one row even on very narrow terminals.
+                footer = palette('info_bar', pager.footer[:width])
+                if not redraw_viewport(pager.visible, footer):
+                    print('\n'.join(pager.original))
+                    return
+                if not pager.move(read()):
+                    return
     except (KeyboardInterrupt, EOFError):
         pass
     except (OSError, RuntimeError, ValueError) as exc:
         print('Locard: paging stopped: ' + safe(exc), file=sys.stderr)
+    finally:
+        print()
 
 
 def same_path(a, b):

@@ -133,9 +133,9 @@ def test_pager_coloring_and_quit(case, color, monkeypatch, no_color):
     args = ['--db', str(case[0]), 'show', case[1], '--page'] + (['--no-color'] if no_color else [])
     assert main(args) == 0
     text = stream.getvalue()
-    assert '-- More --' in text
-    assert ('\x1b' in text) == (not no_color)
-    assert len(plain(text).split('-- More --')[0].splitlines()) == 4 and restored == [True]
+    assert 'Lines 1-4 of' in text
+    assert bool(terminal.SGR.search(text)) == (not no_color)
+    assert len(plain(text).split('Lines 1-4 of')[0].splitlines()) == 4 and restored == [True]
 
 
 def test_search_styles_are_types_not_judgments():

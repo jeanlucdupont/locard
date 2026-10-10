@@ -3,7 +3,7 @@ import json
 import ntpath
 from collections import Counter
 
-from forensic_assistant.terminal import Palette
+from forensic_assistant.terminal import Palette, supports_unicode
 from .around_display import display_time
 from .layout import pagination, table
 from .presentation import safe_text as safe
@@ -156,12 +156,21 @@ def render_detections(result, palette=None, *, width=None):
     return '\n'.join(lines)
 
 
-def render_process_tree(result, palette=None):
+def render_process_tree(result, palette=None, *, unicode=None):
     palette = palette or Palette()
     if 'nodes' not in result:
-        lines = [palette('key', 'Status: ') + safe(result['status']), palette('warning', safe(result['reason']))]
+        lines = [palette('key', 'Status: ') + palette('warning', safe(result['status']))]
+        if result.get('total') == 0:
+            lines.append('No matching process-creation evidence found in the requested time window.')
+            notes(lines, ['Process-tree reconstruction requires supported process-creation evidence.',
+                          'Missing process-creation records do not prove the process did not exist.'], palette)
+        elif result.get('total', 0) > 1:
+            lines.extend(['Multiple candidate process-creation records found.',
+                          'Select one using --evidence <ID>.'])
+        else:
+            lines.append(palette('warning', safe(result['reason'])))
         lines.extend('    Candidate ID: ' + palette('evidence_id', safe(eid)) for eid in result.get('candidate_evidence_ids', []))
-        if 'total' in result:
+        if result.get('total'):
             lines.append(f"Showing {len(result.get('candidate_evidence_ids', []))} of {result['total']} candidate anchors")
         return '\n'.join(lines)
     records = {r['id']: r for r in result['nodes']}
@@ -176,36 +185,44 @@ def render_process_tree(result, palette=None):
     targets = {edge['target_id'] for edge in edges}
     roots = [eid for eid in records if eid not in targets]
     lines = [palette('heading', 'Process evidence')]
+    unicode = supports_unicode('├──└──│') if unicode is None else unicode
+    branch, end, continuation = ('├── ', '└── ', '│   ') if unicode else ('|-- ', '`-- ', '|   ')
     visited, rendered_edges = set(), set()
     for root in [*roots, *records]:
-        pending = [(root, 0, None)]
+        pending = [(root, '', '', None)]
         while pending:
-            eid, depth, relation = pending.pop()
+            eid, prefix, connector, relation = pending.pop()
             if eid in visited:
                 continue
             visited.add(eid)
             record = records[eid]
-            indent = '  ' * depth
             label = safe(record.get('process_name') or 'Unknown process') + '  PID ' + safe(record.get('pid'))
-            lines.append(indent + palette('key', label) + (' [anchor]' if eid == result['anchor_id'] else ''))
-            lines.append(indent + '  ID: ' + palette('evidence_id', safe(eid)))
-            lines.append(indent + '  Time (UTC): ' + safe(timestamp(record.get('timestamp_utc'))) + ' | Host: ' + safe(record.get('hostname')))
+            lines.append(prefix + connector + palette('key', label) +
+                         (' ' + palette('key', '[anchor]') if eid == result['anchor_id'] else ''))
+            stem = prefix + (continuation if connector == branch else '    ' if connector else '')
+            metadata = stem + '    '
+            lines.append(metadata + 'ID: ' + palette('evidence_id', safe(eid)))
+            lines.append(metadata + 'Time (UTC): ' + safe(timestamp(record.get('timestamp_utc'))) + ' | Host: ' + safe(record.get('hostname')))
             if relation:
                 rendered_edges.add(id(relation))
-                lines.append(indent + '  Parent relationship: ' + palette('warning' if relation['status'] == 'LIKELY' else 'key',
-                                                                       safe(relation['status'])) + ': ' + safe(relation['reason']))
-            pending.extend((edge['target_id'], depth + 1, edge) for edge in reversed(children.get(eid, [])))
+                lines.append(metadata + 'Parent relationship: ' + palette(
+                    'warning' if relation['status'] == 'LIKELY' else 'success', safe(relation['status'])))
+                lines.append(metadata + '    ' + safe(relation['reason']))
+            descendants = children.get(eid, [])
+            pending.extend((edge['target_id'], stem, end if index == len(descendants) - 1 else branch, edge)
+                           for index, edge in reversed(list(enumerate(descendants))))
     remaining = [edge for edge in result['relationships'] if id(edge) not in rendered_edges]
     if remaining:
         lines += ['', palette('heading', 'Unresolved or undisplayed relationships')]
         for edge in remaining:
-            lines.append(palette('warning', safe(edge['status']) + ': ' + safe(edge['reason'])))
+            lines.append(palette('success' if edge['status'] == 'CONFIRMED' else 'warning', safe(edge['status'])))
+            lines.append('    ' + safe(edge['reason']))
             for label, key in (('Parent ID', 'source_id'), ('Child ID', 'target_id')):
                 if edge.get(key):
-                    lines.append('  ' + label + ': ' + palette('evidence_id', safe(edge[key])))
-            lines.extend('  Supporting ID: ' + palette('evidence_id', safe(eid)) for eid in edge.get('evidence_ids', [])
+                    lines.append('    ' + label + ': ' + palette('evidence_id', safe(edge[key])))
+            lines.extend('    Supporting ID: ' + palette('evidence_id', safe(eid)) for eid in edge.get('evidence_ids', [])
                          if eid not in (edge.get('source_id'), edge.get('target_id')))
-            lines.extend('  Outside returned nodes: ' + palette('evidence_id', safe(eid)) for eid in edge.get('omitted_evidence_ids', []))
+            lines.extend('    Outside returned nodes: ' + palette('evidence_id', safe(eid)) for eid in edge.get('omitted_evidence_ids', []))
     parameters = result['parameters']
     lines += ['', palette('heading', 'Bounds'),
               f"  PID lookback: {parameters['pid_lookback_seconds']} seconds; child window: {parameters['child_window_seconds']} seconds",

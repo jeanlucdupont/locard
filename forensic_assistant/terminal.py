@@ -157,6 +157,31 @@ def clear_screen(stream=None):
     return False
 
 
+def redraw_viewport(lines, footer, stream=None):
+    """Replace a terminal viewport, clearing old rows; never emit controls to a file."""
+    stream = sys.stdout if stream is None else stream
+    if not stream.isatty():
+        return False
+    frame = '\n'.join([*lines, footer])
+    if capable(stream):
+        # One write avoids clearing the whole screen before drawing the new frame.
+        frame = '\x1b[H' + '\x1b[K\n'.join([*lines, footer]) + '\x1b[J'
+    elif not clear_screen(stream):
+        return False
+    stream.write(frame)
+    stream.flush()
+    return True
+
+
+def supports_unicode(text, stream=None):
+    stream = sys.stdout if stream is None else stream
+    try:
+        text.encode(getattr(stream, 'encoding', None) or 'ascii')
+        return True
+    except (UnicodeError, LookupError):
+        return False
+
+
 def clear_windows(stream):
     """Legacy Windows console fallback, preserving attributes and console modes."""
     import ctypes

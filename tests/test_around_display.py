@@ -133,8 +133,8 @@ def test_around_colored_pager(case, monkeypatch):
     monkeypatch.setattr(output, 'keyboard', keyboard)
     assert main(['--db', str(case[0]), 'around', case[1], '--timestamp-slot', 'run:1', '--text', '--page']) == 0
     text = stream.getvalue()
-    assert '\x1b[' in text and '-- More --' in text and restored == [True]
-    assert len(terminal.SGR.sub('', text).split('-- More --')[0].splitlines()) == 4
+    assert '\x1b[' in text and 'Lines 1-4 of' in text and restored == [True]
+    assert len(terminal.SGR.sub('', text).split('Lines 1-4 of')[0].splitlines()) == 4
 
 
 def test_cli_selection_json_raw_page_files(case, tmp_path, capsys, monkeypatch):

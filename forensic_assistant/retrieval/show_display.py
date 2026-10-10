@@ -1,5 +1,5 @@
 """Analyst summaries of existing evidence projections, never new conclusions."""
-from .presentation import safe, safe_path, human_detail, file_create_target, PREFETCH_CAUTIONS
+from .presentation import safe, safe_path, safe_text, human_detail, file_create_target, PREFETCH_CAUTIONS
 from .layout import pagination
 from forensic_assistant.ingest.validation import is_identifier_note
 from .search_display import timestamp
@@ -15,8 +15,8 @@ def render(record, palette=None, *, registry_values=None):
     from forensic_assistant.terminal import Palette, value_role
     palette = palette or Palette()
     lines = []
-    def field(name, value, *, path=False):
-        lines.append(palette('key', name + ': ') + palette(value_role(value), (safe_path if path else safe)(value)))
+    def field(name, value, *, path=False, account=False):
+        lines.append(palette('key', name + ': ') + palette(value_role(value), (safe_path if path else safe_text if account else safe)(value)))
     kind = record['source_type']
     d = record.get('detail') or {}
     ctx = record.get('context', {})
@@ -35,7 +35,7 @@ def render(record, palette=None, *, registry_values=None):
     field('Effective host', ctx.get('hostname') or 'unknown')
     field('Host basis', ctx.get('basis', 'unknown'))
     if ctx.get('username'):
-        field('User', ctx['username'])
+        field('User', ctx['username'], account=True)
     if ctx.get('volume_root'):
         field('Volume root', ctx['volume_root'], path=True)
     field('File', src.get('source_file', record.get('source_file')), path=True)
@@ -92,7 +92,12 @@ def render(record, palette=None, *, registry_values=None):
             'subject_account'
         ):
             if record.get(key) is not None:
-                field(key.replace('_', ' ').capitalize(), record[key], path=key in ('process_name', 'parent_process_name'))
+                field(key.replace('_', ' ').capitalize(), record[key], path=key in ('process_name', 'parent_process_name'),
+                      account=key in ('username', 'target_account', 'subject_account'))
+        if record.get('logon_id') is not None:
+            field('Logon ID', record['logon_id'])
+        if record.get('logon_type') is not None and record.get('artifact_type') not in ('logon', 'failed_logon'):
+            field('Logon type', record['logon_type'])
         if record.get('artifact_type') == 'file_create':
             field('PID', record.get('process_id'))
             field('Process GUID', record.get('process_guid'))
@@ -104,7 +109,7 @@ def render(record, palette=None, *, registry_values=None):
             field('EventRecordID', record.get('record_id'))
             field('SystemTime (recorded)', record.get('timestamp_original'))
             for key, value in fields(record).items():
-                field(key.replace('_', ' ').capitalize(), value, path=key == 'image_path')
+                field(key.replace('_', ' ').capitalize(), value, path=key == 'image_path', account=key == 'account')
             lines += ['', palette('heading', 'Forensic note'), palette('warning', '- ' + NOTE)]
         lines.append(palette('key', 'Observation: ') + palette('string_value', human_detail(record)))
     times = record.get('timestamps', [])

@@ -1,6 +1,7 @@
 """Confirmed analyst-side creation; all forensic ingestion stays in the shared engine."""
 from forensic_assistant.retrieval.presentation import human_error
 from contextlib import closing
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 import os
@@ -121,6 +122,7 @@ class IngestionProgress:
         self.browsers = {str(path): product.capitalize() + ' / ' + profile for path, product, profile in browsers}
         self.palette = palette or Palette()
         self.companions = []
+        self.limitations = Counter()
 
     def __call__(self, file, kind, result):
         from forensic_assistant.artifacts.registry_logs import CLASSIFIER
@@ -128,15 +130,22 @@ class IngestionProgress:
             self.companions.append(str(file))
             return
         label = self.browsers.get(str(file), str(file))
-        role = 'success' if result['status'] == 'complete' and not result['errors'] else (
-            'warning' if result['status'] == 'unsupported' and not result['errors'] else 'error')
-        print(self.palette(role, '  ' + safe(label) + f"   {result['inserted']:,} records"))
-        if result['duplicates'] or result['errors'] or result['status'] != 'complete':
-            print(self.palette(role, f"    {result['status']} | {result['duplicates']:,} duplicates | {result['errors']:,} errors"))
+        status = result['status']
+        role = 'success' if status == 'complete' else (
+            'warning' if status in ('partial', 'unsupported', 'cancelled', 'interrupted') else 'error')
+        print('  ' + safe(label) + '   ' + self.palette(
+            'success' if result['inserted'] else 'secondary_text', f"{result['inserted']:,} records"))
+        if result['duplicates'] or result['errors'] or status != 'complete':
+            print('    ' + self.palette(role, safe(status)) + ' | ' +
+                  self.palette('warning' if result['duplicates'] else 'secondary_text', f"{result['duplicates']:,} duplicates") + ' | ' +
+                  self.palette('error' if result['errors'] else 'secondary_text', f"{result['errors']:,} errors"))
         if result.get('limitation'):
-            print(self.palette('warning', safe(result['limitation'])))
+            self.limitations[result['limitation']] += 1
 
     def finish(self):
+        for limitation, count in self.limitations.items():
+            print(self.palette('warning', 'Limitation: ' + safe(limitation) + f' ({count} result occurrences)'))
+        self.limitations.clear()
         if self.companions:
             print(self.palette('key', 'Skipped companion transaction logs:'))
             for file in self.companions:
@@ -151,21 +160,30 @@ def summarize(target, palette=None):
         counts = v2_cli.dispatch(db, SimpleNamespace(command='status'))[0]['artifact_counts']
         runs = {r[0]: r[1] for r in db.execute('SELECT status,count(*) FROM ingestion_runs GROUP BY status')}
         totals = db.execute('SELECT coalesce(sum(inserted_count),0),coalesce(sum(duplicate_count),0),coalesce(sum(error_count),0) FROM ingestion_runs').fetchone()
-        print(palette('error' if totals[2] else 'success', f'Evidence: {sum(counts.values()):,} records | {totals[2]:,} errors'))
+        evidence_count = sum(counts.values())
+        print('Evidence: ' + palette('success' if evidence_count else 'secondary_text', f'{evidence_count:,} records') + ' | ' +
+              palette('error' if totals[2] else 'secondary_text', f'{totals[2]:,} errors'))
         if totals[1]:
             print(palette('warning', f'Duplicates: {totals[1]:,}'))
         for status, count in runs.items():
             if status != 'complete':
-                print(palette('warning' if status == 'unsupported' else 'error', f'File outcomes: {count:,} {status}'))
+                print(palette('warning' if status in ('partial', 'unsupported', 'cancelled', 'interrupted') else 'error', f'File outcomes: {count:,} {status} (ingestion attempts)'))
         import json
         from forensic_assistant.ingest.validation import is_identifier_note, LABEL
         notes = sum(any(is_identifier_note(note) for note in json.loads(row[0]))
                     for row in db.execute('SELECT normalization_warnings_json FROM events'))
         if notes:
             print(palette('key', 'Validation notes:') + '\n  ' + palette('warning', LABEL + f': {notes} records'))
-        for row in db.execute('SELECT stage,message FROM ingestion_errors ORDER BY id'):
-            print(palette('error', 'Recorded limitation: ' + safe(row['stage']) + ': ' + safe(row['message'])))
-    return sum(counts.values()), runs
+        limitations = db.execute(
+            'SELECT stage,message,count(*) AS occurrences,count(DISTINCT run_id) AS attempts '
+            'FROM ingestion_errors GROUP BY stage,message ORDER BY min(id)').fetchall()
+        if limitations:
+            print(palette('heading', 'Limitations'))
+        for row in limitations:
+            print(palette('warning', '- ' + safe(row['stage']) + ': ' + safe(row['message']) +
+                          f" — {row['occurrences']:,} occurrence" + ('s' if row['occurrences'] != 1 else '') +
+                          f" across {row['attempts']:,} ingestion attempt" + ('s' if row['attempts'] != 1 else '')))
+    return sum(counts.values()), runs, totals[2]
 
 
 _BACK = object()
@@ -260,7 +278,7 @@ def _attempt(shell):
             print('  Browser: ' + safe(file) + ' | ' + product + ' / ' + safe(profile))
         if parents:
             print('Requested directories will be created and retained even if later steps fail.')
-        action = read(('Create empty case' if not found else f'Create case and ingest {len(found)} files') + '? [y/N; B = back]: ').casefold()
+        action = read(('Create empty case' if not found else f'Create case and ingest {len(found)} file' + ('s' if len(found) != 1 else '')) + '? [y/N; B = back]: ').casefold()
         if action == 'b':
             return _BACK
         if action not in ('y', 'yes'):
@@ -311,14 +329,13 @@ def _attempt(shell):
                         results.extend(v2_cli.ingest_sources(db, options, progress))
             finally:
                 progress.finish()
-            stored, runs = summarize(target, palette)
+            stored, runs, error_count = summarize(target, palette)
             if stored:
                 complete = bool(results) and set(runs) == {'complete'} and all(r['status'] == 'complete' for r in results)
                 if not complete:
-                    has_errors = any(r['errors'] or r['status'] not in ('complete', 'unsupported') for r in results)
-                    has_errors = has_errors or any(status not in ('complete', 'unsupported') for status in runs)
+                    has_errors = bool(error_count) or any(status in ('failed', 'changed') for status in runs)
                     outcome = 'errors/limitations' if has_errors else 'limitations'
-                    print(palette('error' if has_errors else 'warning', 'Ingestion completed with ' + outcome + '; committed evidence retained.'))
+                    print(palette('warning', 'Ingestion completed with ' + outcome + '; committed evidence retained.'))
                 shell.activate(target, activity_session=audit_session, announce=False)
                 print(palette('success', 'Case ready: ' + safe(target)))
                 return True

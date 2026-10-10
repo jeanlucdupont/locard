@@ -233,6 +233,12 @@ use red. Prompts reuse the existing prompt style. `color off`, `NO_COLOR`, and
 redirected output suppress these styles. JSON, audit records, and exported files
 receive no presentation escape sequences.
 
+During case creation, filenames are neutral, positive retained-record counts are
+green, partial outcomes are yellow, and actual error counts/failed outcomes are
+red. Repeated stored diagnostics are grouped by exact stage and message in the
+final human summary, with occurrence and distinct ingestion-attempt counts (not
+unique-file counts). Individual diagnostic rows and provenance remain unchanged.
+
 Registry creation progress shows primary hive results first, then groups
 identified unsupported `.LOG1`/`.LOG2` companions under **Skipped companion
 transaction logs**, with one replay limitation. The stored attempts remain
@@ -640,12 +646,16 @@ or an explicit UTC offset; timezone-less input is rejected.
 | Destination | Behavior |
 |---|---|
 | Default | Render to the terminal |
-| `--page` | Internal Python pager: Space advances a page, Enter a line, Q/q quits; Ctrl+C also leaves paging |
+| `--page` | Internal Python pager: Up/k and Down/j/Enter scroll a line; Space/PgDn and b/PgUp scroll a page; Home/g and End/G jump to top/bottom; Q/q/Esc quits (also Ctrl+C) |
 | `--output FILE` | Write UTF-8 output; existing files require interactive confirmation (default No) or `--force` |
 | `--append FILE` | Append UTF-8 output, creating a missing file; separate successive outputs with a newline |
 
-The pager uses terminal dimensions with a fallback and restores console input
-mode when it exits. If stdin or stdout is not a terminal, it prints normally
+The pager navigates buffered, already-rendered rows without rerunning queries.
+It shows a footer such as `Lines 81-120 of 437 | Up Down PgUp PgDn Home End Q`.
+Navigation clamps at either end; End displays the final page, which may be short.
+Each redraw clears stale rows and rechecks terminal dimensions, with a fallback;
+width changes rewrap the buffered text. Console input mode is restored on exit.
+If stdin or stdout is not a terminal, it prints normally
 without waiting for keys. Paging wraps long display lines; it does not change
 stored evidence. Explicit `--json --page` is rejected. `--page`, `--output`, and
 `--append` are mutually exclusive. No external pager or shell is executed.
@@ -887,11 +897,17 @@ rules, rules with displayed matches, candidate evaluations across rules (not
 unique evidence), and candidate truncation. Counts are bounded by evaluation and
 display limits; full rule coverage remains in JSON.
 
-`process-tree --text` presents supported parent/child links as an indented graph,
+`process-tree --text` presents supported parent/child links with Unicode tree
+connectors (ASCII fallback), four-space metadata indentation, and an accented anchor,
 retaining `CONFIRMED` versus `LIKELY` status and reasons. Unresolved or undisplayed
 relationships remain separate with full references; no missing parent or child
 is invented. PID lookback, child window, maximum nodes/depth, and reached limits
 are explicit. Color emphasizes structure rather than maliciousness.
+
+Human EVTX `show` displays the full stored normalized Logon ID whenever present,
+without shortening it or extracting additional identifiers from raw XML. Account
+names retain literal backslashes and readable Unicode; control characters remain
+escaped. Structured JSON continues using standard JSON escaping.
 
 `search --kind logons --ids` displays the normalized target Windows Logon ID
 for successful logons, in hexadecimal for reuse with `session --logon-id`.

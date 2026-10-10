@@ -249,12 +249,12 @@ def test_process_hierarchy_and_bounds_preserve_graph(case, bounds, message):
         db.row_factory = sqlite3.Row
         result = process_tree(db, eid, **bounds)
     before = deepcopy(result)
-    text = display.render_process_tree(result)
-    assert result == before and SGR.sub('', display.render_process_tree(result, Palette(True))) == text
+    text = display.render_process_tree(result, unicode=True)
+    assert result == before and SGR.sub('', display.render_process_tree(result, Palette(True), unicode=True)) == text
     for record in result['nodes']:
         assert 'ID: ' + record['id'] in text
     if not bounds:
-        assert 'parent.exe  PID 10' in text and '  child.exe  PID 20 [anchor]' in text
+        assert 'parent.exe  PID 10' in text and '── child.exe  PID 20 [anchor]' in text
         assert 'Parent relationship: LIKELY' in text
     if message:
         assert message in text
@@ -268,7 +268,7 @@ def test_process_unresolved_cycle_and_omitted_edges():
         first = add(db, 1, 1, sysmon=True, data={'ProcessGuid': a, 'ParentProcessGuid': b, 'ProcessId': '10', 'ParentProcessId': '20'})
         add(db, 2, 1, sysmon=True, data={'ProcessGuid': b, 'ParentProcessGuid': a, 'ProcessId': '20', 'ParentProcessId': '10'})
         result = process_tree(db, first['id'])
-        text = display.render_process_tree(result)
+        text = display.render_process_tree(result, unicode=True)
         assert 'UNRESOLVED' in text and 'Parent relationship:' not in text
         assert 'Contradictory parent records form a cycle' in text
         assert 'does not establish that they do not exist' in text
@@ -285,8 +285,8 @@ def test_confirmed_process_hierarchy_keeps_explicit_status():
             'ParentProcessGuid': guid, 'ProcessGuid': '22222222-2222-2222-2222-222222222222',
             'ProcessId': '20', 'ParentProcessId': '10', 'Image': 'child.exe', 'ParentImage': 'parent.exe'})
         result = process_tree(db, child['id'])
-        text = display.render_process_tree(result)
-        assert '  child.exe  PID 20 [anchor]' in text and 'Parent relationship: CONFIRMED' in text
+        text = display.render_process_tree(result, unicode=True)
+        assert '── child.exe  PID 20 [anchor]' in text and 'Parent relationship: CONFIRMED' in text
         assert text.index(parent['id']) < text.index(child['id'])
         assert 'No parent creation record is invented' in text
         assert {r['id'] for r in result['nodes']} == {parent['id'], child['id']}

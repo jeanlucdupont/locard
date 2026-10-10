@@ -24,6 +24,9 @@ def output_options(parser, *, interactive_text=False):
 
 def configure(commands):
     tree = commands.add_parser("process-tree", help=COMMANDS['process-tree'])
+    tree.missing_selector_guidance = (
+        'process-tree requires either:\n  --evidence <process-creation evidence ID>\n'
+        'or:\n  --process <name> --around <timestamp>\n\nType `help process-tree` for details.')
     selector = tree.add_mutually_exclusive_group(required=True)
     selector.add_argument("--evidence")
     selector.add_argument("--process")
@@ -117,7 +120,8 @@ def dispatch(db, args):
         evidence_id = args.evidence
         if not evidence_id:
             if not args.around:
-                raise ValueError("--process requires --around to bound candidate anchors")
+                raise ValueError("--process requires --around <timestamp> to bound candidate anchors. "
+                                 "Alternatively, use --evidence <process-creation evidence ID>.")
             results = Queries(db).timeline_around(
                 args.around,
                 minutes=5,

@@ -55,7 +55,8 @@ class WindowsKeys:
         key = record.event.key
         if record.kind != 1 or not key.down:
             return None
-        value = {38: 'UP', 40: 'DOWN', 37: 'LEFT', 39: 'RIGHT', 36: 'HOME', 35: 'END', 46: 'DELETE'}.get(key.virtual)
+        value = {38: 'UP', 40: 'DOWN', 37: 'LEFT', 39: 'RIGHT', 36: 'HOME', 35: 'END',
+                 33: 'PAGEUP', 34: 'PAGEDOWN', 46: 'DELETE'}.get(key.virtual)
         value = value or key.char.unicode
         if not value or value == '\x00':
             return None
