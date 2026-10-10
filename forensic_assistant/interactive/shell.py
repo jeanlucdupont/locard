@@ -181,7 +181,6 @@ class Shell:
         if self.audit:
             self.audit.end()
         # Render only after normal return and command cleanup, never on a fatal error.
-        print(get_liner())
         print('\nLocard session ended.')
         if self.active is not None:
             print('Case: ' + safe(self.active))
