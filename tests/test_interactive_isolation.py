@@ -66,6 +66,10 @@ def test_embedding_models_and_overrides_not_retained(tmp_path, monkeypatch):
     b = tmp_path / 'b.db'
     connect(a).close()
     connect(b).close()
+    from forensic_assistant.semantic import runtime
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'appdata'))
+    monkeypatch.setattr('forensic_assistant.semantic.cli.status',
+                        lambda *a: {'state': 'ready', 'model_state': 'ready'})
     refs = []
     paths = []
     class Model:
@@ -76,10 +80,10 @@ def test_embedding_models_and_overrides_not_retained(tmp_path, monkeypatch):
     monkeypatch.setattr('forensic_assistant.semantic.index.search', lambda *a, **kw: {'synthetic': True})
     shell = Shell(
         State(None),
-        Input(str(a), 'semantic search "a" --model-path custom', f'case "{b}"', 'semantic search "b"', 'exit')
+        Input(str(a), 'semantic search "a" --model-path custom --json', f'case "{b}"', 'semantic search "b" --json', 'exit')
     )
     assert shell.run() == 0
-    assert paths == ['custom', str(b.parent / 'semantic-models' / 'bge')]
+    assert paths == [str(Path('custom').absolute()), str(runtime.model_path())]
     assert all(ref() is None for ref in refs)
 
 

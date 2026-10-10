@@ -1113,3 +1113,82 @@ file existence; missing history is not proof of absence. Matching basenames or
 paths do not establish binary identity or causality. No browser URLs are fetched,
 resolved or sent to a model. Firefox, cookies, credentials, cache and other browser
 stores are outside this feature.
+
+
+## Semantic search: a reusable model and a separate index for each case
+
+In the interactive shell, start with:
+
+```text
+semantic search "core updater executable"
+semantic status
+semantic rebuild
+```
+
+Semantic search uses a small local embedding model, separate from the analysis
+LLM. When needed, interactive search offers to download the pinned embedding
+model and build (or rebuild) this case's index, then continues the original query.
+Each action requires confirmation. Declining cancels the operation. A current index
+is reused across sessions. `--json` requests full structured metadata and does not
+prompt; normal interactive output is concise text. Direct CLI defaults to JSON;
+use `--text` for human output.
+
+The default model is BAAI/bge-small-en-v1.5, stored once under
+`%LOCALAPPDATA%\Locard\models\bge-small-en-v1.5`. Successful `semantic setup`
+remembers the directory in `%LOCALAPPDATA%\Locard\semantic-state.json`.
+`--model-path` overrides it for one build/search/status command. Explicit setup
+with a custom directory updates the remembered model only after verification.
+The case-specific index remains `<database-path>.semantic-index`.
+
+Optional runtime packages remain optional: neither the base installer nor a running
+Locard process installs Torch/FAISS automatically. Native libraries may already be
+loaded, and an interrupted in-place installation cannot reliably be rolled back.
+`semantic status` checks actual importability and the project's pinned versions in
+this process, reports the actual Python executable, and provides its exact pinned
+pip command from installed Locard package metadata. Run that command, then restart
+Locard. Models are not bundled with the source or package. Setup explicitly downloads
+pinned files from Hugging Face; it receives no evidence or query text. Once set up,
+building and searching are offline.
+
+Advanced/scripted lifecycle (no prompts):
+
+```powershell
+locard semantic setup --download
+locard --db case.db semantic build --text
+locard --db case.db semantic search "core updater executable" --text
+locard --db case.db semantic status --json
+```
+
+Advanced controls include `semantic setup --model-path <directory>` (with
+`--download` in scripts), `semantic build`, `semantic rebuild`, `--model-path`,
+`--index`, and `--max-vectors`. Setup's legacy positional directory remains optional.
+`--max-vectors N` is a hard safety cap, **not sampling**: exceeding it aborts without
+publishing an index and reports the known lower bound. Use explicit build/rebuild
+with a higher cap when necessary. Incomplete model directories are preserved and
+reported as malformed; choose a new destination rather than overwriting them.
+
+Status distinguishes missing dependencies, missing/malformed models, missing,
+current, stale and malformed indexes. Case content fingerprints, model/runtime
+identity, and mapping/vector hashes remain mandatory. Representation version 2
+uses compact labeled text and deterministic bounded chunks measured by the actual
+tokenizer, including special tokens. Version 1 indexes require rebuilding.
+Build manifests separately report `over_limit_records`, `chunked_records`,
+`chunks_created`, and `truncated_records`. The existing field/collection bounds,
+65,536-character representation bound, and 16-chunk-per-record bound still apply;
+clipping at any bound is counted. Unsupported evidence representations or embedding
+failures abort the entire build rather than silently skipping evidence. Current
+representation coverage is EVTX, MFT, Prefetch and Registry; a case containing an
+unsupported source such as browser evidence fails clearly rather than claiming
+complete semantic coverage.
+
+Human builds report model, CPU device, progress, vectors, elapsed time and final
+counts. Progress is throttled and appears only on a terminal in human mode.
+Cancellation preserves the previous published index; only the current invocation's
+unpublished staging generation is cleaned up, when its path can be safely verified.
+Prior published generations remain intact. JSON retains full model/index metadata
+and contains no ANSI styling. Search displays full evidence IDs, scores and concise
+excerpts; scores are similarity, not probability or confidence of maliciousness.
+
+Semantic retrieval locates evidence; it does not create evidence. Its representations,
+vectors, chunks and scores are derived sensitive retrieval data. Original evidence,
+IDs and forensic conclusions are unchanged. See [semantic architecture](docs/v3.md).

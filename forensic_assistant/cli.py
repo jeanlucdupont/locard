@@ -132,7 +132,7 @@ def build_parser(*, interactive=False):
     )
     v2_cli.configure(commands)
     from forensic_assistant.semantic import cli as semantic_cli
-    semantic_cli.configure(commands, ask_parser)
+    semantic_cli.configure(commands, ask_parser, interactive=interactive)
     from forensic_assistant.investigation_ai import cli as investigation_cli
     investigation_cli.configure(commands)
     from forensic_assistant.reporting import cli as report_cli
@@ -231,8 +231,12 @@ def _dispatch(args, output, *, existing_only=False):
             emit(investigation_cli.dispatch(args))
             return 0
         if args.command == 'semantic' and args.semantic_command == 'setup':
-            from forensic_assistant.semantic.model import setup
-            emit(setup(args.destination, args.model))
+            result = semantic_cli.setup(args)
+            if args.json:
+                emit(result)
+            else:
+                from forensic_assistant.semantic.presentation import render
+                output.write(render(result, args, output.palette))
             return 0
         if args.command == 'semantic':
             from pathlib import Path
@@ -259,7 +263,13 @@ def _dispatch(args, output, *, existing_only=False):
                     emit(result)
                 return 0
             if args.command == 'semantic':
-                emit(semantic_cli.dispatch(db, args))
+                result = semantic_cli.dispatch(db, args)
+                activity.result_count(result)
+                if args.json:
+                    emit(result)
+                else:
+                    from forensic_assistant.semantic.presentation import render
+                    output.write(render(result, args, output.palette))
                 return 0
             presentation = {}
             v2_result = v2_cli.dispatch(db, args, presentation=presentation)

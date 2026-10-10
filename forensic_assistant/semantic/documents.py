@@ -1,9 +1,8 @@
 """Versioned bounded projections; no parser or embedding imports."""
 import hashlib
-import json
 from contextlib import contextmanager
 
-VERSION = '1'
+VERSION = '2'
 MAX_FIELD = 16384
 MAX_CHUNKS = 16
 MAX_CHARS = 65536
@@ -192,16 +191,40 @@ def representation(db, eid):
     # Identity/provenance remain in the mapping and original registry; long hashes
     # and acquisition paths are not useful language-model retrieval features.
     projection = {k: v for k, v in record.items() if k not in ('evidence_id', 'file_sha256', 'source_file')}
-    text = json.dumps(projection, ensure_ascii=True, sort_keys=True, separators=(',', ':'))
+    text = compact_text(projection)
     clipped |= len(text) > MAX_CHARS
     return record, text[:MAX_CHARS], bool(clipped)
 
 
-def chunks(db, eid, tokenizer):
+def compact_text(value):
+    """Stable labeled text, without JSON syntax or repeated container names."""
+    lines = []
+    def walk(item, label=''):
+        if isinstance(item, dict):
+            preferred = ('names', 'object_observations', 'reported_event', 'execution_observations',
+                         'containing_key', 'key_snapshot', 'reconstructed_path', 'original',
+                         'process_name', 'executable', 'key_path', 'filename')
+            for key in sorted(item, key=lambda key: (preferred.index(key) if key in preferred else len(preferred), key)):
+                if key == 'warnings_json' and item[key] in ('[]', '', None):
+                    continue
+                walk(item[key], key)
+        elif isinstance(item, list):
+            for child in item:
+                if isinstance(child, dict):
+                    lines.append(label + ':')
+                walk(child, label)
+        elif item is not None and item != '':
+            lines.append(label + ': ' + str(item))
+    walk(value)
+    return '\n'.join(lines)
+
+
+def chunks(db, eid, tokenizer, *, accounting=None):
     record, text, clipped = representation(db, eid)
     header = 'Artifact: ' + record['source_type'] + '; subtype: ' + record['artifact_type'] + '; ' + record['semantics'] + '\n'
     # Character windows preserve exact substrings; token limits are measured with
     # the pinned tokenizer. No decode/re-encode reconstruction of forensic text.
+    over_limit = tokenizer.count(header + text) > tokenizer.document_limit
     position = 0
     output = []
     while position < len(text) and len(output) < MAX_CHUNKS:
@@ -221,4 +244,7 @@ def chunks(db, eid, tokenizer):
         })
         position = end
     clipped |= position < len(text)
+    if accounting is not None:
+        accounting.update(over_limit_records=int(over_limit), chunked_records=int(len(output) > 1),
+                          chunks_created=len(output), truncated_records=int(clipped))
     return output, bool(clipped)

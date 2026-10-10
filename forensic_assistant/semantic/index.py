@@ -36,7 +36,7 @@ def _generation(root):
     return path
 
 
-def _manifest(root):
+def _manifest(root, *, compatible=True):
     path = _generation(root)
     if (path / 'manifest.json').stat().st_size > 65536:
         raise ValueError('Oversized index manifest')
@@ -55,9 +55,11 @@ def _manifest(root):
     }
     if not required <= m.keys() or not isinstance(m['model'], dict) or not isinstance(m['hashes'], dict):
         raise ValueError('Incomplete semantic manifest')
+    if not isinstance(m['model'].get('packages', {}), dict):
+        raise ValueError('Malformed semantic model package identity')
     if type(m['eligible']) is not int or not 0 <= m['eligible'] <= MAX_VECTORS:
         raise ValueError('Invalid evidence count')
-    if m.get('format') != FORMAT or m.get('representation_version') != VERSION:
+    if m.get('format') != FORMAT or (compatible and m.get('representation_version') != VERSION):
         raise ValueError('Incompatible semantic index')
     count = m['vectors']
     if type(count) is not int or not 0 <= count <= MAX_VECTORS or m['dimension'] != 384:
@@ -73,7 +75,8 @@ def _manifest(root):
 def build(db, root, model, *, rebuild=False, max_vectors=100000, progress=None):
     if not 1 <= max_vectors <= MAX_VECTORS:
         raise ValueError('Vector workload limit must be 1..1000000')
-    root = Path(root)
+    from forensic_assistant.reporting.transcripts import safe_path
+    root = safe_path(root)
     if (root / 'CURRENT').exists() and not rebuild:
         raise ValueError('Index exists; use semantic rebuild')
     root.mkdir(parents=True, exist_ok=True)
@@ -83,14 +86,26 @@ def build(db, root, model, *, rebuild=False, max_vectors=100000, progress=None):
     started = time.perf_counter()
     count = eligible = indexed = truncated = 0
     encoded = 0
+    totals = dict(over_limit_records=0, chunked_records=0, chunks_created=0)
+    total = 0
+    pointer = root / (generation + '.pending')
+    def notify():
+        if progress:
+            progress(dict(records=indexed, total=total, vectors=count, elapsed=time.perf_counter() - started,
+                          model=model.identity.get('model_id'), device='CPU'))
+    def cap(required):
+        raise ValueError(f'Semantic build safety cap exceeded: requires at least {required} vectors; configured limit {max_vectors}. No index was published. Increase --max-vectors.')
     cache = OrderedDict()
-    mapping = sqlite3.connect(stage / 'mapping.sqlite')
+    mapping = None
     try:
+        mapping = sqlite3.connect(stage / 'mapping.sqlite')
         mapping.execute('CREATE TABLE vectors (vector_id INTEGER PRIMARY KEY,evidence_id TEXT NOT NULL,source_type TEXT NOT NULL,artifact_type TEXT NOT NULL,chunk_id TEXT NOT NULL,digest TEXT NOT NULL,text TEXT NOT NULL)')
         mapping.execute('CREATE INDEX evidence ON vectors(evidence_id)')
         with snapshot(db), (stage / 'vectors.f32').open('xb') as stream:
-            if db.execute('SELECT count(*) FROM evidence_records').fetchone()[0] > max_vectors:
-                raise ValueError('Semantic workload cap exceeded')
+            total = db.execute('SELECT count(*) FROM evidence_records').fetchone()[0]
+            notify()
+            if total > max_vectors:
+                cap(total)
             digest = fingerprint(db)
             pending = []
             def flush(documents):
@@ -126,14 +141,16 @@ def build(db, root, model, *, rebuild=False, max_vectors=100000, progress=None):
                     count += 1
                 while len(cache) > 1024:
                     cache.popitem(last=False)
-                if progress and count % 1000 == 0:
-                    progress(count)
+                notify()
             for (eid,) in db.execute('SELECT evidence_id FROM evidence_records ORDER BY evidence_id'):
                 eligible += 1
-                documents, cut = chunks(db, eid, model)
+                accounting = {}
+                documents, cut = chunks(db, eid, model, accounting=accounting)
+                for key in totals:
+                    totals[key] += accounting[key]
                 truncated += int(cut)
                 if count + len(pending) + len(documents) > max_vectors:
-                    raise ValueError('Semantic workload cap exceeded; previous generation preserved. Increase explicit --max-vectors or narrow the case.')
+                    cap(count + len(pending) + len(documents))
                 pending.extend(documents)
                 while len(pending) >= 16:
                     flush(pending[:16])
@@ -155,6 +172,7 @@ def build(db, root, model, *, rebuild=False, max_vectors=100000, progress=None):
             'indexed': indexed,
             'skipped': 0,
             'truncated_records': truncated,
+            **totals,
             'embedding_computations': encoded,
             'embedding_cache_hits': count - encoded,
             'database_fingerprint': digest,
@@ -172,6 +190,7 @@ def build(db, root, model, *, rebuild=False, max_vectors=100000, progress=None):
             f.write(generation)
             f.flush()
             os.fsync(f.fileno())
+        notify()
         os.replace(pointer, root / 'CURRENT')
         return {
             **m,
@@ -179,15 +198,29 @@ def build(db, root, model, *, rebuild=False, max_vectors=100000, progress=None):
             'notice': 'Derived sensitive data; semantic similarity is not forensic evidence.'
         }
     finally:
-        mapping.close()
+        if mapping is not None:
+            mapping.close()
+        # Remove only this invocation's unpublished UUID generation. Check the
+        # pointer even if Ctrl+C arrived immediately after atomic publication.
+        try:
+            published = (root / 'CURRENT').exists() and (root / 'CURRENT').read_text(encoding='ascii') == generation
+            if not published:
+                import shutil
+                safe_stage = safe_path(stage)
+                if safe_stage.parent == root and safe_stage.name == generation:
+                    shutil.rmtree(safe_stage)
+                safe_path(pointer).unlink(missing_ok=True)
+        except (OSError, ValueError, UnicodeError):
+            # Uncertain/redirection paths are preserved, never recursively removed.
+            pass
 
 
 def status(db, root):
     try:
-        _, m = _manifest(root)
+        _, m = _manifest(root, compatible=False)
         with snapshot(db):
             current_count = db.execute('SELECT count(*) FROM evidence_records').fetchone()[0]
-            current = current_count == m['eligible'] and fingerprint(db) == m['database_fingerprint']
+            current = m['representation_version'] == VERSION and current_count == m['eligible'] and fingerprint(db) == m['database_fingerprint']
         return {**m, 'current_evidence_records': current_count, 'state': 'current' if current else 'stale'}
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
         return {'state': 'unavailable', 'reason': str(exc)}

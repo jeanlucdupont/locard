@@ -36,7 +36,8 @@ def sha(path):
 def setup(destination, model='bge'):
     """The only network-enabled semantic operation. Never receives case text."""
     import urllib.request
-    root = Path(destination)
+    from forensic_assistant.reporting.transcripts import safe_path
+    root = safe_path(destination)
     if root.exists():
         raise ValueError('Model destination already exists; choose an empty destination')
     model_id, revision = MODELS[model]
@@ -71,39 +72,47 @@ def setup(destination, model='bge'):
     return manifest
 
 
+def inspect_model(path):
+    """Verify pinned local files without importing or loading model weights."""
+    from forensic_assistant.reporting.transcripts import safe_path
+    root = safe_path(path)
+    try:
+        manifest_path = safe_path(root / 'locard-model.json')
+        if manifest_path.stat().st_size > 32768:
+            raise ValueError('Oversized model manifest')
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        if (manifest['model_id'], manifest['revision']) not in MODELS.values():
+            raise ValueError('Unapproved model revision')
+        for name, digest in manifest['files'].items():
+            if name not in FILES or sha(safe_path(root / name)) != digest:
+                raise ValueError('Model file integrity mismatch')
+        if not {
+            'config.json',
+            'modules.json',
+            'tokenizer.json',
+            'model.safetensors',
+            '1_Pooling/config.json'
+        } <= manifest['files'].keys():
+            raise ValueError('Incomplete model')
+        modules = json.loads((root / 'modules.json').read_text())
+        expected = [
+            ('', 'sentence_transformers.models.Transformer'),
+            ('1_Pooling', 'sentence_transformers.models.Pooling')
+        ]
+        # Some reviewed snapshots contain a parameter-free Normalize module.
+        actual = [(m['path'], m['type']) for m in modules]
+        if actual not in (expected, expected + [('2_Normalize', 'sentence_transformers.models.Normalize')]):
+            raise ValueError('Unapproved model module configuration')
+    except (OSError, KeyError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+        raise ValueError('Local model unavailable or malformed; run explicit semantic setup') from exc
+    return manifest
+
+
 class LocalModel:
     dimension = 384
     def __init__(self, path):
         root = Path(path)
-        try:
-            manifest_path = root / 'locard-model.json'
-            if manifest_path.stat().st_size > 32768:
-                raise ValueError('Oversized model manifest')
-            self.manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-            if (self.manifest['model_id'], self.manifest['revision']) not in MODELS.values():
-                raise ValueError('Unapproved model revision')
-            for name, digest in self.manifest['files'].items():
-                if name not in FILES or sha(root / name) != digest:
-                    raise ValueError('Model file integrity mismatch')
-            if not {
-                'config.json',
-                'modules.json',
-                'tokenizer.json',
-                'model.safetensors',
-                '1_Pooling/config.json'
-            } <= self.manifest['files'].keys():
-                raise ValueError('Incomplete model')
-            modules = json.loads((root / 'modules.json').read_text())
-            expected = [
-                ('', 'sentence_transformers.models.Transformer'),
-                ('1_Pooling', 'sentence_transformers.models.Pooling')
-            ]
-            # Some reviewed snapshots contain a parameter-free Normalize module.
-            actual = [(m['path'], m['type']) for m in modules]
-            if actual not in (expected, expected + [('2_Normalize', 'sentence_transformers.models.Normalize')]):
-                raise ValueError('Unapproved model module configuration')
-        except (OSError, KeyError, TypeError, AttributeError, json.JSONDecodeError) as exc:
-            raise ValueError('Local model unavailable or malformed; run explicit semantic setup') from exc
+        self.manifest = inspect_model(root)
         os.environ['HF_HUB_OFFLINE'] = '1'
         os.environ['TRANSFORMERS_OFFLINE'] = '1'
         os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
@@ -140,7 +149,7 @@ class LocalModel:
         self.prefix = 'Represent this sentence for searching relevant passages: ' if self.manifest['model_id'].startswith('BAAI/') else ''
 
     def count(self, text):
-        return len(self.model.tokenizer.encode(text, add_special_tokens=True, truncation=False))
+        return len(self.model.tokenizer.encode(text, add_special_tokens=True, truncation=False, verbose=False))
 
     def encode(self, texts, query=False):
         if len(texts) > 16 or any(len(t) > 8192 for t in texts):

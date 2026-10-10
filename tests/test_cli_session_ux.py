@@ -34,7 +34,7 @@ def test_prompt_and_normal_exit(tmp_path, capsys, colors, name, ending, color):
     assert reader.prompts[-1] == terminal.Palette(color)('prompt', '[' + name + ']> ')
     text = terminal.SGR.sub('', capsys.readouterr().out)
     assert text.count('Locard session ended.') == 1
-    assert text.endswith(terminal.SGR.sub('', get_liner()) + '\n\nLocard session ended.\nCase: '
+    assert text.endswith('\nLocard session ended.\nCase: '
                          + str(path) + '\n' + terminal.SGR.sub('', get_liner()) + '\n')
     assert 'Case closed' not in text
     assert path.read_bytes() == before
@@ -46,7 +46,7 @@ def test_exit_before_case_selection(capsys, ending):
     assert Shell(State(None), reader).run() == 0
     text = capsys.readouterr().out
     assert text.count('Locard session ended.') == 1
-    assert text.endswith(get_liner() + '\n\nLocard session ended.\n' + get_liner() + '\n')
+    assert text.endswith('\nLocard session ended.\n' + get_liner() + '\n')
     assert 'Case:' not in text
 
 
