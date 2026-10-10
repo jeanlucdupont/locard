@@ -2,11 +2,26 @@
 import sys
 import time
 
-from forensic_assistant.retrieval.presentation import safe
+from forensic_assistant.retrieval.presentation import safe_text as safe
 
 NOTES = ('Semantic similarity is derived retrieval metadata, not forensic evidence.',
          'Semantic retrieval locates evidence; it does not create evidence.',
          'Similarity score is not confidence of maliciousness.')
+
+# Human display heuristic only, studied with the pinned BGE/representation 2.
+# Not a relevance classifier; never used by JSON, ASK, or evidence selection.
+BGE_DISPLAY_CUTOFF = 0.5
+
+
+def display_hits(result, show_weak=False):
+    from .model import MODELS
+    identity = result.get('model', {})
+    applies = ((identity.get('model_id'), identity.get('revision')) == MODELS['bge']
+               and result.get('representation_version') == '2')
+    hits = result['results']
+    if show_weak or not applies:
+        return hits, None
+    return [hit for hit in hits if hit['semantic_similarity'] >= BGE_DISPLAY_CUTOFF], BGE_DISPLAY_CUTOFF
 
 
 class Progress:
@@ -82,7 +97,15 @@ def render(result, args, palette):
         line('Index state', 'Ready')
     else:
         line('Semantic search', args.question)
-        for position, hit in enumerate(result['results'], 1):
+        hits, cutoff = display_hits(result, getattr(args, 'show_weak', False))
+        lines.append('Nearest-neighbor candidates; usefulness is not established by similarity.')
+        if cutoff is not None and len(hits) < len(result['results']):
+            if not hits:
+                lines.append('No semantic candidates meet the display cutoff.')
+            line('Display cutoff', f'{cutoff:.3f} (not proof of irrelevance)')
+            line('Best similarity', f"{max(h['semantic_similarity'] for h in result['results']):.3f}")
+            lines.append('Use --show-weak to display omitted candidates; JSON retains all results.')
+        for position, hit in enumerate(hits, 1):
             excerpt = hit['excerpt'].splitlines()
             keys = ('reconstructed_path:', 'original:', 'process_name:', 'executable:', 'key_path:', 'filename:')
             subject = next((row.partition(': ')[2] for key in keys for row in excerpt if row.startswith(key)), hit['artifact_type'])
@@ -93,7 +116,7 @@ def render(result, args, palette):
                       and not row.startswith(('Artifact:', 'semantics:', 'source_type:', 'artifact_type:'))]
             for row in useful[:3]:
                 lines.append('   ' + safe(row[:240]))
-        lines += ['', f"Showing {len(result['results'])} semantic results"]
+        lines += ['', f"Showing {len(hits)} semantic results"]
         line('Candidate vectors', result['candidate_vectors'])
-    lines += ['', palette('heading', 'Forensic notes'), *('- ' + note for note in NOTES)]
+    lines += ['', palette('forensic_note', 'Forensic notes'), *(palette('forensic_note', '- ' + note) for note in NOTES)]
     return '\n'.join(lines)

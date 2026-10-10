@@ -18,7 +18,8 @@ STYLES = {
     'warning': '33',
     'error': '31',
     'success': '32',
-    'info_bar': '3;30;107'
+    'info_bar': '3;30;107',
+    'forensic_note': '33'
 }
 EVIDENCE_PREFIXES = ('EVTX:', 'PREFETCH:', 'MFT:', 'REGISTRY:')
 
@@ -58,7 +59,12 @@ class Palette:
         self.enabled = enabled
 
     def __call__(self, role, text):
-        return '\x1b[' + STYLES[role] + 'm' + text + RESET if self.enabled and text else text
+        style = STYLES[role]
+        if role == 'forensic_note' and (os.environ.get('WT_SESSION')
+                or '256color' in os.environ.get('TERM', '')
+                or os.environ.get('COLORTERM') in ('truecolor', '24bit')):
+            style = '38;5;136'
+        return '\x1b[' + style + 'm' + text + RESET if self.enabled and text else text
 
 
 def value_role(value):

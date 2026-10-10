@@ -70,9 +70,9 @@ def render(record, palette=None):
         field('Snapshot SHA-256', item['snapshot_sha256'])
     if len(occurrences) > 5:
         lines.append('Additional run occurrences available in show --json.')
-    lines += ['', palette('heading', 'Forensic notes')]
+    lines += ['', palette('forensic_note', 'Forensic notes')]
     for warning in record['warnings']:
-        lines.append(palette('warning', '- ' + safe(warning)))
+        lines.append(palette(note_role(warning), '- ' + safe(warning)))
     return '\n'.join(lines)
 
 
@@ -84,6 +84,10 @@ SHARED_NOTES = (
     'Browser-recorded navigation does not prove that a user read or interacted with the page.',
     'A download record does not prove execution or that the file still exists.',
 )
+
+
+def note_role(note):
+    return 'forensic_note' if note in SHARED_NOTES and note != SHARED_NOTES[1] else 'warning'
 
 
 def search_group(group, palette, ids, width):
@@ -121,8 +125,8 @@ def shared_notes(records, palette):
                   for warning in record.get('warnings', []) if warning in SHARED_NOTES}
     if not applicable:
         return []
-    lines = ['', palette('heading', 'Forensic notes')]
+    lines = ['', palette('forensic_note', 'Forensic notes')]
     for note in SHARED_NOTES:
         if note in applicable:
-            lines.append(palette('warning', '- ' + note))
+            lines.append(palette(note_role(note), '- ' + note))
     return lines

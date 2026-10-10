@@ -34,7 +34,8 @@ def configure(commands, ask, *, interactive=False):
                            help='Safety limit: abort without publishing if the build exceeds N vectors; not sampling', metavar='N')
         if name == 'search':
             p.add_argument('question')
-            p.add_argument('--limit', type=int, default=20)
+            p.add_argument('--limit', type=int, default=None)
+            p.add_argument('--show-weak', action='store_true', help='Show candidates below the human display cutoff; JSON always retains all results')
             for field in ('artifact', 'start', 'end', 'hostname', 'user', 'path'):
                 p.add_argument('--' + field)
 
@@ -44,13 +45,14 @@ def can_prompt(args):
             and not getattr(args, 'output_file', None) and not getattr(args, 'append_file', None))
 
 
-def approve(args, message):
+def approve(args, message, prompt='Continue? [Y/n]: '):
     from forensic_assistant.activity import Cancelled
-    from forensic_assistant.retrieval.presentation import safe
+    from forensic_assistant.retrieval.presentation import safe_text
     if not can_prompt(args):
         raise ValueError(message)
     try:
-        answer = args._confirm(safe(message) + '\nContinue? [Y/n]: ').strip().casefold()
+        print(safe_text(message))
+        answer = args._confirm(prompt).strip().casefold()
     except (EOFError, KeyboardInterrupt):
         raise Cancelled('Semantic operation cancelled.') from None
     if answer not in ('', 'y', 'yes'):
@@ -115,14 +117,28 @@ def status(db, args):
 
 def dispatch(db, args):
     from . import index
-    from .model import LocalModel
-    from .presentation import Progress
     if args.semantic_command == 'search' and (not 1 <= args.limit <= 100 or not args.question.strip()
                                                or len(args.question.encode('utf-8')) > 1000):
         raise ValueError('Invalid semantic search bounds')
-    result = status(db, args)
     if args.semantic_command == 'status':
-        return result
+        return status(db, args)
+    root, model, built = prepare(db, args)
+    if args.semantic_command != 'search':
+        return built
+    filters = {name: getattr(args, name) for name in ('artifact', 'start', 'end', 'hostname', 'path') if getattr(args, name)}
+    if args.hostname:
+        filters['strict_host'] = True
+    if args.user:
+        filters['username'] = args.user
+    return index.search(db, root, model, args.question, limit=args.limit, **filters)
+
+
+def prepare(db, args):
+    """Resolve/approve the shared runtime before any retrieval snapshot is held."""
+    from . import index
+    from .model import LocalModel
+    from .presentation import Progress
+    result = status(db, args)
     if result['state'] == 'dependencies_missing':
         raise ValueError('Semantic runtime dependencies are unavailable in this Locard environment.\nPython: '
                          + result['runtime']['python'] + '\nInstall with:\n' + result['next_step']
@@ -138,18 +154,13 @@ def dispatch(db, args):
     operation = args.semantic_command
     if operation == 'search' and result['state'] != 'ready':
         action = 'build' if result['state'] == 'index_missing' else 'rebuild'
-        approve(args, 'Semantic index ' + result['state'].removeprefix('index_')
-                + '. Run semantic ' + action + ' for this case before searching.')
+        state = result['state'].removeprefix('index_')
+        approve(args, f'Semantic index is {state} for this case. Run semantic {action} before searching.',
+                prompt=action.capitalize() + ' now? [Y/n]: ')
         operation = action
     model = LocalModel(runtime.model_path(args.model_path))
+    built = None
     if operation in ('build', 'rebuild'):
         built = index.build(db, root, model, rebuild=operation == 'rebuild',
                             max_vectors=getattr(args, 'max_vectors', 100000), progress=Progress(args))
-        if args.semantic_command != 'search':
-            return built
-    filters = {name: getattr(args, name) for name in ('artifact', 'start', 'end', 'hostname', 'path') if getattr(args, name)}
-    if args.hostname:
-        filters['strict_host'] = True
-    if args.user:
-        filters['username'] = args.user
-    return index.search(db, root, model, args.question, limit=args.limit, **filters)
+    return root, model, built

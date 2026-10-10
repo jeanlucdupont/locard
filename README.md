@@ -1192,3 +1192,53 @@ excerpts; scores are similarity, not probability or confidence of maliciousness.
 Semantic retrieval locates evidence; it does not create evidence. Its representations,
 vectors, chunks and scores are derived sensitive retrieval data. Original evidence,
 IDs and forensic conclusions are unchanged. See [semantic architecture](docs/v3.md).
+
+### ASK and semantic presentation
+
+`ask "question"` uses deterministic retrieval first and the same reusable model
+configuration and case index as `semantic search`. Precise supported queries do
+not need embeddings. When semantic retrieval is needed, the interactive human
+workflow can offer the same approved model setup and index build/rebuild, then
+resume the question. Scripts and `--json` never prompt. Missing optional runtime
+dependencies require manual installation; no package installation is automatic.
+If semantic retrieval is unavailable, a recognized deterministic query remains
+usable with a visible limitation, including an empty/insufficient-evidence result.
+A conceptual question with no deterministic
+selection instead reports the actionable semantic failure.
+
+Interactive ASK defaults to human text; direct CLI defaults to JSON. Both accept
+`--text` and `--json`. `ask "question" --dry-run` shows the plan and bounded evidence
+bundle without contacting the analysis LLM (local embedding retrieval may still
+run). Explicit `--embedding-model` and `--semantic-index` overrides remain available
+without changing the saved model preference.
+
+Human ASK separates selected evidence, deterministic relationships, detections,
+unresolved relationships and model analysis. Full evidence IDs remain visible.
+Limitations disclose omitted records, fields, relationships and bounded retrieval.
+Use `show <ID>` for the full normalized record; EVTX raw XML is available through
+`show <ID> --raw`. Other artifacts have their own parsed context, not event XML.
+MFT presence/access timestamps do not prove execution. Model confidence is retained
+in JSON as model assessment metadata only; it is not shown as forensic certainty.
+Citation validation checks references, not the factual correctness of model prose.
+
+Semantic search defaults to 10 results in interactive human mode and 20 in direct
+CLI or JSON mode. `--limit` overrides either default. Human Windows paths preserve
+literal separators and Unicode while escaping terminal controls; JSON escaping is
+unchanged. Confirmation explanations print once before a single-line input prompt.
+Informational forensic notes use muted amber on extended-color terminals, dark
+yellow otherwise, and plain text with color disabled. Actual warnings retain their
+warning style.
+
+For the pinned BGE model and representation 2 only, human semantic search hides
+scores below **0.500** by default. `--show-weak` displays all returned candidates;
+JSON and ASK selection are never filtered by this display rule. The centralized
+cutoff is a presentation heuristic, **not a relevance classifier or proof of
+irrelevance**. Nearest neighbors can be unrelated even above the cutoff.
+
+An offline synthetic study compared file-only and mixed file/process cases:
+top scores for updater/backup queries were 0.673/0.704, photograph 0.594,
+`abracadabra` 0.451–0.470, and `banana spaceship orchestra` 0.424.
+Another nonsense query scored 0.502–0.517, demonstrating overlap. The 0.500
+display cutoff suppresses some weak neighbors but cannot identify every useless
+query. It is not calibrated across real cases, languages or other models; other
+model/representation combinations retain all results with the same caution.

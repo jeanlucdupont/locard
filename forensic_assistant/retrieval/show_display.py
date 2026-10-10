@@ -110,7 +110,7 @@ def render(record, palette=None, *, registry_values=None):
             field('SystemTime (recorded)', record.get('timestamp_original'))
             for key, value in fields(record).items():
                 field(key.replace('_', ' ').capitalize(), value, path=key == 'image_path', account=key == 'account')
-            lines += ['', palette('heading', 'Forensic note'), palette('warning', '- ' + NOTE)]
+            lines += ['', palette('forensic_note', 'Forensic note'), palette('forensic_note', '- ' + NOTE)]
         lines.append(palette('key', 'Observation: ') + palette('string_value', human_detail(record)))
     times = record.get('timestamps', [])
     populated = [t for t in times if t.get('timestamp_utc')]
@@ -186,10 +186,10 @@ def render(record, palette=None, *, registry_values=None):
         standard = PREFETCH_CAUTIONS
         directory_warning = 'Referenced files are not all executed images; directory tables are not exposed by this binding' in warnings
         warnings = [w for w in warnings if w not in standard]
-        lines += ['', palette('heading', 'Forensic notes')]
+        lines += ['', palette('forensic_note', 'Forensic notes')]
         from .artifact_notes import PREFETCH, PREFETCH_PARSER
         for note in PREFETCH:
-            lines.append(palette('warning', '- ' + note))
+            lines.append(palette('forensic_note', '- ' + note))
         if directory_warning:
             lines += ['', palette('heading', 'Parser limitation'), palette(
                 'warning', '- ' + PREFETCH_PARSER)]

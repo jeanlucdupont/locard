@@ -33,6 +33,9 @@ class LocardParser(argparse.ArgumentParser):
 
     def parse_args(self, args=None, namespace=None):
         parsed = super().parse_args(args, namespace)
+        if (getattr(parsed, 'command', None) == 'semantic'
+                and getattr(parsed, 'semantic_command', None) == 'search' and parsed.limit is None):
+            parsed.limit = 10 if isinstance(self, InteractiveParser) and not parsed.json else 20
         if getattr(parsed, '_interactive_text', False):
             # Resolve presentation after parsing; never insert synthetic argv.
             # Raw diagnostic output keeps its existing default JSON contract.

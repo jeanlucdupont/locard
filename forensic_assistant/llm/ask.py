@@ -1,6 +1,5 @@
 from forensic_assistant.llm.client import LocalClient
 from forensic_assistant.llm.prompts import messages, validate_answer, answer_schema
-from forensic_assistant.retrieval.v1_planner import retrieve_question
 from forensic_assistant.llm.context import context_bundle, annotate_relationship_support
 
 
@@ -15,20 +14,27 @@ def ask(
     timeout=120,
     client=None,
     semantic_index=None,
-    embedding_model=None
+    embedding_model=None,
+    semantic_options=None
 ):
-    from pathlib import Path
+    from argparse import Namespace
     from forensic_assistant.semantic.hybrid import retrieve
     from forensic_assistant.semantic.index import default_root
     db_path = queries.db.execute('PRAGMA database_list').fetchone()[2]
     root = semantic_index or (default_root(db_path) if db_path else None)
-    model_path = embedding_model or (Path(db_path).parent / 'semantic-models' / 'bge' if db_path else None)
-    plan, context = retrieve(queries, question, date_hint, limit, index_root=root, model_path=model_path)
+    def prepare():
+        from forensic_assistant.semantic.cli import prepare as prepare_semantic
+        options = vars(semantic_options).copy() if semantic_options is not None else {'json': True}
+        options.update(db=db_path, index=semantic_index, model_path=embedding_model, semantic_command='search')
+        resolved_root, model, _ = prepare_semantic(queries.db, Namespace(**options))
+        return resolved_root, model
+    plan, context = retrieve(queries, question, date_hint, limit, index_root=root,
+                             prepare=prepare if root is not None else None)
     bundle = context_bundle(context, question)
     output = {
         "plan": plan,
         "evidence_bundle": bundle,
-        "notice": "Model analysis is not evidence. Citation checks verify references, not factual correctness; validate claims against the original records."
+        "notice": "Model analysis is not evidence. Citation checks verify references, not factual correctness; validate claims against the original records. Confidence is model assessment metadata, not forensic certainty."
     }
     if not bundle["EVIDENCE"]:
         output["status"] = "insufficient_evidence"

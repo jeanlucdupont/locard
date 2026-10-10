@@ -35,10 +35,28 @@ def retrieve(
     index_root=None,
     model_path=None,
     model=None,
-    searcher=None
+    searcher=None,
+    prepare=None
 ):
     if precise(question):
         return retrieve_question(queries, question, date_hint, limit)
+    if prepare is not None:
+        from forensic_assistant.activity import Cancelled
+        # Plan first, release the read snapshot before setup/approval, then repeat
+        # retrieval in the search snapshot so evidence and index validation agree.
+        with snapshot(queries.db), bounded_hydration(queries.db):
+            fallback_plan, fallback_context = deterministic(queries, question, date_hint, limit)
+        try:
+            index_root, model = prepare()
+        except Cancelled:
+            raise
+        except (ValueError, OSError, ImportError) as exc:
+            if fallback_plan['operation'] != 'conceptual':
+                # A recognized deterministic query may legitimately return zero
+                # records. Preserve its insufficient-evidence result without
+                # making optional semantic setup mandatory for existing scripts.
+                return {**fallback_plan, 'semantic_coverage': 'unavailable', 'semantic_reason': str(exc)}, fallback_context
+            raise ValueError('Semantic retrieval unavailable: ' + str(exc)) from exc
     if index_root is None or (searcher is None and not (Path(index_root) / 'CURRENT').exists()):
         plan, context = retrieve_question(queries, question, date_hint, limit)
         plan = {**plan, 'semantic_coverage': 'unavailable; deterministic retrieval only'}
@@ -46,13 +64,7 @@ def retrieve(
     from .index import search
     from .model import LocalModel
     with snapshot(queries.db), bounded_hydration(queries.db):
-        try:
-            plan, context = retrieve_question(queries, question, date_hint, limit)
-        except ValueError as exc:
-            if not question.strip() or len(question.encode()) > 1000:
-                raise
-            plan = {'operation': 'conceptual', 'deterministic_note': str(exc)}
-            context = Assembly(queries.db, 100).output({})
+        plan, context = deterministic(queries, question, date_hint, limit)
         try:
             model = model or LocalModel(model_path)
             filters = {}
@@ -106,3 +118,13 @@ def retrieve(
             'semantic_results': hits,
             'selection_reasons': reasons
         }, context
+
+
+def deterministic(queries, question, date_hint, limit):
+    """Existing conceptual fallback; no new retrieval or correlation rules."""
+    try:
+        return retrieve_question(queries, question, date_hint, limit)
+    except ValueError as exc:
+        if not question.strip() or len(question.encode()) > 1000:
+            raise
+        return {'operation': 'conceptual', 'deterministic_note': str(exc)}, Assembly(queries.db, 100).output({})

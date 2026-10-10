@@ -24,11 +24,11 @@ def timestamp(value):
     return display_time(value).replace('T', ' ').removesuffix('Z') if value else '-'
 
 
-def notes(lines, messages, palette):
+def notes(lines, messages, palette, *, informational=()):
     messages = list(dict.fromkeys(messages))
     if messages:
-        lines.extend(['', palette('heading', 'Forensic notes')])
-        lines.extend(palette('warning', '- ' + safe(message)) for message in messages)
+        lines.extend(['', palette('forensic_note', 'Forensic notes')])
+        lines.extend(palette('forensic_note' if message in informational else 'warning', '- ' + safe(message)) for message in messages)
 
 
 def evtx_context(db, records):
@@ -228,11 +228,12 @@ def render_process_tree(result, palette=None, *, unicode=None):
               f"  PID lookback: {parameters['pid_lookback_seconds']} seconds; child window: {parameters['child_window_seconds']} seconds",
               f"  Maximum nodes: {parameters['max_nodes']}; maximum graph depth: {parameters['max_depth']}",
               f'  Returned process records: {len(records)}']
-    messages = [*result['limits'], result['caution'],
-                'Missing parents or children remain unobserved; this does not establish that they do not exist.']
+    informational = [result['caution'],
+                     'Missing parents or children remain unobserved; this does not establish that they do not exist.']
+    messages = [*result['limits'], *informational]
     messages.extend(message for edge in result['relationships'] for message in edge.get('limitations', []))
     for record in records.values():
         messages.extend(json.loads(record.get('warnings_json') or '[]'))
         messages.extend(json.loads(record.get('normalization_warnings_json') or '[]'))
-    notes(lines, messages, palette)
+    notes(lines, messages, palette, informational=informational)
     return '\n'.join(lines)

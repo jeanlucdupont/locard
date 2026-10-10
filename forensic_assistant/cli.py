@@ -119,7 +119,13 @@ def build_parser(*, interactive=False):
     show.add_argument("evidence_id")
     show.add_argument("--raw", action="store_true")
     commands.add_parser("status", help=COMMANDS['status'])
-    ask_parser = commands.add_parser("ask", help=COMMANDS['ask'])
+    ask_parser = commands.add_parser("ask", help=COMMANDS['ask'], description=(
+        'Retrieve deterministic evidence first; semantic retrieval may locate additional candidates. '
+        'The local LLM analyzes only the supplied bounded evidence bundle. Model analysis is not evidence.'))
+    ask_output = ask_parser.add_mutually_exclusive_group()
+    ask_output.add_argument('--json', dest='json', action='store_true', help='Structured output')
+    ask_output.add_argument('--text', dest='json', action='store_false', help='Human-readable output')
+    ask_parser.set_defaults(json=not interactive)
     ask_parser.add_argument("question")
     ask_parser.add_argument("--endpoint", default=Config.endpoint)
     ask_parser.add_argument("--date", help="UTC date for time-only questions")
@@ -322,7 +328,7 @@ def _dispatch(args, output, *, existing_only=False):
                 return 0
             queries = Queries(db)
             if args.command == "ask":
-                emit(ask(
+                result = ask(
                     queries,
                     args.question,
                     endpoint=args.endpoint,
@@ -331,8 +337,15 @@ def _dispatch(args, output, *, existing_only=False):
                     dry_run=args.dry_run,
                     timeout=args.timeout,
                     semantic_index=args.semantic_index,
-                    embedding_model=args.embedding_model
-                ))
+                    embedding_model=args.embedding_model,
+                    semantic_options=args
+                )
+                if args.json:
+                    emit(result)
+                else:
+                    from forensic_assistant.llm.presentation import render
+                    activity.result_count(result)
+                    output.write(render(result, output.palette))
                 return 0
             if args.command == "status":
                 emit(queries.coverage())

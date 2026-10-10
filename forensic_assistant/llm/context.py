@@ -52,7 +52,7 @@ def context_bundle(context, question, budget=PROMPT_BYTES):
         "omitted_unresolved": 0,
         "retrieval_limits": context["limits"],
         "coverage": context.get("coverage", {}),
-        "field_selection": "Normalized fields; full payload/XML available through show --raw",
+        "field_selection": "Normalized artifact fields; inspect full records with show",
         "limitations": "Auditing may be incomplete. Correlation is not causation; detections are not compromise."
     }
     classes = ('evtx', 'mft', 'prefetch', 'registry')

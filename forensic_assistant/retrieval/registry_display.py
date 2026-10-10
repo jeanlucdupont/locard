@@ -152,10 +152,10 @@ def render(record, palette=None, *, values=None):
             if note := pagination(len(rows), values['total']):
                 lines.append(note + ' values')
     if ua or ua_key:
-        lines += ['', palette('heading', 'Forensic notes')]
+        lines += ['', palette('forensic_note', 'Forensic notes')]
         from .artifact_notes import USERASSIST, USERASSIST_PARSER
         for note in USERASSIST:
-            lines.append(palette('warning', '- ' + note))
+            lines.append(palette('forensic_note', '- ' + note))
         lines += ['', palette('heading', 'Parser note'),
                   '- ' + USERASSIST_PARSER]
     warnings = list(dict.fromkeys(record.get('warnings', [])))
@@ -193,7 +193,7 @@ def search_notes(records, palette):
         path = record.get('source', {}).get('source_file', record.get('source_file'))
         return ntpath.basename(path) if path else 'Unknown hive'
     names = Counter(name(record).casefold() for record in hives.values())
-    lines = ['', palette('heading', 'Forensic notes')]
+    lines = ['', palette('forensic_note', 'Forensic notes')]
     for context, record in hives.items():
         label = safe_path(name(record))
         if names[name(record).casefold()] > 1:
@@ -201,5 +201,5 @@ def search_notes(records, palette):
             if context[1]:
                 label += ' Sources: ' + ', '.join(safe(source) for source in context[1])
         lines.append(palette('warning', '- ' + label + ': ' + DIRTY_WARNING))
-    lines.append(palette('warning', '- Dirty does not mean corrupted.'))
+    lines.append(palette('forensic_note', '- Dirty does not mean corrupted.'))
     return lines

@@ -96,7 +96,7 @@ def test_metadata_is_dependency_pin_authority(monkeypatch):
     assert runtime.dependencies()['state'] == 'missing'
 
 
-def test_setup_persistence_override_and_restart(environment, monkeypatch):
+def test_setup_persistence_override_and_restart(environment, monkeypatch, capsys):
     chosen = environment / 'custom é model'
     def download(path, selection):
         Path(path).mkdir(parents=True)
@@ -107,7 +107,9 @@ def test_setup_persistence_override_and_restart(environment, monkeypatch):
     prompts = []
     request._confirm = lambda text: prompts.append(text) or 'yes'
     result = cli.setup(request)
-    assert 'Internet' in prompts[0] and 'No case evidence is uploaded' in prompts[0]
+    notice = capsys.readouterr().out
+    assert 'Internet' in notice and 'No case evidence is uploaded' in notice
+    assert prompts == ['Continue? [Y/n]: ']
     assert result['verification'] == 'passed'
     assert runtime.model_path() == chosen
     assert json.loads(runtime.settings_path().read_text())['model_path'] == str(chosen)
@@ -162,7 +164,7 @@ def test_search_build_resume_stale_rebuild_and_case_isolation(environment, monke
     db.execute("UPDATE events SET command_line='changed'")
     db.commit()
     cli.dispatch(db, request)
-    assert len(prompts) == 2 and 'rebuild' in prompts[-1]
+    assert len(prompts) == 2 and prompts[-1] == 'Rebuild now? [Y/n]: '
     request.index = str(environment / 'b.index')
     cli.dispatch(db, request)
     assert len(prompts) == 3 and Path(environment / 'a.index' / 'CURRENT').exists()
@@ -353,7 +355,7 @@ def test_cli_status_json_plain(environment, monkeypatch, capsys):
     assert json.loads(text)['state'] == 'model_missing'
 
 
-def test_first_search_download_build_resume_and_restart(environment, monkeypatch):
+def test_first_search_download_build_resume_and_restart(environment, monkeypatch, capsys):
     db = database()
     eid = process(db, 1, '100')['id']
     prompts = []
@@ -371,7 +373,8 @@ def test_first_search_download_build_resume_and_restart(environment, monkeypatch
     request._confirm = lambda text: prompts.append(text) or 'y'
     result = cli.dispatch(db, request)
     assert result['results'][0]['evidence_id'] == eid
-    assert len(prompts) == 2 and 'Internet' in prompts[0] and 'build' in prompts[1]
+    assert 'Internet' in capsys.readouterr().out
+    assert prompts == ['Continue? [Y/n]: ', 'Build now? [Y/n]: ']
     assert runtime.settings_path().exists()
     # Fresh parser/request represents a new shell session; no setup overrides.
     restarted = args('search', 'payload', '--index', str(environment / 'case.index'))
