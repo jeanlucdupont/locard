@@ -38,6 +38,12 @@ def get_liner() -> str:
         .read_text(encoding="utf-8")
     )
 
+def get_ender() -> str:
+    return (
+        files("forensic_assistant")
+        .joinpath("resources/ender.txt")
+        .read_text(encoding="utf-8")
+    )
 
 def build_parser(*, interactive=False):
     from forensic_assistant.cli_parser import LocardParser, InteractiveParser, configure_interactive
