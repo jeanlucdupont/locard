@@ -217,7 +217,8 @@ def test_ask_output_contract_and_dry_run(case, monkeypatch, capsys, interactive,
         assert 'fields_truncated' in result['evidence_bundle']['metadata']
         assert '\x1b' not in text
     else:
-        assert 'Question\n' in text and 'Evidence selected:' in text
+        assert ('Question\n' in text) is (not interactive)
+        assert 'Evidence selected:' in text
         assert 'No analysis model was contacted.' in text
 
 

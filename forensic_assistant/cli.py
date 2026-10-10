@@ -120,12 +120,13 @@ def build_parser(*, interactive=False):
     show.add_argument("--raw", action="store_true")
     commands.add_parser("status", help=COMMANDS['status'])
     ask_parser = commands.add_parser("ask", help=COMMANDS['ask'], description=(
-        'Retrieve deterministic evidence first; semantic retrieval may locate additional candidates. '
-        'The local LLM analyzes only the supplied bounded evidence bundle. Model analysis is not evidence.'))
+        'Deterministic search retrieves evidence by exact/filter-based criteria. '
+        'Semantic retrieval discovers meaning-based candidate leads, not evidence for the queried concept. '
+        'The local LLM analyzes only the bounded supplied bundle. Model analysis is not evidence.'))
     ask_output = ask_parser.add_mutually_exclusive_group()
     ask_output.add_argument('--json', dest='json', action='store_true', help='Structured output')
     ask_output.add_argument('--text', dest='json', action='store_false', help='Human-readable output')
-    ask_parser.set_defaults(json=not interactive)
+    ask_parser.set_defaults(json=not interactive, _ask_interactive=interactive)
     ask_parser.add_argument("question")
     ask_parser.add_argument("--endpoint", default=Config.endpoint)
     ask_parser.add_argument("--date", help="UTC date for time-only questions")
@@ -345,7 +346,8 @@ def _dispatch(args, output, *, existing_only=False):
                 else:
                     from forensic_assistant.llm.presentation import render
                     activity.result_count(result)
-                    output.write(render(result, output.palette))
+                    output.write(render(result, output.palette, include_question=(
+                        not getattr(args, '_ask_interactive', False) or output.target is not None)))
                 return 0
             if args.command == "status":
                 emit(queries.coverage())

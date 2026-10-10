@@ -108,6 +108,14 @@ def inspect_model(path):
     return manifest
 
 
+def disable_loading_progress():
+    """Supported loader control; leave stderr, logging and Locard progress intact."""
+    from transformers.utils import logging
+    # This also disables Hugging Face Hub progress through its supported API.
+    # Embedding batches already pass show_progress_bar=False explicitly.
+    logging.disable_progress_bar()
+
+
 class LocalModel:
     dimension = 384
     def __init__(self, path):
@@ -123,6 +131,7 @@ class LocalModel:
         except ImportError as exc:
             raise ValueError('Install Locard optional semantic dependencies first') from exc
         torch.set_num_threads(4)
+        disable_loading_progress()
         self.model = SentenceTransformer(
             str(root.resolve()),
             device='cpu',

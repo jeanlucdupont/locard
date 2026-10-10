@@ -31,9 +31,12 @@ def ask(
     plan, context = retrieve(queries, question, date_hint, limit, index_root=root,
                              prepare=prepare if root is not None else None)
     bundle = context_bundle(context, question)
+    from forensic_assistant.llm.grounding import assess
+    grounding = assess(bundle, plan)
     output = {
         "plan": plan,
         "evidence_bundle": bundle,
+        "grounding": grounding,
         "notice": "Model analysis is not evidence. Citation checks verify references, not factual correctness; validate claims against the original records. Confidence is model assessment metadata, not forensic certainty."
     }
     if not bundle["EVIDENCE"]:
@@ -41,6 +44,11 @@ def ask(
         output["message"] = "No matching records in the supplied evidence. This does not establish absence of activity."
     elif dry_run:
         output["status"] = "retrieved_only"
+    elif grounding['withhold_model_analysis']:
+        # Retain the evidence/candidate records, but do not solicit unsupported
+        # activity findings from an artifact incapable of establishing them.
+        output['status'] = 'insufficient_evidence'
+        output['message'] = grounding['statement']
     else:
         client = client or LocalClient(endpoint, timeout)
         supplied_ids = {e["id"] for e in bundle["EVIDENCE"]}

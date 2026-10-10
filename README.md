@@ -1203,7 +1203,7 @@ resume the question. Scripts and `--json` never prompt. Missing optional runtime
 dependencies require manual installation; no package installation is automatic.
 If semantic retrieval is unavailable, a recognized deterministic query remains
 usable with a visible limitation, including an empty/insufficient-evidence result.
-A conceptual question with no deterministic
+A meaning-based question with no deterministic
 selection instead reports the actionable semantic failure.
 
 Interactive ASK defaults to human text; direct CLI defaults to JSON. Both accept
@@ -1220,6 +1220,36 @@ Use `show <ID>` for the full normalized record; EVTX raw XML is available throug
 MFT presence/access timestamps do not prove execution. Model confidence is retained
 in JSON as model assessment metadata only; it is not shown as forensic certainty.
 Citation validation checks references, not the factual correctness of model prose.
+
+Normal interactive ASK starts with the plan rather than repeating the question.
+JSON, direct CLI text, and saved/appended text keep the original question for
+context. Human plans say `deterministic search` for exact/filter-based retrieval
+or `semantic` for meaning-based discovery; internal JSON planner values remain
+compatible.
+
+Semantic-only selections are shown separately as candidate leads, with full IDs
+and their selection basis. Engine-assigned relationships between records do not
+automatically establish the activity asked about. Model assessments involving
+candidate leads are labeled as having unverified relevance. The prompt requires
+independent support in the artifact fields rather than similarity or suggestive
+filenames. These instructions and citation validation are not a general proof of
+model correctness.
+
+ASK has a narrow deterministic suitability guard for questions explicitly about
+credential use/usage/handling when the selected records are all MFT metadata.
+It retains those records and their provenance, reports scoped insufficient evidence,
+and does not contact the analysis LLM for a speculative finding. `--dry-run` still
+shows the selection and limitation. This guard does not classify other question
+types or assert that credential activity was absent from the case. The additive
+JSON `grounding` object records retrieval roles, limitations and that decision;
+the existing evidence bundle and selection metadata remain available.
+
+Artifact guidance treats MFT timestamps as filesystem activity context, not proof
+of execution or meaningful usage. Prefetch, EVTX, Registry and browser cautions
+remain specific to their artifact semantics. Normal embedding-model loads disable
+third-party progress bars through the supported Transformers control (which also
+controls Hub progress). Errors, warnings and Locard's own build progress remain
+visible; stderr is not redirected or discarded.
 
 Semantic search defaults to 10 results in interactive human mode and 20 in direct
 CLI or JSON mode. `--limit` overrides either default. Human Windows paths preserve
