@@ -12,6 +12,7 @@ COMMANDS = MappingProxyType({
     'around': 'Show evidence near a specific event or timestamp',
     'ask': 'Ask the local AI questions about case evidence',
     'case': 'Open or create a case',
+    'new-case': 'Create a case with guided evidence discovery and ingestion',
     'color': 'Turn terminal colors on or off',
     'detections': 'Show evidence matching Locard detection rules',
     'exit': 'Exit Locard',
@@ -43,5 +44,5 @@ COMMANDS = MappingProxyType({
 # Shell-only commands participate in the same catalog without adding CLI parsers.
 SHELL_COMMANDS = MappingProxyType({
     name: COMMANDS[name]
-    for name in ('?', 'ai', 'expert', 'case', 'color', 'exit', 'help', 'quit', 'version')
+    for name in ('?', 'ai', 'expert', 'case', 'new-case', 'color', 'exit', 'help', 'quit', 'version')
 })

@@ -184,11 +184,16 @@ class Shell:
     def menu(self):
         while True:
             print("[1] Create case\n[2] Open case\n[3] Exit")
+            print('[G] Guided case setup (new-case)')
             try:
                 choice = self.reader.read("Selection or case path: ").strip()
                 if choice in ("", "3", "exit", "quit"):
                     return False
-                if choice == "1":
+                if choice.casefold() in ('g', 'new-case'):
+                    from .setup import create
+                    if create(self):
+                        return True
+                elif choice == "1":
                     if self.new():
                         return True
                 elif choice == "2":
@@ -287,6 +292,12 @@ class Shell:
                             self.new()
                         else:
                             self.choose(words[1] if len(words) == 2 else None)
+                        continue
+                    if words[0] == 'new-case':
+                        if len(words) != 1:
+                            raise ValueError('new-case takes no arguments')
+                        from .setup import create
+                        create(self)
                         continue
                     if words[0] == 'color':
                         if len(words) > 2 or (len(words) == 2 and words[1] not in ('on', 'off')):

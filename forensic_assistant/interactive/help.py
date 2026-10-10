@@ -10,6 +10,7 @@ SHELL_USAGE = {
     'expert': 'expert',
     '?': '? [command]',
     'case': 'case [path|new]',
+    'new-case': 'new-case',
     'color': 'color [on|off]',
     'exit': 'exit',
     'help': 'help [command]',
@@ -20,6 +21,12 @@ SHELL_USAGE = {
 
 def command_help(name):
     result = SHELL_USAGE[name] + ': ' + COMMANDS[name]
+    if name == 'new-case':
+        result += ('\nGuided setup: create a case and ingest evidence, investigate in Expert or AI-assisted mode, '
+                   'then generate a report. Scan a mounted/extracted Windows filesystem, select artifacts manually, '
+                   'or skip ingestion. Review candidates and confirm before anything is created or ingested. '
+                   'Disk images must be mounted/extracted separately. Existing case new and expert ingest-* '
+                   'commands remain available. Completion returns to Expert mode; no model is called.')
     if name in ('ai', 'expert'):
         result += ('\nUse ai to enter AI mode and expert to return to expert mode. '
                    'In AI mode, prefix natural-language requests with !. '

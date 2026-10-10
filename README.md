@@ -148,6 +148,63 @@ command. Redirected or unsupported terminals receive a short notice instead.
 Clearing works independently of the color preference. `help color` and `help cls`
 describe these shell-only commands; they are not OS command execution.
 
+### Guided case and evidence setup
+
+Run `new-case` in the interactive shell, or choose **G** in the startup case menu.
+The existing `case new` flow and all `ingest-*` commands remain available.
+The wizard follows three steps: create/ingest, investigate in Expert or AI-assisted
+mode, then generate a report. It never calls a model.
+
+Enter a case name, new database path, optional case identifier and optional source
+assertions. Case name/identifier are labels recorded in the existing derived activity
+trail, not a new evidence-schema entity or a replacement for the database filename.
+Hostname, username and original drive remain unknown unless explicitly supplied.
+One analyst source groups the approved files; individual shared ingestion invocations
+retain their own batches/runs. No source is inferred from directory names.
+
+Choose automatic discovery (the default), manual artifact selection, or an empty case.
+Automatic discovery checks the supplied directory and at most two container levels
+for `Windows/System32`, `Windows/System32/config`, and `Users`. Multiple installations
+require selecting one; they are never silently combined. Root discovery is bounded to
+256 directories, and each inventory to 100,000 directory entries. Select a narrower
+folder if a limit is reached. Automatic scanning visits known locations only:
+
+- Root `$MFT`;
+- SYSTEM, SOFTWARE, SAM and SECURITY hives, plus NTUSER.DAT and UsrClass.dat;
+- Registry `.LOG1`/`.LOG2` companions (classified, **not replayed**);
+- Windows Prefetch and Windows Event Log directories;
+- Chrome/Edge `User Data` profile `History` files under user profiles.
+
+These are candidates, not proof of valid contents or complete acquisition. The existing
+parsers validate them during ingestion. Browser location labels are discovery hints;
+the examiner must explicitly supply the browser product/profile before ingestion.
+Browser snapshot companions retain the existing ingestion behavior.
+
+Review the compact inventory, optionally enter `review` for exact paths, then choose
+`all` or comma-separated categories. Manual selection supports repeated category/path
+pairs, including artifact folders (bounded to eight levels). It uses the same file
+discovery and ingestion implementations as the expert commands. Manual browser folders
+select `History` files; an explicitly selected browser file may have another filename.
+
+Final confirmation is required before creating directories, the database or activity
+sidecar, or ingesting anything. Case output must be outside every selected evidence
+directory. Discovery rejects symlinks and Windows reparse points, opens evidence only
+for reading when classification is needed, and writes no files in evidence folders.
+It does not intentionally change evidence timestamps; operating-system access-time
+policy remains outside the wizard's control. Mount evidence read-only when appropriate.
+Only the reviewed files are dispatched, not a later rescan of the entire volume.
+
+Progress reports category totals and file outcomes. Committed records survive later
+failures; partial cases remain usable. A case with no stored records requires explicit
+activation unless an empty case was requested. Cancelling setup preserves the previous
+active case; after publication, the new database and any committed work are retained.
+Requested directories are also retained. Successful setup activates the case in Expert
+mode. Evidence failures remain visible in the existing ingestion runs and activity trail.
+
+Disk images (`.E01`, `.raw`, `.dd`, `.img`, `.vhd`, `.vhdx`) must be mounted or extracted
+externally. The wizard does not mount images. Known root-level memory/page/hibernation
+files are reported as unsupported; it does not classify every unrelated file.
+
 ### Advisory AI shell mode
 
 Every shell starts in **expert mode**, with the existing blue `[case.db]>` prompt.

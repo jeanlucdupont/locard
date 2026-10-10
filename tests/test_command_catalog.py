@@ -18,6 +18,7 @@ from test_interactive_shell import Input, case
 EXPECTED = dict(line.split('|', 1) for line in """?|Show help for a command
 ai|Enter AI-assisted mode
 expert|Return to expert mode
+new-case|Create a case with guided evidence discovery and ingestion
 activity|Review and verify analyst activity
 analyze-timeline|Analyze timeline evidence using the local AI model
 around|Show evidence near a specific event or timestamp
