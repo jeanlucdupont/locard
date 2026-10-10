@@ -99,7 +99,7 @@ REF_KEYS = {
 HASH_KEYS = {'file_sha256', 'sha256', 'evidence_fingerprint', 'code_sha256', 'manifest', 'events', 'manifest_sha256'}
 VERSION_KEYS = {'parser_version', 'extractor_version', 'application_version', 'rule_version'}
 
-def apply(data, mode):
+def apply(data, mode, *, legacy_limitations=False):
     if mode not in ('none', 'identifiers'):
         raise ValueError('Unknown redaction mode')
     result = deepcopy(data)
@@ -218,8 +218,16 @@ def apply(data, mode):
     if data['limitations']:
         result['limitations'].append('Sensitive limitation text suppressed; review the unredacted report.')
         result['limitations'].append(f"Claim omissions: {data['omissions']['claims']}; timeline section omissions: {data['omissions']['timeline']}.")
-        warned = sum(bool(r['fields'].get('truncated_fields') or r['warnings']) for r in data['evidence'].values())
-        result['limitations'].append(f'{warned} records have compact-field omissions or parser warnings.')
+        if legacy_limitations:
+            warned = sum(bool(r['fields'].get('truncated_fields') or r['warnings']) for r in data['evidence'].values())
+            result['limitations'].append(f'{warned} records have compact-field omissions or parser warnings.')
+        else:
+            truncated = sum(bool(r['fields'].get('truncated_fields')) for r in data['evidence'].values())
+            warned = sum(bool(r['warnings']) for r in data['evidence'].values())
+            if truncated:
+                result['limitations'].append(f'{truncated} records have compact-field omissions.')
+            if warned:
+                result['limitations'].append(f'{warned} records have parser warnings.')
         for original in data['investigations']:
             status = original['termination'] if original['termination'] in SAFE else 'unknown termination'
             result['limitations'].append('Recorded investigation termination: ' + status)

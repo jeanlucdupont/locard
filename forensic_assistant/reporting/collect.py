@@ -23,7 +23,8 @@ def build(
     transcript_root=None,
     limits=None,
     include_source_locations=False,
-    metadata=None
+    metadata=None,
+    _legacy_limitations=False
 ):
     limits = limits or Limits()
     metadata = metadata or {}
@@ -208,8 +209,15 @@ def build(
                     [eid],
                     ['report-time context validation']
                 )
-            if record['fields'].get('truncated_fields') or record['warnings']:
-                limitations.append('Record ' + eid + ' has parser warnings or compact-field omissions')
+            omissions = record['fields'].get('truncated_fields', [])
+            if _legacy_limitations:
+                if omissions or record['warnings']:
+                    limitations.append('Record ' + eid + ' has parser warnings or compact-field omissions')
+            else:
+                if record['warnings']:
+                    limitations.append('Record ' + eid + ' has parser warnings; review evidence references')
+                if omissions:
+                    limitations.append('Record ' + eid + ' has compact-field omissions: ' + '; '.join(map(str, omissions)))
         call('check')
     # Never let the ordinary claim cap silently discard a conflict or limitation.
     claims = sorted(all_claims.values(), key=lambda c: (c['category'], c['claim_id']))

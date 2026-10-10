@@ -6,7 +6,7 @@ import json
 import pytest
 
 from forensic_assistant import terminal
-from forensic_assistant.cli import main, build_parser, get_liner
+from forensic_assistant.cli import main, build_parser, get_ender
 from forensic_assistant.database import sources
 from forensic_assistant.database.db import connect
 from forensic_assistant.interactive.shell import Shell
@@ -35,7 +35,7 @@ def test_prompt_and_normal_exit(tmp_path, capsys, colors, name, ending, color):
     text = terminal.SGR.sub('', capsys.readouterr().out)
     assert text.count('Locard session ended.') == 1
     assert text.endswith('\nLocard session ended.\nCase: '
-                         + str(path) + '\n' + terminal.SGR.sub('', get_liner()) + '\n')
+                         + str(path) + '\n' + terminal.SGR.sub('', get_ender()) + '\n')
     assert 'Case closed' not in text
     assert path.read_bytes() == before
 
@@ -46,7 +46,7 @@ def test_exit_before_case_selection(capsys, ending):
     assert Shell(State(None), reader).run() == 0
     text = capsys.readouterr().out
     assert text.count('Locard session ended.') == 1
-    assert text.endswith('\nLocard session ended.\n' + get_liner() + '\n')
+    assert text.endswith('\nLocard session ended.\n' + get_ender() + '\n')
     assert 'Case:' not in text
 
 

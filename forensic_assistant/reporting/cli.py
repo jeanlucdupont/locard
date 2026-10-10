@@ -4,10 +4,14 @@ from pathlib import Path
 from .bundle import generate, inspect, validate
 from .model import Limits
 
-def configure(commands):
+def configure(commands, *, interactive=False):
     report = commands.add_parser('report', help=COMMANDS['report'])
     sub = report.add_subparsers(dest='report_command', required=True)
     create = sub.add_parser('generate')
+    output = create.add_mutually_exclusive_group()
+    output.add_argument('--json', dest='json', action='store_true', help='Structured generation result')
+    output.add_argument('--text', dest='json', action='store_false', help='Human generation result')
+    create.set_defaults(json=not interactive)
     inputs = create.add_mutually_exclusive_group(required=True)
     inputs.add_argument(
         '--evidence',
@@ -34,11 +38,11 @@ def configure(commands):
     create.add_argument(
         '--llm-narrative',
         action='store_true',
-        help='Optional constrained claim ordering through local MiniCPM'
+        help='Optional grounded narrative composition through local MiniCPM; rejected output falls back safely'
     )
     create.add_argument('--endpoint', default='http://127.0.0.1:8080')
     view = sub.add_parser('show')
-    view.add_argument('directory')
+    view.add_argument('directory', help='Report bundle directory, not a report ID')
     check = sub.add_parser('validate')
     check.add_argument('directory')
     check.add_argument('--case', help='Optional existing schema-3 case for fingerprint and grounding checks')
@@ -60,6 +64,9 @@ def dispatch(args):
 
 def _dispatch(args):
     if args.report_command == 'show':
+        import re
+        if re.fullmatch(r'[a-fA-F0-9]{32}', args.directory) and not Path(args.directory).is_dir():
+            raise ValueError('report show expects a report directory, not a report ID. Use the directory returned by report generate.')
         report, _ = inspect(args.directory)
         return dict(
             report_id=report['report_id'],
@@ -100,3 +107,18 @@ def _dispatch(args):
         include_source_locations=args.include_source_locations,
         metadata=metadata
     )
+
+
+def render_result(result, args, palette):
+    from forensic_assistant.retrieval.presentation import safe_text
+    from .bundle import FILES
+    directory = safe_text(result['output'])
+    scope = (str(len(set(args.evidence_ids))) + ' explicit evidence records'
+             if args.evidence_ids else str(len(args.investigation_ids)) + ' selected same-state investigations')
+    status = ('Report generated with limitations.' if result['status'] == 'COMPLETE_WITH_LIMITATIONS'
+              else 'Report generated.')
+    return '\n'.join([palette('heading', status), '', 'Directory:', '  ' + directory,
+                      '', 'Report ID:', '  ' + result['report_id'], '', 'Scope:', '  ' + scope,
+                      '  Completion applies to this bounded report, not a complete forensic examination.',
+                      '', 'Files:', *('  ' + name for name in FILES), '', 'Use:',
+                      '  report show "' + directory + '"', '  report validate "' + directory + '"'])

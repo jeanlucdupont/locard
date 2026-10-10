@@ -149,7 +149,7 @@ def build_parser(*, interactive=False):
     from forensic_assistant.investigation_ai import cli as investigation_cli
     investigation_cli.configure(commands)
     from forensic_assistant.reporting import cli as report_cli
-    report_cli.configure(commands)
+    report_cli.configure(commands, interactive=interactive)
     from forensic_assistant import source_cli
     source_cli.configure(commands)
     from forensic_assistant import activity
@@ -225,7 +225,11 @@ def _dispatch(args, output, *, existing_only=False):
         if args.command == 'report':
             try:
                 result = report_cli.dispatch(args)
-                emit(result)
+                if args.report_command == 'generate' and not args.json:
+                    activity.result_count(result)
+                    output.write(report_cli.render_result(result, args, output.palette))
+                else:
+                    emit(result)
                 return 2 if any(result.get(k) == 'FAIL' for k in (
                     'file_integrity',
                     'structure',
@@ -234,11 +238,15 @@ def _dispatch(args, output, *, existing_only=False):
                 )) else 0
             except (ValueError, OSError, KeyError, TypeError) as exc:
                 activity.note_error(exc)
-                emit({
-                    'status': 'FAILED',
-                    'error': str(exc),
-                    'published': getattr(exc, 'action_completed', False) if args.report_command == 'generate' else None
-                })
+                if args.report_command == 'generate' and not args.json:
+                    from forensic_assistant.retrieval.presentation import safe_text
+                    output.write(output.palette('error', 'Report generation failed: ' + safe_text(human_error(exc))))
+                else:
+                    emit({
+                        'status': 'FAILED',
+                        'error': str(exc),
+                        'published': getattr(exc, 'action_completed', False) if args.report_command == 'generate' else None
+                    })
                 return 2
         if args.command in ('investigate-ai', 'investigation'):
             emit(investigation_cli.dispatch(args))

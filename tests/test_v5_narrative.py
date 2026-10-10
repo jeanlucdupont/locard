@@ -13,12 +13,14 @@ class Model:
         self.calls += 1
         return self.action(messages)
 
-def test_optional_ordering_never_rewrites_facts(tmp_path):
+def test_optional_narrative_never_rewrites_facts(tmp_path):
     case = tmp_path / 'case.db'
     event = make_case(case)
     def order(messages):
         packet = json.loads(messages[1]['content'])
-        return json.dumps({'claim_order': [c['claim_id'] for c in reversed(packet['claims'])]})
+        sentence = packet['sentences'][0]
+        return json.dumps({'summary_paragraphs': [{'text': sentence['text'], 'claim_ids': sentence['claim_ids']}],
+                           'key_points': [], 'limitations': []})
     client = Model(order)
     generate(case, tmp_path / 'report', evidence_ids=[event['id']], narrative_client=client)
     report, _ = inspect(tmp_path / 'report')
@@ -39,7 +41,7 @@ def test_invalid_narrative_falls_back(tmp_path, response):
     event = make_case(case)
     generate(case, tmp_path / 'report', evidence_ids=[event['id']], narrative_client=Model(lambda _: response))
     report, _ = inspect(tmp_path / 'report')
-    assert report['narrative']['status'] == 'FALLBACK'
+    assert report['narrative']['status'] == 'REJECTED'
     assert report['data']['status'] == 'COMPLETE_WITH_LIMITATIONS'
     assert 'Definitely compromised' not in (tmp_path / 'report' / 'report.html').read_text()
     assert validate(tmp_path / 'report', case=case)['evidence_grounding'] == 'PASS'

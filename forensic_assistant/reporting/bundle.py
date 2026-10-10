@@ -11,14 +11,17 @@ from forensic_assistant import __version__
 from .collect import build
 from .model import canonical, digest, FORMAT, MAX_FILE, claim, graph, Limits, DIRECT_SCOPE, CAUTION
 from .redact import apply
-from .render import render
+from .render import render, markdown
 from .transcripts import read, safe_path
 
-FILES = ('report.json', 'report.html', 'manifest.json', 'checksums.sha256')
+LEGACY_FILES = ('report.json', 'report.html', 'manifest.json', 'checksums.sha256')
+FILES = ('report.json', 'report.html', 'report.md', 'manifest.json', 'checksums.sha256')
 
 def structure(report):
     try:
-        if set(report) != {
+        if 'presentation_format' in report and (type(report['presentation_format']) is not int or report['presentation_format'] != 2):
+            raise ValueError('Unsupported report presentation format')
+        if set(report) - {'presentation_format'} != {
             'format',
             'report_id',
             'created_utc',
@@ -135,7 +138,7 @@ def structure(report):
         if any(t['evidence_id'] not in data['evidence'] for t in data['timeline']):
             raise ValueError('Unknown timeline evidence')
         narrative = report['narrative']
-        if narrative['status'] not in ('NOT_REQUESTED', 'ACCEPTED', 'FALLBACK'):
+        if narrative['status'] not in ('NOT_REQUESTED', 'ACCEPTED', 'FALLBACK', 'REJECTED', 'FAILED'):
             raise ValueError('Invalid narrative status')
         if set(narrative) - {
             'status',
@@ -144,12 +147,26 @@ def structure(report):
             'configuration',
             'prompt_sha256',
             'prompt_bytes',
-            'reason'
+            'reason', 'summary_paragraphs', 'key_points', 'limitations', 'validation'
         }:
             raise ValueError('Unexpected narrative keys')
         order = narrative['claim_order']
         if not isinstance(order, list) or len(order) > 20 or len(order) != len(set(order)) or not set(order) <= {c['claim_id'] for c in data['claims']}:
             raise ValueError('Narrative references unknown claims')
+        if 'presentation_format' in report and narrative['status'] != 'NOT_REQUESTED':
+            from .narrative import validate_output, packet, SECTIONS, CONTRACT
+            prose = {key: narrative[key] for key in SECTIONS}
+            if narrative.get('configuration', {}).get('contract') != CONTRACT:
+                raise ValueError('Unsupported narrative contract')
+            if narrative['status'] == 'ACCEPTED':
+                validate_output(prose, packet(data, report['profile']), set(data['evidence']))
+                expected = list(dict.fromkeys(cid for key in SECTIONS for item in prose[key] for cid in item['claim_ids']))
+                if order != expected or narrative.get('validation') != 'PASS':
+                    raise ValueError('Narrative validation metadata mismatch')
+            elif any(value != [] for value in prose.values()) or order:
+                raise ValueError('Rejected narrative must not publish model prose')
+        elif set(narrative) & {'summary_paragraphs', 'key_points', 'limitations'}:
+            raise ValueError('Narrative text requires the grounded presentation contract')
         return True
     except (KeyError, TypeError, AttributeError) as exc:
         raise ValueError('Malformed report structure') from exc
@@ -164,10 +181,11 @@ def generate(case, output, *, profile='technical', redaction='none', narrative_c
     if destination.exists():
         raise ValueError('Report destination already exists')
     if not destination.parent.is_dir():
-        raise ValueError('Report parent directory must exist')
+        raise ValueError('Report parent directory does not exist: ' + str(destination.parent) + '. Create the parent directory first, then rerun report generate.')
     data = apply(build(case, **options), redaction)
     report = dict(
         format=FORMAT,
+        presentation_format=2,
         report_id=uuid.uuid4().hex,
         created_utc=datetime.now(timezone.utc).isoformat(),
         application_version=__version__,
@@ -176,19 +194,20 @@ def generate(case, output, *, profile='technical', redaction='none', narrative_c
         data=data,
         narrative={'status': 'NOT_REQUESTED', 'claim_order': []}
     )
+    structure(report)
     if narrative_client is not None:
         from .narrative import assist
         if time.monotonic() >= deadline:
             raise ValueError('Report runtime exhausted')
         if hasattr(narrative_client, 'timeout'):
             narrative_client.timeout = min(45, deadline - time.monotonic())
-        report['narrative'] = assist(data, narrative_client)
+        report['narrative'] = assist(data, narrative_client, profile)
         if redaction == 'identifiers' and 'model_metadata' in report['narrative']:
             report['narrative']['model_metadata'] = {'identity_basis': 'Model metadata suppressed by identifiers redaction'}
         if report['narrative']['status'] != 'ACCEPTED':
             data['status'] = 'COMPLETE_WITH_LIMITATIONS'
     structure(report)
-    payloads = {'report.json': canonical(report), 'report.html': render(report)}
+    payloads = {'report.json': canonical(report), 'report.html': render(report), 'report.md': markdown(report)}
     manifest = dict(
         format=FORMAT,
         report_id=report['report_id'],
@@ -255,12 +274,13 @@ def generate(case, output, *, profile='technical', redaction='none', narrative_c
 
 def read_payloads(directory):
     directory = safe_path(directory)
-    if {p.name for p in directory.iterdir()} != set(FILES):
+    names = {p.name for p in directory.iterdir()}
+    if names not in (set(FILES), set(LEGACY_FILES)):
         raise ValueError('Unexpected or missing bundle files')
-    payloads = {name: read(directory / name, MAX_FILE) for name in FILES}
+    payloads = {name: read(directory / name, MAX_FILE) for name in names}
     if sum(map(len, payloads.values())) > 64 * 1024 * 1024:
         raise ValueError('Bundle size limit')
-    expected = ''.join(hashlib.sha256(payloads[name]).hexdigest() + '  ' + name + '\n' for name in sorted(FILES) if name != 'checksums.sha256').encode()
+    expected = ''.join(hashlib.sha256(payloads[name]).hexdigest() + '  ' + name + '\n' for name in sorted(names) if name != 'checksums.sha256').encode()
     if payloads['checksums.sha256'] != expected:
         raise ValueError('File integrity failed')
     return payloads
@@ -270,6 +290,9 @@ def inspect_payloads(payloads):
     report = loads(payloads['report.json'])
     manifest = loads(payloads['manifest.json'])
     structure(report)
+    expected_files = FILES if 'presentation_format' in report else LEGACY_FILES
+    if set(payloads) != set(expected_files):
+        raise ValueError('Report presentation/files mismatch')
     if set(manifest) != {
         'format',
         'report_id',
@@ -298,7 +321,7 @@ def inspect_payloads(payloads):
         raise ValueError('Invalid manifest format/schema')
     if manifest['claim_ids'] != [c['claim_id'] for c in report['data']['claims']] or manifest['evidence_ids'] != sorted(report['data']['evidence']):
         raise ValueError('Manifest reference mismatch')
-    if manifest['outputs'] != {name: hashlib.sha256(payloads[name]).hexdigest() for name in ('report.json', 'report.html')}:
+    if manifest['outputs'] != {name: hashlib.sha256(payloads[name]).hexdigest() for name in expected_files if name not in ('manifest.json', 'checksums.sha256')}:
         raise ValueError('Manifest output hash mismatch')
     for key in ('report_id', 'created_utc', 'application_version', 'profile', 'redaction', 'narrative'):
         if manifest[key] != report[key]:
@@ -311,6 +334,8 @@ def inspect_payloads(payloads):
     # Re-rendering prevents a rehashed HTML file from presenting different facts.
     if render(report) != payloads['report.html']:
         raise ValueError('HTML differs from structured report')
+    if 'report.md' in payloads and markdown(report) != payloads['report.md']:
+        raise ValueError('Markdown differs from structured report')
     return report, manifest
 
 def inspect(directory):
@@ -359,9 +384,11 @@ def validate(directory, *, case=None, transcript_root=None):
                 transcript_root=transcript_root,
                 limits=Limits(**data['limits']),
                 metadata={} if report['redaction'] == 'identifiers' else data['analyst_metadata'],
-                include_source_locations=data['source_locations_included']
+                include_source_locations=data['source_locations_included'],
+                _legacy_limitations='presentation_format' not in report
             ),
-            report['redaction']
+            report['redaction'],
+            legacy_limitations='presentation_format' not in report
         )
     except (ValueError, OSError):
         result['evidence_grounding'] = 'FAIL'

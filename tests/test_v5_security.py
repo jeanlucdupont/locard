@@ -6,7 +6,7 @@ import pytest
 from forensic_assistant.reporting.bundle import generate, inspect, validate
 from forensic_assistant.reporting.collect import build, ReportWorker
 from forensic_assistant.reporting.model import canonical, digest, claim, graph
-from forensic_assistant.reporting.render import render
+from forensic_assistant.reporting.render import render, markdown
 from forensic_assistant.investigation_ai.controller import run
 from test_v4_worker import make_case, config
 from test_v4_controller import Scripted, final, tool
@@ -58,7 +58,7 @@ def test_rehashed_report_distinguishes_grounding_from_integrity(tmp_path):
         claim_ids=[c['claim_id'] for c in data['claims']],
         claim_evidence_graph=data['graph']
     )
-    payloads = {'report.json': canonical(report), 'report.html': render(report)}
+    payloads = {'report.json': canonical(report), 'report.html': render(report), 'report.md': markdown(report)}
     manifest['outputs'] = {k: hashlib.sha256(v).hexdigest() for k, v in payloads.items()}
     payloads['manifest.json'] = canonical(manifest)
     payloads['checksums.sha256'] = ''.join(hashlib.sha256(payloads[k]).hexdigest() + '  ' + k + '\n' for k in sorted(payloads)).encode()

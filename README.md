@@ -775,7 +775,64 @@ To be documented
 
 ### Generate report
 
-To be documented
+Generate a bounded, derived report from explicit evidence IDs or selected same-state
+investigations. Explicit evidence selection does **not** imply a complete investigation.
+
+```text
+report generate --evidence <evidence-id> --output "C:\Cases\reports\selected-records"
+report show "C:\Cases\reports\selected-records"
+report validate "C:\Cases\reports\selected-records" --case "C:\Cases\case.db"
+```
+
+Repeat `--evidence` for multiple records, or use repeatable `--investigation` with
+`--transcript-root`. The destination must be new and its parent must already exist.
+Locard does not create parent directories automatically. Interactive generation
+shows the directory, bounded scope, output files, and ready-to-use commands.
+Direct CLI output remains JSON; `--json` and `--text` override generation output.
+`report show` accepts a **directory**, not a report ID; there is no report-ID index
+or filesystem search.
+
+Each atomically published bundle contains:
+
+- `report.json`: authoritative structured claims, evidence, graph, timestamps,
+  inventory, scope, omissions, provenance, and narrative metadata.
+- `report.md`: canonical human-text report.
+- `report.html`: standalone offline visual report, without scripts or external assets.
+- `manifest.json` and `checksums.sha256`: output hashes and provenance.
+
+Markdown and HTML share one presentation view. Related observed fields are grouped
+by evidence record without merging evidence or claim identities. The executive
+summary avoids JSON pointers and claim-ID noise. MFT allocation state is explicit;
+SI/FN timestamp observations retain their distinct meanings. Parser warnings,
+compact projection omissions, and report bounds are separate limitations.
+`--profile technical` includes detailed source/context, timeline and claim references.
+`--profile executive` shortens the summary and detail, retains evidence references,
+and leaves the underlying JSON complete. Output-only `--redact identifiers` remains
+available; it is not anonymization.
+
+`--llm-narrative` optionally asks the existing loopback model to compose paragraphs,
+key points and limitations from a bounded catalog of claim-backed sentences and
+approved phrasings. Each returned statement must cite the exact supporting claim
+set. **Unrestricted paraphrases are deliberately rejected:** valid citation IDs alone
+cannot prove a sentence is supported. This is controlled-language composition, not
+a general factual verifier or unrestricted creative writing. The model cannot add
+claims, evidence, graph edges, relationships or conclusions. Deterministic artifact
+cautions and material limitations remain visible regardless of narrative selection.
+
+Malformed, unsupported or oversized narrative is marked `REJECTED`; a transport
+failure is marked `FAILED`. Both retain a useful deterministic report and record a
+fallback reason. Accepted narrative records prompt hash, configuration, validation,
+and server-reported model/token metadata when available. Model identity is not attested.
+No model is contacted unless requested; rendering itself needs no network, model,
+optional package installation, or download.
+
+New JSON reports add `presentation_format: 2` and structured narrative fields while
+retaining the existing report data schema. Existing four-file bundles remain readable
+and verifiable with their original renderer and limitation projection. New validation
+checks Markdown and HTML hashes **and** re-renders both from structured data. Validation
+still distinguishes file integrity, structure, case-fingerprint compatibility and
+evidence grounding; none proves forensic conclusions. COMPLETE means completion of
+the requested bounded report, not completeness of a forensic examination.
 
 
 ## License
