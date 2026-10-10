@@ -6,7 +6,7 @@ import sqlite3
 from forensic_assistant.interactive.case import validate
 from forensic_assistant.interactive.console import Reader, safe
 from forensic_assistant.interactive.state import State, state_path
-from forensic_assistant.cli import get_liner
+from forensic_assistant.cli import get_liner, get_ender
 from forensic_assistant.terminal import Palette, enabled
 
 def split(line):
@@ -184,7 +184,7 @@ class Shell:
         print('\nLocard session ended.')
         if self.active is not None:
             print('Case: ' + safe(self.active))
-        print(get_liner())
+        print(get_ender())
         return result
 
     def _run_session(self):
