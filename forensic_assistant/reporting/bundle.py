@@ -19,7 +19,7 @@ FILES = ('report.json', 'report.html', 'report.md', 'manifest.json', 'checksums.
 
 def structure(report):
     try:
-        if 'presentation_format' in report and (type(report['presentation_format']) is not int or report['presentation_format'] != 2):
+        if 'presentation_format' in report and (type(report['presentation_format']) is not int or report['presentation_format'] not in (2, 3)):
             raise ValueError('Unsupported report presentation format')
         if set(report) - {'presentation_format'} != {
             'format',
@@ -154,7 +154,10 @@ def structure(report):
         if not isinstance(order, list) or len(order) > 20 or len(order) != len(set(order)) or not set(order) <= {c['claim_id'] for c in data['claims']}:
             raise ValueError('Narrative references unknown claims')
         if 'presentation_format' in report and narrative['status'] != 'NOT_REQUESTED':
-            from .narrative import validate_output, packet, SECTIONS, CONTRACT
+            if report['presentation_format'] == 2:
+                from .narrative_v2 import validate_output, packet, SECTIONS, CONTRACT
+            else:
+                from .narrative import validate_output, packet, SECTIONS, CONTRACT
             prose = {key: narrative[key] for key in SECTIONS}
             if narrative.get('configuration', {}).get('contract') != CONTRACT:
                 raise ValueError('Unsupported narrative contract')
@@ -185,7 +188,7 @@ def generate(case, output, *, profile='technical', redaction='none', narrative_c
     data = apply(build(case, **options), redaction)
     report = dict(
         format=FORMAT,
-        presentation_format=2,
+        presentation_format=3,
         report_id=uuid.uuid4().hex,
         created_utc=datetime.now(timezone.utc).isoformat(),
         application_version=__version__,

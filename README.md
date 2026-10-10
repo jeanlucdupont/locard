@@ -805,15 +805,25 @@ by evidence record without merging evidence or claim identities. The executive
 summary avoids JSON pointers and claim-ID noise. MFT allocation state is explicit;
 SI/FN timestamp observations retain their distinct meanings. Parser warnings,
 compact projection omissions, and report bounds are separate limitations.
-`--profile technical` includes detailed source/context, timeline and claim references.
-`--profile executive` shortens the summary and detail, retains evidence references,
-and leaves the underlying JSON complete. Output-only `--redact identifiers` remains
+`--profile technical` retains full timestamp detail and claim references, with compact
+primary source/parser/context references. Deep source assertions and ingestion details
+remain in JSON. `--profile executive` uses compact evidence descriptions and up to 20
+time observations grouped by record, retaining separate timestamp sources and meanings
+without raw timestamp values, precision or slot internals. Full timestamp detail remains
+in JSON and the technical profile. Empty analyst metadata tables are omitted. Output-only `--redact identifiers` remains
 available; it is not anonymization.
 
 `--llm-narrative` optionally asks the existing loopback model to compose paragraphs,
 key points and limitations from a bounded catalog of claim-backed sentences and
-approved phrasings. Each returned statement must cite the exact supporting claim
-set. **Unrestricted paraphrases are deliberately rejected:** valid citation IDs alone
+approved phrasings. Joint MFT wording combines validated record observations into one
+connected paragraph without asserting a relationship. Each returned statement must cite
+the exact supporting claim set. Separately cited `boundary_ids` permit only deterministic
+report boundaries (MFT interpretation cautions and, when no relationship claim is present,
+absence of a relationship assertion). These are not new evidence claims or proof of absence.
+When joint wording fits the prompt budget, the generation grammar requires it rather than
+separate MFT record sentences. Deterministic limitations render once; repeated or composed
+narrative limitations are suppressed in human output because their approved items are
+already shown. Full narrative text and mappings remain in JSON and the manifest. **Unrestricted paraphrases are deliberately rejected:** valid citation IDs alone
 cannot prove a sentence is supported. This is controlled-language composition, not
 a general factual verifier or unrestricted creative writing. The model cannot add
 claims, evidence, graph edges, relationships or conclusions. Deterministic artifact
@@ -826,9 +836,11 @@ and server-reported model/token metadata when available. Model identity is not a
 No model is contacted unless requested; rendering itself needs no network, model,
 optional package installation, or download.
 
-New JSON reports add `presentation_format: 2` and structured narrative fields while
-retaining the existing report data schema. Existing four-file bundles remain readable
-and verifiable with their original renderer and limitation projection. New validation
+New JSON reports use `presentation_format: 3` while retaining the existing report data
+schema. The human AI disclosure is compact; prompt hashes, token metadata and full support
+mappings remain in JSON/manifest. Existing format-2 bundles retain their original view and
+narrative validation contract. Older four-file bundles remain readable and verifiable with
+their original renderer and limitation projection. New validation
 checks Markdown and HTML hashes **and** re-renders both from structured data. Validation
 still distinguishes file integrity, structure, case-fingerprint compatibility and
 evidence grounding; none proves forensic conclusions. COMPLETE means completion of
