@@ -16,6 +16,8 @@ from test_interactive_shell import Input, case
 
 # Intentional wording contract, independent of the production metadata.
 EXPECTED = dict(line.split('|', 1) for line in """?|Show help for a command
+ai|Enter AI-assisted mode
+expert|Return to expert mode
 activity|Review and verify analyst activity
 analyze-timeline|Analyze timeline evidence using the local AI model
 around|Show evidence near a specific event or timestamp
@@ -101,7 +103,7 @@ def test_shell_help_catalog_and_details(prefix, tmp_path, capsys):
     assert 'Windows authentication Logon ID' in text
     assert 'usage: source assign ' in text and '--confirmation-fingerprint' in text
     for name in SHELL_COMMANDS:
-        assert command_help(name) == SHELL_USAGE[name] + ': ' + EXPECTED[name]
+        assert command_help(name).splitlines()[0] == SHELL_USAGE[name] + ': ' + EXPECTED[name]
         assert command_help(name) in text
     assert '-h, --help' not in text and '[-h]' not in text
 

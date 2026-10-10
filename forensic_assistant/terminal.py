@@ -8,6 +8,7 @@ SGR = re.compile(r'\x1b\[[0-9;]*m')
 RESET = '\x1b[0m'
 STYLES = {
     'prompt': '1;3;94',
+    'ai_prompt': '1;3;95',
     'key': '36',
     'string_value': '32',
     'number_value': '35',

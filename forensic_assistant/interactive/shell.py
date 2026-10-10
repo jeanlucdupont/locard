@@ -3,6 +3,7 @@ from forensic_assistant.retrieval.presentation import human_error
 import gc
 import os
 import sqlite3
+from enum import Enum
 from forensic_assistant.interactive.case import validate
 from forensic_assistant.interactive.console import Reader, safe
 from forensic_assistant.interactive.state import State, state_path
@@ -50,6 +51,11 @@ def split(line):
     return words
 
 
+class Mode(Enum):
+    EXPERT = 'EXPERT'
+    AI = 'AI'
+
+
 class Shell:
     def __init__(self, state, reader=None, *, no_color=False):
         self.state = state
@@ -58,6 +64,27 @@ class Shell:
         self.audit = None
         self.last_status = 0
         self.no_color = no_color
+        self.mode = Mode.EXPERT
+
+    def prompt(self, label):
+        role, suffix = ('ai_prompt', '#') if self.mode is Mode.AI else ('prompt', '>')
+        return Palette(enabled(self))(role, '[' + label + ']' + suffix + ' ')
+
+    def request_advice(self, request):
+        from .advisory import advise, AdvisoryError
+        try:
+            response = advise(self.active.name, request)
+        except KeyboardInterrupt:
+            self.audit.record('AI_ADVICE', 'cancelled', request_characters=len(request))
+            raise
+        except AdvisoryError:
+            self.audit.record('AI_ADVICE', 'failure', request_characters=len(request))
+            raise
+        self.audit.record('AI_ADVICE', request_characters=len(request), response_characters=len(response),
+                          basis='Derived advisory text; no evidence supplied; no commands executed')
+        print(Palette(enabled(self))('ai_prompt', 'AI assistant — advisory, not evidence'))
+        print('\n'.join('  ' + line for line in response.splitlines()))
+        self.last_status = 0
 
     def activate(self, path, *, activity_session=None, announce=True):
         target = validate(path)
@@ -215,9 +242,31 @@ class Shell:
                     label = label[:38] + '...' + label[-39:]
                 executing = False
                 try:
-                    prompt = Palette(enabled(self))('prompt', '[' + label + ']> ')
-                    words = split(self.reader.read(prompt, remember=True))
+                    line = self.reader.read(self.prompt(label), remember=True)
+                    # Natural-language quotes, backslashes and later ! stay data.
+                    stripped = line.lstrip()
+                    if stripped.startswith('!'):
+                        if self.mode is not Mode.AI:
+                            print('AI requests are available in AI mode. Enter: ai')
+                            self.last_status = 2
+                            continue
+                        request = stripped[1:]
+                        if request.startswith(' '):
+                            request = request[1:]
+                        executing = True
+                        self.request_advice(request)
+                        continue
+                    words = split(line)
                     if not words:
+                        continue
+                    if words[0] in ('ai', 'expert'):
+                        if len(words) != 1:
+                            raise ValueError(words[0] + ' takes no arguments')
+                        self.mode = Mode.AI if words[0] == 'ai' else Mode.EXPERT
+                        self.audit.record('SHELL_MODE', mode=self.mode.value, basis='Session UI state only')
+                        print('AI-assisted mode enabled.\nPrefix natural-language requests with !.\nAll Locard commands remain available.'
+                              if self.mode is Mode.AI else 'Expert mode enabled.')
+                        self.last_status = 0
                         continue
                     if words[0] in ('exit', 'quit'):
                         if len(words) != 1:

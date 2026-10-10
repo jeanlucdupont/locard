@@ -148,6 +148,49 @@ command. Redirected or unsupported terminals receive a short notice instead.
 Clearing works independently of the color preference. `help color` and `help cls`
 describe these shell-only commands; they are not OS command execution.
 
+### Advisory AI shell mode
+
+Every shell starts in **expert mode**, with the existing blue `[case.db]>` prompt.
+Type `ai` to enter AI-assisted mode: the prompt becomes purple `[case.db]#`.
+Type `expert` to return. The suffix remains distinct without color; `#` is a mode
+marker, not elevated operating-system privilege. Mode is session-only and is not saved.
+
+All normal commands still use the ordinary parser and dispatcher in both modes.
+Only a line beginning with optional whitespace followed by `!` requests AI advice:
+
+```text
+[case.db]> ai
+[case.db]# semantic status
+[case.db]# ! Does MFT presence prove execution?
+[case.db]# expert
+```
+
+The first `!` and one optional following space are removed; remaining text is passed
+literally. Unprefixed text, including command typos, stays a Locard command. In expert
+mode, `!` only explains how to enter AI mode. It is never an OS shell escape.
+`help ai` / `? ai` explains the workflow. Tab completion includes `ai` and `expert`;
+completion is not mode-sensitive, and natural-language text has no completion.
+
+Advice uses the existing analysis `LocalClient` and its default numeric loopback endpoint
+(`http://127.0.0.1:8080`), with a 45-second deadline. It does not use the embedding model.
+Entering or leaving AI mode never contacts a model. Requests are independent and bounded
+to 4096 UTF-8 bytes. Only the active database basename, application version, mode and
+question are supplied, plus a small command-help catalog. No evidence, artifact counts, previous output, full path, unrelated
+files or conversation history are automatically included. Paste relevant bounded context
+in your question if needed; user assertions are not treated as authoritative evidence.
+
+The response is labeled advisory, not evidence. Suggested commands must be entered by
+the analyst: the assistant cannot dispatch commands, ingest, create cases, modify evidence
+or run tools. Free-form advice can be wrong and is not report-style evidence grounding.
+Failures, malformed replies, timeout and Ctrl+C leave the shell usable in its current mode.
+There are no downloads, automatic installations, Internet calls or persistent investigation
+plans. Normal case creation and ingestion remain deterministic.
+
+Existing derived activity records `SHELL_MODE` transitions and `AI_ADVICE` success/failure/
+cancellation with text lengths. Request/response prose is not written to the activity
+sidecar or evidence database. Ordinary in-memory shell recall remains available. Audit
+hashing and chain verification are unchanged.
+
 ### Analyst activity
 
 Each selected case has a derived `<case-path>.audit.jsonl` activity sidecar.

@@ -4,6 +4,8 @@ from types import MappingProxyType
 
 
 COMMANDS = MappingProxyType({
+    'ai': 'Enter AI-assisted mode',
+    'expert': 'Return to expert mode',
     '?': 'Show help for a command',
     'activity': 'Review and verify analyst activity',
     'analyze-timeline': 'Analyze timeline evidence using the local AI model',
@@ -41,5 +43,5 @@ COMMANDS = MappingProxyType({
 # Shell-only commands participate in the same catalog without adding CLI parsers.
 SHELL_COMMANDS = MappingProxyType({
     name: COMMANDS[name]
-    for name in ('?', 'case', 'color', 'exit', 'help', 'quit', 'version')
+    for name in ('?', 'ai', 'expert', 'case', 'color', 'exit', 'help', 'quit', 'version')
 })
