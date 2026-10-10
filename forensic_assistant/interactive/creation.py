@@ -154,7 +154,7 @@ class IngestionProgress:
             self.companions.clear()
 
 
-def summarize(target, palette=None):
+def summarize(target, palette=None, *, wizard=False):
     palette = palette or Palette()
     with closing(open_existing(target)) as db:
         counts = v2_cli.dispatch(db, SimpleNamespace(command='status'))[0]['artifact_counts']
@@ -167,7 +167,7 @@ def summarize(target, palette=None):
             print(palette('warning', f'Duplicates: {totals[1]:,}'))
         for status, count in runs.items():
             if status != 'complete':
-                print(palette('warning' if status in ('partial', 'unsupported', 'cancelled', 'interrupted') else 'error', f'File outcomes: {count:,} {status} (ingestion attempts)'))
+                print('File outcomes: ' + palette('warning' if status in ('partial', 'unsupported', 'cancelled', 'interrupted') else 'error', f'{count:,} {status}') + ' (ingestion attempts)')
         import json
         from forensic_assistant.ingest.validation import is_identifier_note, LABEL
         notes = sum(any(is_identifier_note(note) for note in json.loads(row[0]))
@@ -177,9 +177,12 @@ def summarize(target, palette=None):
         limitations = db.execute(
             'SELECT stage,message,count(*) AS occurrences,count(DISTINCT run_id) AS attempts '
             'FROM ingestion_errors GROUP BY stage,message ORDER BY min(id)').fetchall()
-        if limitations:
+        if wizard:
+            from .setup_display import print_diagnostics
+            print_diagnostics(db, palette)
+        elif limitations:
             print(palette('heading', 'Limitations'))
-        for row in limitations:
+        for row in ([] if wizard else limitations):
             print(palette('warning', '- ' + safe(row['stage']) + ': ' + safe(row['message']) +
                           f" — {row['occurrences']:,} occurrence" + ('s' if row['occurrences'] != 1 else '') +
                           f" across {row['attempts']:,} ingestion attempt" + ('s' if row['attempts'] != 1 else '')))

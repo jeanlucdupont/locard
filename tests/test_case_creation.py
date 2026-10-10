@@ -74,7 +74,7 @@ def test_decline_missing_parent_returns_destination(tmp_path):
 
 def test_empty_case_first_run_and_recent(tmp_path):
     shell, target, source = wizard(tmp_path, missing=True)
-    lines = ['1', str(target), 'yes', str(source), 'e', 'yes', 'exit']
+    lines = ['2', 'n', str(target), 'yes', str(source), 'e', 'yes', 'exit']
     shell = Shell(State(tmp_path / 'ui.json'), Input(*lines))
     assert shell.run() == 0 and shell.active == target
     assert State(shell.state.path).load().recent == [str(target)]
@@ -124,7 +124,7 @@ def test_mixed_real_parsers_and_additional_ingestion(tmp_path, capsys):
     shell = Shell(
         State(None),
         Input(
-            '1',
+            '2', 'n',
             str(target),
             str(source),
             'Workstation',

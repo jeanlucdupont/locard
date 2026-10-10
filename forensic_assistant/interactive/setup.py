@@ -7,25 +7,27 @@ import sqlite3
 
 from forensic_assistant import activity, v2_cli
 from forensic_assistant.database import sources
-from forensic_assistant.interactive import creation, discovery
+from forensic_assistant.interactive import creation, discovery, workspace, setup_display
 from forensic_assistant.retrieval.presentation import human_error, safe_text as safe
 from forensic_assistant.terminal import Palette, enabled
 
-WORKFLOW = ('Locard workflow\n1. Create a case and ingest evidence\n'
+WORKFLOW = ('A Locard investigation has three steps:\n\n1. Create a case and ingest evidence\n'
             '2. Investigate in Expert or AI-assisted mode\n3. Generate a report\n'
-            'You are starting with step 1.')
+            'This guided setup will help you complete step 1.')
 
 
 @dataclass
 class Plan:
     name: str
-    identifier: str
+    analyst: str
+    organization: str
     target: object
-    parents: bool
     metadata: dict = field(default_factory=dict)
     roots: list = field(default_factory=list)
     items: list = field(default_factory=list)
     browsers: list = field(default_factory=list)
+    deferred: list = field(default_factory=list)
+    limited: bool = False
 
 
 def outside_evidence(target, roots):
@@ -36,19 +38,24 @@ def outside_evidence(target, roots):
             raise ValueError('Case database and generated sidecars must be outside every evidence directory')
 
 
-def inventory_text(inventory, *, details=False):
-    lines = ['Supported artifact candidates found (not yet parsed)']
+def inventory_text(inventory, *, details=False, palette=None):
+    palette = palette or Palette()
+    lines = [palette('key', 'Supported artifacts found (candidates; parser validation follows)')]
     for kind in discovery.CATEGORIES:
         items = [i for i in inventory.candidates if i.kind == kind]
         if not items:
             continue
-        lines.append('  ' + kind + ': ' + str(len(items)) + ' files')
+        lines.append('  ' + palette('key', kind.ljust(10)) + palette('success', str(len(items))) + ' files')
         groups = Counter(i.group for i in items if i.group)
         lines.extend('    ' + label + ': ' + str(count) for label, count in groups.items())
         if details:
             lines.extend('    ' + safe(i.path) for i in items)
-    notes = list(dict.fromkeys(inventory.notes))
-    lines.extend('  ' + safe(note) for note in (notes if details else notes[:10]))
+    if inventory.access_limits:
+        lines.append(palette('key', 'Access limitations'))
+        lines.extend('  ' + label + ': ' + palette('warning', f'{len(paths)} inaccessible/redirected')
+                     for label, paths in inventory.access_limits.items())
+    notes = list(dict.fromkeys(n for n in inventory.notes if details or n not in inventory.access_notes))
+    lines.extend('  ' + palette('warning', safe(note)) for note in (notes if details else notes[:10]))
     if not details and len(notes) > 10:
         lines.append(f'  {len(notes) - 10} further discovery notes; choose review for details.')
     return '\n'.join(lines)
@@ -63,21 +70,84 @@ def select_categories(value, available):
     return selected
 
 
+def read_input(shell, palette, prompt, *, required=False):
+    while True:
+        value = shell.reader.read(palette('prompt', prompt)).strip()
+        if value.casefold() == 'cancel':
+            raise EOFError
+        if len(value) > 4096 or any(c in value for c in '\x00\r\n'):
+            raise ValueError('Setup input exceeds bounds or contains control characters')
+        if value or not required:
+            return value
+        print(palette('warning', 'A value is required. Type cancel to stop setup.'))
+
+
+def choice(read, prompt, allowed, default=None):
+    while True:
+        value = read(prompt).casefold() or default
+        if value in allowed:
+            return value
+        print('Choose ' + ', '.join(allowed) + '; type cancel to stop setup.')
+
+
+def access_guidance(read, palette):
+    if workspace.elevated() is not False:
+        return
+    print(palette('warning', 'Limited access may prevent complete Windows artifact discovery.'))
+    print('Administrator privileges are recommended for mounted Windows evidence.\n'
+          'Administrator status does not guarantee access to every evidence path.\n'
+          '1. Cancel and restart Locard as Administrator\n2. Continue with limited discovery\n3. Cancel setup')
+    if choice(read, 'Selection: ', ('1', '2', '3')) != '2':
+        raise EOFError
+
+
+def browser_selection(items, read, palette):
+    candidates = [i for i in items if i.kind == 'browser']
+    if not candidates:
+        return items, []
+    print(palette('key', 'Browser profiles found'))
+    for n, item in enumerate(candidates, 1):
+        print(f'  [{n}] ' + safe(item.browser_product or 'unspecified') + '  ' +
+              safe(item.owner or 'owner not supplied') + '  ' + safe(item.profile or item.path.name))
+    print('Location labels are not asserted Windows identities. Selection confirms browser/profile context.')
+    print('Choose browser profiles to ingest: all, none, or comma-separated numbers.')
+    while True:
+        value = read('Selection [1]: ' if len(candidates) == 1 else 'Selection (required): ').casefold()
+        if not value and len(candidates) == 1:
+            value = '1'
+        if value == 'none':
+            selected = []
+            break
+        if value == 'all':
+            selected = candidates
+            break
+        try:
+            indexes = {int(part.strip()) for part in value.split(',')}
+            if not indexes or not indexes <= set(range(1, len(candidates) + 1)):
+                raise ValueError
+            selected = [item for n, item in enumerate(candidates, 1) if n in indexes]
+            break
+        except ValueError:
+            print(palette('warning', 'Select all, none, or listed profile numbers; multiple profiles have no default.'))
+    options = []
+    from forensic_assistant.artifacts.browser import validate_options
+    for item in selected:
+        product, profile = item.browser_product, item.profile
+        if not product:
+            product = choice(read, 'Browser [chrome/edge]: ', ('chrome', 'edge'))
+        while not profile:
+            profile = read('Browser profile (required): ')
+        validate_options(product, profile)
+        options.append((item.path, product, profile))
+    return [i for i in items if i.kind != 'browser'] + selected, options
+
+
 def collect(shell):
     palette = Palette(enabled(shell))
-
-    def read(prompt):
-        value = shell.reader.read(palette('prompt', prompt)).strip()
-        if value.casefold() in ('cancel', 'exit', 'quit'):
-            raise EOFError
-        if len(value) > 4096 or '\x00' in value:
-            raise ValueError('Setup input exceeds bounds or contains NUL')
-        return value
-
+    def read(prompt, **kwargs):
+        return read_input(shell, palette, prompt, **kwargs)
     def path(prompt):
-        value = read(prompt)
-        if not value:
-            raise EOFError
+        value = read(prompt, required=True)
         if value.startswith(('"', "'")):
             from .shell import split
             words = split(value)
@@ -85,60 +155,42 @@ def collect(shell):
                 raise ValueError('Enter one path')
             value = words[0]
         return value
-
-    print(WORKFLOW)
-    print('Type cancel at any prompt to stop; nothing is created before final confirmation.')
-    name = read('Case name (Enter cancels): ')
-    if not name:
-        raise EOFError
+    print(palette('key', WORKFLOW))
+    print('Type cancel at any prompt to stop setup. Nothing is created before final confirmation.')
     while True:
+        name = read('Case name: ', required=True)
         try:
-            target = creation.destination(path('New database path (Enter cancels): '))
-            if target.exists():
-                raise ValueError('Destination already exists; choose a new file or use case to open it')
-            parents = not target.parent.exists()
-            if parents:
-                print('Directory does not exist:\n  ' + safe(target.parent))
-                if read('Create this directory at final confirmation? [y/N]: ').casefold() not in ('y', 'yes'):
-                    continue
+            target = workspace.target(name)
             break
         except (ValueError, OSError) as exc:
             print(palette('error', human_error(exc)))
-    identifier = read('Case identifier (optional): ')
-    print('Case name/identifier are analyst labels in the derived activity trail, not evidence.')
-    plan = Plan(name, identifier, target, parents)
-    print('Optional analyst-supplied source metadata (Enter leaves unknown/generated).')
-    metadata = dict(name=read('Source display name (optional): ') or None,
-                    hostname=read('Hostname (optional): ') or None,
-                    username=read('Username (optional): ') or None,
-                    volume_root=read('Original volume root, e.g. C: (optional): ') or None)
-    sources.metadata(**metadata)
-    plan.metadata = metadata
+    analyst = read('Analyst name (optional): ')
+    organization = read('Organization (optional): ')
+    plan = Plan(name, analyst, organization, target,
+                metadata=dict(name=None, hostname=None, username=None, volume_root=None))
     while True:
-        print('How would you like to add evidence?\n1. Scan a mounted Windows volume or folder (recommended)\n'
+        print(palette('key', 'How would you like to add evidence?'))
+        print('1. Scan a mounted Windows volume or folder (recommended)\n'
               '2. Select artifacts manually\n3. Skip ingestion for now')
-        mode = read('Selection [1]: ') or '1'
+        mode = choice(read, 'Selection [1]: ', ('1', '2', '3'), '1')
         inventory = discovery.Inventory()
         roots = []
         try:
             if mode == '1':
                 supplied = discovery.input_path(path('Mounted/extracted root or parent folder: '))
                 outside_evidence(target, [supplied])
+                access_guidance(read, palette)
                 candidates, notes = discovery.windows_roots(supplied)
                 if not candidates:
-                    print('No Windows root found within two directory levels; choose a narrower root or manual selection.')
+                    print(palette('warning', 'No accessible Windows root found within two directory levels; select a narrower root or use manual selection.'))
                     continue
-                if len(candidates) == 1:
-                    root = candidates[0]
-                    print('Windows root: ' + safe(root))
-                else:
+                root = candidates[0]
+                if len(candidates) > 1:
                     print('Multiple Windows roots found; select one (not combined):')
-                    for number, candidate in enumerate(candidates, 1):
-                        print(f'  {number}. ' + safe(candidate))
-                    choice = read('Windows root number: ')
-                    if not choice.isdecimal() or not 1 <= int(choice) <= len(candidates):
-                        raise ValueError('Choose one listed Windows root')
-                    root = candidates[int(choice) - 1]
+                    for n, candidate in enumerate(candidates, 1):
+                        print(f'  {n}. ' + safe(candidate))
+                    root = candidates[int(choice(read, 'Windows root number: ', tuple(str(i) for i in range(1, len(candidates) + 1)))) - 1]
+                print('Windows root: ' + safe(root))
                 inventory = discovery.scan(root)
                 inventory.notes[:0] = notes
                 roots = [supplied]
@@ -153,48 +205,77 @@ def collect(shell):
                     for item in found.candidates:
                         inventory.add(item.path, item.kind, item.group)
                     inventory.notes.extend(found.notes)
+                    inventory.access_notes.update(found.access_notes)
+                    for label, paths in found.access_limits.items():
+                        inventory.access_limits[label].update(paths)
                     roots.append(source)
-            elif mode == '3':
-                break
             else:
-                print('Choose 1, 2, or 3.')
-                continue
+                break
         except (OSError, ValueError) as exc:
             print(palette('error', human_error(exc)))
             continue
-        print(inventory_text(inventory))
+        print(inventory_text(inventory, palette=palette))
         if not inventory.candidates:
             print('No supported candidates selected. Choose another source or explicitly skip ingestion.')
             continue
         available = [k for k in discovery.CATEGORIES if any(i.kind == k for i in inventory.candidates)]
         while True:
-            selection = read('Artifacts to ingest [all], comma-separated categories, or review: ')
-            if selection.casefold() == 'review':
-                print(inventory_text(inventory, details=True))
+            print(palette('key', 'What would you like to do?'))
+            print('1. Ingest all discovered artifacts\n2. Select artifact categories\n3. Review discovered paths\n4. Cancel')
+            action = choice(read, 'Selection [1]: ', ('1', '2', '3', '4'), '1')
+            if action == '4':
+                raise EOFError
+            if action == '3':
+                print(inventory_text(inventory, details=True, palette=palette))
                 continue
-            try:
-                categories = select_categories(selection, available)
-                break
-            except ValueError as exc:
-                print(palette('error', human_error(exc)))
-        plan.items = [i for i in inventory.candidates if i.kind in categories]
+            if action == '1':
+                categories = set(available)
+            else:
+                print('Available categories:\n  ' + '\n  '.join(available))
+                while True:
+                    try:
+                        categories = select_categories(read('Enter categories separated by commas: ', required=True), available)
+                        break
+                    except ValueError as exc:
+                        print(palette('error', human_error(exc)))
+            break
+        selected = [i for i in inventory.candidates if i.kind in categories]
+        plan.deferred = [i for i in selected if i.access in ('requires extraction', 'unavailable')]
+        plan.items, plan.browsers = browser_selection([i for i in selected if i not in plan.deferred], read, palette)
         plan.roots = roots
-        plan.browsers = creation.browser_choices([(i.path, i.kind) for i in plan.items], read, palette)
+        plan.limited = bool(inventory.access_limits)
+        if plan.items and choice(read, 'Add optional source metadata? [y/N]: ', ('y', 'yes', 'n', 'no'), 'n') in ('y', 'yes'):
+            print('Optional analyst-supplied source assertions; no identities are inferred from folder names.')
+            plan.metadata.update(name=read('Source display name (optional): ') or None,
+                                 hostname=read('Hostname (optional): ') or None,
+                                 username=read('Username (optional): ') or None,
+                                 volume_root=read('Original volume root, e.g. C: (optional): ') or None)
+            sources.metadata(**plan.metadata)
         break
-    print('Proposed ingestion\n  Case: ' + safe(plan.name) + '\n  Database: ' + safe(target))
-    print('  Case identifier: ' + safe(identifier or 'not supplied'))
-    for key, value in metadata.items():
-        print('  ' + key + ' (analyst supplied): ' + safe(value or 'unknown/generated'))
+    print(palette('key', 'Proposed case'))
+    print('Case\n  Name: ' + safe(plan.name) + '\n  Analyst: ' + safe(analyst or 'not supplied') +
+          '\n  Organization: ' + safe(organization or 'not supplied'))
+    print('Workspace\n  ' + safe(target.parent))
     for root in plan.roots:
-        print('  Evidence selection: ' + safe(root))
-    print(inventory_text(discovery.Inventory(plan.items)))
-    for file, product, profile in plan.browsers:
-        print('  Browser: ' + safe(file) + ' | ' + product + ' / ' + safe(profile))
+        print('Evidence source\n  ' + safe(root))
+    print(palette('key', 'Selected artifacts'))
+    for kind, count in Counter(i.kind for i in plan.items).items():
+        print('  ' + palette('key', kind.ljust(10)) + palette('success', str(count)) +
+              (' selected profiles' if kind == 'browser' else ' files'))
+    for key, value in plan.metadata.items():
+        if value:
+            print('  ' + key + ' (analyst supplied): ' + safe(value))
+    for item in plan.deferred:
+        print(palette('key', 'MFT') + '\n  Found: ' + safe(item.path))
+        print(palette('warning', '  Directly ingestable: 0; ' + item.access))
+        if item.access == 'requires extraction':
+            print(palette('warning', 'Direct access is unavailable on this mounted NTFS volume.\n'
+                          'Locard currently requires an extracted $MFT file. Other discovered artifacts can still be ingested.'))
+        else:
+            print(palette('warning', 'File access is unavailable; supply an accessible extracted MFT.'))
     if not plan.items:
-        print('No ingestion: create an empty case.')
-    if parents:
-        print('Requested directories will be created and retained if subsequent steps fail.')
-    if read('Create case and proceed with this plan? [y/N]: ').casefold() not in ('y', 'yes'):
+        print('No readable evidence selected for ingestion.')
+    if choice(read, 'Create case and start ingestion? [Y/n]: ', ('y', 'yes', 'n', 'no'), 'y') not in ('y', 'yes'):
         raise EOFError
     return plan
 
@@ -204,9 +285,17 @@ class Progress:
         self.statuses = Counter()
         self.records = self.duplicates = self.errors = 0
         self.limitations = Counter()
+        self.run_ids = set()
+        self.retained_partial = self.unsuccessful = 0
 
     def __call__(self, path, kind, result):
         self.statuses[result['status']] += 1
+        if result.get('run_id') is not None:
+            self.run_ids.add(result['run_id'])
+        if result['status'] == 'partial' and result['inserted'] + result['duplicates']:
+            self.retained_partial += 1
+        elif result['status'] in ('failed', 'changed') or result['status'] == 'partial':
+            self.unsuccessful += 1
         self.records += result['inserted']
         self.duplicates += result['duplicates']
         self.errors += result['errors']
@@ -231,42 +320,60 @@ def execute(plan, session, palette):
         with activity.mutation('SOURCE_CREATE', basis='guided case setup') as event, db:
             source_id = sources.create(db, **plan.metadata)
             event.update(source_id=source_id, assertion=sources.current(db, source_id))
-    outcomes = {}
+    outcomes = {i.kind: i.access for i in plan.deferred}
+    print(palette('key', 'Ingestion is starting.'))
+    print('Large evidence sets can take several minutes. Progress updates between files; no mid-file estimate.')
     for kind in discovery.CATEGORIES:
         selected = [i for i in plan.items if i.kind == kind]
         if not selected:
             continue
         progress = Progress()
-        print(f'Ingesting {kind}: {len(selected)} selected files...')
-        for item in selected:
-            try:
-                outside_evidence(plan.target, plan.roots)
-                source = discovery.input_path(item.path)
-                args = SimpleNamespace(command='ingest-' + kind, path=source, source=source_id,
-                                       hostname=None, user=None, volume_root=None, parser_timeout=300, record_size=None)
-                if kind == 'browser':
-                    args.browser, args.profile = browser_options[item.path]
-                with closing(creation.open_existing(plan.target)) as db:
-                    results = v2_cli.ingest_sources(db, args, progress)
-                if not results:
+        meter = setup_display.FileProgress(kind, len(selected), palette)
+        meter.update(0, 0)
+        try:
+            for processed, item in enumerate(selected, 1):
+                try:
+                    outside_evidence(plan.target, plan.roots)
+                    source = discovery.input_path(item.path)
+                    args = SimpleNamespace(command='ingest-' + kind, path=source, source=source_id,
+                                           hostname=None, user=None, volume_root=None, parser_timeout=300, record_size=None)
+                    if kind == 'browser':
+                        args.browser, args.profile = browser_options[item.path]
+                    with closing(creation.open_existing(plan.target)) as db:
+                        results = v2_cli.ingest_sources(db, args, progress)
+                    if not results:
+                        progress.statuses['failed'] += 1
+                        progress.errors += 1
+                        progress.unsuccessful += 1
+                        progress.limitations['Selected file produced no ingestion result'] += 1
+                except activity.AuditError:
+                    raise  # Required audit failures stop setup, as in ordinary ingestion.
+                except (OSError, ValueError, sqlite3.Error) as exc:
+                    # Shared pipeline already retains any committed evidence/run state.
                     progress.statuses['failed'] += 1
                     progress.errors += 1
-                    progress.limitations['Selected file produced no ingestion result'] += 1
-            except activity.AuditError:
-                raise  # Required audit failures stop setup, as in ordinary ingestion.
-            except (OSError, ValueError, sqlite3.Error) as exc:
-                # Shared pipeline already retains any committed evidence/run state.
-                progress.statuses['failed'] += 1
-                progress.errors += 1
-                progress.limitations[human_error(exc)] += 1
-                session.record('SETUP_FILE', 'failure', path=str(item.path), **activity.error_data(exc))
+                    progress.unsuccessful += 1
+                    progress.limitations[human_error(exc)] += 1
+                    session.record('SETUP_FILE', 'failure', path=str(item.path), **activity.error_data(exc))
+                meter.update(processed, progress.records)
+        finally:
+            # No background reader or progress worker survives cancellation.
+            meter.close()
         outcomes[kind] = progress.outcome
-        print(palette('success' if progress.outcome == 'complete' else 'warning',
-                      f'  {kind}: {progress.outcome} | {progress.records:,} records | '
-                      f'{progress.duplicates:,} duplicates | {progress.errors:,} errors'))
-        print('    File outcomes: ' + ', '.join(f'{count} {status}' for status, count in progress.statuses.items()))
+        print('  ' + setup_display.category_line(kind, progress, palette))
+        print('    ' + setup_display.file_outcomes(progress.statuses, palette))
+        if kind == 'evtx':
+            print('    Files retaining partial records: ' + palette('warning', str(progress.retained_partial)) +
+                  ' | Unsuccessful files (including zero-record partials): ' +
+                  palette('error' if progress.unsuccessful else 'success', str(progress.unsuccessful)))
+            with closing(creation.open_existing(plan.target)) as db:
+                groups = setup_display.diagnostic_groups(db, progress.run_ids)
+            limitations = sum(g['count'] for g in groups if g['limitation'])
+            other = sum(g['count'] for g in groups if not g['limitation'])
+            print('    Verification limitations: ' + palette('forensic_note', str(limitations)) +
+                  ' | Other recorded errors: ' + palette('error' if other else 'success', str(other)))
         for limitation, count in progress.limitations.items():
-            print('    ' + safe(limitation) + f' ({count} occurrences)')
+            print('    ' + palette('forensic_note', safe(limitation) + f' ({count} occurrences)'))
     return outcomes
 
 
@@ -286,34 +393,46 @@ def create(shell):
         # Recheck all redirects before creating the case or its audit sidecar.
         for item in plan.items:
             discovery.input_path(item.path)
-        creation.initialize(plan.target, plan.parents, on_publish=mark_published)
+        workspace.initialize(plan.target, on_publish=mark_published)
         session = activity.Session(plan.target)
         with activity.bind(session):
             session.record('CASE_CREATE', required=True, case_path=str(plan.target),
-                           case_name=plan.name, case_identifier=plan.identifier or None,
+                           case_name=plan.name, analyst_name=plan.analyst or None, organization=plan.organization or None,
                            basis='Analyst-supplied setup labels; derived activity, not evidence',
-                           selected_files=len(plan.items), metadata=plan.metadata)
-            outcomes = execute(plan, session, palette) if plan.items else {}
-            if plan.items:
-                stored, runs, errors = creation.summarize(plan.target, palette)
+                           selected_files=len(plan.items), metadata=plan.metadata,
+                           deferred=[dict(path=str(i.path), reason=i.access) for i in plan.deferred],
+                           selected_browser_profiles=len(plan.browsers))
+            owners = {i.path: i.owner for i in plan.items if i.kind == 'browser'}
+            for path, product, profile in plan.browsers:
+                session.record('BROWSER_SELECTION', required=True, path=str(path), product=product,
+                               profile=profile, owner_path_label=owners.get(path),
+                               basis='Examiner-selected browser context; owner is a path label, not an identity assertion')
+            outcomes = execute(plan, session, palette) if plan.items else {i.kind: i.access for i in plan.deferred}
+            stored = 0
+            if plan.items or plan.deferred:
+                stored, runs, errors = creation.summarize(plan.target, palette, wizard=True)
                 if not stored:
-                    print('Case created, but no evidence records were stored. Ingestion was not successful.')
-                    response = shell.reader.read('Activate this empty/failed-ingestion case explicitly? [y/N]: ').strip().casefold()
+                    print('Case created, but no evidence records were stored. Review the ingestion outcomes before activation.')
+                    response = read_input(shell, palette, 'Activate this empty/failed-ingestion case explicitly? [y/N]: ').casefold()
                     if response not in ('y', 'yes'):
                         print('Database retained without activation: ' + safe(plan.target))
                         return False
-            session.record('CASE_SETUP', case_name=plan.name, case_identifier=plan.identifier or None,
+            session.record('CASE_SETUP', case_name=plan.name, analyst_name=plan.analyst or None, organization=plan.organization or None,
                            selected_counts=dict(Counter(i.kind for i in plan.items)), ingestion=outcomes)
         shell.activate(plan.target, activity_session=session, announce=False)
         from .shell import Mode
         shell.mode = Mode.EXPERT
         session.record('SHELL_MODE', mode='EXPERT', basis='Completed guided case setup')
-        print(palette('success', 'Case ready.') + '\nCase: ' + safe(plan.name) + '\nDatabase: ' + safe(plan.target))
-        for kind, count in Counter(i.kind for i in plan.items).items():
-            print(f'  {kind}: {count} selected files — {outcomes[kind]}')
-        print('Ingestion: ' + ('Skipped (empty case)' if not outcomes else
-              'Complete' if set(outcomes.values()) == {'complete'} else 'Completed with limitations; inspect file outcomes above'))
-        print('Next: investigate in Expert mode. Type ai for advisory AI-assisted mode; report generates reports.')
+        message = setup_display.completion(plan, outcomes, stored)
+        print(palette('success' if message == 'Case ready.' else 'error' if 'ingestion failed' in message else 'warning', message))
+        print(palette('key', 'Case') + '\n  ' + safe(plan.name))
+        print(palette('key', 'Workspace') + '\n  ' + safe(plan.target.parent))
+        print(palette('key', 'Ingestion'))
+        for kind in discovery.CATEGORIES:
+            status = outcomes.get(kind, 'not selected')
+            print('  ' + palette('key', kind.ljust(10)) + palette(setup_display.role(status), status))
+        print(palette('key', 'Next steps') + '\n\nExpert mode\n  Continue with forensic commands.\n\n'
+              'AI-assisted mode\n  Type: ai\n\nReports\n  Use: report generate')
         return True
     except (KeyboardInterrupt, EOFError):
         if session:
@@ -331,7 +450,7 @@ def create(shell):
     finally:
         if published and shell.active != plan.target:
             print('Database retained: ' + safe(plan.target) + '. Already committed evidence was not rolled back.')
-        if plan and plan.parents and not published:
-            print('Any analyst-requested directories already created are retained.')
+        if plan and not published:
+            print('Any case-workspace directories already created are retained.')
         if session and shell.audit is not session:
             session.end('setup not activated')

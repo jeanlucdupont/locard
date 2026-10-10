@@ -24,7 +24,10 @@ def command_help(name):
     if name == 'new-case':
         result += ('\nGuided setup: create a case and ingest evidence, investigate in Expert or AI-assisted mode, '
                    'then generate a report. Scan a mounted/extracted Windows filesystem, select artifacts manually, '
-                   'or skip ingestion. Review candidates and confirm before anything is created or ingested. '
+                   'or skip ingestion. A case name creates a managed workspace; analyst/organization are optional. '
+                   'Select browser profiles explicitly. Mounted $MFT may require extraction. Administrator '
+                   'access is recommended, not guaranteed. Type cancel to stop; Enter accepts defaults. '
+                   'Review candidates and confirm before anything is created or ingested. '
                    'Disk images must be mounted/extracted separately. Existing case new and expert ingest-* '
                    'commands remain available. Completion returns to Expert mode; no model is called.')
     if name in ('ai', 'expert'):

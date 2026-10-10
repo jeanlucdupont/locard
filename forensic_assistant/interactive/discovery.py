@@ -1,6 +1,9 @@
 """Bounded, read-only setup inventory. Candidates are not validated evidence."""
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections import defaultdict
+import os
+import stat
 
 from forensic_assistant.artifacts.ingest import discover
 from forensic_assistant.artifacts.registry_logs import is_log
@@ -20,6 +23,10 @@ class Candidate:
     path: Path
     kind: str
     group: str = ''
+    browser_product: str | None = None
+    owner: str | None = None
+    profile: str | None = None
+    access: str = 'candidate'
 
 
 @dataclass
@@ -28,13 +35,25 @@ class Inventory:
     notes: list = field(default_factory=list)
     entries: int = 0
     _seen: set = field(default_factory=set, repr=False)
+    access_limits: dict = field(default_factory=lambda: defaultdict(set))
+    access_notes: set = field(default_factory=set)
 
-    def children(self, directory):
+    def inaccessible(self, path, category, reason):
+        note = 'Directory or file could not be inspected: ' + str(path) + ' (' + reason + ')'
+        self.notes.append(note)
+        self.access_notes.add(note)
+        self.access_limits[category].add(str(path))
+
+    def children(self, directory, category='User profiles'):
         """Never follow redirected directories, including Windows junctions."""
         result = []
         try:
-            safe_path(directory)
-            if not directory.is_dir():
+            try:
+                safe_path(directory)
+            except ValueError:
+                self.inaccessible(directory, category, 'redirection rejected')
+                return result
+            if not stat.S_ISDIR(directory.stat().st_mode):
                 return result
             for path in directory.iterdir():
                 self.entries += 1
@@ -44,21 +63,41 @@ class Inventory:
                     safe_path(path)
                     result.append(path)
                 except (ValueError, OSError):
-                    self.notes.append('Skipped redirected or inaccessible path: ' + str(path))
+                    self.inaccessible(path, category, 'redirection or access failure')
+        except FileNotFoundError:
+            pass
         except OSError as exc:
-            self.notes.append('Directory could not be inspected: ' + str(directory) + ' (' + type(exc).__name__ + ')')
+            self.inaccessible(directory, category, type(exc).__name__)
         return sorted(result, key=lambda p: (p.name.casefold(), p.name))
 
-    def add(self, path, kind, group=''):
+    def add(self, path, kind, group='', *, browser_product=None, owner=None, profile=None, access='candidate'):
         try:
             safe_path(path)
-            if path.is_file():
-                candidate = Candidate(path, kind, group)
+            if stat.S_ISREG(path.stat().st_mode):
+                candidate = Candidate(path, kind, group, browser_product, owner, profile, access)
                 if candidate not in self._seen:
                     self._seen.add(candidate)
                     self.candidates.append(candidate)
-        except (ValueError, OSError):
-            self.notes.append('Skipped redirected or inaccessible path: ' + str(path))
+        except FileNotFoundError:
+            pass
+        except (ValueError, OSError) as exc:
+            self.inaccessible(path, kind, type(exc).__name__)
+
+
+def mounted_mft(path):
+    return os.name == 'nt' and path.name.casefold() == '$mft' and path.parent == Path(path.anchor)
+
+
+def mft_access(path):
+    try:
+        safe_path(path)
+        with path.open('rb') as stream:
+            stream.read(4)
+        return 'readable'
+    except PermissionError:
+        return 'requires extraction' if mounted_mft(path) else 'unavailable'
+    except OSError:
+        return 'unavailable'
 
 
 def input_path(value):
@@ -104,10 +143,14 @@ def scan(root):
     """Known Windows locations only; no full-volume recursive walk or parsing."""
     root = input_path(root)
     inventory = Inventory()
-    inventory.add(root / '$MFT', 'mft')
+    mft = root / '$MFT'
+    inventory.add(mft, 'mft')
+    if inventory.candidates:
+        from dataclasses import replace
+        inventory.candidates[0] = replace(inventory.candidates[0], access=mft_access(mft))
 
     def hives(directory, names, group):
-        for path in inventory.children(directory):
+        for path in inventory.children(directory, 'Registry paths'):
             if path.name.casefold() in names or (is_log(path) and path.stem.casefold() in names):
                 inventory.add(path, 'registry', 'companion' if is_log(path) else group)
 
@@ -116,7 +159,7 @@ def scan(root):
         ('Windows/Prefetch', '.pf', 'prefetch'),
         ('Windows/System32/winevt/Logs', '.evtx', 'evtx'),
     ):
-        for path in inventory.children(root / directory):
+        for path in inventory.children(root / directory, kind):
             if path.suffix.casefold() == suffix:
                 inventory.add(path, kind)
     for user in inventory.children(root / 'Users'):
@@ -128,9 +171,10 @@ def scan(root):
             ('Chrome', 'AppData/Local/Google/Chrome/User Data'),
             ('Edge', 'AppData/Local/Microsoft/Edge/User Data'),
         ):
-            for profile in inventory.children(user / relative):
+            for profile in inventory.children(user / relative, 'Browser paths'):
                 if profile.is_dir():
-                    inventory.add(profile / 'History', 'browser', product + ' location')
+                    inventory.add(profile / 'History', 'browser', product + ' location',
+                                  browser_product=product.casefold(), owner=user.name, profile=profile.name)
     for name in ('memory.raw', 'pagefile.sys', 'hiberfil.sys'):
         path = root / name
         try:

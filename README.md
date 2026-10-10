@@ -150,60 +150,80 @@ describe these shell-only commands; they are not OS command execution.
 
 ### Guided case and evidence setup
 
-Run `new-case` in the interactive shell, or choose **G** in the startup case menu.
-The existing `case new` flow and all `ingest-*` commands remain available.
-The wizard follows three steps: create/ingest, investigate in Expert or AI-assisted
-mode, then generate a report. It never calls a model.
+The startup menu offers **[1] Create a case**, **[2] Open a case**, and **[3] Exit**.
+Create a case opens guided setup; `new-case` opens it from the interactive shell.
+Expert `case new` and all six `ingest-*` commands remain available. The wizard
+creates/ingests, then returns to Expert mode for investigation and reporting. It
+never calls a model or enables AI mode automatically.
 
-Enter a case name, new database path, optional case identifier and optional source
-assertions. Case name/identifier are labels recorded in the existing derived activity
-trail, not a new evidence-schema entity or a replacement for the database filename.
-Hostname, username and original drive remain unknown unless explicitly supplied.
-One analyst source groups the approved files; individual shared ingestion invocations
-retain their own batches/runs. No source is inferred from directory names.
+Enter a case name, optional analyst name and optional organization. These are
+analyst-supplied labels in the existing derived activity trail, not evidence.
+The name determines `%LOCALAPPDATA%\Locard\cases\<sanitized-name>` (alongside
+Locard's existing UI configuration). Spaces/unsupported characters become `_`,
+repeated underscores collapse, and letters, numbers, hyphens and underscores are
+preserved. Existing workspaces require another name; they are never overwritten.
+Each workspace contains `case.db`, `reports`, `exports`, and `workspace` directories.
+Existing sidecar and explicit report/export paths remain unchanged; evidence is
+not copied. External case identifiers remain available in report metadata.
 
-Choose automatic discovery (the default), manual artifact selection, or an empty case.
+Type `cancel` at any wizard prompt to stop. Enter accepts a displayed default or
+leaves optional input blank; required values are requested again. Nothing is created
+before final confirmation. Optional source metadata is offered **after** evidence
+selection. Hostname, username and original drive remain unknown unless supplied.
+One analyst source groups approved files, with individual ingestion batches/runs.
+Directory labels never become asserted source identities.
+
+Choose automatic discovery (default), manual artifact selection, or an empty case.
 Automatic discovery checks the supplied directory and at most two container levels
 for `Windows/System32`, `Windows/System32/config`, and `Users`. Multiple installations
-require selecting one; they are never silently combined. Root discovery is bounded to
-256 directories, and each inventory to 100,000 directory entries. Select a narrower
-folder if a limit is reached. Automatic scanning visits known locations only:
+require selecting one. Root discovery is bounded to 256 directories; inventories to
+100,000 entries. Scanning visits known locations only:
 
 - Root `$MFT`;
-- SYSTEM, SOFTWARE, SAM and SECURITY hives, plus NTUSER.DAT and UsrClass.dat;
+- SYSTEM, SOFTWARE, SAM and SECURITY hives, NTUSER.DAT and UsrClass.dat;
 - Registry `.LOG1`/`.LOG2` companions (classified, **not replayed**);
-- Windows Prefetch and Windows Event Log directories;
-- Chrome/Edge `User Data` profile `History` files under user profiles.
+- Windows Prefetch and Event Log directories;
+- Chrome/Edge profile `History` files under accessible Windows user directories.
 
-These are candidates, not proof of valid contents or complete acquisition. The existing
-parsers validate them during ingestion. Browser location labels are discovery hints;
-the examiner must explicitly supply the browser product/profile before ingestion.
-Browser snapshot companions retain the existing ingestion behavior.
+On Windows, non-elevated scans offer cancellation/restart or explicit continuation
+with limited access. Locard never elevates or requests credentials. Administrator
+status does not guarantee access; inaccessible paths are summarized by category,
+with details available in path review.
 
-Review the compact inventory, optionally enter `review` for exact paths, then choose
-`all` or comma-separated categories. Manual selection supports repeated category/path
-pairs, including artifact folders (bounded to eight levels). It uses the same file
-discovery and ingestion implementations as the expert commands. Manual browser folders
-select `History` files; an explicitly selected browser file may have another filename.
+Known browser paths provide product, owner-path label and profile context. A profile
+must contain a supported artifact such as `History`. Select **all**, **none**, or
+profile numbers explicitly; multiple profiles have no default-to-all. Manual browser
+files require explicit product/profile values. Selection confirms browser context,
+not a Windows identity. Existing snapshot-companion handling is unchanged.
 
-Final confirmation is required before creating directories, the database or activity
-sidecar, or ingesting anything. Case output must be outside every selected evidence
-directory. Discovery rejects symlinks and Windows reparse points, opens evidence only
-for reading when classification is needed, and writes no files in evidence folders.
-It does not intentionally change evidence timestamps; operating-system access-time
-policy remains outside the wizard's control. Mount evidence read-only when appropriate.
-Only the reviewed files are dispatched, not a later rescan of the entire volume.
+The numbered artifact menu offers all categories, selected categories, path review,
+or cancellation. Manual selection uses shared discovery/ingestion, bounded to eight
+folder levels. Candidates still require parser validation. An inaccessible mounted
+`$MFT` is marked **requires extraction** and excluded from ingestion: Locard requires
+an extracted MFT and does not implement raw NTFS access. Other artifacts may proceed.
 
-Progress reports category totals and file outcomes. Committed records survive later
-failures; partial cases remain usable. A case with no stored records requires explicit
-activation unless an empty case was requested. Cancelling setup preserves the previous
-active case; after publication, the new database and any committed work are retained.
-Requested directories are also retained. Successful setup activates the case in Expert
-mode. Evidence failures remain visible in the existing ingestion runs and activity trail.
+Final confirmation precedes workspace, database and activity-sidecar creation. Output
+must be outside every selected evidence directory. Discovery rejects symlinks/reparse
+points and opens evidence only for reading. It writes no evidence-folder files and
+does not intentionally change timestamps; OS access-time policy remains outside its
+control. Mount evidence read-only when appropriate. Only reviewed files are ingested.
+
+Progress shows completed/selected files, percentage, elapsed time and returned stored
+record counts **between files**, with no ETA or fabricated mid-file progress. Capable
+terminals reuse one line; fallback output is throttled. Semantic colors distinguish
+records, duplicates, partial outcomes and failures. Raw error counters remain intact;
+only verified retained-record EVTX header/tail diagnostics are grouped as verification
+limitations, separately from other errors.
+
+Completion distinguishes success, limitations, no ingestion, and failed ingestion.
+Committed evidence survives later failures. A case with no stored records requires
+explicit activation unless an empty case was requested. Cancellation preserves the
+previous active case; published databases, committed work and requested directories
+are retained. Structured next steps cover Expert mode, `ai`, and `report generate`.
 
 Disk images (`.E01`, `.raw`, `.dd`, `.img`, `.vhd`, `.vhdx`) must be mounted or extracted
-externally. The wizard does not mount images. Known root-level memory/page/hibernation
-files are reported as unsupported; it does not classify every unrelated file.
+externally. Locard does not mount them. Root memory/page/hibernation files are reported
+as unsupported; automatic discovery is not a claim of complete acquisition.
 
 ### Advisory AI shell mode
 

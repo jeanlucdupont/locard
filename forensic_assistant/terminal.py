@@ -164,6 +164,20 @@ def clear_screen(stream=None):
     return False
 
 
+def replace_progress_line(text='', stream=None):
+    """One-line progress control, independent of colors; no controls in files."""
+    import shutil
+    stream = sys.stdout if stream is None else stream
+    if not capable(stream):
+        return False
+    width = max(1, shutil.get_terminal_size(fallback=(80, 24)).columns - 1)
+    # Caller supplies application-owned progress text; bound it to one row.
+    text = next(iter(wrap_line(text, width)), '')
+    stream.write('\r\x1b[K' + text)
+    stream.flush()
+    return True
+
+
 def redraw_viewport(lines, footer, stream=None):
     """Replace a terminal viewport, clearing old rows; never emit controls to a file."""
     stream = sys.stdout if stream is None else stream

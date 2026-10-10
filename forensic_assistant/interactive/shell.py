@@ -183,18 +183,14 @@ class Shell:
 
     def menu(self):
         while True:
-            print("[1] Create case\n[2] Open case\n[3] Exit")
-            print('[G] Guided case setup (new-case)')
+            print("[1] Create a case\n[2] Open a case\n[3] Exit")
             try:
                 choice = self.reader.read("Selection or case path: ").strip()
                 if choice in ("", "3", "exit", "quit"):
                     return False
-                if choice.casefold() in ('g', 'new-case'):
+                if choice == '1':
                     from .setup import create
                     if create(self):
-                        return True
-                elif choice == "1":
-                    if self.new():
                         return True
                 elif choice == "2":
                     if self.choose():

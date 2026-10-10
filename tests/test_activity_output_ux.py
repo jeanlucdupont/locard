@@ -147,11 +147,11 @@ def test_case_creation_concise_flow_and_audit(tmp_path, capsys):
     evidence.mkdir()
     history(evidence / 'History').close()
     target = tmp_path / 'browser-case'
-    reader = Input('1', str(target), str(evidence), 'chrome', 'Default', '', '', '', '', 'yes', 'exit')
+    reader = Input('2', 'n', str(target), str(evidence), 'chrome', 'Default', '', '', '', '', 'yes', 'exit')
     shell = Shell(State(None), reader)
     assert shell.run() == 0 and shell.active == target
     text = capsys.readouterr().out
-    for expected in ('[1] Create case', '[2] Open case', 'Found 1 Chromium History', 'Optional source information',
+    for expected in ('[1] Create a case', '[2] Open a case', 'Found 1 Chromium History', 'Optional source information',
                      'Ingesting evidence...', 'Case ready:', 'Evidence: 2 records | 0 errors'):
         assert expected in text
     assert 'No active case' not in text and "{'" not in text and 'None' not in text
