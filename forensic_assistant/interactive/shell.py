@@ -293,6 +293,12 @@ class Shell:
                         else:
                             self.choose(words[1] if len(words) == 2 else None)
                         continue
+                    if words[0] == 'add-evidence':
+                        if len(words) != 1:
+                            raise ValueError('add-evidence takes no arguments')
+                        from .setup import add_evidence
+                        self.last_status = 0 if add_evidence(self) else 1
+                        continue
                     if words[0] == 'new-case':
                         if len(words) != 1:
                             raise ValueError('new-case takes no arguments')

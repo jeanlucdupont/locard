@@ -156,6 +156,22 @@ Expert `case new` and all six `ingest-*` commands remain available. The wizard
 creates/ingests, then returns to Expert mode for investigation and reporting. It
 never calls a model or enables AI mode automatically.
 
+With a case open, type `add-evidence` in either Expert or AI-assisted mode to
+append evidence using the same guided scan or manual artifact selection. It
+preserves the active case, human case name, analyst/organization labels, prior
+evidence and current mode. It never creates another workspace or calls a model.
+`help add-evidence` describes the workflow; the command takes no arguments.
+
+Review the selected files and confirm `Add selected evidence to this case?` before
+anything is persisted. Optional source assertions apply to a new source grouping
+this addition; earlier sources are unchanged. Existing duplicate rules still
+apply, and duplicate-only additions are reported as adding no new evidence records.
+The completion summary covers this addition only. Type `cancel` or decline the
+confirmation to return without changes; if interrupted after ingestion starts,
+already committed evidence and provenance remain. A mounted `$MFT` that requires
+extraction can later be added as an extracted standard file through manual selection.
+Expert `ingest-*` commands remain available with their existing arguments and JSON.
+
 Enter a case name, optional analyst name and optional organization. These are
 analyst-supplied labels in the existing derived activity trail, not evidence.
 The name determines `%LOCALAPPDATA%\Locard\cases\<sanitized-name>` (alongside

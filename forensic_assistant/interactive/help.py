@@ -6,6 +6,7 @@ from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS
 
 # Argument syntax stays with the interactive command implementation.
 SHELL_USAGE = {
+    'add-evidence': 'add-evidence',
     'ai': 'ai',
     'expert': 'expert',
     '?': '? [command]',
@@ -21,6 +22,12 @@ SHELL_USAGE = {
 
 def command_help(name):
     result = SHELL_USAGE[name] + ': ' + COMMANDS[name]
+    if name == 'add-evidence':
+        result += ('\nAppend evidence to the current case using guided mounted/extracted Windows scanning or manual '
+                   'artifact selection. Existing evidence and case metadata are preserved. Optional source metadata '
+                   'applies to the new source only. Mounted $MFT requires extraction as a standard file. '
+                   'Type cancel to return without ingestion before confirmation. After ingestion starts, committed '
+                   'work is retained on interruption. The current Expert/AI mode is preserved. No arguments are accepted.')
     if name == 'new-case':
         result += ('\nGuided setup: create a case and ingest evidence, investigate in Expert or AI-assisted mode, '
                    'then generate a report. Scan a mounted/extracted Windows filesystem, select artifacts manually, '

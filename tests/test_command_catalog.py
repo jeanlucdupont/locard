@@ -16,6 +16,7 @@ from test_interactive_shell import Input, case
 
 # Intentional wording contract, independent of the production metadata.
 EXPECTED = dict(line.split('|', 1) for line in """?|Show help for a command
+add-evidence|Add evidence to the current case
 ai|Enter AI-assisted mode
 expert|Return to expert mode
 new-case|Create a case with guided evidence discovery and ingestion

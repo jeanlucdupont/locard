@@ -117,8 +117,8 @@ def evtx_diagnostic(group):
     return None
 
 
-def print_diagnostics(db, palette):
-    groups = diagnostic_groups(db)
+def print_diagnostics(db, palette, *, run_ids=None):
+    groups = diagnostic_groups(db, run_ids)
     evtx = [(g, evtx_diagnostic(g)) for g in groups]
     selected = [(g, text) for g, text in evtx if text]
     if selected:
@@ -152,3 +152,19 @@ def completion(plan, outcomes, stored):
     if plan.deferred or plan.limited or any(value != 'complete' for value in outcomes.values()):
         return 'Case created. Ingestion completed with limitations.'
     return 'Case ready.'
+
+
+def addition_line(plan, outcomes, totals, palette):
+    if totals.records:
+        text = palette('success', 'Evidence added to case.')
+        if plan.deferred or plan.limited or any(value != 'complete' for value in outcomes.values()):
+            text += ' ' + palette('warning', 'Ingestion completed with limitations.')
+        return text
+    if totals.duplicates:
+        text = palette('warning', 'No new evidence records were added. Existing evidence was recognized as duplicate.')
+        if any(value != 'complete' for value in outcomes.values()):
+            text += ' ' + palette('warning', 'Ingestion completed with limitations.')
+        return text
+    if outcomes and all(value == 'failed' for value in outcomes.values()):
+        return palette('error', 'No evidence was added. Selected evidence ingestion failed.')
+    return palette('warning', 'No evidence records were added. Review the ingestion outcomes.')
