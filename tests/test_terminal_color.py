@@ -187,15 +187,17 @@ def test_shell_no_color_session(case, color, capsys):
 
     captured = capsys.readouterr().out
 
-    # The startup banner is intentionally allowed to use ANSI styling.
-    # The interactive session itself must honor no_color.
-    from forensic_assistant.cli import get_liner
+    # Committed startup decoration (banner and menu separator) may use ANSI.
+    # Command output and prompts must still honor no_color.
+    from forensic_assistant.cli import get_liner, get_thin
     from importlib.metadata import version
     banner = '                         Version ' + version('locard-forensics') + '\n' + get_liner() + '\n'
-    assert captured.startswith(banner)
+    startup = banner + '\n' + get_thin() + '\n'
+    assert captured.startswith(startup)
 
-    session_output = before_shutdown(captured)[len(banner):]
+    session_output = before_shutdown(captured)[len(startup):]
     assert '\x1b' not in session_output
+    assert all('\x1b' not in prompt for prompt in shell.reader.prompts)
 
 def test_no_external_process(case, color, monkeypatch, capsys):
     import subprocess
