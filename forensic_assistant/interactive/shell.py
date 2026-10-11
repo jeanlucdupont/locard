@@ -7,7 +7,7 @@ from enum import Enum
 from forensic_assistant.interactive.case import validate
 from forensic_assistant.interactive.console import Reader, safe
 from forensic_assistant.interactive.state import State, state_path
-from forensic_assistant.cli import get_liner, get_ender
+from forensic_assistant.cli import get_liner, get_ender, get_thin
 from forensic_assistant.terminal import Palette, enabled
 
 def split(line):
@@ -186,6 +186,7 @@ class Shell:
 
     def menu(self):
         while True:
+            print('\n' + get_thin())
             print("[1] Create a case\n[2] Open a case\n[3] Exit")
             try:
                 choice = self.reader.read("Selection or case path: ").strip()

@@ -10,9 +10,10 @@ from forensic_assistant.database import sources
 from forensic_assistant.interactive import creation, discovery, workspace, setup_display
 from forensic_assistant.retrieval.presentation import human_error, safe_text as safe
 from forensic_assistant.terminal import Palette, enabled
+from forensic_assistant.cli import get_thin
 
-WORKFLOW = ('A Locard investigation has three steps:\n\n1. Create a case and ingest evidence\n'
-            '2. Investigate in Expert or AI-assisted mode\n3. Generate a report\n'
+WORKFLOW = (get_thin() + '\nA Locard investigation has three steps:\n  1. Create a case and ingest evidence\n'
+            '  2. Investigate in Expert or AI-assisted mode\n  3. Generate a report\n\n'
             'This guided setup will help you complete step 1.')
 
 
@@ -42,6 +43,7 @@ def outside_evidence(target, roots):
 
 def inventory_text(inventory, *, details=False, palette=None):
     palette = palette or Palette()
+    print('\n' + get_thin())
     lines = [palette('key', 'Supported artifacts found (contents checked during ingestion)')]
     for kind in discovery.CATEGORIES:
         items = [i for i in inventory.candidates if i.kind == kind]
@@ -113,6 +115,7 @@ def choice(read, prompt, allowed, default=None):
 def access_guidance(read, palette):
     if workspace.elevated() is not False:
         return
+    print('\n' + get_thin())
     print(palette('warning', 'Limited access may prevent complete Windows artifact discovery.'))
     print('Administrator privileges are recommended for mounted Windows evidence.\n'
           'Administrator status does not guarantee access to every evidence path.\n'
@@ -176,7 +179,7 @@ def collect(shell):
             value = words[0]
         return value
     print(palette('key', WORKFLOW))
-    print('Type cancel at any prompt to stop setup. Nothing is created before final confirmation.')
+    print('Type cancel at any prompt to stop setup.\nNothing is created before final confirmation.\n')
     while True:
         name = read('Case name: ', required=True)
         try:
@@ -189,6 +192,7 @@ def collect(shell):
     plan = Plan(name, analyst, organization, target,
                 metadata=dict(name=None, hostname=None, username=None, volume_root=None))
     while True:
+        print('\n' + get_thin())
         print(palette('key', 'How would you like to add evidence?'))
         print('1. Scan a mounted Windows volume or folder (recommended)\n'
               '2. Select artifacts manually\n3. Skip ingestion for now')
@@ -245,7 +249,7 @@ def collect(shell):
             continue
         available = [k for k in discovery.CATEGORIES if any(i.kind == k for i in inventory.candidates)]
         while True:
-            print(palette('key', 'What would you like to do?'))
+            print(palette('key', '\nWhat would you like to do?'))
             print('1. Ingest all discovered artifacts\n2. Select artifact categories\n3. Review discovered paths\n4. Cancel')
             action = choice(read, 'Selection [1]: ', ('1', '2', '3', '4'), '1')
             if action == '4':
@@ -277,6 +281,7 @@ def collect(shell):
                                  volume_root=read('Original volume root, e.g. C: (optional): ') or None)
             sources.metadata(**plan.metadata)
         break
+    print('\n' + get_thin())
     print(palette('key', 'Proposed case'))
     print('Case\n  Name: ' + safe(plan.name) + '\n  Analyst: ' + safe(analyst or 'not supplied') +
           '\n  Organization: ' + safe(organization or 'not supplied'))
@@ -347,6 +352,7 @@ def execute(plan, session, palette):
             source_id = sources.create(db, **plan.metadata)
             event.update(source_id=source_id, assertion=sources.current(db, source_id))
     outcomes = {i.kind: i.access for i in plan.deferred}
+    print('\n' + get_thin())
     print(palette('key', 'Ingestion is starting.'))
     print('Large evidence sets can take several minutes.')
     for kind in discovery.CATEGORIES:

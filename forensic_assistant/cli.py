@@ -38,6 +38,13 @@ def get_liner() -> str:
         .read_text(encoding="utf-8")
     )
 
+def get_thin() -> str:
+    return (
+        files("forensic_assistant")
+        .joinpath("resources/thin.txt")
+        .read_text(encoding="utf-8")
+    )
+
 def get_ender() -> str:
     return (
         files("forensic_assistant")
