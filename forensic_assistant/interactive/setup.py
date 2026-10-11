@@ -480,11 +480,11 @@ def create(shell):
         shell.mode = Mode.EXPERT
         session.record('SHELL_MODE', mode='EXPERT', basis='Completed guided case setup')
         message = setup_display.completion(plan, outcomes, stored)
-        print(setup_display.completion_line(message, palette))
+        print("\n████ " + setup_display.completion_line(message, palette))
         print(palette('key', 'Case') + '\n  ' + safe(plan.name))
         print(palette('key', 'Workspace') + '\n  ' + safe(plan.target.parent))
         ingestion_summary(plan, outcomes, palette)
-        print('The case has been created. You can add more evidence at any time, or start investigating now.\n\n'
+        print(get_thin() + 'You can add more evidence at any time, or start investigating now.\n\n'
               'To investigate, stay in Expert mode and use Locard commands directly,\n'
               'or type ai to enter AI-assisted mode. In AI mode, prefix natural-language requests with !.')
         return True
