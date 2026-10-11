@@ -30,7 +30,7 @@ def sanitize(name):
 def target(name):
     folder = safe_path(cases_root() / sanitize(name))
     if folder.exists():
-        raise ValueError('Case workspace already exists; choose another case name')
+        raise ValueError(f'A case named "{name}" already exists. Choose a different case name, or open the existing case.')
     return creation.destination(folder / 'case.db')
 
 

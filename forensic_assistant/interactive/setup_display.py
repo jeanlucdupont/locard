@@ -173,6 +173,8 @@ def addition_line(plan, outcomes, totals, palette):
 def duration(seconds):
     """Whole monotonic seconds; never imply sub-second measurement precision."""
     seconds = max(0, int(seconds))
+    if seconds == 0:
+        return "<1 sec"
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     if hours:
@@ -180,3 +182,9 @@ def duration(seconds):
     if minutes:
         return f'{minutes} min {seconds} sec'
     return f'{seconds} sec'
+
+
+def simple_success(progress):
+    """Only suppress detail when a single complete result has no exceptions."""
+    return (progress.statuses == {'complete': 1} and progress.records > 0
+            and not progress.duplicates and not progress.errors and not progress.limitations)

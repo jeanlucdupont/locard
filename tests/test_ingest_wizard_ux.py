@@ -12,7 +12,7 @@ from test_guided_setup import tree
 from v2_fixtures import mft_file
 
 
-@pytest.mark.parametrize('seconds,expected', [(0, '0 sec'), (.9, '0 sec'), (42.9, '42 sec'),
+@pytest.mark.parametrize('seconds,expected', [(0, '<1 sec'), (.9, '<1 sec'), (1, '1 sec'), (42.9, '42 sec'),
     (59.99, '59 sec'), (60, '1 min 0 sec'), (402.283, '6 min 42 sec'),
     (3599, '59 min 59 sec'), (3600, '1 hr 0 min'), (4320, '1 hr 12 min')])
 def test_elapsed_format(seconds, expected):
@@ -69,7 +69,7 @@ def test_manual_short_path_and_operation_only_summary(opened, tmp_path, capsys):
     assert 'Source metadata' in text and 'name: Extracted MFT' in text
     final = text.split('Evidence added to case.', 1)[1]
     assert 'Human case' not in final and 'Workspace' not in final
-    assert 'Added evidence' in final and 'mft       complete' in final
+    assert 'Added evidence' not in final and 'mft: complete |' in text
     assert 'not selected' not in final
     assert 'Elapsed time:' in final
     assert get_thin() in text

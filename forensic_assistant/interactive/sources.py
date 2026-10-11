@@ -24,7 +24,15 @@ def prepare(shell, args):
             args.source_name = shell.reader.read('Source name (Enter = generated label): ').strip() or None
             for field, prompt in [('hostname', 'Hostname'), ('user', 'Source user'), ('volume_root', 'Original drive')]:
                 if getattr(args, field, None) is None:
-                    setattr(args, field, shell.reader.read(prompt + ' (Enter = unknown): ').strip() or None)
+                    if field == 'volume_root':
+                        from .metadata import read_volume_root
+                        from forensic_assistant.terminal import Palette, enabled
+                        palette = Palette(enabled(shell))
+                        read = lambda text: shell.reader.read(palette('prompt', text))
+                        value = read_volume_root(read, prompt + ' (Enter = unknown): ', palette)
+                    else:
+                        value = shell.reader.read(prompt + ' (Enter = unknown): ').strip() or None
+                    setattr(args, field, value)
             args.source_explicit = True
         else:
             args.source = page['sources'][int(choice) - 1]['source_id'] if choice.isdecimal() and 1 <= int(choice) <= len(page['sources']) else choice

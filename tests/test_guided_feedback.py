@@ -71,8 +71,7 @@ def test_browser_not_found_vs_not_selected(tmp_path, capsys, found):
     output = capsys.readouterr().out
     assert ('browser   not selected' in output) is found
     assert ('browser   no supported history found' in output) is not found
-    if not found:
-        assert 'accessible profiles/locations scanned' in output
+    assert 'No supported Chrome or Edge History files were found' not in output
     assert 'Progress updates between files; no mid-file estimate.' not in output
     assert 'Reports\n' not in output and 'prefix natural-language requests with !' in output
     assert 'using the manual ingest commands' not in output

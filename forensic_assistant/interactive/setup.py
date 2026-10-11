@@ -12,6 +12,7 @@ from forensic_assistant.interactive import creation, discovery, workspace, setup
 from forensic_assistant.retrieval.presentation import human_error, safe_text as safe
 from forensic_assistant.terminal import Palette, enabled
 from forensic_assistant.cli import get_thin
+from .metadata import read_volume_root
 
 WORKFLOW = (get_thin() + '\nA Locard investigation has three steps:\n  1. Create a case and ingest evidence\n'
             '  2. Investigate in Expert or AI-assisted mode\n  3. Generate a report\n\n'
@@ -298,7 +299,7 @@ def collect(shell, *, adding=False):
             plan.metadata.update(name=read('Source display name (optional): ') or None,
                                  hostname=read('Hostname (optional): ') or None,
                                  username=read('Username (optional): ') or None,
-                                 volume_root=read('Original volume root, e.g. C: (optional): ') or None)
+                                 volume_root=read_volume_root(read, 'Original volume root, e.g. C: (optional): ', palette))
             sources.metadata(**plan.metadata)
         break
     print('\n' + get_thin())
@@ -369,7 +370,7 @@ class Progress:
         return 'partial' if self.records or self.duplicates or self.statuses['complete'] else 'failed'
 
 
-def execute(plan, session, palette, *, totals=None, basis="guided case setup"):
+def execute(plan, session, palette, *, totals=None, basis="guided case setup", incremental=False):
     """Only selected individual files are dispatched; never rescan a whole root."""
     browser_options = {path: (product, profile) for path, product, profile in plan.browsers}
     with closing(creation.open_existing(plan.target)) as db:
@@ -379,7 +380,8 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup"):
     outcomes = {i.kind: i.access for i in plan.deferred}
     print('\n' + get_thin())
     print(palette('key', 'Ingestion is starting.'))
-    print('Large evidence sets can take several minutes.')
+    if not incremental:
+        print('Large evidence sets can take several minutes.')
     for kind in discovery.CATEGORIES:
         selected = [i for i in plan.items if i.kind == kind]
         if not selected:
@@ -428,7 +430,8 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup"):
             meter.close()
         outcomes[kind] = progress.outcome
         print('  ' + setup_display.category_line(kind, progress, palette))
-        print('    ' + setup_display.file_outcomes(progress.statuses, palette))
+        if not setup_display.simple_success(progress):
+            print('    ' + setup_display.file_outcomes(progress.statuses, palette))
         if kind == 'evtx':
             print('    Files retaining partial records: ' + palette('warning', str(progress.retained_partial)) +
                   ' | Unsuccessful files (including zero-record partials): ' +
@@ -538,8 +541,6 @@ def ingestion_summary(plan, outcomes, palette, *, incremental=False, added=False
             continue
         status = outcomes.get(kind, 'no supported history found' if kind == 'browser' and plan.browser_scanned and not plan.browser_found else 'not selected')
         print('  ' + palette('error' if status == 'requires extraction' else 'key', kind.ljust(10)) + palette(setup_display.role(status), status))
-    if plan.browser_scanned and not plan.browser_found:
-        print('No supported Chrome or Edge History files were found in the accessible profiles/locations scanned.')
 
 
 def add_evidence(shell):
@@ -568,7 +569,7 @@ def add_evidence(shell):
         with activity.bind(shell.audit):
             with activity.mutation('ADD_EVIDENCE', selected_files=len(plan.items)) as event:
                 record_browser_selections(plan, shell.audit)
-                outcomes = execute(plan, shell.audit, palette, totals=totals, basis="guided evidence addition")
+                outcomes = execute(plan, shell.audit, palette, totals=totals, basis="guided evidence addition", incremental=True)
                 event.update(inserted=totals.records, duplicates=totals.duplicates,
                              errors=totals.errors, ingestion=outcomes)
                 if any(value != 'complete' for value in outcomes.values()):
@@ -578,13 +579,14 @@ def add_evidence(shell):
         elapsed = monotonic() - started
         print(setup_display.addition_line(plan, outcomes, totals, palette))
         print('Elapsed time: ' + setup_display.duration(elapsed))
-        ingestion_summary(plan, outcomes, palette, incremental=True, added=bool(totals.records))
-        print('  ' + palette('success' if totals.records else 'secondary_text', f'{totals.records:,} new records') +
-              ' | ' + palette('warning' if totals.duplicates else 'success', f'{totals.duplicates:,} duplicates') +
-              ' | ' + palette('error' if totals.errors else 'success', f'{totals.errors:,} errors'))
-        for root in plan.roots:
-            print(palette('key', 'Source') + '\n  ' + safe(root))
-        print('You can continue investigating the case or ingest more evidence at any time.')
+        simple = (len(plan.items) == 1 and setup_display.simple_success(totals)
+                  and not plan.deferred and not plan.limited
+                  and not (plan.considered - set(outcomes)))
+        if not simple:
+            ingestion_summary(plan, outcomes, palette, incremental=True, added=bool(totals.records))
+            print('  ' + palette('success' if totals.records else 'secondary_text', f'{totals.records:,} new records') +
+                  ' | ' + palette('warning' if totals.duplicates else 'success', f'{totals.duplicates:,} duplicates') +
+                  ' | ' + palette('error' if totals.errors else 'success', f'{totals.errors:,} errors'))
         return bool(totals.records or totals.duplicates)
     except (EOFError, KeyboardInterrupt):
         print('\nEvidence addition cancelled. The current case remains open.')

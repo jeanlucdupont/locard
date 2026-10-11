@@ -172,10 +172,15 @@ folder, then proceeds to metadata and confirmation without repeating the scan
 selection menu. Browser profile selection remains explicit.
 
 Incremental summaries show only artifact types involved in this operation; scan
-summaries can include discovered types deliberately not selected. Completion
-omits redundant case/workspace labels. Both initial ingestion and guided additions
+summaries can include discovered types deliberately not selected. A single complete
+file with new records and no duplicates, errors or limitations gets a terse
+completion: the overall outcome and elapsed time follow the category result.
+Multi-file, duplicate, partial, unsupported and failed outcomes retain useful
+detail. Completion omits redundant case/workspace labels and source paths;
+source provenance remains available through the source/detail commands. Both initial ingestion and guided additions
 report whole-second elapsed time, measured with a monotonic clock after final
 confirmation through ingestion and summary calculations; navigation time is excluded.
+Durations under one second display `<1 sec`.
 
 Review the selected files and confirm `Add selected evidence to this case?` before
 anything is persisted. Optional source assertions apply to a new source grouping
@@ -202,7 +207,11 @@ leaves optional input blank; required values are requested again. Nothing is cre
 before final confirmation. Optional source metadata is offered **after** evidence
 selection. Hostname, username and original drive remain unknown unless supplied.
 One analyst source groups approved files, with individual ingestion batches/runs.
-Directory labels never become asserted source identities.
+Directory labels never become asserted source identities. Interactive volume-root prompts
+accept `C:`/`c:` and normalize a lone ASCII drive letter such as `C` to `C:`.
+Malformed values reprompt without discarding the evidence selection; blank means
+unknown. Folder paths and UNC paths are not volume roots. This input convenience
+does not change direct command-line argument validation.
 
 Choose automatic discovery (default), manual evidence selection, or an empty case.
 Automatic discovery checks the supplied directory and at most two container levels

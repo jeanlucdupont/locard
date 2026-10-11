@@ -266,13 +266,8 @@ def _attempt(shell):
             source_name = read('Source name [' + safe(target.stem) + ']: ') or target.stem
             hostname = read('Hostname (Enter = unknown): ') or None
             username = read('User (Enter = unknown): ') or None
-            from forensic_assistant.artifacts.context import normalize_volume_root
-            while True:
-                try:
-                    volume = normalize_volume_root(read('Original drive, e.g. C: (Enter = unknown): '))
-                    break
-                except ValueError as exc:
-                    print(palette('error', human_error(exc)))
+            from .metadata import read_volume_root
+            volume = read_volume_root(read, 'Original drive, e.g. C: (Enter = unknown): ', palette)
         print(palette('key', 'New case') + '\n  Case: ' + safe(target) + '\n  Evidence: ' + safe(source))
         if found:
             for label, value in [('Source', source_name), ('Hostname', hostname), ('User', username), ('Original drive', volume)]:
