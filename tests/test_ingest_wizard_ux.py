@@ -152,6 +152,6 @@ def test_creation_clock_and_preserved_manual_decoration(tmp_path, monkeypatch, c
     assert 'Elapsed time: 6 min 42 sec' in final
     assert 'Case\n' not in final and 'Workspace\n' not in final
     assert 'Ingestion' in final
-    assert get_thin() + 'You can add more evidence at any time' in final
+    assert '\n\n' + get_thin() + '\nYou can add more evidence at any time' in final
     assert shell.case_label == 'Case name' and shell.mode is Mode.EXPERT
     shell.audit.end()

@@ -497,7 +497,7 @@ def create(shell):
         if elapsed is not None and stored:
             print('Elapsed time: ' + setup_display.duration(elapsed))
         ingestion_summary(plan, outcomes, palette)
-        print(get_thin() + 'You can add more evidence at any time, or start investigating now.\n\n'
+        print("\n" + get_thin() + '\nYou can add more evidence at any time, or start investigating now.\n\n'
               'To investigate, stay in Expert mode and use Locard commands directly,\n'
               'or type ai to enter AI-assisted mode. In AI mode, prefix natural-language requests with !.')
         return True
