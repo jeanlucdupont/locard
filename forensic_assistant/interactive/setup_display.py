@@ -168,3 +168,15 @@ def addition_line(plan, outcomes, totals, palette):
     if outcomes and all(value == 'failed' for value in outcomes.values()):
         return palette('error', 'No evidence was added. Selected evidence ingestion failed.')
     return palette('warning', 'No evidence records were added. Review the ingestion outcomes.')
+
+
+def duration(seconds):
+    """Whole monotonic seconds; never imply sub-second measurement precision."""
+    seconds = max(0, int(seconds))
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f'{hours} hr {minutes} min'
+    if minutes:
+        return f'{minutes} min {seconds} sec'
+    return f'{seconds} sec'

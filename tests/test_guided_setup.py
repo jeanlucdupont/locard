@@ -232,7 +232,7 @@ def test_manual_evtx_registry_reuses_exact_shared_calls(tmp_path, monkeypatch):
         calls.append((args.command, args.path))
         return original(db, args, progress)
     monkeypatch.setattr(v2_cli, 'ingest_sources', ingest)
-    shell = Shell(State(None), Input(*prefix(target), '2', 'evtx', str(evtx), 'registry', str(hive), '', '1', 'n', 'yes'))
+    shell = Shell(State(None), Input(*prefix(target), '2', 'evtx', str(evtx), 'registry', str(hive), '', 'n', 'yes'))
     assert setup.create(shell)
     assert calls == [('ingest-registry', hive), ('ingest-evtx', evtx)]
 
@@ -366,7 +366,7 @@ def test_duplicate_manual_selection_only_ingested_once(tmp_path):
     root = tree(tmp_path / 'root')
     target = tmp_path / 'cases/Synthetic_case/case.db'
     shell = Shell(State(None), Input(*prefix(target), '2', 'mft', str(root / '$MFT'),
-                                   'mft', str(root / '$MFT'), '', '1', 'n', 'yes'))
+                                   'mft', str(root / '$MFT'), '', 'n', 'yes'))
     assert setup.create(shell)
     with closing(connect(target, existing_only=True)) as db:
         assert db.execute('SELECT count(*) FROM ingestion_runs').fetchone()[0] == 1

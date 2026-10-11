@@ -2,11 +2,12 @@
 import argparse
 from forensic_assistant.terminal import Palette
 from forensic_assistant.retrieval.presentation import safe
-from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS
+from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS, COMMAND_ALIASES
 
 # Argument syntax stays with the interactive command implementation.
 SHELL_USAGE = {
     'add-evidence': 'add-evidence',
+    'ingest-wizard': 'ingest-wizard',
     'ai': 'ai',
     'expert': 'expert',
     '?': '? [command]',
@@ -23,14 +24,17 @@ SHELL_USAGE = {
 def command_help(name):
     result = SHELL_USAGE[name] + ': ' + COMMANDS[name]
     if name == 'add-evidence':
+        return result + '\nUse help ingest-wizard for documentation.'
+    if name == 'ingest-wizard':
         result += ('\nAppend evidence to the current case using guided mounted/extracted Windows scanning or manual '
-                   'artifact selection. Existing evidence and case metadata are preserved. Optional source metadata '
+                   'evidence selection. Existing evidence and case metadata are preserved. Optional source metadata '
                    'applies to the new source only. Mounted $MFT requires extraction as a standard file. '
                    'Type cancel to return without ingestion before confirmation. After ingestion starts, committed '
-                   'work is retained on interruption. The current Expert/AI mode is preserved. No arguments are accepted.')
+                   'work is retained on interruption. The current Expert/AI mode is preserved. No arguments are accepted. Direct ingest-* commands accept a known artifact and explicit options. '
+                   'Source metadata is analyst supplied; identities are never inferred from directory names.')
     if name == 'new-case':
         result += ('\nGuided setup: create a case and ingest evidence, investigate in Expert or AI-assisted mode, '
-                   'then generate a report. Scan a mounted/extracted Windows filesystem, select artifacts manually, '
+                   'then generate a report. Scan a mounted/extracted Windows filesystem, select evidence manually, '
                    'or skip ingestion. A case name creates a managed workspace; analyst/organization are optional. '
                    'Select browser profiles explicitly. Mounted $MFT may require extraction. Administrator '
                    'access is recommended, not guaranteed. Type cancel to stop; Enter accepts defaults. '
@@ -51,7 +55,7 @@ def command_help(name):
 
 def catalog(parser, palette=None):
     palette = palette or Palette()
-    commands = dict(SHELL_COMMANDS)
+    commands = {name: text for name, text in SHELL_COMMANDS.items() if name not in COMMAND_ALIASES}
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             for name in action.choices:

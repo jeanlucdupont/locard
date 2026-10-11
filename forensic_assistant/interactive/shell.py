@@ -293,9 +293,11 @@ class Shell:
                         else:
                             self.choose(words[1] if len(words) == 2 else None)
                         continue
-                    if words[0] == 'add-evidence':
+                    if words[0] in ('ingest-wizard', 'add-evidence'):
                         if len(words) != 1:
-                            raise ValueError('add-evidence takes no arguments')
+                            raise ValueError(words[0] + ' takes no arguments')
+                        if words[0] == 'add-evidence':
+                            print('`add-evidence` is now called `ingest-wizard`.')
                         from .setup import add_evidence
                         self.last_status = 0 if add_evidence(self) else 1
                         continue

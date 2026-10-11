@@ -6,7 +6,7 @@ import pytest
 
 from forensic_assistant.cli import build_parser
 from forensic_assistant.cli_parser import UnknownCommand, InvalidArguments
-from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS
+from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS, COMMAND_ALIASES
 from forensic_assistant.interactive.help import catalog, command_help, SHELL_USAGE
 from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
@@ -16,7 +16,8 @@ from test_interactive_shell import Input, case
 
 # Intentional wording contract, independent of the production metadata.
 EXPECTED = dict(line.split('|', 1) for line in """?|Show help for a command
-add-evidence|Add evidence to the current case
+add-evidence|Compatibility alias for ingest-wizard
+ingest-wizard|Guided evidence discovery and ingestion
 ai|Enter AI-assisted mode
 expert|Return to expert mode
 new-case|Create a case with guided evidence discovery and ingestion
@@ -59,7 +60,7 @@ def subcommands(parser):
 def test_metadata_wording_and_immutability():
     assert COMMANDS == EXPECTED
     assert set(SHELL_COMMANDS) == set(SHELL_USAGE)
-    for mapping in (COMMANDS, SHELL_COMMANDS):
+    for mapping in (COMMANDS, SHELL_COMMANDS, COMMAND_ALIASES):
         with pytest.raises(TypeError):
             mapping['help'] = 'Changed'
 
@@ -78,7 +79,7 @@ def test_catalog_exact_wording_and_order(color):
     text = catalog(build_parser(interactive=True), Palette(color))
     plain = SGR.sub('', text)
     rows = [line.strip().split('  ', 1) for line in plain.splitlines() if line.startswith('  ')]
-    assert [(name, description.strip()) for name, description in rows] == sorted(EXPECTED.items())
+    assert [(name, description.strip()) for name, description in rows] == sorted((name, text) for name, text in EXPECTED.items() if name not in COMMAND_ALIASES)
     assert plain.endswith('Type `help <command>` for details.\n')
     assert ('\x1b' in text) == color
     assert 'Same as' not in plain and 'usage:' not in plain

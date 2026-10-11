@@ -34,7 +34,7 @@ def opened(tmp_path, monkeypatch, capsys):
 
 
 def manual(path, kind='mft', metadata=None, confirm='yes'):
-    return ['2', kind, str(path), '', '1', *(['yes', *metadata] if metadata else ['n']), confirm]
+    return ['2', kind, str(path), '', *(['yes', *metadata] if metadata else ['n']), confirm]
 
 
 def rows(shell, table):
@@ -43,11 +43,12 @@ def rows(shell, table):
 
 
 def test_navigation_documentation_and_completion():
-    assert 'add-evidence' in catalog(build_parser())
-    text = command_help('add-evidence')
+    assert 'ingest-wizard' in catalog(build_parser())
+    assert 'add-evidence' not in catalog(build_parser())
+    text = command_help('ingest-wizard')
     for phrase in ('current case', 'manual', 'source metadata', 'preserved', '$MFT', 'cancel'):
         assert phrase in text
-    assert complete('add-e', 5).text == 'add-evidence '
+    assert complete('ingest-w', 8).text == 'ingest-wizard '
     # Interactive workflow does not introduce a JSON/non-interactive command.
     with pytest.raises(SystemExit):
         build_parser().parse_args(['add-evidence'])
@@ -132,6 +133,7 @@ def test_duplicate_only_is_honest_and_retains_evidence(opened, tmp_path, capsys)
     assert 'No new evidence records were added.' in text
     assert 'Evidence added to case.' not in text
     assert '0 new records' in text
+    assert 'Added evidence' not in text
     assert rows(opened, 'evidence_records') == original
     assert len(rows(opened, 'sources')) == 2
     runs = rows(opened, 'ingestion_runs')

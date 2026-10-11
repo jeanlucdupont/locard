@@ -25,11 +25,12 @@ from test_userassist import RAW_NAME, binary
 from v2_fixtures import registry_file
 
 
-def test_only_explicit_ingestion_commands_remain(capsys):
+def test_direct_ingestion_commands_and_shell_wizard(capsys):
     expected = {'ingest-all', 'ingest-browser', 'ingest-evtx', 'ingest-mft', 'ingest-prefetch', 'ingest-registry'}
-    assert {name for name in COMMANDS if name.startswith('ingest')} == expected
-    assert set(completion.complete('ingest-', 7).candidates) == expected
-    assert set(completion.complete('help ingest-', 12).candidates) == expected
+    navigation = expected | {'ingest-wizard'}
+    assert {name for name in COMMANDS if name.startswith('ingest')} == navigation
+    assert set(completion.complete('ingest-', 7).candidates) == navigation
+    assert set(completion.complete('help ingest-', 12).candidates) == navigation
     with pytest.raises(SystemExit) as exc:
         main(['ingest', 'unused'])
     assert exc.value.code == 2

@@ -156,11 +156,26 @@ Expert `case new` and all six `ingest-*` commands remain available. The wizard
 creates/ingests, then returns to Expert mode for investigation and reporting. It
 never calls a model or enables AI mode automatically.
 
-With a case open, type `add-evidence` in either Expert or AI-assisted mode to
-append evidence using the same guided scan or manual artifact selection. It
+With a case open, type `ingest-wizard` in either Expert or AI-assisted mode to
+append evidence using the same guided scan or manual evidence selection. It
 preserves the active case, human case name, analyst/organization labels, prior
 evidence and current mode. It never creates another workspace or calls a model.
-`help add-evidence` describes the workflow; the command takes no arguments.
+`help ingest-wizard` describes the workflow; the command takes no arguments.
+`add-evidence` remains a compatibility alias that invokes the same workflow with
+a short rename notice. Navigation help and completion prefer `ingest-wizard`.
+
+Use the existing direct `ingest-mft`, `ingest-registry`, `ingest-prefetch`,
+`ingest-evtx`, `ingest-browser`, and `ingest-all` commands when you already know
+the evidence and want explicit command options. `ingest-wizard` guides discovery
+and selection. Manual mode asks for an artifact type and an evidence file or
+folder, then proceeds to metadata and confirmation without repeating the scan
+selection menu. Browser profile selection remains explicit.
+
+Incremental summaries show only artifact types involved in this operation; scan
+summaries can include discovered types deliberately not selected. Completion
+omits redundant case/workspace labels. Both initial ingestion and guided additions
+report whole-second elapsed time, measured with a monotonic clock after final
+confirmation through ingestion and summary calculations; navigation time is excluded.
 
 Review the selected files and confirm `Add selected evidence to this case?` before
 anything is persisted. Optional source assertions apply to a new source grouping
@@ -189,7 +204,7 @@ selection. Hostname, username and original drive remain unknown unless supplied.
 One analyst source groups approved files, with individual ingestion batches/runs.
 Directory labels never become asserted source identities.
 
-Choose automatic discovery (default), manual artifact selection, or an empty case.
+Choose automatic discovery (default), manual evidence selection, or an empty case.
 Automatic discovery checks the supplied directory and at most two container levels
 for `Windows/System32`, `Windows/System32/config`, and `Users`. Multiple installations
 require selecting one. Root discovery is bounded to 256 directories; inventories to
@@ -240,7 +255,7 @@ Completion distinguishes success, limitations, no ingestion, and failed ingestio
 Committed evidence survives later failures. A case with no stored records requires
 explicit activation unless an empty case was requested. Cancellation preserves the
 previous active case; published databases, committed work and requested directories
-are retained. Post-creation guidance explains adding evidence with manual ingestion,
+are retained. Post-creation guidance explains adding evidence,
 investigating in Expert mode, and entering `ai` mode with `!` natural-language requests.
 Case creation success stays green independently of amber limitations or red failures.
 Mounted MFT requiring extraction is red, not partial. Human Registry messages explain

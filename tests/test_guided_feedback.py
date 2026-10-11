@@ -75,7 +75,7 @@ def test_browser_not_found_vs_not_selected(tmp_path, capsys, found):
         assert 'accessible profiles/locations scanned' in output
     assert 'Progress updates between files; no mid-file estimate.' not in output
     assert 'Reports\n' not in output and 'prefix natural-language requests with !' in output
-    assert 'You can add more evidence to this case later' in output
+    assert 'using the manual ingest commands' not in output
     assert snapshot(root) == before
 
 

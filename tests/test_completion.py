@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from forensic_assistant.cli import build_parser
-from forensic_assistant.command_catalog import COMMANDS
+from forensic_assistant.command_catalog import COMMANDS, COMMAND_ALIASES
 from forensic_assistant.interactive import completion, console
 from forensic_assistant.terminal import Palette, SGR
 
@@ -38,8 +38,8 @@ def test_unique_and_common_prefix(text, expected):
 
 
 @pytest.mark.parametrize('text,expected', [
-    ('', tuple(sorted(COMMANDS))),
-    ('ingest-', ('ingest-all', 'ingest-browser', 'ingest-evtx', 'ingest-mft', 'ingest-prefetch', 'ingest-registry')),
+    ('', tuple(sorted(set(COMMANDS) - set(COMMAND_ALIASES)))),
+    ('ingest-', ('ingest-all', 'ingest-browser', 'ingest-evtx', 'ingest-mft', 'ingest-prefetch', 'ingest-registry', 'ingest-wizard')),
     ('investigat', ('investigate', 'investigate-ai', 'investigation')),
     ('session --l', ('--limit', '--logon-id')),
 ])
@@ -156,7 +156,7 @@ def test_empty_tab_lists_commands_and_preserves_empty_prompt():
     stream = io.StringIO()
     assert console.edit(['\t', '\r'], prompt='locard> ', complete=completion.complete, output=stream) == ''
     rows = screen(stream.getvalue())
-    assert rows[1:-2] == sorted(COMMANDS)
+    assert rows[1:-2] == sorted(set(COMMANDS) - set(COMMAND_ALIASES))
     assert rows[-2] == 'locard>'
 
 
