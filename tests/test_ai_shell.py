@@ -69,7 +69,7 @@ def test_exact_natural_language_routing(tmp_path, model, line, expected):
     assert json.loads(model[0][0][2]['content'])['request'] == expected
     assert supplied['case_name'] == 'case é.db'
     assert supplied['locard_version'] == __version__ and supplied['mode'] == 'AI'
-    assert supplied['evidence_supplied'] is False and supplied['artifact_inventory'] == dict.fromkeys(('evtx', 'mft', 'prefetch', 'registry', 'browser'), 0)
+    assert supplied['case_context_available'] is True and supplied['individual_records_inspected'] is False and supplied['forensic_conclusions_reached'] is False and supplied['artifact_inventory'] == dict.fromkeys(('evtx', 'mft', 'prefetch', 'registry', 'browser'), 0)
     assert str(tmp_path) not in model[0][0][1]['content']
 
 

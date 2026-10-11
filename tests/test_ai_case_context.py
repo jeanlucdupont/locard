@@ -39,7 +39,9 @@ def test_actual_ingested_counts_and_raw_content_exclusion(tmp_path):
     assert context['artifact_inventory'] == expected
     assert set(expected) == {'mft', 'registry', 'prefetch', 'evtx', 'browser'}
     assert all(n > 0 for n in expected.values())
-    assert context['evidence_supplied'] is False
+    assert context['case_context_available'] is True
+    assert context['individual_records_inspected'] is False
+    assert context['forensic_conclusions_reached'] is False
     encoded = json.dumps(context)
     for secret in ('PRIVATE_EVENT_BODY', 'example.com', 'raw_xml', 'original_json', 'locator_json', 'PAYLOAD.EXE'):
         assert secret not in encoded
@@ -118,7 +120,7 @@ def test_untrusted_strings_remain_separate_data_and_catalog(tmp_path, model):
     assert json.loads(messages[1]['content']) == {'case_context': context}
     assert json.loads(messages[2]['content']) == {'request': 'My actual request'}
     assert context['manual_commands']
-    assert all(COMMANDS[k] == v for k, v in context['manual_commands'].items())
+    assert all(COMMANDS[k] == v['purpose'] for k, v in context['manual_commands'].items())
     assert not set(COMMAND_ALIASES) & context['manual_commands'].keys()
     assert schema['required'] == ['advice'] and schema['additionalProperties'] is False
     assert 'untrusted DATA' in advisory.SYSTEM and 'NOT inspected' in advisory.SYSTEM

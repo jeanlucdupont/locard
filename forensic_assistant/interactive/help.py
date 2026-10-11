@@ -50,7 +50,10 @@ def command_help(name):
                    'AI is advisory only: it does not execute commands. '
                    'The # prompt marks AI mode, not elevated OS privileges. '
                    'Each request receives fresh bounded high-level case context: retained artifact counts and source metadata. '
-                   'Individual records are not inspected; no conversation or raw evidence is automatically supplied.')
+                   'Inventory questions can be answered directly; zero counts describe this case, not the entire source system. '
+                   'Individual records are not inspected and inventory alone establishes no forensic conclusion. '
+                   'Recommended commands must be run by the examiner; search --path takes a filename/path, show takes an evidence ID. '
+                   'No conversation or raw evidence is automatically supplied.')
     return result
 
 

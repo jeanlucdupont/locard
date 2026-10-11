@@ -53,3 +53,26 @@ SHELL_COMMANDS = MappingProxyType({
 COMMAND_ALIASES = MappingProxyType({
     'add-evidence': 'ingest-wizard',
 })
+
+
+# Compact advisory signatures, not executable templates or a second dispatcher.
+# Names/purposes stay authoritative above; parser regression tests verify usage.
+INVESTIGATION_INPUTS = MappingProxyType({
+    'status': ('status', 'No input; use for the normal status display or details absent from context'),
+    'search': ('search --path <filename-or-path> --ids', 'Filename/path lookup via --path; other text needs the appropriate named filter, not positional text; returned IDs can be used with show'),
+    'show': ('show <evidence-id>', 'A known evidence record ID, NOT a filename or search term'),
+    'timeline': ('timeline --around <timestamp>', 'ISO 8601 timestamp with timezone; chronological view near that time'),
+    'around': ('around <evidence-id>', 'A known evidence ID; for a timestamp use timeline --around'),
+    'process-tree': ('process-tree --evidence <evidence-id>', 'Known process-creation evidence ID; requires supported process evidence'),
+    'logons': ('logons', 'No required input; normalized Windows authentication events'),
+    'session': ('session --logon-id <logon-id>', 'Windows authentication Logon ID, not a Locard evidence ID; may need host/anchor disambiguation'),
+    'detections': ('detections', 'No required input; deterministic rule matches, not proof of compromise'),
+    'investigate': ('investigate <evidence-id>', 'Known evidence ID as the anchor for related evidence'),
+    'semantic': ('semantic search "<text>"', 'Text/question for similarity retrieval; requires local semantic setup/index; similarity is not evidence'),
+})
+
+
+def investigation_capabilities():
+    """Small catalog projection for advisory use only; no command execution."""
+    return {name: {'purpose': COMMANDS[name], 'usage': usage, 'input': expected}
+            for name, (usage, expected) in INVESTIGATION_INPUTS.items()}

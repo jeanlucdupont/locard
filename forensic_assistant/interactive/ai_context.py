@@ -3,7 +3,7 @@ from contextlib import closing
 import time
 
 from forensic_assistant import __version__
-from forensic_assistant.command_catalog import COMMANDS
+from forensic_assistant.command_catalog import investigation_capabilities
 from forensic_assistant.database.sources import current
 from forensic_assistant.investigation_ai.case import open_readonly, read_transaction
 from .case import check_structure
@@ -30,12 +30,12 @@ def build_ai_case_context(path, case_name):
 
     context = {
         'case_name': bounded(case_name, 'case_name'),
-        'locard_version': __version__, 'mode': 'AI', 'evidence_supplied': False,
+        'locard_version': __version__, 'mode': 'AI',
+        'case_context_available': True, 'individual_records_inspected': False,
+        'forensic_conclusions_reached': False,
         'artifact_inventory': {kind: 0 for kind in categories},
         'count_basis': 'Retained normalized evidence records, not files or ingestion attempts',
-        'manual_commands': {name: COMMANDS[name] for name in (
-            'status', 'search', 'show', 'timeline', 'around', 'process-tree',
-            'logons', 'session', 'detections', 'investigate', 'semantic')},
+        'manual_commands': investigation_capabilities(),
     }
     with closing(open_readonly(path, deadline=time.monotonic() + 3)) as db:
         with read_transaction(db):

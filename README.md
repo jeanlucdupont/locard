@@ -310,7 +310,15 @@ case name, version, mode, actual retained record counts by supported artifact ca
 and current analyst-supplied source metadata. The first eight sources in creation/ID
 order are shown with exact total/shown counts; each label/metadata field is capped at
 160 characters and truncation is explicit. Source assertions are not verified findings.
-A concise set of investigation command descriptions comes from the command catalog.
+Compact command purposes and input/usage guidance come from the command catalog.
+Inventory questions can be answered directly from the supplied counts without first
+running `status`. Zero means no retained records in this case, not that the source
+system never contained that artifact. Case inventory, record inspection, and forensic
+conclusions are separate: inventory alone establishes no conclusion.
+For filename lookup, use `search --path coreupdater.exe --ids`; use `show <evidence-id>` only
+after obtaining an actual record ID. `artifact_inventory` is an internal context field,
+not a command. This guidance reduces invalid recommendations but cannot guarantee
+that a small model will always follow instructions.
 
 No individual records, EVTX bodies, Registry values, MFT filenames, browser URLs,
 Prefetch contents, command outputs, analyst/organization names, conversation or command
@@ -320,13 +328,17 @@ AI mode. Context strings are untrusted data in a separate structured message; th
 request remains the task. High-level counts do not establish findings about individual records.
 
 Manual smoke test (requires your existing local model): open a case with MFT, Registry,
-Prefetch and EVTX, enter `ai`, then:
+Prefetch and EVTX, enter `ai`, then ask both questions:
 
 ```text
+! What evidence is available in this case?
 ! We suspect coreupdater.exe executed after loot.zip was downloaded. How should I investigate this?
 ```
 
-Expect guidance using the available artifact categories and real Locard commands,
+Expect the first answer to give available categories/counts directly, acknowledge that
+individual records have not been inspected, and avoid claiming no evidence was supplied
+or requiring status. For the second, expect filename search followed by show only with
+a known evidence ID, using the available artifact categories and real Locard commands,
 without claiming specific records were inspected or the hypothesis proved. No command
 should run automatically, and the AI prompt should return. Automated tests mock inference;
 they do not establish the quality or factual accuracy of every model response.
