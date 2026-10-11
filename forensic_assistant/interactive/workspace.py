@@ -55,3 +55,40 @@ def elevated():
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except (AttributeError, OSError):
         return False
+
+
+def case_label(path):
+    """Read the creation label for UI only; this is not an audit-integrity verdict.
+
+    Guided creation writes CASE_CREATE first. Bound the historical prefix lookup,
+    reuse entry validation, and fall back safely for absent/damaged old sidecars.
+    """
+    from forensic_assistant import activity
+    import io
+    fallback = path.name
+    try:
+        if path.name.casefold() == 'case.db' and path.parent.parent == cases_root():
+            fallback = path.parent.name
+    except (OSError, ValueError):
+        pass
+    try:
+        with activity.locked(activity.sidecar(path)) as raw:
+            stream = io.BufferedReader(raw)
+            try:
+                previous = None
+                for sequence in range(1, 65):
+                    line = stream.readline(activity.MAX_ENTRY + 1)
+                    if not line:
+                        break
+                    entry = activity.decode(line)
+                    if entry['sequence'] != sequence or entry['previous_entry_hash'] != previous:
+                        break
+                    previous = entry['entry_hash']
+                    name = entry.get('case_name')
+                    if entry['action'] == 'CASE_CREATE' and entry['outcome'] == 'success' and isinstance(name, str) and name.strip():
+                        return name[:4096]
+            finally:
+                stream.detach()
+    except (OSError, ValueError):
+        pass
+    return fallback

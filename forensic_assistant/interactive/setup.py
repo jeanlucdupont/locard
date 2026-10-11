@@ -28,6 +28,8 @@ class Plan:
     browsers: list = field(default_factory=list)
     deferred: list = field(default_factory=list)
     limited: bool = False
+    browser_scanned: bool = False
+    browser_found: int = 0
 
 
 def outside_evidence(target, roots):
@@ -40,7 +42,7 @@ def outside_evidence(target, roots):
 
 def inventory_text(inventory, *, details=False, palette=None):
     palette = palette or Palette()
-    lines = [palette('key', 'Supported artifacts found (candidates; parser validation follows)')]
+    lines = [palette('key', 'Supported artifacts found (contents checked during ingestion)')]
     for kind in discovery.CATEGORIES:
         items = [i for i in inventory.candidates if i.kind == kind]
         if not items:
@@ -50,11 +52,29 @@ def inventory_text(inventory, *, details=False, palette=None):
         lines.extend('    ' + label + ': ' + str(count) for label, count in groups.items())
         if details:
             lines.extend('    ' + safe(i.path) for i in items)
-    if inventory.access_limits:
+    if inventory.profiles_scanned or inventory.access_limits.get('User profiles') or inventory.redirected.get('User profiles'):
+        lines.append(palette('key', 'User profile discovery'))
+        if inventory.profiles_scanned:
+            lines.append('  Profiles found: ' + str(inventory.profiles_found))
+        if inventory.access_limits.get('User profiles'):
+            lines.append('  Inaccessible: ' + palette('warning', str(len(inventory.access_limits['User profiles']))))
+        if inventory.redirected.get('User profiles'):
+            lines.append('  Redirected/junction entries skipped: ' + str(len(inventory.redirected['User profiles'])))
+    access = {k: v for k, v in inventory.access_limits.items() if k != 'User profiles'}
+    if access:
         lines.append(palette('key', 'Access limitations'))
-        lines.extend('  ' + label + ': ' + palette('warning', f'{len(paths)} inaccessible/redirected')
-                     for label, paths in inventory.access_limits.items())
-    notes = list(dict.fromkeys(n for n in inventory.notes if details or n not in inventory.access_notes))
+        lines.extend('  ' + label + ': ' + palette('warning', f'{len(paths)} inaccessible') for label, paths in access.items())
+    redirects = {k: v for k, v in inventory.redirected.items() if k != 'User profiles'}
+    if redirects:
+        lines.append(palette('key', 'Redirected/junction entries skipped'))
+        lines.extend('  ' + label + ': ' + str(len(paths)) for label, paths in redirects.items())
+    if inventory.unsupported:
+        lines.append(palette('key', 'Other forensic artifacts detected'))
+        lines.extend('  ' + safe(path if details else path.name) + ' — not currently supported' for path in inventory.unsupported)
+    unsupported_notes = {'Not currently supported by Locard: ' + str(p) for p in inventory.unsupported}
+    notes = list(dict.fromkeys(n for n in inventory.notes if n not in unsupported_notes and (details or n not in inventory.access_notes)))
+    if notes:
+        lines.append(palette('key', 'Discovery notes'))
     lines.extend('  ' + palette('warning', safe(note)) for note in (notes if details else notes[:10]))
     if not details and len(notes) > 10:
         lines.append(f'  {len(notes) - 10} further discovery notes; choose review for details.')
@@ -192,6 +212,7 @@ def collect(shell):
                     root = candidates[int(choice(read, 'Windows root number: ', tuple(str(i) for i in range(1, len(candidates) + 1)))) - 1]
                 print('Windows root: ' + safe(root))
                 inventory = discovery.scan(root)
+                plan.browser_scanned = True
                 inventory.notes[:0] = notes
                 roots = [supplied]
             elif mode == '2':
@@ -202,18 +223,22 @@ def collect(shell):
                     source = discovery.input_path(path('Artifact file or folder: '))
                     outside_evidence(target, [source])
                     found = discovery.manual(source, kind)
+                    plan.browser_scanned = plan.browser_scanned or kind == 'browser'
                     for item in found.candidates:
                         inventory.add(item.path, item.kind, item.group)
                     inventory.notes.extend(found.notes)
                     inventory.access_notes.update(found.access_notes)
                     for label, paths in found.access_limits.items():
                         inventory.access_limits[label].update(paths)
+                    for label, paths in found.redirected.items():
+                        inventory.redirected[label].update(paths)
                     roots.append(source)
             else:
                 break
         except (OSError, ValueError) as exc:
             print(palette('error', human_error(exc)))
             continue
+        plan.browser_found = sum(i.kind == 'browser' for i in inventory.candidates)
         print(inventory_text(inventory, palette=palette))
         if not inventory.candidates:
             print('No supported candidates selected. Choose another source or explicitly skip ingestion.')
@@ -267,14 +292,15 @@ def collect(shell):
             print('  ' + key + ' (analyst supplied): ' + safe(value))
     for item in plan.deferred:
         print(palette('key', 'MFT') + '\n  Found: ' + safe(item.path))
-        print(palette('warning', '  Directly ingestable: 0; ' + item.access))
+        print(palette('error', '  Direct ingestion: unavailable'))
         if item.access == 'requires extraction':
-            print(palette('warning', 'Direct access is unavailable on this mounted NTFS volume.\n'
-                          'Locard currently requires an extracted $MFT file. Other discovered artifacts can still be ingested.'))
+            print(palette('warning', '  Direct access is not possible on this mounted NTFS volume.\n'
+                          '  Use a third-party tool to extract $MFT as a standard file, then ingest the extracted file with Locard.'))
         else:
             print(palette('warning', 'File access is unavailable; supply an accessible extracted MFT.'))
     if not plan.items:
         print('No readable evidence selected for ingestion.')
+    print('You can add more evidence to this case later using the manual ingest commands.')
     if choice(read, 'Create case and start ingestion? [Y/n]: ', ('y', 'yes', 'n', 'no'), 'y') not in ('y', 'yes'):
         raise EOFError
     return plan
@@ -322,7 +348,7 @@ def execute(plan, session, palette):
             event.update(source_id=source_id, assertion=sources.current(db, source_id))
     outcomes = {i.kind: i.access for i in plan.deferred}
     print(palette('key', 'Ingestion is starting.'))
-    print('Large evidence sets can take several minutes. Progress updates between files; no mid-file estimate.')
+    print('Large evidence sets can take several minutes.')
     for kind in discovery.CATEGORIES:
         selected = [i for i in plan.items if i.kind == kind]
         if not selected:
@@ -373,7 +399,7 @@ def execute(plan, session, palette):
             print('    Verification limitations: ' + palette('forensic_note', str(limitations)) +
                   ' | Other recorded errors: ' + palette('error' if other else 'success', str(other)))
         for limitation, count in progress.limitations.items():
-            print('    ' + palette('forensic_note', safe(limitation) + f' ({count} occurrences)'))
+            print('    ' + palette('forensic_note', setup_display.human_limitation(limitation, kind, count)))
     return outcomes
 
 
@@ -424,15 +450,18 @@ def create(shell):
         shell.mode = Mode.EXPERT
         session.record('SHELL_MODE', mode='EXPERT', basis='Completed guided case setup')
         message = setup_display.completion(plan, outcomes, stored)
-        print(palette('success' if message == 'Case ready.' else 'error' if 'ingestion failed' in message else 'warning', message))
+        print(setup_display.completion_line(message, palette))
         print(palette('key', 'Case') + '\n  ' + safe(plan.name))
         print(palette('key', 'Workspace') + '\n  ' + safe(plan.target.parent))
         print(palette('key', 'Ingestion'))
         for kind in discovery.CATEGORIES:
-            status = outcomes.get(kind, 'not selected')
-            print('  ' + palette('key', kind.ljust(10)) + palette(setup_display.role(status), status))
-        print(palette('key', 'Next steps') + '\n\nExpert mode\n  Continue with forensic commands.\n\n'
-              'AI-assisted mode\n  Type: ai\n\nReports\n  Use: report generate')
+            status = outcomes.get(kind, 'no supported history found' if kind == 'browser' and plan.browser_scanned and not plan.browser_found else 'not selected')
+            print('  ' + palette('error' if status == 'requires extraction' else 'key', kind.ljust(10)) + palette(setup_display.role(status), status))
+        if plan.browser_scanned and not plan.browser_found:
+            print('No supported Chrome or Edge History files were found in the accessible profiles/locations scanned.')
+        print('The case has been created. You can add more evidence at any time, or start investigating now.\n\n'
+              'To investigate, stay in Expert mode and use Locard commands directly,\n'
+              'or type ai to enter AI-assisted mode. In AI mode, prefix natural-language requests with !.')
         return True
     except (KeyboardInterrupt, EOFError):
         if session:

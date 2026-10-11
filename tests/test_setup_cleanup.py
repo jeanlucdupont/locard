@@ -59,7 +59,8 @@ def test_managed_workspace_and_normal_prompts(tmp_path, capsys):
     text = capsys.readouterr().out
     assert 'A Locard investigation has three steps:' in text
     assert 'Case created. No evidence ingested.' in text and 'Case ready.' not in text
-    assert 'Next steps' in text and 'Use: report generate' in text
+    assert 'Next steps' not in text and 'Use: report generate' not in text
+    assert 'prefix natural-language requests with !' in text
 
 
 @pytest.mark.parametrize('answers', [('cancel',), ('Example', 'CANCEL'), ('Example', '', 'Cancel'),
@@ -115,7 +116,7 @@ def test_access_limitations_aggregated_without_path_flood(tmp_path, capsys):
     for n in range(50):
         inventory.inaccessible(tmp_path / f'user{n}', 'User profiles', 'PermissionError')
     rendered = setup.inventory_text(inventory)
-    assert '50 inaccessible' in rendered and 'user0' not in rendered
+    assert 'Inaccessible: 50' in rendered and 'user0' not in rendered
     assert len(rendered.splitlines()) < 6
     assert 'user0' in setup.inventory_text(inventory, details=True)
 
@@ -168,7 +169,7 @@ def test_inaccessible_mounted_mft_is_deferred(tmp_path, monkeypatch, capsys):
         assert db.execute('SELECT count(*) FROM ingestion_runs').fetchone()[0] == 1
         assert {r[0] for r in db.execute('SELECT source_type FROM evidence_records')} == {'prefetch'}
     text = capsys.readouterr().out
-    assert 'requires an extracted $MFT' in text and 'Directly ingestable: 0' in text
+    assert 'extract $MFT as a standard file' in text and 'Direct ingestion: unavailable' in text
     assert 'requires extraction' in text and 'Case ready.' not in text
     assert 'Permission denied' not in text
 

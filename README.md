@@ -134,7 +134,7 @@ Interactive command help omits the repeated color option; `help` and `help color
 document it. Direct CLI help continues listing `--no-color`.
 
 The command prompt shows only the selected database basename, for example
-`[mixeddesktop]>` or `[case.db]>`, retaining the current prompt style. A valid case
+`[mixeddesktop]>` or `[my 3rd case]>`, retaining the current prompt style. A valid case
 is still required before entering the command loop. Normal `exit`, `quit`, or EOF
 prints `Locard session ended.` and the selected case path, if any. Ctrl+C continues
 to cancel the current input or command without ending the session.
@@ -187,14 +187,19 @@ require selecting one. Root discovery is bounded to 256 directories; inventories
 
 On Windows, non-elevated scans offer cancellation/restart or explicit continuation
 with limited access. Locard never elevates or requests credentials. Administrator
-status does not guarantee access; inaccessible paths are summarized by category,
-with details available in path review.
+status does not guarantee access. User-profile counts distinguish inaccessible paths
+from skipped junction/reparse entries. Details remain available in path review;
+recognized unsupported artifacts have their own informational section.
 
 Known browser paths provide product, owner-path label and profile context. A profile
 must contain a supported artifact such as `History`. Select **all**, **none**, or
 profile numbers explicitly; multiple profiles have no default-to-all. Manual browser
 files require explicit product/profile values. Selection confirms browser context,
-not a Windows identity. Existing snapshot-companion handling is unchanged.
+not a Windows identity. When scanning finds none, the final summary says
+`no supported history found`, scoped to accessible scanned locations; this is not
+a claim that browser evidence exists nowhere. `not selected` means candidates were
+available but not chosen (or that browser discovery was not requested). Existing
+snapshot-companion handling is unchanged.
 
 The numbered artifact menu offers all categories, selected categories, path review,
 or cancellation. Manual selection uses shared discovery/ingestion, bounded to eight
@@ -219,7 +224,13 @@ Completion distinguishes success, limitations, no ingestion, and failed ingestio
 Committed evidence survives later failures. A case with no stored records requires
 explicit activation unless an empty case was requested. Cancellation preserves the
 previous active case; published databases, committed work and requested directories
-are retained. Structured next steps cover Expert mode, `ai`, and `report generate`.
+are retained. Post-creation guidance explains adding evidence with manual ingestion,
+investigating in Expert mode, and entering `ai` mode with `!` natural-language requests.
+Case creation success stays green independently of amber limitations or red failures.
+Mounted MFT requiring extraction is red, not partial. Human Registry messages explain
+that unreplayed logs may leave recent uncommitted changes missing; EVTX messages
+distinguish retained records from unsuccessful ingestion. Detailed/raw diagnostics
+and machine-readable counters retain their original meaning.
 
 Disk images (`.E01`, `.raw`, `.dd`, `.img`, `.vhd`, `.vhdx`) must be mounted or extracted
 externally. Locard does not mount them. Root memory/page/hibernation files are reported
@@ -227,8 +238,11 @@ as unsupported; automatic discovery is not a claim of complete acquisition.
 
 ### Advisory AI shell mode
 
-Every shell starts in **expert mode**, with the existing blue `[case.db]>` prompt.
-Type `ai` to enter AI-assisted mode: the prompt becomes purple `[case.db]#`.
+Every shell starts in **expert mode**, with a blue `[my 3rd case]>` prompt.
+The human case name is read from the existing creation activity entry on activation,
+including reopening. If unavailable, managed cases use their workspace name; older
+standalone databases use their filename. Labels are escaped and bounded for display.
+Type `ai` to enter AI-assisted mode: the prompt becomes purple `[my 3rd case]#`.
 Type `expert` to return. The suffix remains distinct without color; `#` is a mode
 marker, not elevated operating-system privilege. Mode is session-only and is not saved.
 
@@ -236,10 +250,10 @@ All normal commands still use the ordinary parser and dispatcher in both modes.
 Only a line beginning with optional whitespace followed by `!` requests AI advice:
 
 ```text
-[case.db]> ai
-[case.db]# semantic status
-[case.db]# ! Does MFT presence prove execution?
-[case.db]# expert
+[my 3rd case]> ai
+[my 3rd case]# semantic status
+[my 3rd case]# ! Does MFT presence prove execution?
+[my 3rd case]# expert
 ```
 
 The first `!` and one optional following space are removed; remaining text is passed

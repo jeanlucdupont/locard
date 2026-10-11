@@ -29,7 +29,9 @@ def command_help(name):
                    'access is recommended, not guaranteed. Type cancel to stop; Enter accepts defaults. '
                    'Review candidates and confirm before anything is created or ingested. '
                    'Disk images must be mounted/extracted separately. Existing case new and expert ingest-* '
-                   'commands remain available. Completion returns to Expert mode; no model is called.')
+                   'commands remain available for adding evidence later. Completion returns to Expert mode; '
+                   'type ai for AI-assisted mode and prefix natural-language requests with !. '
+                   'The prompt uses the human case name when available. No model is called during setup.')
     if name in ('ai', 'expert'):
         result += ('\nUse ai to enter AI mode and expert to return to expert mode. '
                    'In AI mode, prefix natural-language requests with !. '

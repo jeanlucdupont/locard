@@ -37,12 +37,22 @@ class Inventory:
     _seen: set = field(default_factory=set, repr=False)
     access_limits: dict = field(default_factory=lambda: defaultdict(set))
     access_notes: set = field(default_factory=set)
+    redirected: dict = field(default_factory=lambda: defaultdict(set))
+    profiles_found: int = 0
+    profiles_scanned: bool = False
+    unsupported: list = field(default_factory=list)
 
     def inaccessible(self, path, category, reason):
         note = 'Directory or file could not be inspected: ' + str(path) + ' (' + reason + ')'
         self.notes.append(note)
         self.access_notes.add(note)
         self.access_limits[category].add(str(path))
+
+    def redirected_path(self, path, category):
+        note = 'Redirected/junction entry skipped: ' + str(path)
+        self.notes.append(note)
+        self.access_notes.add(note)
+        self.redirected[category].add(str(path))
 
     def children(self, directory, category='User profiles'):
         """Never follow redirected directories, including Windows junctions."""
@@ -51,7 +61,7 @@ class Inventory:
             try:
                 safe_path(directory)
             except ValueError:
-                self.inaccessible(directory, category, 'redirection rejected')
+                self.redirected_path(directory, category)
                 return result
             if not stat.S_ISDIR(directory.stat().st_mode):
                 return result
@@ -62,8 +72,10 @@ class Inventory:
                 try:
                     safe_path(path)
                     result.append(path)
-                except (ValueError, OSError):
-                    self.inaccessible(path, category, 'redirection or access failure')
+                except ValueError:
+                    self.redirected_path(path, category)
+                except OSError as exc:
+                    self.inaccessible(path, category, type(exc).__name__)
         except FileNotFoundError:
             pass
         except OSError as exc:
@@ -80,7 +92,9 @@ class Inventory:
                     self.candidates.append(candidate)
         except FileNotFoundError:
             pass
-        except (ValueError, OSError) as exc:
+        except ValueError:
+            self.redirected_path(path, kind)
+        except OSError as exc:
             self.inaccessible(path, kind, type(exc).__name__)
 
 
@@ -162,9 +176,11 @@ def scan(root):
         for path in inventory.children(root / directory, kind):
             if path.suffix.casefold() == suffix:
                 inventory.add(path, kind)
+    inventory.profiles_scanned = True
     for user in inventory.children(root / 'Users'):
         if not user.is_dir():
             continue
+        inventory.profiles_found += 1
         hives(user, {'ntuser.dat'}, 'user hive')
         hives(user / 'AppData/Local/Microsoft/Windows', {'usrclass.dat'}, 'user hive')
         for product, relative in (
@@ -179,6 +195,7 @@ def scan(root):
         path = root / name
         try:
             if safe_path(path).is_file():
+                inventory.unsupported.append(path)
                 inventory.notes.append('Not currently supported by Locard: ' + str(path))
         except (OSError, ValueError):
             inventory.notes.append('Skipped redirected or inaccessible path: ' + str(path))

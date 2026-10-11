@@ -8,8 +8,8 @@ from forensic_assistant.terminal import Palette, capable, replace_progress_line
 
 
 def role(status):
-    return ('success' if status == 'complete' else 'error' if status in ('failed', 'changed')
-            else 'secondary_text' if status == 'not selected' else 'warning')
+    return ('success' if status == 'complete' else 'error' if status in ('failed', 'changed', 'requires extraction')
+            else 'secondary_text' if status in ('not selected', 'no supported history found') else 'warning')
 
 
 def category_line(kind, progress, palette):
@@ -58,7 +58,7 @@ def diagnostic_groups(db, run_ids=None):
     """Only two known verification notes qualify, with retained records + diagnostics."""
     groups = {}
     for row in db.execute('''SELECT e.*,a.locator_json,r.status,r.inserted_count,r.duplicate_count,
-                                   r.file_sha256 FROM ingestion_errors e JOIN ingestion_runs r ON r.id=e.run_id
+                                   r.file_sha256,r.source_file FROM ingestion_errors e JOIN ingestion_runs r ON r.id=e.run_id
                             LEFT JOIN artifact_errors a ON a.error_id=e.id ORDER BY e.id'''):
         if run_ids is not None and row['run_id'] not in run_ids:
             continue
@@ -76,25 +76,70 @@ def diagnostic_groups(db, run_ids=None):
             row['message'] == 'File header verification failed' or (
                 row['message'] == 'Validated EVTX chunks extend beyond the declared chunk count'
                 and details.get('recovery') == 'validated_contiguous_dirty_tail'))
-        key = (row['stage'], row['message'], bool(limitation))
+        no_records = row['inserted_count'] + row['duplicate_count'] == 0 and row['status'] in ('partial', 'failed', 'changed')
+        key = (row['stage'], row['message'], bool(limitation), no_records)
         group = groups.setdefault(key, dict(stage=row['stage'], message=row['message'],
-                                          limitation=bool(limitation), count=0, runs=set()))
+                                          limitation=bool(limitation), no_records=no_records, count=0, runs=set(), files=set()))
         group['count'] += 1
         group['runs'].add(row['run_id'])
+        group['files'].add(row['source_file'])
     return list(groups.values())
+
+
+def human_limitation(message, kind=None, count=1):
+    from forensic_assistant.artifacts.registry_logs import LIMITATION
+    if message == LIMITATION:
+        return ('Registry transaction logs detected but not replayed. '
+                'Recent uncommitted Registry changes may be missing.')
+    if message == 'Source signature does not match requested artifact type':
+        formats = {'registry': 'Registry hives', 'prefetch': 'Prefetch files', 'mft': 'MFT files',
+                   'evtx': 'Windows event logs', 'browser': 'supported browser History files'}
+        if kind in formats:
+            if count == 1:
+                return f'1 file was skipped because it was not a valid {formats[kind][:-1]}.'
+            return f'{count} files were skipped because they were not valid {formats[kind]}.'
+        return 'Some discovered files did not match the expected artifact format and were skipped.'
+    return safe(message) + f' ({count} occurrences)'
+
+
+def evtx_diagnostic(group):
+    count = len(group['files'])
+    message = group['message']
+    files = f'{count} file' + ('s' if count != 1 else '')
+    if message == 'File header verification failed':
+        if group['limitation']:
+            return f'{files} had header verification issues, but records were recovered and retained.'
+        if group['no_records']:
+            return f'{files} could not be successfully ingested because header verification failed; no records were retained.'
+        return f'{files} had header verification issues; inspect detailed ingestion diagnostics for the evidence outcome.'
+    if message == 'Validated EVTX chunks extend beyond the declared chunk count' and group['limitation']:
+        return f'{files} contained additional validated EVTX chunks beyond the declared count; those records were retained.'
+    return None
 
 
 def print_diagnostics(db, palette):
     groups = diagnostic_groups(db)
-    for limitation, heading in ((True, 'Parser verification limitations (records retained)'),
-                                (False, 'Other recorded ingestion errors')):
-        selected = [g for g in groups if g['limitation'] == limitation]
-        if selected:
-            print(palette('key', heading))
-        for group in selected:
-            print(palette('forensic_note' if limitation else 'error',
-                          '- ' + safe(group['message']) + f" — {group['count']:,} occurrences across "
-                          f"{len(group['runs']):,} ingestion attempts"))
+    evtx = [(g, evtx_diagnostic(g)) for g in groups]
+    selected = [(g, text) for g, text in evtx if text]
+    if selected:
+        print(palette('key', 'EVTX ingestion limitations'))
+        for group, text in selected:
+            print('- ' + palette('forensic_note' if group['limitation'] else 'error', text))
+    other = [g for g, text in evtx if not text]
+    if other:
+        print(palette('key', 'Other ingestion limitations and errors'))
+    from forensic_assistant.artifacts.registry_logs import LIMITATION
+    for group in other:
+        print('- ' + palette('forensic_note' if group['message'] == LIMITATION else 'error',
+                             human_limitation(group['message'], count=group['count'])))
+
+
+def completion_line(message, palette):
+    if message.startswith('Case created.'):
+        return palette('success', 'Case created.') + palette('warning', message[len('Case created.'):])
+    if message.startswith('Case created,'):
+        return palette('success', 'Case created') + palette('error', message[len('Case created'):])
+    return palette('success', message)
 
 
 def completion(plan, outcomes, stored):

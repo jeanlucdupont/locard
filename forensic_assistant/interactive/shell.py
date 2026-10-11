@@ -61,6 +61,7 @@ class Shell:
         self.state = state
         self.reader = reader or Reader()
         self.active = None
+        self.case_label = None
         self.audit = None
         self.last_status = 0
         self.no_color = no_color
@@ -98,6 +99,8 @@ class Shell:
         self.audit = activity_session or activity.Session(target)
         self.audit.start()
         self.active = target
+        from .workspace import case_label
+        self.case_label = case_label(target)
         self.reader.clear()
         try:
             self.state.remember(target)
@@ -238,7 +241,7 @@ class Shell:
                     self.reader.clear()
                     if not self.menu():
                         return 0
-                label = safe(self.active.name)
+                label = safe(self.case_label or self.active.name)
                 if len(label) > 80:
                     label = label[:38] + '...' + label[-39:]
                 executing = False
