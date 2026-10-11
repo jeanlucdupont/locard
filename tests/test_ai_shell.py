@@ -65,11 +65,11 @@ def test_no_color_environment_still_distinguishes_modes(tmp_path, monkeypatch, m
 def test_exact_natural_language_routing(tmp_path, model, line, expected):
     shell, _, _ = run_shell(tmp_path, 'ai', line)
     assert len(model) == 1 and shell.mode is Mode.AI
-    supplied = json.loads(model[0][0][1]['content'])
-    assert supplied['request'] == expected
+    supplied = json.loads(model[0][0][1]['content'])['case_context']
+    assert json.loads(model[0][0][2]['content'])['request'] == expected
     assert supplied['case_name'] == 'case é.db'
     assert supplied['locard_version'] == __version__ and supplied['mode'] == 'AI'
-    assert supplied['evidence_supplied'] is False and supplied['artifact_inventory'] == 'Not supplied'
+    assert supplied['evidence_supplied'] is False and supplied['artifact_inventory'] == dict.fromkeys(('evtx', 'mft', 'prefetch', 'registry', 'browser'), 0)
     assert str(tmp_path) not in model[0][0][1]['content']
 
 
@@ -158,13 +158,13 @@ def test_malformed_response_fails_safely(monkeypatch, raw):
             return raw
     monkeypatch.setattr(advisory, 'LocalClient', Client)
     with pytest.raises(advisory.AdvisoryError, match='invalid response'):
-        advisory.advise('synthetic', 'question')
+        advisory.advise({'case_name': 'synthetic'}, 'question')
 
 
 @pytest.mark.parametrize('question', ['', '  ', 'x' * 4097, 'é' * 2049, 'line\nbreak', 'a\x00b'])
 def test_empty_and_oversized_requests_do_not_contact_model(model, question):
     with pytest.raises(advisory.AdvisoryError):
-        advisory.advise('synthetic', question)
+        advisory.advise({'case_name': 'synthetic'}, question)
     assert not model
 
 
@@ -188,7 +188,7 @@ def test_model_terminal_controls_are_escaped(monkeypatch):
         def complete(self, *_a, **_k):
             return json.dumps({'advice': '\u001b[2Jhidden\u202e\nstatus'})
     monkeypatch.setattr(advisory, 'LocalClient', Client)
-    text = advisory.advise('synthetic', 'question')
+    text = advisory.advise({'case_name': 'synthetic'}, 'question')
     assert '\u001b' not in text and '\u202e' not in text
     assert '\nstatus' in text
 
@@ -205,7 +205,7 @@ def test_wrapped_transport_timeout_preserves_clear_error(monkeypatch):
                 raise LLMError('wrapped transport error') from exc
     monkeypatch.setattr(advisory, 'LocalClient', Client)
     with pytest.raises(advisory.AdvisoryError, match='timed out'):
-        advisory.advise('synthetic', 'question')
+        advisory.advise({'case_name': 'synthetic'}, 'question')
 
 
 def test_help_completion_and_bang_no_completion():
@@ -227,7 +227,7 @@ def test_case_switch_uses_fresh_context_without_conversation(tmp_path, model):
     shell = Shell(State(None), reader)
     assert shell.run() == 0 and shell.mode is Mode.AI
     assert len(model) == 2
-    assert json.loads(model[1][0][1]['content'])['case_name'] == 'b.db'
+    assert json.loads(model[1][0][1]['content'])['case_context']['case_name'] == 'b.db'
     assert 'first private question' not in json.dumps(model[1])
     assert before == (a.read_bytes(), b.read_bytes())
     assert Shell(State(None)).mode is Mode.EXPERT

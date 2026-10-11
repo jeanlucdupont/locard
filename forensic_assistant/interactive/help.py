@@ -49,7 +49,8 @@ def command_help(name):
                    'All standard Locard commands remain available. '
                    'AI is advisory only: it does not execute commands. '
                    'The # prompt marks AI mode, not elevated OS privileges. '
-                   'Each request is independent; no conversation or raw evidence is automatically supplied.')
+                   'Each request receives fresh bounded high-level case context: retained artifact counts and source metadata. '
+                   'Individual records are not inspected; no conversation or raw evidence is automatically supplied.')
     return result
 
 

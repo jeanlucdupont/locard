@@ -74,7 +74,12 @@ class Shell:
     def request_advice(self, request):
         from .advisory import advise, AdvisoryError
         try:
-            response = advise(self.active.name, request)
+            from .ai_context import build_ai_case_context
+            try:
+                context = build_ai_case_context(self.active, self.case_label)
+            except (OSError, ValueError, sqlite3.Error):
+                raise AdvisoryError('AI case context unavailable. No action was taken.') from None
+            response = advise(context, request)
         except KeyboardInterrupt:
             self.audit.record('AI_ADVICE', 'cancelled', request_characters=len(request))
             raise

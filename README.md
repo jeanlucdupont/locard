@@ -305,10 +305,31 @@ completion is not mode-sensitive, and natural-language text has no completion.
 Advice uses the existing analysis `LocalClient` and its default numeric loopback endpoint
 (`http://127.0.0.1:8080`), with a 45-second deadline. It does not use the embedding model.
 Entering or leaving AI mode never contacts a model. Requests are independent and bounded
-to 4096 UTF-8 bytes. Only the active database basename, application version, mode and
-question are supplied, plus a small command-help catalog. No evidence, artifact counts, previous output, full path, unrelated
-files or conversation history are automatically included. Paste relevant bounded context
-in your question if needed; user assertions are not treated as authoritative evidence.
+to 4096 UTF-8 bytes. Before each request a short read-only snapshot supplies the human
+case name, version, mode, actual retained record counts by supported artifact category,
+and current analyst-supplied source metadata. The first eight sources in creation/ID
+order are shown with exact total/shown counts; each label/metadata field is capped at
+160 characters and truncation is explicit. Source assertions are not verified findings.
+A concise set of investigation command descriptions comes from the command catalog.
+
+No individual records, EVTX bodies, Registry values, MFT filenames, browser URLs,
+Prefetch contents, command outputs, analyst/organization names, conversation or command
+history are automatically included. Ingestion limitations are omitted rather than inferred
+from terminal output. New evidence is reflected in the next request without reopening
+AI mode. Context strings are untrusted data in a separate structured message; the analyst's
+request remains the task. High-level counts do not establish findings about individual records.
+
+Manual smoke test (requires your existing local model): open a case with MFT, Registry,
+Prefetch and EVTX, enter `ai`, then:
+
+```text
+! We suspect coreupdater.exe executed after loot.zip was downloaded. How should I investigate this?
+```
+
+Expect guidance using the available artifact categories and real Locard commands,
+without claiming specific records were inspected or the hypothesis proved. No command
+should run automatically, and the AI prompt should return. Automated tests mock inference;
+they do not establish the quality or factual accuracy of every model response.
 
 The response is labeled advisory, not evidence. Suggested commands must be entered by
 the analyst: the assistant cannot dispatch commands, ingest, create cases, modify evidence
