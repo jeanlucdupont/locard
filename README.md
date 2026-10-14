@@ -406,6 +406,17 @@ keys, duplicate keys (including nested keys), invalid types, internal vocabulary
 and wholly empty responses fail closed. The local validator enforces these limits
 independently of the model server.
 
+Investigation guidance instructs the model to use exact analyst-supplied values in
+supported command syntax, address every relevant entity, and locate/inspect both
+sides before comparing timing. Unknown evidence IDs, timestamps, and logon IDs stay
+placeholders. Inventory contains categories/counts, not filename-level contents.
+Assessment and cautions should describe the forensic situation; operating rules
+are applied silently. These are model guidance, not guaranteed semantic validation:
+Locard does not extract entities, fill placeholders, add omitted commands, reorder
+reasoning, or reject safe advice solely for incomplete entity coverage. Commands
+remain display-only. Prompt tests and mocked fixtures do not establish live model
+accuracy or completeness.
+
 Fallback policy is **strict structured advisory**: no legacy `{"advice": "..."}`
 or unstructured prose fallback for interpretive answers. Deterministic inventory
 remains available without the model. Inventory/source fields are not part of model
