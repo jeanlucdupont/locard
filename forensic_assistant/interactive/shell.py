@@ -72,7 +72,7 @@ class Shell:
         return Palette(enabled(self))(role, '[' + label + ']' + suffix + ' ')
 
     def request_advice(self, request):
-        from .advisory import advise, AdvisoryError
+        from .advisory import advise, AdvisoryError, response_characters
         try:
             from .ai_context import build_ai_case_context
             try:
@@ -86,7 +86,7 @@ class Shell:
         except AdvisoryError:
             self.audit.record('AI_ADVICE', 'failure', request_characters=len(request))
             raise
-        self.audit.record('AI_ADVICE', request_characters=len(request), response_characters=len(response),
+        self.audit.record('AI_ADVICE', request_characters=len(request), response_characters=response_characters(response),
                           basis='Derived advisory text; no evidence supplied; no commands executed')
         print(Palette(enabled(self))('ai_prompt', 'AI assistant — advisory, not evidence'))
         from .advisory_display import render

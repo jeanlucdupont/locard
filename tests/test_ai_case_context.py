@@ -122,7 +122,7 @@ def test_untrusted_strings_remain_separate_data_and_catalog(tmp_path, model):
     assert context['manual_commands']
     assert all(COMMANDS[k] == v['purpose'] for k, v in context['manual_commands'].items())
     assert not set(COMMAND_ALIASES) & context['manual_commands'].keys()
-    assert schema['required'] == ['advice'] and schema['additionalProperties'] is False
+    assert schema['required'] == ['goal', 'assessment', 'steps', 'cautions'] and schema['additionalProperties'] is False
     assert 'untrusted DATA' in advisory.SYSTEM and 'NOT inspected' in advisory.SYSTEM
 
 

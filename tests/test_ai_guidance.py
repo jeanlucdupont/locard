@@ -63,7 +63,7 @@ def test_inventory_semantics_and_separation(tmp_path, model, question):
     assert messages[0]['content'] == advisory.SYSTEM
     assert json.loads(messages[1]['content']) == {'case_context': context}
     assert json.loads(messages[2]['content']) == {'request': question}
-    assert schema['required'] == ['advice']
+    assert schema['required'] == ['goal', 'assessment', 'steps', 'cautions']
     for phrase in ('Case-level inventory IS available', 'Answer inventory questions directly',
                    'You have NOT inspected individual records', 'Inventory alone supports no forensic conclusion',
                    'NOT that the source system never contained them', 'Do not require status',

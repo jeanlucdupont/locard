@@ -387,22 +387,44 @@ Current assessment
 The example is synthetic. Zero means no retained records in the case, not that the
 source system never contained that artifact. Version/mode metadata is omitted from
 normal answers; unsolicited model echoes are rejected. Explicit version/mode questions
-may include it. Investigation guidance is prompted to use Goal, Suggested approach,
-Recommended commands, and Important cautions, with command lines separate from
-explanations. These are presentation preferences, never execution instructions.
-AI prose wraps at word boundaries before colors are applied; overlong tokens may
-still wrap to fit the terminal. Indentation is retained.
+may include it. Interpretive guidance uses strict structured local-model JSON:
 
-Responses preferably use two to five short advisory sections; one to ten unique recognized sections are accepted, and safe unstructured prose is wrapped neutrally without invented headings. The existing JSON `advice` string
-uses a lightweight heading convention; no new model JSON schema or tool protocol is
-required. Inventory and source sections are rendered from the current bounded summary,
-not model-written counts. Any model content under those two headings is discarded. Unusable/repeated sections or leaked internal prompt vocabulary
-are rejected without taking action. A labeled, terminal-escaped diagnostic preview
-(up to 6,000 characters before line indentation) shows the rejected model response and
-a concise failure category. This unvalidated text is not an accepted advisory answer
-and is not stored in the activity log.
-Headings use the existing heading style, command sections cyan, and cautions amber;
-ordinary prose stays uncolored. AI claims are never styled as verified successes.
+```json
+{
+  "goal": "Determine the sequence of events.",
+  "assessment": [],
+  "steps": [{"text": "Inspect returned records.", "commands": ["show <evidence-id>"]}],
+  "cautions": ["File presence alone does not prove execution."]
+}
+```
+
+All four keys are required; `goal` may be null or empty. Limits are 500 characters
+for goal, six assessment items of 500 characters, eight steps with text of 800
+characters, six single-line commands of 500 characters per step, and eight cautions
+of 500 characters. The entire response is limited to 16,384 UTF-8 bytes. Unknown
+keys, duplicate keys (including nested keys), invalid types, internal vocabulary,
+and wholly empty responses fail closed. The local validator enforces these limits
+independently of the model server.
+
+Fallback policy is **strict structured advisory**: no legacy `{"advice": "..."}`
+or unstructured prose fallback for interpretive answers. Deterministic inventory
+remains available without the model. Inventory/source fields are not part of model
+JSON and cannot override Locard's authoritative data. No bracket-section parser
+remains in this advisory path.
+
+Locard owns headings, ordered step numbers, command indentation, blank lines,
+colors, and word-boundary wrapping. Commands appear beneath their associated step;
+empty Goal, Current assessment, Suggested approach, or Important cautions sections
+are omitted. Overlong tokens may wrap to fit the terminal. Commands are strings
+for display only: the renderer never parses or executes them. Catalog grounding
+is supplied to the model; schema validity does not establish command correctness
+or forensic truth.
+
+A labeled, terminal-escaped diagnostic preview (up to 6,000 characters before
+indentation) shows rejected output with a concise failure category. It is not an
+accepted answer and is not stored in the activity log. Headings retain the heading
+style, commands cyan, cautions amber, and ordinary text neutral; AI claims are
+never styled as verified successes.
 
 Illustrative advisory output for the Standard2 smoke-test question above:
 
@@ -432,13 +454,13 @@ manual visual acceptance checks; mocked tests do not guarantee model advice qual
 
 The response is labeled advisory, not evidence. Suggested commands must be entered by
 the analyst: the assistant cannot dispatch commands, ingest, create cases, modify evidence
-or run tools. Free-form advice can be wrong and is not report-style evidence grounding.
+or run tools. Structured advice can be wrong and is not report-style evidence grounding.
 Failures, malformed replies, timeout and Ctrl+C leave the shell usable in its current mode.
 There are no downloads, automatic installations, Internet calls or persistent investigation
 plans. Normal case creation and ingestion remain deterministic.
 
 Existing derived activity records `SHELL_MODE` transitions and `AI_ADVICE` success/failure/
-cancellation with text lengths. Request/response prose is not written to the activity
+cancellation with text lengths (response length counts structured text fields, not keys). Request/response prose is not written to the activity
 sidecar or evidence database. Ordinary in-memory shell recall remains available. Audit
 hashing and chain verification are unchanged.
 
