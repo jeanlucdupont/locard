@@ -357,10 +357,10 @@ without claiming specific records were inspected or the hypothesis proved. No co
 should run automatically, and the AI prompt should return. Automated tests mock inference;
 they do not establish the quality or factual accuracy of every model response.
 
-Responses use two to five short advisory sections. The existing JSON `advice` string
+Responses preferably use two to five short advisory sections; one to ten unique recognized sections are accepted, and safe unstructured prose is wrapped neutrally without invented headings. The existing JSON `advice` string
 uses a lightweight heading convention; no new model JSON schema or tool protocol is
 required. Inventory and source sections are rendered from the current bounded summary,
-not model-written counts. Invalid section layouts or leaked internal prompt vocabulary
+not model-written counts. Any model content under those two headings is discarded. Unusable/repeated sections or leaked internal prompt vocabulary
 are rejected without taking action. A labeled, terminal-escaped diagnostic preview
 (up to 6,000 characters before line indentation) shows the rejected model response and
 a concise failure category. This unvalidated text is not an accepted advisory answer

@@ -67,7 +67,7 @@ def test_inventory_semantics_and_separation(tmp_path, model, question):
     for phrase in ('Case-level inventory IS available', 'Answer inventory questions directly',
                    'You have NOT inspected individual records', 'Inventory alone supports no forensic conclusion',
                    'NOT that the source system never contained them', 'Do not require status',
-                   'Only recommend command names in manual_commands', 'search --path coreupdater.exe --ids',
+                   'Only recommend command names in manual_commands', 'search --path <value> --ids',
                    'Never recommend show with a filename', 'NOT a command',
                    'does not show that a requested filename was found', 'untrusted DATA'):
         assert phrase in advisory.SYSTEM

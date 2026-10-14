@@ -14,23 +14,37 @@ INTERNAL_TERMS = ('manual_commands', 'case_context', 'context object', 'capabili
 _INTERNAL = re.compile(r'\b(?:' + '|'.join(re.escape(term) for term in INTERNAL_TERMS) + r')\b', re.I)
 
 
+class PresentationError(ValueError):
+    """A controlled, testable rejection reason independent of harmless layout."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def sections(text):
-    """Validate a small text convention inside the existing advice string."""
+    """Keep recognized sections in order; None marks neutral unstructured prose."""
     if _INTERNAL.search(text):
-        raise ValueError('Internal presentation vocabulary')
+        raise PresentationError('internal_vocabulary', 'Internal presentation vocabulary')
     result = []
+    seen = set()
     for line in text.splitlines():
         candidate = line.strip().removeprefix('## ').strip('[]').rstrip(':')
         if candidate in TITLES:
-            if any(title == candidate for title, _ in result):
-                raise ValueError('Repeated advisory section')
+            if candidate in seen:
+                raise PresentationError('repeated_section', 'Repeated advisory section')
+            seen.add(candidate)
             result.append((candidate, []))
         elif line.strip():
-            if not result or result[-1][0] in DATA_SECTIONS:
-                raise ValueError('Unexpected advisory section content')
-            result[-1][1].append(line.rstrip())
-    if not 2 <= len(result) <= 5 or any(not lines and title not in DATA_SECTIONS for title, lines in result):
-        raise ValueError('Expected two to five nonempty advisory sections')
+            if not result:
+                result.append((None, []))
+            if result[-1][0] not in DATA_SECTIONS:
+                result[-1][1].append(line.rstrip())
+    # Ten unique recognized titles bound structured output. Empty ordinary
+    # headings contribute nothing; data headings are filled by Locard.
+    result = [(title, lines) for title, lines in result if lines or title in DATA_SECTIONS]
+    if not result:
+        raise PresentationError('unusable_content', 'No usable advisory content')
     return result
 
 
@@ -39,7 +53,8 @@ def render(text, context, palette=None, *, width=None):
     width = terminal_width(width)
     output = []
     for title, lines in sections(text):
-        output.extend(['', palette('heading', title)])
+        if title is not None:
+            output.extend(['', palette('heading', title)])
         if title == 'Case inventory':
             counts = context['artifact_inventory']
             padding = max(map(len, counts), default=0)
@@ -65,7 +80,7 @@ def render(text, context, palette=None, *, width=None):
                 lines.append('Some case/source labels or metadata were shortened.')
         for line in lines:
             # Indentation is layout only. Never tokenize, validate or run commands here.
-            line = safe_text(line) if title in DATA_SECTIONS else line
+            line = safe_text(line)
             role = 'warning' if title == 'Important cautions' else 'key' if title == 'Recommended commands' else None
             if title in ('Important cautions', 'Current assessment') and not line.lstrip().startswith(('-', '*')):
                 line = '- ' + line
