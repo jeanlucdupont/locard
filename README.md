@@ -318,7 +318,14 @@ conclusions are separate: inventory alone establishes no conclusion.
 For filename lookup, use `search --path coreupdater.exe --ids`; use `show <evidence-id>` only
 after obtaining an actual record ID. `artifact_inventory` is an internal context field,
 not a command. This guidance reduces invalid recommendations but cannot guarantee
-that a small model will always follow instructions.
+that a small model will always follow instructions. When concrete filenames are supplied,
+the assistant is prompted to use exact command examples rather than generic command names.
+If safe case context cannot be built, the request fails closed without contacting the model.
+Recognized transient SQLite lock/deadline failures get at most one silent fresh read attempt.
+No case data is written by that retry. Standard Python DEBUG logging for
+`forensic_assistant.interactive.ai_context` exposes only stage, failure category, SQLite
+code and retry outcome; tests capture these diagnostics. No log file or logging handler
+is enabled automatically, and exception contents, paths and prompts are not logged.
 
 No individual records, EVTX bodies, Registry values, MFT filenames, browser URLs,
 Prefetch contents, command outputs, analyst/organization names, conversation or command
@@ -334,6 +341,13 @@ Prefetch and EVTX, enter `ai`, then ask both questions:
 ! What evidence is available in this case?
 ! We suspect coreupdater.exe executed after loot.zip was downloaded. How should I investigate this?
 ```
+
+For the Standard2 manual scenario, use its actual inventory (approximately 825,888
+Registry, 40,917 EVTX, 196 Prefetch, 82 MFT and zero browser records). Repeat the inventory
+request to check consistency; a successful transient-read retry should be invisible.
+Expect concrete `search --path coreupdater.exe --ids` and `search --path loot.zip --ids`
+examples for the investigation question, followed by `show <evidence-id>` only when an
+ID is known. Timeline/session suggestions must follow their documented selectors.
 
 Expect the first answer to give available categories/counts directly, acknowledge that
 individual records have not been inspected, and avoid claiming no evidence was supplied

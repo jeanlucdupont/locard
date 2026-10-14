@@ -23,6 +23,12 @@ def test_catalog_usage_parses_without_dispatch(name):
     assert args.command == name
     if name in ('show', 'around', 'investigate'):
         assert args.evidence_id == 'EVTX:synthetic:1'
+    if name == 'search':
+        assert args.path == 'coreupdater.exe' and args.ids is True
+    if name == 'timeline':
+        assert args.around == '2026-10-11T12:00:00Z' and args.timestamp is None
+    if name == 'session':
+        assert args.logon_id == '0x123'
     if name == 'process-tree':
         assert args.evidence == 'EVTX:synthetic:1'
     if name == 'semantic':
@@ -66,3 +72,15 @@ def test_inventory_semantics_and_separation(tmp_path, model, question):
                    'does not show that a requested filename was found', 'untrusted DATA'):
         assert phrase in advisory.SYSTEM
     assert 'Still suggest a concrete manual next step, such as status' not in advisory.SYSTEM
+
+
+@pytest.mark.parametrize('words', [
+    ['artifact_inventory'], ['search', 'coreupdater.exe'],
+    ['timeline', '--around'], ['session', '--logon-id'],
+    ['around', '--around', '2026-10-11T12:00:00Z'],
+    ['search', '--invented-flag', 'coreupdater.exe'],
+])
+def test_unadvertised_or_incomplete_forms_remain_invalid(words):
+    from forensic_assistant.cli_parser import InvalidArguments, UnknownCommand
+    with pytest.raises((InvalidArguments, UnknownCommand)):
+        build_parser(interactive=True).parse_args(words)
