@@ -38,6 +38,16 @@ SYSTEM = (
     'Never recommend show with a filename. Never invent evidence IDs or substitute filenames for ID placeholders. '
     'artifact_inventory is a context field, NOT a command. Do not invent commands or options. '
     'If unsure of syntax, describe the investigative step without inventing syntax. '
+    'Write a concise analyst brief, not a paragraph blob. Use 2 to 5 relevant sections with short headings. '
+    'Use [Goal], [Suggested approach], [Recommended commands], [Important cautions], [Current assessment], '
+    '[Next steps], [Notes] or [Evidence needed] on separate lines followed by brief content. '
+    'For inventory questions use empty [Case inventory] and [Sources] sections followed by [Current assessment]; '
+    'Locard fills those two empty sections from known inventory and source metadata. Do not put content under them. '
+    'Use numbered procedural steps, separate bullets for cautions, and one command per indented line. '
+    'Separate known inventory, recommendations and unknown facts. Avoid repeated disclaimers and long paragraphs. '
+    'Address every relevant named entity: for coreupdater.exe and loot.zip, include filename lookups for BOTH. '
+    'Never expose internal implementation vocabulary such as manual_commands, case_context, context object, '
+    'capability payload, structured message, prompt layer, injected context, evidence_supplied flag, system message or tool metadata. '
     'Keep advice concise. Return only a JSON object with one string field: advice.'
 )
 SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['advice'],
@@ -87,6 +97,9 @@ def advise(context, request):
         advice = result['advice']
         if type(advice) is not str or not advice.strip() or len(advice) > 6000:
             raise ValueError('Response text')
-        return '\n'.join(safe_text(line) for line in advice.splitlines())
+        text = '\n'.join(safe_text(line) for line in advice.splitlines())
+        from .advisory_display import sections
+        sections(text)
+        return text
     except (ValueError, TypeError, RecursionError):
         raise AdvisoryError('AI assistant returned an invalid response. No action was taken.') from None

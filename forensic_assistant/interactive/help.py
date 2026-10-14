@@ -47,7 +47,7 @@ def command_help(name):
         result += ('\nUse ai to enter AI mode and expert to return to expert mode. '
                    'In AI mode, prefix natural-language requests with !. '
                    'All standard Locard commands remain available. '
-                   'AI is advisory only: it does not execute commands. '
+                   'AI is advisory only: it does not execute commands. Responses use concise advisory sections. '
                    'The # prompt marks AI mode, not elevated OS privileges. '
                    'Each request receives fresh bounded high-level case context: retained artifact counts and source metadata. '
                    'Inventory questions can be answered directly; zero counts describe this case, not the entire source system. '

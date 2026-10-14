@@ -19,7 +19,7 @@ def model(monkeypatch):
             self.timeout = kwargs['timeout']
         def complete(self, messages, schema):
             calls.append((messages, schema))
-            return json.dumps({'advice': 'Suggested manual step: search --path example.exe'})
+            return json.dumps({'advice': '[Recommended commands]\nsearch --path example.exe\n[Important cautions]\n- Individual records have not been inspected.'})
     monkeypatch.setattr(advisory, 'LocalClient', Client)
     return calls
 
@@ -114,7 +114,7 @@ def test_model_commands_are_inert_and_activity_is_derived(tmp_path, monkeypatch,
         def __init__(self, **kwargs):
             self.timeout = kwargs['timeout']
         def complete(self, *_args, **_kwargs):
-            return json.dumps({'advice': payload})
+            return json.dumps({'advice': '[Recommended commands]\n' + payload + '\n[Notes]\nCommands are suggestions only.'})
     monkeypatch.setattr(advisory, 'LocalClient', Client)
     monkeypatch.setattr('forensic_assistant.cli.dispatch', lambda *_a, **_k: pytest.fail('Model text dispatched'))
     monkeypatch.setattr(Shell, 'new', lambda _: pytest.fail('Model created a case'))
@@ -186,7 +186,7 @@ def test_model_terminal_controls_are_escaped(monkeypatch):
         def __init__(self, **kwargs):
             self.timeout = kwargs['timeout']
         def complete(self, *_a, **_k):
-            return json.dumps({'advice': '\u001b[2Jhidden\u202e\nstatus'})
+            return json.dumps({'advice': '[Notes]\n\u001b[2Jhidden\u202e\nstatus\n[Important cautions]\n- Advice only.'})
     monkeypatch.setattr(advisory, 'LocalClient', Client)
     text = advisory.advise({'case_name': 'synthetic'}, 'question')
     assert '\u001b' not in text and '\u202e' not in text

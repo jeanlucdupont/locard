@@ -357,6 +357,40 @@ without claiming specific records were inspected or the hypothesis proved. No co
 should run automatically, and the AI prompt should return. Automated tests mock inference;
 they do not establish the quality or factual accuracy of every model response.
 
+Responses use two to five short advisory sections. The existing JSON `advice` string
+uses a lightweight heading convention; no new model JSON schema or tool protocol is
+required. Inventory and source sections are rendered from the current bounded summary,
+not model-written counts. Invalid section layouts or leaked internal prompt vocabulary
+are rejected with a concise error, without printing the response or taking action.
+Headings use the existing heading style, command sections cyan, and cautions amber;
+ordinary prose stays uncolored. AI claims are never styled as verified successes.
+
+Illustrative advisory output for the Standard2 smoke-test question above:
+
+```text
+AI assistant — advisory, not evidence
+
+Goal
+  Test the proposed execution/download sequence.
+
+Suggested approach
+  1. Locate both filenames.
+     search --path coreupdater.exe --ids
+     search --path loot.zip --ids
+  2. Inspect returned records, then compare timing and execution indicators.
+     show <evidence-id>
+
+Important cautions
+  - MFT presence alone does not prove execution.
+  - Individual records have not been inspected.
+```
+
+For the inventory question, expect separate Case inventory, Sources, and Current
+assessment sections with aligned counts, source rows, and separate caution bullets.
+For the investigation question, expect both filename lookups, numbered steps, and
+separate cautions, without internal vocabulary or a redundant status step. These are
+manual visual acceptance checks; mocked tests do not guarantee model advice quality.
+
 The response is labeled advisory, not evidence. Suggested commands must be entered by
 the analyst: the assistant cannot dispatch commands, ingest, create cases, modify evidence
 or run tools. Free-form advice can be wrong and is not report-style evidence grounding.

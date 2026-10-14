@@ -89,7 +89,8 @@ class Shell:
         self.audit.record('AI_ADVICE', request_characters=len(request), response_characters=len(response),
                           basis='Derived advisory text; no evidence supplied; no commands executed')
         print(Palette(enabled(self))('ai_prompt', 'AI assistant — advisory, not evidence'))
-        print('\n'.join('  ' + line for line in response.splitlines()))
+        from .advisory_display import render
+        print(render(response, context, Palette(enabled(self))))
         self.last_status = 0
 
     def activate(self, path, *, activity_session=None, announce=True):
