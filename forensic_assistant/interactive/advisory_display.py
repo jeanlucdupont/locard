@@ -1,7 +1,8 @@
 """Section-only advisory presentation; never interprets command syntax or claims."""
 import re
+import textwrap
 
-from forensic_assistant.terminal import Palette, wrap_line
+from forensic_assistant.terminal import Palette
 from forensic_assistant.retrieval.layout import terminal_width
 from forensic_assistant.retrieval.presentation import safe_text
 
@@ -84,6 +85,12 @@ def render(text, context, palette=None, *, width=None):
             role = 'warning' if title == 'Important cautions' else 'key' if title == 'Recommended commands' else None
             if title in ('Important cautions', 'Current assessment') and not line.lstrip().startswith(('-', '*')):
                 line = '- ' + line
-            styled = palette(role, '  ' + line) if role else '  ' + line
-            output.extend(wrap_line(styled, width))
+            indent = '  ' + line[:len(line) - len(line.lstrip())]
+            # Wrap escaped plain text before styling so ANSI sequences have no width.
+            # Preserve indentation while bounding pathological model whitespace.
+            indent = indent[:width // 2]
+            rows = textwrap.wrap(line.lstrip(), width=width, initial_indent=indent,
+                                 subsequent_indent=indent, break_long_words=True,
+                                 break_on_hyphens=False, replace_whitespace=False)
+            output.extend(palette(role, row) if role else row for row in rows)
     return '\n'.join(output)

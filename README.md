@@ -357,6 +357,42 @@ without claiming specific records were inspected or the hypothesis proved. No co
 should run automatically, and the AI prompt should return. Automated tests mock inference;
 they do not establish the quality or factual accuracy of every model response.
 
+Clear inventory questions (for example, `! What evidence is available in this case?`,
+`! What artifacts are available?`, `! What does this case contain?`, and
+`! What sources are loaded?`) use a small exact-match list after case/whitespace
+normalization. Locard answers these from the current bounded case summary without
+model inference. Compound or uncertain questions continue through the advisory model.
+Inventory and sources always use the existing context order and comma-formatted counts:
+
+```text
+AI assistant — advisory, not evidence
+
+Case inventory
+  evtx      40,917 records
+  mft       82 records
+  prefetch  196 records
+  registry  825,888 records
+  browser   0 records
+
+Sources
+  2 sources; showing 2 (analyst-supplied metadata).
+  1. G drive — host: desktop-test, user: J Smith
+  2. MFT from DFIR — volume: C:
+
+Current assessment
+  - Individual records have not been inspected.
+  - No forensic conclusions have been reached.
+```
+
+The example is synthetic. Zero means no retained records in the case, not that the
+source system never contained that artifact. Version/mode metadata is omitted from
+normal answers; unsolicited model echoes are rejected. Explicit version/mode questions
+may include it. Investigation guidance is prompted to use Goal, Suggested approach,
+Recommended commands, and Important cautions, with command lines separate from
+explanations. These are presentation preferences, never execution instructions.
+AI prose wraps at word boundaries before colors are applied; overlong tokens may
+still wrap to fit the terminal. Indentation is retained.
+
 Responses preferably use two to five short advisory sections; one to ten unique recognized sections are accepted, and safe unstructured prose is wrapped neutrally without invented headings. The existing JSON `advice` string
 uses a lightweight heading convention; no new model JSON schema or tool protocol is
 required. Inventory and source sections are rendered from the current bounded summary,

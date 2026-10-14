@@ -1,5 +1,6 @@
 """One-shot advisory requests. No database handles, tools, or command dispatcher."""
 import json
+import re
 import time
 
 from forensic_assistant.llm.client import LocalClient, LLMError
@@ -40,7 +41,10 @@ SYSTEM = (
     '[Next steps], [Notes] or [Evidence needed] on separate lines followed by brief content. '
     'For inventory questions use [Case inventory] and [Sources] followed by [Current assessment]; '
     'Locard renders those two sections from authoritative inventory and source metadata. '
-    'Use numbered procedural steps, separate bullets for cautions, and one command per indented line. '
+    'For investigation questions strongly prefer [Goal], [Suggested approach], [Recommended commands], and [Important cautions]. '
+    'Use numbered procedural steps and separate bullets for cautions. Put each command on its own line in [Recommended commands], '
+    'without bullets, inline commentary, or explanatory suffixes; put explanations in [Suggested approach]. '
+    'Do not echo Locard version, AI/Expert mode, or their field names unless the analyst explicitly asks about them. '
     'Address every relevant named entity in the analyst request, including each concrete file, process, host or user. '
     'Never expose internal implementation vocabulary such as manual_commands, case_context, context object, '
     'capability payload, structured message, prompt layer, injected context, evidence_supplied flag, system message or tool metadata. '
@@ -48,6 +52,31 @@ SYSTEM = (
     'Cautions should concern the forensic situation, not model operating rules. '
     'Return only a JSON object with one string field: advice.'
 )
+
+# Exact normalized questions only: compound or qualified requests still use AI.
+INVENTORY_QUESTIONS = frozenset((
+    'what evidence is available in this case',
+    'what artifacts are available',
+    'what artifacts are available in this case',
+    'what does this case contain',
+    'what sources are loaded',
+    'what sources are loaded in this case',
+))
+INVENTORY_ADVICE = ('[Case inventory]\n[Sources]\n[Current assessment]\n'
+                    '- Individual records have not been inspected.\n'
+                    '- No forensic conclusions have been reached.')
+
+
+def is_inventory_question(request):
+    return ' '.join(request.strip().rstrip('?.').lower().split()) in INVENTORY_QUESTIONS
+
+
+def asks_about_metadata(request):
+    return bool(re.search(r'\b(?:locard[_ ]version|(?:what|which|current) (?:ai/expert |ai |expert )?mode|version of locard)\b', request, re.I))
+
+
+_METADATA_ECHO = re.compile(r'\b(?:locard_version|mode\s*[:=]?\s*(?:AI|Expert)|Locard(?: version)?\s+\d+\.\d+)\b', re.I)
+
 SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['advice'],
           'properties': {'advice': {'type': 'string', 'minLength': 1, 'maxLength': 6000}}}
 
@@ -81,6 +110,8 @@ def advise(context, request):
         raise AdvisoryError('Enter a question after !.')
     if len(request.encode('utf-8')) > 4096 or any(c in request for c in '\r\n\x00'):
         raise AdvisoryError('AI request must be one line of at most 4096 UTF-8 bytes.')
+    if is_inventory_question(request):
+        return INVENTORY_ADVICE
     messages = [{'role': 'system', 'content': SYSTEM},
                 {'role': 'user', 'content': json.dumps({'case_context': context}, ensure_ascii=True)},
                 {'role': 'user', 'content': json.dumps({'request': request}, ensure_ascii=True)}]
@@ -115,6 +146,8 @@ def advise(context, request):
         text = '\n'.join(safe_text(line) for line in advice.splitlines())
         from .advisory_display import sections, PresentationError
         try:
+            if _METADATA_ECHO.search(text) and not asks_about_metadata(request):
+                raise PresentationError('metadata_echo', 'Unrequested version or mode metadata')
             sections(text)
         except PresentationError as exc:
             reason = f'Advisory rejected ({exc.code}): {exc}.'

@@ -198,3 +198,82 @@ def test_rejected_preview_is_bounded_escaped_and_still_an_error(monkeypatch, raw
     assert len(text) < 6500
     if type(raw) is str and len(raw) > 2000:
         assert '[response preview truncated]' in text
+
+
+@pytest.mark.parametrize('question', sorted(advisory.INVENTORY_QUESTIONS))
+def test_inventory_questions_need_no_model_and_use_authoritative_data(monkeypatch, question):
+    monkeypatch.setattr(advisory, 'LocalClient', lambda **kw: pytest.fail('Inventory called model'))
+    answer = advisory.advise(context(), '  ' + question.upper() + '?  ')
+    text = render(answer, context(), width=120)
+    assert 'registry  825,888 records' in text and 'evtx      40,917 records' in text
+    assert 'browser   0 records' in text
+    assert 'G drive — host: desktop-test, user: J Smith' in text
+    assert 'Individual records have not been inspected.' in text
+    assert 'No forensic conclusions have been reached.' in text
+    assert 'locard_version' not in text and 'mode AI' not in text
+    assert text.index('evtx') < text.index('mft') < text.index('prefetch') < text.index('registry') < text.index('browser')
+
+
+@pytest.mark.parametrize('question', [
+    'What artifacts are available to prove execution?',
+    'What sources are loaded and what should I investigate?',
+    'What does this case contain about example.exe?',
+    'We suspect first.exe executed after second.zip was downloaded. How should I investigate this?',
+])
+def test_qualified_questions_stay_on_model_path(monkeypatch, question):
+    calls = []
+    class Client:
+        def __init__(self, **kw): pass
+        def complete(self, messages, schema):
+            calls.append(messages)
+            return json.dumps({'advice': 'Safe prose guidance.'})
+    monkeypatch.setattr(advisory, 'LocalClient', Client)
+    assert advisory.advise(context(), question) == 'Safe prose guidance.'
+    assert len(calls) == 1
+
+
+def test_deterministic_inventory_shell_keeps_header_and_audit(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(advisory, 'LocalClient', lambda **kw: pytest.fail('Inventory called model'))
+    monkeypatch.setattr('forensic_assistant.cli.dispatch', lambda *a, **kw: pytest.fail('Dispatch'))
+    _, _, path = run_shell(tmp_path, 'ai', '! What evidence is available in this case?')
+    from forensic_assistant import activity
+    text = capsys.readouterr().out
+    assert 'AI assistant — advisory, not evidence' in text
+    assert 'Case inventory' in text and 'No registered sources.' in text
+    assert 'AI_ADVICE' in activity.sidecar(path).read_text(encoding='utf-8')
+
+
+@pytest.mark.parametrize('color', [False, True])
+def test_word_wrap_preserves_words_punctuation_indentation_and_color(color):
+    response = '[Important cautions]\n  Individual records remain uninspected; source metadata is analyst-supplied, not verified evidence.'
+    text = render(response, context(), Palette(color), width=34)
+    lines = SGR.sub('', text).splitlines()[2:]
+    assert all(len(line) <= 34 and line.startswith('  ') for line in lines)
+    joined = ' '.join(' '.join(lines).split())
+    assert 'Individual records remain uninspected;' in joined
+    assert 'analyst-supplied, not verified evidence.' in joined
+    assert not any(line.strip().startswith(',') for line in lines)
+    assert bool('\x1b' in text) == color
+
+
+def test_indented_command_wrap_preserves_tokens():
+    text = render('[Recommended commands]\n   search --path example.exe --ids', {}, width=25)
+    rows = text.splitlines()[2:]
+    assert all(row.startswith('     ') and len(row) <= 25 for row in rows)
+    assert ' '.join(' '.join(rows).split()) == 'search --path example.exe --ids'
+
+
+@pytest.mark.parametrize('answer', ['locard_version 6.52', 'mode AI', 'Locard version 6.52'])
+def test_unrequested_metadata_echo_rejected_but_explicit_request_allowed(monkeypatch, answer):
+    class Client:
+        def __init__(self, **kw): pass
+        def complete(self, *a, **kw): return json.dumps({'advice': answer})
+    monkeypatch.setattr(advisory, 'LocalClient', Client)
+    with pytest.raises(advisory.AdvisoryError, match='metadata_echo'):
+        advisory.advise({}, 'How should I investigate?')
+    assert advisory.advise({}, 'What is the Locard version and current mode?') == answer
+
+
+def test_investigation_prompt_prefers_separate_commands_and_explanations():
+    assert 'strongly prefer [Goal], [Suggested approach], [Recommended commands], and [Important cautions]' in advisory.SYSTEM
+    assert 'without bullets, inline commentary, or explanatory suffixes' in advisory.SYSTEM
