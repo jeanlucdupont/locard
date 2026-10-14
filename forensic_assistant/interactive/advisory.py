@@ -55,7 +55,18 @@ SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['advice'
 
 
 class AdvisoryError(ValueError):
-    """A safe, analyst-facing error without raw model or transport content."""
+    """An analyst-facing error; rejected model text is bounded and terminal-escaped."""
+
+
+def _rejected_preview(value):
+    if type(value) is not str:
+        return '  <non-text response>'
+    limit = 6000
+    escaped = '\n'.join(safe_text(line) for line in value[:limit].split('\n'))
+    truncated = len(value) > limit or len(escaped) > limit
+    preview = escaped[:limit] or '<empty response>'
+    return '\n'.join('  ' + line for line in preview.split('\n')) + (
+        '\n  [response preview truncated]' if truncated else '')
 
 
 def _pairs(items):
@@ -88,18 +99,29 @@ def advise(context, request):
         if timed_out:
             raise AdvisoryError('AI assistant timed out. Try a shorter request or check the local model.') from None
         raise AdvisoryError('AI assistant unavailable. The local analysis model could not provide a valid response.') from None
+    preview = raw
+    reason = 'Response is not text or exceeds the response size limit.'
     try:
         if type(raw) is not str or len(raw.encode('utf-8')) > 16384:
             raise ValueError('Response bound')
+        reason = 'Response is not valid JSON with unique keys.'
         result = json.loads(raw, object_pairs_hook=_pairs)
+        reason = 'Expected a JSON object containing only an advice string.'
         if type(result) is not dict or set(result) != {'advice'}:
             raise ValueError('Response shape')
         advice = result['advice']
+        preview = advice
+        reason = 'Advice must be nonempty text of at most 6000 characters.'
         if type(advice) is not str or not advice.strip() or len(advice) > 6000:
             raise ValueError('Response text')
         text = '\n'.join(safe_text(line) for line in advice.splitlines())
         from .advisory_display import sections
+        reason = 'Advisory section layout or internal terminology was rejected.'
         sections(text)
         return text
     except (ValueError, TypeError, RecursionError):
-        raise AdvisoryError('AI assistant returned an invalid response. No action was taken.') from None
+        raise AdvisoryError(
+            'AI assistant returned an invalid response. No action was taken.\n'
+            + reason + '\nUnvalidated model response (diagnostic only, not evidence):\n'
+            + _rejected_preview(preview)
+        ) from None

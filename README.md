@@ -361,7 +361,10 @@ Responses use two to five short advisory sections. The existing JSON `advice` st
 uses a lightweight heading convention; no new model JSON schema or tool protocol is
 required. Inventory and source sections are rendered from the current bounded summary,
 not model-written counts. Invalid section layouts or leaked internal prompt vocabulary
-are rejected with a concise error, without printing the response or taking action.
+are rejected without taking action. A labeled, terminal-escaped diagnostic preview
+(up to 6,000 characters before line indentation) shows the rejected model response and
+a concise failure category. This unvalidated text is not an accepted advisory answer
+and is not stored in the activity log.
 Headings use the existing heading style, command sections cyan, and cautions amber;
 ordinary prose stays uncolored. AI claims are never styled as verified successes.
 

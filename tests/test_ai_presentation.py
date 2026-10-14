@@ -121,7 +121,7 @@ def test_shell_response_header_and_readonly_advisory_boundary(tmp_path, monkeypa
     assert not any(term in text for term in INTERNAL_TERMS)
 
 
-def test_internal_term_response_is_not_printed_or_recorded(tmp_path, monkeypatch, capsys):
+def test_rejected_response_is_diagnostic_only_and_not_recorded(tmp_path, monkeypatch, capsys):
     class Client:
         timeout = 45
         def __init__(self, **kwargs):
@@ -132,6 +132,32 @@ def test_internal_term_response_is_not_printed_or_recorded(tmp_path, monkeypatch
     _, _, path = run_shell(tmp_path, 'ai', '! question')
     from forensic_assistant import activity
     text = capsys.readouterr().out
-    assert 'invalid response' in text and 'SECRET' not in text and 'manual_commands' not in text
+    assert 'invalid response' in text and 'SECRET manual_commands' in text
+    assert 'Unvalidated model response (diagnostic only, not evidence)' in text
+    assert 'AI assistant — advisory, not evidence' not in text
     log = activity.sidecar(path).read_text(encoding='utf-8')
     assert 'SECRET' not in log and 'manual_commands' not in log
+
+
+@pytest.mark.parametrize('raw,expected', [
+    ('not JSON', 'not valid JSON'),
+    (json.dumps({'advice': 'One paragraph answer.'}), 'section layout'),
+    (json.dumps({'advice': '\x1b[2Junsafe\x00text'}), 'section layout'),
+    ('x' * 20000, 'size limit'),
+    (None, 'non-text response'),
+])
+def test_rejected_preview_is_bounded_escaped_and_still_an_error(monkeypatch, raw, expected):
+    class Client:
+        timeout = 45
+        def __init__(self, **kwargs):
+            pass
+        def complete(self, *args, **kwargs):
+            return raw
+    monkeypatch.setattr(advisory, 'LocalClient', Client)
+    with pytest.raises(advisory.AdvisoryError) as error:
+        advisory.advise({}, 'question')
+    text = str(error.value)
+    assert expected in text and '\x1b' not in text and '\x00' not in text
+    assert len(text) < 6500
+    if type(raw) is str and len(raw) > 2000:
+        assert '[response preview truncated]' in text
