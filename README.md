@@ -1696,3 +1696,54 @@ Another nonsense query scored 0.502–0.517, demonstrating overlap. The 0.500
 display cutoff suppresses some weak neighbors but cannot identify every useless
 query. It is not calibrated across real cases, languages or other models; other
 model/representation combinations retain all results with the same caution.
+
+### Case-local CSV dumps
+
+Use `dump browser`, `dump mft`, or `dump all` to export retained records. Supported
+categories are browser, evtx, mft, prefetch and registry. Files always go beside
+the active case database in `dump/<type>.csv`; managed cases use
+`%LOCALAPPDATA%\Locard\cases\<case>\dump\`. There is no output-path or filename option.
+For scripts: `locard --db C:\Cases\Example\case.db dump all`.
+
+These CSV files are **derived analyst output, not evidence**. Each row includes its
+canonical evidence ID for `show <evidence-id>`. Zero-record categories produce no
+file. `dump all` reports those categories as skipped. Existing files require
+`--force` and must have the expected dump header; linked paths, hard-linked targets,
+known source evidence, and database/artifact destinations are rejected.
+
+Exports use a consistent read-only SQLite snapshot, keyset pages, fixed columns,
+evidence-ID row ordering, UTF-8 and Windows-compatible CSV newlines. Collections
+are deterministic JSON cells: MFT names and separate SI/FN timestamp slots;
+Prefetch candidate paths and all retained run slots; Registry key/value data and
+hive dirty-state warnings; EVTX normalized event data; browser history/download
+records, profile/context and run occurrences. Raw binary evidence is not exported.
+Timestamp collections retain original values, status, precision and meaning.
+Registry value key-time describes the parent key, not the value's creation time.
+Browser rows use explicit occurrence provenance, never file-hash source membership.
+
+Source ID, display name, hostname, username and volume-root columns are aligned
+JSON arrays of current source assertions, in source-ID order. Multiple memberships
+are retained without choosing an identity. Artifact-reported host/user fields and
+legacy context assertions are separate columns. Empty arrays mean no such
+assertions; null array entries mean unknown. Scalar nulls use empty cells (as do
+empty scalar text values); JSON cells preserve null versus empty text. No identity
+is inferred from paths. Exported source metadata remains analyst supplied.
+
+For spreadsheet safety, scalar text starting with an apostrophe, tab, CR/LF, or
+with `=`, `+`, `-`, `@` after leading whitespace gets one leading apostrophe.
+Remove exactly that one prefix to recover the original text. JSON cells preserve
+nested text verbatim. CSV quoting alone does not guarantee safe spreadsheet import;
+import text columns as text and keep the case authoritative. Oversized records,
+related-record pages or cells fail explicitly rather than silently truncating data
+(2 MiB per cell; 32 MiB per query page; 100,000 related rows per query page).
+
+All requested files are staged before publication. Conflicts are checked before
+export; each CSV is published atomically, with no-overwrite publication unless
+`--force` is supplied. Multi-file publication is not a filesystem transaction:
+if cancellation or an I/O/audit failure occurs during publication, already
+published complete files remain and are reported. Temporary files are cleaned up.
+The existing analyst activity sidecar records command and OUTPUT_WRITE/OVERWRITE
+intent/completion, relative filename, category, count and checksum; the evidence
+database, semantic indexes and investigations are not modified. A long export's
+read snapshot can retain WAL pages until staging finishes; it closes before
+publication. No checkpoint or database repair is performed.

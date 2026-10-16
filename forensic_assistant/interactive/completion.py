@@ -169,6 +169,8 @@ def complete(text, cursor):
         parser, remaining = context
         if remaining and isinstance(remaining[0], argparse._SubParsersAction) and not prefix.startswith('-'):
             names = remaining[0].choices
+        elif remaining and remaining[0].choices and not prefix.startswith('-'):
+            names = remaining[0].choices
         elif not help_target and (prefix.startswith('-') or (not prefix and not any(a.required for a in remaining))):
             names = [name for name, action in _options(parser).items() if action.help != argparse.SUPPRESS]
         else:

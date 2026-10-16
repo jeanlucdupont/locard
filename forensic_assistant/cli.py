@@ -62,6 +62,8 @@ def build_parser(*, interactive=False):
     parser.add_argument("--db", default=Config.database)
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling (also respects NO_COLOR)')
     commands = parser.add_subparsers(dest="command", required=True)
+    from forensic_assistant import dump_cli
+    dump_cli.configure(commands)
     v1_cli.configure(commands)
     search = commands.add_parser("search", help=COMMANDS['search'])
     for name in ("user", "ip", "hostname", "start", "end"):
@@ -189,6 +191,10 @@ def main(argv=None):
 
 
 def dispatch(args, *, existing_only=False):
+    if args.command == 'dump' and args.dump_type is None:
+        from forensic_assistant.dump_cli import HELP
+        print(HELP)
+        return 0
     if args.command == 'ingest':
         parser = build_parser(interactive=existing_only)
         next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction)).choices['ingest'].print_help()
@@ -231,6 +237,10 @@ def _dispatch(args, output, *, existing_only=False):
     from forensic_assistant.investigation_ai import cli as investigation_cli
     from forensic_assistant.reporting import cli as report_cli
     try:
+        if args.command == 'dump':
+            from forensic_assistant.dump_cli import run
+            run(args, output)
+            return 0
         if args.command == 'activity':
             if activity.CURRENT.get() is None:
                 raise ValueError('Activity requires an existing valid Locard case')

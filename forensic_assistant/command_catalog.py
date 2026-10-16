@@ -17,6 +17,7 @@ COMMANDS = MappingProxyType({
     'new-case': 'Create a case with guided evidence discovery and ingestion',
     'color': 'Turn terminal colors on or off',
     'detections': 'Show evidence matching Locard detection rules',
+    'dump': 'Export retained evidence to case-local CSV files',
     'exit': 'Exit Locard',
     'help': 'Show help for a command',
     'ingest': 'Ingest evidence directly or launch guided ingestion',
