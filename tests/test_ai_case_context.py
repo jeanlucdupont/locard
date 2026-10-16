@@ -112,11 +112,10 @@ def test_untrusted_strings_remain_separate_data_and_catalog(tmp_path, model):
     context = build_ai_case_context(path, injection)
     advisory.advise(context, 'My actual request')
     messages, schema = model[0]
-    assert [m['role'] for m in messages] == ['system', 'user', 'user']
+    assert [m['role'] for m in messages] == ['system', 'user']
     assert messages[0]['content'] == advisory.SYSTEM
     assert injection not in messages[0]['content']
-    assert json.loads(messages[1]['content']) == {'case_context': context}
-    assert json.loads(messages[2]['content']) == {'request': 'My actual request'}
+    assert json.loads(messages[1]['content']) == {'case_context': context, 'request': 'My actual request'}
     assert context['manual_commands']
     assert all(COMMANDS[k] == v['purpose'] for k, v in context['manual_commands'].items())
     assert not set(COMMAND_ALIASES) & context['manual_commands'].keys()

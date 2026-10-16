@@ -184,9 +184,16 @@ def advise(context, request):
         raise AdvisoryError('AI request must be one line of at most 4096 UTF-8 bytes.')
     if is_inventory_question(request):
         return INVENTORY_ADVICE
-    messages = [{'role': 'system', 'content': SYSTEM},
-                {'role': 'user', 'content': json.dumps({'case_context': context}, ensure_ascii=True)},
-                {'role': 'user', 'content': json.dumps({'request': request}, ensure_ascii=True)}]
+    messages = [
+        {'role': 'system', 'content': SYSTEM},
+        {
+            'role': 'user',
+            'content': json.dumps({
+                'case_context': context,
+                'request': request
+            }, ensure_ascii=True)
+        }
+    ]
     client = LocalClient(timeout=45)
     started = time.monotonic()
     try:

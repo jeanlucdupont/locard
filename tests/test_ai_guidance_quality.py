@@ -18,7 +18,7 @@ def test_supplied_entities_and_concrete_commands_survive_unchanged(monkeypatch, 
     class Client:
         def __init__(self, **kw): pass
         def complete(self, messages, schema):
-            assert json.loads(messages[-1]['content']) == {'request': request}
+            assert json.loads(messages[-1]['content']) == {'case_context': {}, 'request': request}
             assert messages[0]['content'] == advisory.SYSTEM
             return json.dumps(response)
     monkeypatch.setattr(advisory, 'LocalClient', Client)

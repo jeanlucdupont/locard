@@ -66,7 +66,7 @@ def test_exact_natural_language_routing(tmp_path, model, line, expected):
     shell, _, _ = run_shell(tmp_path, 'ai', line)
     assert len(model) == 1 and not hasattr(shell, 'mode')
     supplied = json.loads(model[0][0][1]['content'])['case_context']
-    assert json.loads(model[0][0][2]['content'])['request'] == expected
+    assert json.loads(model[0][0][1]['content'])['request'] == expected
     assert supplied['case_name'] == 'case é.db'
     assert supplied['locard_version'] == __version__ and 'mode' not in supplied
     assert supplied['case_context_available'] is True and supplied['individual_records_inspected'] is False and supplied['forensic_conclusions_reached'] is False and supplied['artifact_inventory'] == dict.fromkeys(('evtx', 'mft', 'prefetch', 'registry', 'browser'), 0)
@@ -237,7 +237,7 @@ def test_case_switch_uses_fresh_context_without_conversation(tmp_path, model):
 def test_direct_advice_interleaves_commands_and_deprecated_ask(tmp_path, model, capsys):
     shell, reader, _ = run_shell(tmp_path, '! What evidence is available?', 'search --path example.exe --ids',
                                 'ask How should I investigate this?', '! What next?')
-    requests = [json.loads(call[0][2]['content'])['request'] for call in model]
+    requests = [json.loads(call[0][1]['content'])['request'] for call in model]
     assert requests == ['What evidence is available?', 'How should I investigate this?', 'What next?']
     output = capsys.readouterr().out
     assert '`ask` is deprecated' in output and 'No matching evidence.' in output
@@ -257,4 +257,4 @@ def test_parser_resolved_ask_still_uses_advisory_only(tmp_path, monkeypatch, mod
     monkeypatch.setattr('forensic_assistant.cli.dispatch', lambda *a, **kw: pytest.fail('Legacy retrieval dispatched'))
     run_shell(tmp_path, line)
     assert len(model) == 1
-    assert json.loads(model[0][0][2]['content'])['request'] == 'question'
+    assert json.loads(model[0][0][1]['content'])['request'] == 'question'
