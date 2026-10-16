@@ -330,6 +330,27 @@ after obtaining an actual record ID. `artifact_inventory` is an internal context
 not a command. This guidance reduces invalid recommendations but cannot guarantee
 that a small model will always follow instructions. When concrete filenames are supplied,
 the assistant is prompted to use exact command examples rather than generic command names.
+A compact available/unavailable category summary is derived from those same counts,
+without additional record retrieval. Advisory instructions use the counts and summary: zero-count categories
+may be mentioned only as unavailable limitations, not recommended as available evidence.
+Positive counts permit relevant inspection but do not establish that a particular event
+or filename is present. Artifact categories are distinct from analysis commands such as
+`process-tree`, `timeline`, `search` and `show`.
+
+For relationship questions, guidance should test the analyst's hypothesis: locate each
+entity, inspect returned IDs with `show`, establish record meaning, timestamps and any
+execution-specific evidence, then correlate. With no individual records inspected, the
+prompt prefers an empty assessment and prospective steps over unsupported entity-level
+claims from aggregate counts. A generic sequence example reinforces inspection before correlation. File/ZIP presence alone establishes neither
+execution nor download. Unknown IDs and timestamps stay placeholders. Command context
+reinforces those input prerequisites without changing command behavior.
+
+These are model-agnostic prompt rules, not guarantees of semantic correctness. Locard
+does not rewrite, reorder or fill in model reasoning after inference, and adds no
+artifact-keyword rejection heuristic. The existing internal-terminology guard also covers
+the new availability field name. The advisory JSON schema, deterministic inventory
+rendering and manual-execution boundary remain unchanged.
+
 If safe case context cannot be built, the request fails closed without contacting the model.
 Recognized transient SQLite lock/deadline failures get at most one silent fresh read attempt.
 No case data is written by that retry. Standard Python DEBUG logging for

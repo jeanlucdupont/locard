@@ -8,7 +8,7 @@ from forensic_assistant.retrieval.presentation import safe_text
 
 INTERNAL_TERMS = ('manual_commands', 'case_context', 'context object', 'capability payload',
                   'structured message', 'prompt layer', 'injected context', 'evidence_supplied',
-                  'system message', 'tool metadata', 'artifact_inventory')
+                  'system message', 'tool metadata', 'artifact_inventory', 'artifact_availability')
 _INTERNAL = re.compile(r'\b(?:' + '|'.join(re.escape(term) for term in INTERNAL_TERMS) + r')\b', re.I)
 
 

@@ -111,6 +111,11 @@ def _build_ai_case_context(path, case_name, deadline):
                     context['artifact_inventory'][kind] = db.execute(
                         'SELECT count(*) FROM evidence_records WHERE source_type=?', (kind,)
                     ).fetchone()[0]
+                counts = context['artifact_inventory']
+                context['artifact_availability'] = {
+                    'available': [kind for kind, count in counts.items() if count > 0],
+                    'unavailable': [kind for kind, count in counts.items() if count == 0],
+                }
                 stage = 'sources'
                 sources = {'total': None, 'shown': 0, 'truncated': False, 'items': [],
                            'basis': 'Analyst-supplied assertions, not verified findings'}

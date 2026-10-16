@@ -63,11 +63,11 @@ COMMAND_ALIASES = MappingProxyType({
 # Names/purposes stay authoritative above; parser regression tests verify usage.
 INVESTIGATION_INPUTS = MappingProxyType({
     'status': ('status', 'No input; use for the normal status display or details absent from context'),
-    'search': ('search --path <filename-or-path> --ids', 'Filename/path lookup via --path; other text needs the appropriate named filter, not positional text; returned IDs can be used with show'),
-    'show': ('show <evidence-id>', 'A known evidence record ID, NOT a filename or search term'),
-    'timeline': ('timeline --around <timestamp>', 'ISO 8601 timestamp with timezone; chronological view near that time'),
-    'around': ('around <evidence-id>', 'A known evidence ID; for a timestamp use timeline --around'),
-    'process-tree': ('process-tree --evidence <evidence-id>', 'Known process-creation evidence ID; requires supported process evidence'),
+    'search': ('search --path <filename-or-path> --ids', 'Filename/path lookup via --path; other text needs the appropriate named filter, not positional text; locates candidates; inspect returned IDs with show before correlation'),
+    'show': ('show <evidence-id>', 'A known evidence record ID, NOT a filename or search term; inspect record meaning and timestamps before correlation'),
+    'timeline': ('timeline --around <timestamp>', 'ISO 8601 timestamp with timezone established from inspected records; chronological analysis near that time'),
+    'around': ('around <evidence-id>', 'A known inspected evidence ID; for a timestamp use timeline --around'),
+    'process-tree': ('process-tree --evidence <evidence-id>', 'Known process-creation evidence ID; requires supported process evidence already identified; analyzes relationships, not an artifact category'),
     'logons': ('logons', 'No required input; normalized Windows authentication events'),
     'session': ('session --logon-id <logon-id>', 'Windows authentication Logon ID, not a Locard evidence ID; may need host/anchor disambiguation'),
     'detections': ('detections', 'No required input; deterministic rule matches, not proof of compromise'),
