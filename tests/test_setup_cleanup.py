@@ -11,7 +11,7 @@ import pytest
 from forensic_assistant import activity, terminal
 from forensic_assistant.database.db import connect
 from forensic_assistant.interactive import discovery, setup, setup_display, workspace, creation
-from forensic_assistant.interactive.shell import Shell, Mode
+from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
 from forensic_assistant.terminal import Palette
 from forensic_assistant.ingest.evtx import ingest_file
@@ -48,7 +48,7 @@ def test_managed_workspace_and_normal_prompts(tmp_path, capsys):
     shell = Shell(State(None), reader)
     assert setup.create(shell)
     root = tmp_path / 'cases/My_first_case'
-    assert shell.active == root / 'case.db' and shell.mode is Mode.EXPERT
+    assert shell.active == root / 'case.db' and not hasattr(shell, 'mode')
     assert {p.name for p in root.iterdir()} == {'case.db', 'case.db.audit.jsonl', 'reports', 'exports', 'workspace'}
     assert all(not list((root / name).iterdir()) for name in ('reports', 'exports', 'workspace'))
     assert reader.prompts.count('Case name: ') == 2
@@ -60,7 +60,7 @@ def test_managed_workspace_and_normal_prompts(tmp_path, capsys):
     assert 'A Locard investigation has three steps:' in text
     assert 'Case created. No evidence ingested.' in text and 'Case ready.' not in text
     assert 'Next steps' not in text and 'Use: report generate' not in text
-    assert 'prefix natural-language requests with !' in text
+    assert 'Prefix a natural-language request with !' in text
 
 
 @pytest.mark.parametrize('answers', [('cancel',), ('Example', 'CANCEL'), ('Example', '', 'Cancel'),

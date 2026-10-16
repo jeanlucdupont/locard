@@ -152,21 +152,20 @@ describe these shell-only commands; they are not OS command execution.
 
 The startup menu offers **[1] Create a case**, **[2] Open a case**, and **[3] Exit**.
 Create a case opens guided setup; `new-case` opens it from the interactive shell.
-Expert `case new` and all six `ingest-*` commands remain available. The wizard
-creates/ingests, then returns to Expert mode for investigation and reporting. It
-never calls a model or enables AI mode automatically.
+`case new` and direct ingestion commands remain available. The wizard
+creates/ingests, then returns to the normal prompt for investigation and reporting.
+It never calls a model automatically.
 
-With a case open, type `ingest-wizard` in either Expert or AI-assisted mode to
-append evidence using the same guided scan or manual evidence selection. It
-preserves the active case, human case name, analyst/organization labels, prior
-evidence and current mode. It never creates another workspace or calls a model.
-`help ingest-wizard` describes the workflow; the command takes no arguments.
-`add-evidence` remains a compatibility alias that invokes the same workflow with
-a short rename notice. Navigation help and completion prefer `ingest-wizard`.
+With a case open, type `ingest wizard` to append evidence using the same guided
+scan or manual evidence selection. It preserves the active case, human case name,
+analyst/organization labels and prior evidence. It never creates another workspace
+or calls a model. `help ingest wizard` describes the workflow; it takes no arguments.
+`ingest-wizard` and `add-evidence` remain compatibility aliases with a short notice.
+Navigation help and completion prefer `ingest wizard`.
 
-Use the existing direct `ingest-mft`, `ingest-registry`, `ingest-prefetch`,
-`ingest-evtx`, `ingest-browser`, and `ingest-all` commands when you already know
-the evidence and want explicit command options. `ingest-wizard` guides discovery
+Use the existing direct `ingest mft`, `ingest registry`, `ingest prefetch`,
+`ingest evtx`, `ingest browser`, and `ingest all` commands when you already know
+the evidence and want explicit command options. `ingest wizard` guides discovery
 and selection. Manual mode asks for an artifact type and an evidence file or
 folder, then proceeds to metadata and confirmation without repeating the scan
 selection menu. Browser profile selection remains explicit.
@@ -190,7 +189,7 @@ The completion summary covers this addition only. Type `cancel` or decline the
 confirmation to return without changes; if interrupted after ingestion starts,
 already committed evidence and provenance remain. A mounted `$MFT` that requires
 extraction can later be added as an extracted standard file through manual selection.
-Expert `ingest-*` commands remain available with their existing arguments and JSON.
+Direct `ingest <type>` commands remain available with their existing arguments and JSON.
 
 Enter a case name, optional analyst name and optional organization. These are
 analyst-supplied labels in the existing derived activity trail, not evidence.
@@ -265,7 +264,7 @@ Committed evidence survives later failures. A case with no stored records requir
 explicit activation unless an empty case was requested. Cancellation preserves the
 previous active case; published databases, committed work and requested directories
 are retained. Post-creation guidance explains adding evidence,
-investigating in Expert mode, and entering `ai` mode with `!` natural-language requests.
+investigating with commands, and requesting advisory guidance with `!`.
 Case creation success stays green independently of amber limitations or red failures.
 Mounted MFT requiring extraction is red, not partial. Human Registry messages explain
 that unreplayed logs may leave recent uncommitted changes missing; EVTX messages
@@ -276,37 +275,48 @@ Disk images (`.E01`, `.raw`, `.dd`, `.img`, `.vhd`, `.vhdx`) must be mounted or 
 externally. Locard does not mount them. Root memory/page/hibernation files are reported
 as unsupported; automatic discovery is not a claim of complete acquisition.
 
-### Advisory AI shell mode
+Bare `ingest` shows usage without ingesting anything. `help ingest` lists all seven
+subcommands; `help ingest mft` (or `locard ingest mft --help`) shows direct options.
+The flat aliases `ingest-all`, `ingest-browser`, `ingest-evtx`, `ingest-mft`,
+`ingest-prefetch`, and `ingest-registry` remain accepted for existing scripts with
+unchanged arguments, counters, provenance and JSON. They reuse the same parsers and
+implementations; no deprecation text is added to scripted JSON output.
 
-Every shell starts in **expert mode**, with a blue `[my 3rd case]>` prompt.
+### Advisory AI in the shell
+
+There is one shell prompt, always `[my 3rd case]>`, using the normal prompt style.
 The human case name is read from the existing creation activity entry on activation,
 including reopening. If unavailable, managed cases use their workspace name; older
 standalone databases use their filename. Labels are escaped and bounded for display.
-Type `ai` to enter AI-assisted mode: the prompt becomes purple `[my 3rd case]#`.
-Type `expert` to return. The suffix remains distinct without color; `#` is a mode
-marker, not elevated operating-system privilege. Mode is session-only and is not saved.
 
-All normal commands still use the ordinary parser and dispatcher in both modes.
-Only a line beginning with optional whitespace followed by `!` requests AI advice:
+Prefix a natural-language request with `!` to ask the local AI assistant directly:
 
 ```text
-[my 3rd case]> ai
-[my 3rd case]# semantic status
-[my 3rd case]# ! Does MFT presence prove execution?
-[my 3rd case]# expert
+[my 3rd case]> ! What evidence is available?
+[my 3rd case]> search --path coreupdater.exe --ids
+[my 3rd case]> ! How should I investigate this?
 ```
 
 The first `!` and one optional following space are removed; remaining text is passed
-literally. Unprefixed text, including command typos, stays a Locard command. In expert
-mode, `!` only explains how to enter AI mode. It is never an OS shell escape.
-`help ai` / `? ai` explains the workflow. Tab completion includes `ai` and `expert`;
-completion is not mode-sensitive, and natural-language text has no completion.
+literally. Unprefixed text, including command typos, stays a Locard command. Empty
+requests never invoke the model. `!` is never an OS shell escape.
+
+`ai` and `expert` are compatibility notices only: neither changes state or prompt.
+Interactive `ask <question>` prints a deprecation notice and forwards to the same
+advisory path as `!`. These compatibility names are hidden from primary help and
+completion; `help ask`, `help ai` and `help expert` explain them. Separately, the
+hidden **non-interactive** `locard ask` command retains its existing bounded
+retrieval behavior and options for scripts; this does not add retrieval to `!`.
+
+New sessions no longer emit `SHELL_MODE` UI transition events because no transition
+occurs. Historical activity entries remain readable and verifiable with the same
+audit schema and hash-chain rules. AI request audit records are unchanged.
 
 Advice uses the existing analysis `LocalClient` and its default numeric loopback endpoint
 (`http://127.0.0.1:8080`), with a 45-second deadline. It does not use the embedding model.
-Entering or leaving AI mode never contacts a model. Requests are independent and bounded
+Requests are independent and bounded
 to 4096 UTF-8 bytes. Before each request a short read-only snapshot supplies the human
-case name, version, mode, actual retained record counts by supported artifact category,
+case name, version, actual retained record counts by supported artifact category,
 and current analyst-supplied source metadata. The first eight sources in creation/ID
 order are shown with exact total/shown counts; each label/metadata field is capped at
 160 characters and truncation is explicit. Source assertions are not verified findings.
@@ -331,11 +341,11 @@ No individual records, EVTX bodies, Registry values, MFT filenames, browser URLs
 Prefetch contents, command outputs, analyst/organization names, conversation or command
 history are automatically included. Ingestion limitations are omitted rather than inferred
 from terminal output. New evidence is reflected in the next request without reopening
-AI mode. Context strings are untrusted data in a separate structured message; the analyst's
+the case. Context strings are untrusted data in a separate structured message; the analyst's
 request remains the task. High-level counts do not establish findings about individual records.
 
 Manual smoke test (requires your existing local model): open a case with MFT, Registry,
-Prefetch and EVTX, enter `ai`, then ask both questions:
+Prefetch and EVTX, then ask both questions directly:
 
 ```text
 ! What evidence is available in this case?
@@ -466,7 +476,7 @@ manual visual acceptance checks; mocked tests do not guarantee model advice qual
 The response is labeled advisory, not evidence. Suggested commands must be entered by
 the analyst: the assistant cannot dispatch commands, ingest, create cases, modify evidence
 or run tools. Structured advice can be wrong and is not report-style evidence grounding.
-Failures, malformed replies, timeout and Ctrl+C leave the shell usable in its current mode.
+Failures, malformed replies, timeout and Ctrl+C leave the normal shell prompt usable.
 There are no downloads, automatic installations, Internet calls or persistent investigation
 plans. Normal case creation and ingestion remain deterministic.
 
@@ -579,8 +589,8 @@ Tab completion after `help` or `?` reuses the same command/parser hierarchy:
 
 ### Sources, ingestion batches, and evidence identity (0.10.0)
 
-The ingestion commands are `ingest-all`, `ingest-browser`, `ingest-evtx`,
-`ingest-mft`, `ingest-prefetch`, and `ingest-registry`. Explicit `ingest-evtx`
+The ingestion commands are `ingest all`, `ingest browser`, `ingest evtx`,
+`ingest mft`, `ingest prefetch`, and `ingest registry`. Explicit `ingest evtx`
 discovers both `.evtx`-named files (including damaged headers, so attempts and
 errors retain provenance) and signature-recognized EVTX files with other names.
 The existing parser decides their outcomes; discovery does not assert validity.
@@ -607,8 +617,8 @@ Inside an active case, or prefixed with `locard --db case.db`:
 source create --name "Workstation 01"
 source list
 source show <source-id> --limit 50 --offset 0
-ingest-prefetch extracted-prefetch --source <source-id>
-ingest-evtx extracted-events --source <source-id>
+ingest prefetch extracted-prefetch --source <source-id>
+ingest evtx extracted-events --source <source-id>
 source update <source-id> --hostname dfir-lab-01
 source update <source-id> --hostname dfir-lab-01 --yes
 search --source <source-id>
@@ -1419,10 +1429,10 @@ resolution rules above. Existing ingested rows are not rewritten automatically.
 
 ### Chromium browser History and downloads
 
-`ingest-browser` imports one acquired Chrome or Edge `History` SQLite file.
+`ingest browser` imports one acquired Chrome or Edge `History` SQLite file.
 Product and profile are explicit analyst metadata, never guessed from paths or
 URLs. Profile names do not establish Windows user identity. This command is
-explicit rather than part of `ingest-all` discovery, which cannot safely infer a
+explicit rather than part of `ingest all` discovery, which cannot safely infer a
 browser product/profile from an arbitrary SQLite file.
 
 The interactive new-case wizard also discovers Chromium History candidates by
@@ -1433,8 +1443,8 @@ path hints. The wizard reuses the existing ingestion commands. Original database
 and companions are not opened by SQLite during discovery.
 
 ```powershell
-locard --db case.db ingest-browser C:\Acquired\Chrome\Default\History --browser chrome --profile Default --hostname lab-host --user analyst
-locard --db case.db ingest-browser C:\Acquired\Edge\Profile1\History --browser edge --profile "Profile 1" --source src-<existing-id>
+locard --db case.db ingest browser C:\Acquired\Chrome\Default\History --browser chrome --profile Default --hostname lab-host --user analyst
+locard --db case.db ingest browser C:\Acquired\Edge\Profile1\History --browser edge --profile "Profile 1" --source src-<existing-id>
 locard --db case.db search --artifact browser --browser-kind visit --url-contains example.com
 locard --db case.db search --artifact browser --browser-kind download --download-path-contains tool.exe --browser chrome
 locard --db case.db show BROWSER:<id> --json
@@ -1589,21 +1599,19 @@ Semantic retrieval locates evidence; it does not create evidence. Its representa
 vectors, chunks and scores are derived sensitive retrieval data. Original evidence,
 IDs and forensic conclusions are unchanged. See [semantic architecture](docs/v3.md).
 
-### ASK and semantic presentation
+### Legacy CLI ASK and semantic presentation
 
-`ask "question"` uses deterministic retrieval first and the same reusable model
+The hidden non-interactive compatibility command `locard ask "question"` uses deterministic retrieval first and the same reusable model
 configuration and case index as `semantic search`. Precise supported queries do
-not need embeddings. When semantic retrieval is needed, the interactive human
-workflow can offer the same approved model setup and index build/rebuild, then
-resume the question. Scripts and `--json` never prompt. Missing optional runtime
+not need embeddings. Set up the optional model and case index explicitly before
+using semantic retrieval in this compatibility command; it never prompts. Missing optional runtime
 dependencies require manual installation; no package installation is automatic.
 If semantic retrieval is unavailable, a recognized deterministic query remains
 usable with a visible limitation, including an empty/insufficient-evidence result.
 A meaning-based question with no deterministic
 selection instead reports the actionable semantic failure.
 
-Interactive ASK defaults to human text; direct CLI defaults to JSON. Both accept
-`--text` and `--json`. `ask "question" --dry-run` shows the plan and bounded evidence
+CLI ASK defaults to JSON and accepts `--text` and `--json`. `locard ask "question" --dry-run` shows the plan and bounded evidence
 bundle without contacting the analysis LLM (local embedding retrieval may still
 run). Explicit `--embedding-model` and `--semantic-index` overrides remain available
 without changing the saved model preference.
@@ -1617,9 +1625,8 @@ MFT presence/access timestamps do not prove execution. Model confidence is retai
 in JSON as model assessment metadata only; it is not shown as forensic certainty.
 Citation validation checks references, not the factual correctness of model prose.
 
-Normal interactive ASK starts with the plan rather than repeating the question.
-JSON, direct CLI text, and saved/appended text keep the original question for
-context. Human plans say `deterministic search` for exact/filter-based retrieval
+JSON, CLI text, and saved/appended text keep the original question for
+context. Interactive `ask` follows the advisory behavior documented above instead. Human plans say `deterministic search` for exact/filter-based retrieval
 or `semantic` for meaning-based discovery; internal JSON planner values remain
 compatible.
 

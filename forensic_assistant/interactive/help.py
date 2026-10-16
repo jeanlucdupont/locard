@@ -7,7 +7,7 @@ from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS, COMMAND
 # Argument syntax stays with the interactive command implementation.
 SHELL_USAGE = {
     'add-evidence': 'add-evidence',
-    'ingest-wizard': 'ingest-wizard',
+    'ingest-wizard': 'ingest wizard',
     'ai': 'ai',
     'expert': 'expert',
     '?': '? [command]',
@@ -24,36 +24,28 @@ SHELL_USAGE = {
 def command_help(name):
     result = SHELL_USAGE[name] + ': ' + COMMANDS[name]
     if name == 'add-evidence':
-        return result + '\nUse help ingest-wizard for documentation.'
+        return result + '\nUse help ingest wizard for documentation.'
     if name == 'ingest-wizard':
         result += ('\nAppend evidence to the current case using guided mounted/extracted Windows scanning or manual '
                    'evidence selection. Existing evidence and case metadata are preserved. Optional source metadata '
                    'applies to the new source only. Mounted $MFT requires extraction as a standard file. '
                    'Type cancel to return without ingestion before confirmation. After ingestion starts, committed '
-                   'work is retained on interruption. The current Expert/AI mode is preserved. No arguments are accepted. Direct ingest-* commands accept a known artifact and explicit options. '
+                   'work is retained on interruption. No arguments are accepted. Direct ingest subcommands accept a known artifact and explicit options. '
                    'Source metadata is analyst supplied; identities are never inferred from directory names.')
     if name == 'new-case':
-        result += ('\nGuided setup: create a case and ingest evidence, investigate in Expert or AI-assisted mode, '
+        result += ('\nGuided setup: create a case and ingest evidence, investigate using commands or ! advisory requests, '
                    'then generate a report. Scan a mounted/extracted Windows filesystem, select evidence manually, '
                    'or skip ingestion. A case name creates a managed workspace; analyst/organization are optional. '
                    'Select browser profiles explicitly. Mounted $MFT may require extraction. Administrator '
                    'access is recommended, not guaranteed. Type cancel to stop; Enter accepts defaults. '
                    'Review candidates and confirm before anything is created or ingested. '
-                   'Disk images must be mounted/extracted separately. Existing case new and expert ingest-* '
-                   'commands remain available for adding evidence later. Completion returns to Expert mode; '
-                   'type ai for AI-assisted mode and prefix natural-language requests with !. '
+                   'Disk images must be mounted/extracted separately. Existing case new and direct ingest '
+                   'commands remain available for adding evidence later. Prefix natural-language requests with !. '
                    'The prompt uses the human case name when available. No model is called during setup.')
     if name in ('ai', 'expert'):
-        result += ('\nUse ai to enter AI mode and expert to return to expert mode. '
-                   'In AI mode, prefix natural-language requests with !. '
-                   'All standard Locard commands remain available. '
-                   'AI is advisory only: it does not execute commands. Responses use concise advisory sections. '
-                   'The # prompt marks AI mode, not elevated OS privileges. '
-                   'Each request receives fresh bounded high-level case context: retained artifact counts and source metadata. '
-                   'Inventory questions can be answered directly; zero counts describe this case, not the entire source system. '
-                   'Individual records are not inspected and inventory alone establishes no forensic conclusion. '
-                   'Recommended commands must be run by the examiner; search --path takes a filename/path, show takes an evidence ID. '
-                   'No conversation or raw evidence is automatically supplied.')
+        result += ('\nPrefix a natural-language request with ! to ask the local AI assistant. '
+                   'AI is advisory only: no commands are executed and no records are automatically retrieved. '
+                   'The prompt remains >; no mode change is needed.')
     return result
 
 
@@ -63,10 +55,11 @@ def catalog(parser, palette=None):
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             for name in action.choices:
-                commands[name] = COMMANDS[name]
+                if name not in COMMAND_ALIASES:
+                    commands[name] = COMMANDS[name]
     width = max(map(len, commands))
     lines = ['']
     for name, description in sorted(commands.items()):
         lines.append('  ' + palette('key', name.ljust(width)) + '  ' + safe(description))
-    return '\n'.join([*lines, '', 'AI mode: !<text> asks the local advisory assistant; normal commands remain available.',
+    return '\n'.join([*lines, '', 'Prefix a natural-language request with ! to ask the local AI assistant (advisory only).',
                       '', 'Type `help <command>` for details.\n'])

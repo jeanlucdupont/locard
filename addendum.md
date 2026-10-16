@@ -1,3 +1,8 @@
+> Current shell: use `! <question>` for advisory guidance directly, without mode switches.
+> `locard ask` examples below describe hidden non-interactive compatibility retrieval;
+> interactive `ask` instead forwards to `!` with a deprecation notice.
+> Canonical ingestion is `ingest <type>` or `ingest wizard`; flat aliases remain accepted.
+
 ### THE LLM DOES NOT EXECUTE COMMANDS OR QUERY THE DATABASE DIRECTLY.
 
 ```powershell
@@ -12,14 +17,14 @@ locard --db data\case.db investigation replay '<investigation-id>' --no-semantic
 Acquire offline files using appropriate forensic acquisition procedures. Locard
 parses supplied copies; it does not acquire live hives, unlock files, mount images,
 recover deleted content, or replay Registry transaction logs. Missing companion
-hives are allowed. `ingest-evtx` imports Windows event logs. New commands
+hives are allowed. `ingest evtx` imports Windows event logs. New commands
 validate signatures rather than relying on filenames:
 
 ```powershell
-locard --db data\case.db ingest-mft 'C:\Evidence\filesystem\$MFT' --hostname PC01 --volume-root C:
-locard --db data\case.db ingest-prefetch C:\Evidence\Prefetch --hostname PC01 --volume-root C:
-locard --db data\case.db ingest-registry C:\Evidence\Registry --hostname PC01
-locard --db data\case.db ingest-all C:\Evidence --hostname PC01 --json
+locard --db data\case.db ingest mft 'C:\Evidence\filesystem\$MFT' --hostname PC01 --volume-root C:
+locard --db data\case.db ingest prefetch C:\Evidence\Prefetch --hostname PC01 --volume-root C:
+locard --db data\case.db ingest registry C:\Evidence\Registry --hostname PC01
+locard --db data\case.db ingest all C:\Evidence --hostname PC01 --json
 locard --db data\case.db search --path payload.exe --json
 locard --db data\case.db search --artifact registry --json
 locard --db data\case.db search --process powershell.exe
@@ -356,8 +361,8 @@ the subcommand; its default is `data/forensic.db` relative to the current direct
 Use a separate database per investigation. Keep databases outside source evidence folders.
 
 ```powershell
-.\.venv\Scripts\python.exe -m forensic_assistant.cli ingest-evtx 'C:\Evidence'
-.\.venv\Scripts\python.exe -m forensic_assistant.cli --db data\case1.db ingest-evtx 'C:\Evidence\Security.evtx'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli ingest evtx 'C:\Evidence'
+.\.venv\Scripts\python.exe -m forensic_assistant.cli --db data\case1.db ingest evtx 'C:\Evidence\Security.evtx'
 .\.venv\Scripts\python.exe -m forensic_assistant.cli status
 ```
 

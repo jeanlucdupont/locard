@@ -91,3 +91,25 @@ def configure_interactive(parser, path=(), context=None):
         if isinstance(action, argparse._SubParsersAction):
             for name, child in action.choices.items():
                 configure_interactive(child, (*path, name), context)
+
+
+def configure_ingest_namespace(commands):
+    """Expose the same fully configured parsers through a canonical namespace.
+
+    Internal command IDs remain stable for provenance/audit and existing dispatch.
+    Compatibility choices remain parseable, but are omitted from primary help.
+    """
+    from forensic_assistant.command_catalog import COMMANDS, COMMAND_ALIASES
+    family = commands.add_parser('ingest', help=COMMANDS['ingest'], description=COMMANDS['ingest'])
+    kinds = family.add_subparsers(dest='ingest_type', metavar='{all,browser,evtx,mft,prefetch,registry,wizard}')
+    commands.add_parser('ingest-wizard', help=COMMANDS['ingest-wizard'],
+                        description='Guided ingestion in the interactive shell; no arguments.')
+    for kind in ('all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'wizard'):
+        name = 'ingest-' + kind
+        child = commands.choices[name]
+        child.set_defaults(command=name)
+        kinds._name_parser_map[kind] = child
+        kinds._choices_actions.append(kinds._ChoicesPseudoAction(kind, [], COMMANDS[name]))
+        child.prog = family.prog + ' ' + kind
+    commands._choices_actions[:] = [a for a in commands._choices_actions if a.dest not in COMMAND_ALIASES]
+    commands.metavar = '{' + ','.join(name for name in commands.choices if name not in COMMAND_ALIASES) + '}'

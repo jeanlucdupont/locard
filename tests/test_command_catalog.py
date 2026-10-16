@@ -16,10 +16,10 @@ from test_interactive_shell import Input, case
 
 # Intentional wording contract, independent of the production metadata.
 EXPECTED = dict(line.split('|', 1) for line in """?|Show help for a command
-add-evidence|Compatibility alias for ingest-wizard
+add-evidence|Compatibility alias for ingest wizard
 ingest-wizard|Guided evidence discovery and ingestion
-ai|Enter AI-assisted mode
-expert|Return to expert mode
+ai|Compatibility notice: prefix advisory requests with !
+expert|Compatibility notice: the shell has no mode switch
 new-case|Create a case with guided evidence discovery and ingestion
 activity|Review and verify analyst activity
 analyze-timeline|Analyze timeline evidence using the local AI model
@@ -30,6 +30,7 @@ color|Turn terminal colors on or off
 detections|Show evidence matching Locard detection rules
 exit|Exit Locard
 help|Show help for a command
+ingest|Ingest evidence directly or launch guided ingestion
 ingest-all|Import all supported forensic artifacts
 ingest-browser|Ingest Chrome or Edge browsing history and downloads
 ingest-evtx|Import Windows Event Logs (EVTX)
@@ -71,7 +72,7 @@ def test_every_top_level_parser_has_central_summary(interactive):
     names = set(commands.choices) | set(SHELL_COMMANDS)
     assert names == set(COMMANDS), 'Every user-facing command must have command_catalog metadata'
     summaries = {entry.dest: entry.help for entry in commands._choices_actions}
-    assert summaries == {name: COMMANDS[name] for name in commands.choices}
+    assert summaries == {name: COMMANDS[name] for name in commands.choices if name not in COMMAND_ALIASES}
 
 
 @pytest.mark.parametrize('color', [False, True])

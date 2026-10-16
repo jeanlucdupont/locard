@@ -8,7 +8,7 @@ from forensic_assistant.cli import build_parser
 from forensic_assistant.database.db import connect
 from forensic_assistant.interactive import setup, setup_display, workspace, creation
 from forensic_assistant.interactive.metadata import read_volume_root
-from forensic_assistant.interactive.shell import Shell, Mode
+from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
 from forensic_assistant.terminal import Palette, SGR
 from test_add_evidence import opened, manual, rows
@@ -34,12 +34,10 @@ def test_invalid_volume_reprompts_without_weakening_core_validator(invalid, caps
         normalize_volume_root('C')  # CLI/core validation is unchanged.
 
 
-@pytest.mark.parametrize('mode', [Mode.EXPERT, Mode.AI])
-def test_invalid_field_retains_selection_and_ingests_with_corrected_source(opened, tmp_path, capsys, mode):
+def test_invalid_field_retains_selection_and_ingests_with_corrected_source(opened, tmp_path, capsys):
     path = tmp_path / 'evidence' / 'mft'
     path.parent.mkdir()
     mft_file(path)
-    opened.mode = mode
     opened.reader = Input('2', 'mft', str(path), '', 'yes', 'New source', 'HOST-A', 'UserA',
                           'C:\\folder', 'foo', r'\\server\share', 'c', 'yes')
     assert setup.add_evidence(opened)
@@ -52,7 +50,7 @@ def test_invalid_field_retains_selection_and_ingests_with_corrected_source(opene
     assert assertions[0]['volume_root'] == 'C:' and assertions[0]['hostname'] == 'host-a'
     assert assertions[0]['username'] == 'UserA'
     assert len(rows(opened, 'ingestion_runs')) == 1
-    assert opened.mode is mode
+    assert not hasattr(opened, 'mode')
 
 
 def test_cancel_after_invalid_volume_changes_nothing(opened, tmp_path):

@@ -133,6 +133,8 @@ def build_parser(*, interactive=False):
     show.add_argument("--raw", action="store_true")
     commands.add_parser("status", help=COMMANDS['status'])
     ask_parser = commands.add_parser("ask", help=COMMANDS['ask'], description=(
+        'Deprecated CLI compatibility command; use ! in the interactive shell for advisory guidance. '
+        'This legacy CLI command retains its existing evidence retrieval behavior. '
         'Deterministic search retrieves evidence by exact/filter-based criteria. '
         'Semantic retrieval discovers meaning-based candidate leads, not evidence for the queried concept. '
         'The local LLM analyzes only the bounded supplied bundle. Model analysis is not evidence.'))
@@ -163,6 +165,8 @@ def build_parser(*, interactive=False):
     activity.configure(commands)
     from forensic_assistant.output import configure
     configure(commands)
+    from forensic_assistant.cli_parser import configure_ingest_namespace
+    configure_ingest_namespace(commands)
     if interactive:
         configure_interactive(parser)
     return parser
@@ -185,6 +189,13 @@ def main(argv=None):
 
 
 def dispatch(args, *, existing_only=False):
+    if args.command == 'ingest':
+        parser = build_parser(interactive=existing_only)
+        next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction)).choices['ingest'].print_help()
+        return 0
+    if args.command == 'ingest-wizard':
+        print('ingest wizard requires the interactive shell.', file=sys.stderr)
+        return 2
     from forensic_assistant.output import Output
     from forensic_assistant import activity
     output = None

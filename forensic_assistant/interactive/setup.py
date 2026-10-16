@@ -15,7 +15,7 @@ from forensic_assistant.cli import get_thin
 from .metadata import read_volume_root
 
 WORKFLOW = (get_thin() + '\nA Locard investigation has three steps:\n  1. Create a case and ingest evidence\n'
-            '  2. Investigate in Expert or AI-assisted mode\n  3. Generate a report\n\n'
+            '  2. Investigate using commands or ! advisory requests\n  3. Generate a report\n\n'
             'This guided setup will help you complete step 1.')
 
 
@@ -492,17 +492,13 @@ def create(shell):
             session.record('CASE_SETUP', case_name=plan.name, analyst_name=plan.analyst or None, organization=plan.organization or None,
                            selected_counts=dict(Counter(i.kind for i in plan.items)), ingestion=outcomes)
         shell.activate(plan.target, activity_session=session, announce=False)
-        from .shell import Mode
-        shell.mode = Mode.EXPERT
-        session.record('SHELL_MODE', mode='EXPERT', basis='Completed guided case setup')
         message = setup_display.completion(plan, outcomes, stored)
         print("\n████ " + setup_display.completion_line(message, palette))
         if elapsed is not None and stored:
             print('Elapsed time: ' + setup_display.duration(elapsed))
         ingestion_summary(plan, outcomes, palette)
         print("\n" + get_thin() + '\nYou can add more evidence at any time, or start investigating now.\n\n'
-              'To investigate, stay in Expert mode and use Locard commands directly,\n'
-              'or type ai to enter AI-assisted mode. In AI mode, prefix natural-language requests with !.')
+              'Use Locard commands directly. Prefix a natural-language request with ! to ask the local AI assistant.')
         return True
     except (KeyboardInterrupt, EOFError):
         if session:

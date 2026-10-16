@@ -4,10 +4,10 @@ from types import MappingProxyType
 
 
 COMMANDS = MappingProxyType({
-    'add-evidence': 'Compatibility alias for ingest-wizard',
+    'add-evidence': 'Compatibility alias for ingest wizard',
     'ingest-wizard': 'Guided evidence discovery and ingestion',
-    'ai': 'Enter AI-assisted mode',
-    'expert': 'Return to expert mode',
+    'ai': 'Compatibility notice: prefix advisory requests with !',
+    'expert': 'Compatibility notice: the shell has no mode switch',
     '?': 'Show help for a command',
     'activity': 'Review and verify analyst activity',
     'analyze-timeline': 'Analyze timeline evidence using the local AI model',
@@ -19,6 +19,7 @@ COMMANDS = MappingProxyType({
     'detections': 'Show evidence matching Locard detection rules',
     'exit': 'Exit Locard',
     'help': 'Show help for a command',
+    'ingest': 'Ingest evidence directly or launch guided ingestion',
     'ingest-all': 'Import all supported forensic artifacts',
     'ingest-browser': 'Ingest Chrome or Edge browsing history and downloads',
     'ingest-evtx': 'Import Windows Event Logs (EVTX)',
@@ -51,7 +52,10 @@ SHELL_COMMANDS = MappingProxyType({
 
 
 COMMAND_ALIASES = MappingProxyType({
-    'add-evidence': 'ingest-wizard',
+    'add-evidence': 'ingest wizard',
+    'ai': '!', 'expert': '!', 'ask': '!',
+    **{'ingest-' + kind: 'ingest ' + kind for kind in
+       ('all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'wizard')},
 })
 
 

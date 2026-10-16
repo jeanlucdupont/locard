@@ -9,7 +9,7 @@ from forensic_assistant.database.db import connect
 from forensic_assistant.database import sources
 from forensic_assistant.interactive.ai_context import build_ai_case_context, SOURCE_LIMIT, TEXT_LIMIT
 from forensic_assistant.interactive import advisory, setup
-from forensic_assistant.interactive.shell import Shell, Mode
+from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
 from forensic_assistant.cli import build_parser
 from forensic_assistant import v2_cli, activity
@@ -75,7 +75,6 @@ def test_sources_latest_assertions_missing_fields_and_boundedness(tmp_path):
 
 def test_fresh_wizard_context_human_name_privacy_and_reopen(opened, tmp_path, model, capsys):
     shell = opened
-    shell.mode = Mode.AI
     shell.request_advice('before')
     first = json.loads(model[-1][0][1]['content'])['case_context']
     assert first['case_name'] == 'Human case'
@@ -91,13 +90,12 @@ def test_fresh_wizard_context_human_name_privacy_and_reopen(opened, tmp_path, mo
     second = json.loads(model[-1][0][1]['content'])['case_context']
     assert second['artifact_inventory']['mft'] > 0
     assert second['sources']['total'] == 1
-    assert shell.mode is Mode.AI
+    assert not hasattr(shell, 'mode')
     assert 'Private source' not in capsys.readouterr().out
     assert 'Examiner' not in json.dumps(model) and 'Organization' not in json.dumps(model)
     shell.audit.end('test reopen')
     reopened = Shell(State(None), Input(), no_color=True)
     reopened.activate(shell.active)
-    reopened.mode = Mode.AI
     reopened.request_advice('reopened')
     assert json.loads(model[-1][0][1]['content'])['case_context'] == second
     reopened.audit.end('test')
@@ -165,8 +163,8 @@ def test_invalid_model_output_leaves_case_and_prompt_unchanged(tmp_path, monkeyp
             return response
     monkeypatch.setattr(advisory, 'LocalClient', Client)
     shell, reader, path = run_shell(tmp_path, 'ai', '! question', 'version')
-    assert shell.mode is Mode.AI
-    assert reader.prompts[-1].endswith('# ')
+    assert not hasattr(shell, 'mode')
+    assert reader.prompts[-1].endswith('> ')
     assert 'invalid response' in capsys.readouterr().out
     entries = [activity.decode(line + b'\n') for line in activity.sidecar(path).read_bytes().splitlines()]
     assert [e['outcome'] for e in entries if e['action'] == 'AI_ADVICE'] == ['failure']

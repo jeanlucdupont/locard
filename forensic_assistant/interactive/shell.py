@@ -3,7 +3,6 @@ from forensic_assistant.retrieval.presentation import human_error
 import gc
 import os
 import sqlite3
-from enum import Enum
 from forensic_assistant.interactive.case import validate
 from forensic_assistant.interactive.console import Reader, safe
 from forensic_assistant.interactive.state import State, state_path
@@ -51,11 +50,6 @@ def split(line):
     return words
 
 
-class Mode(Enum):
-    EXPERT = 'EXPERT'
-    AI = 'AI'
-
-
 class Shell:
     def __init__(self, state, reader=None, *, no_color=False):
         self.state = state
@@ -65,11 +59,9 @@ class Shell:
         self.audit = None
         self.last_status = 0
         self.no_color = no_color
-        self.mode = Mode.EXPERT
 
     def prompt(self, label):
-        role, suffix = ('ai_prompt', '#') if self.mode is Mode.AI else ('prompt', '>')
-        return Palette(enabled(self))(role, '[' + label + ']' + suffix + ' ')
+        return Palette(enabled(self))('prompt', '[' + label + ']> ')
 
     def request_advice(self, request):
         from .advisory import advise, AdvisoryError, response_characters
@@ -257,15 +249,16 @@ class Shell:
                     # Natural-language quotes, backslashes and later ! stay data.
                     stripped = line.lstrip()
                     if stripped.startswith('!'):
-                        if self.mode is not Mode.AI:
-                            print('AI requests are available in AI mode. Enter: ai')
-                            self.last_status = 2
-                            continue
                         request = stripped[1:]
                         if request.startswith(' '):
                             request = request[1:]
                         executing = True
                         self.request_advice(request)
+                        continue
+                    if stripped == 'ask' or stripped.startswith(('ask ', 'ask\t')):
+                        print('`ask` is deprecated. Prefix AI requests with ! instead.')
+                        executing = True
+                        self.request_advice(stripped[3:].lstrip())
                         continue
                     words = split(line)
                     if not words:
@@ -273,10 +266,8 @@ class Shell:
                     if words[0] in ('ai', 'expert'):
                         if len(words) != 1:
                             raise ValueError(words[0] + ' takes no arguments')
-                        self.mode = Mode.AI if words[0] == 'ai' else Mode.EXPERT
-                        self.audit.record('SHELL_MODE', mode=self.mode.value, basis='Session UI state only')
-                        print('AI-assisted mode enabled.\nPrefix natural-language requests with !.\nAll Locard commands remain available.'
-                              if self.mode is Mode.AI else 'Expert mode enabled.')
+                        print('AI requests are now available directly. Prefix a request with !.'
+                              if words[0] == 'ai' else 'Locard now uses a single shell mode. No mode change is required.')
                         self.last_status = 0
                         continue
                     if words[0] in ('exit', 'quit'):
@@ -299,11 +290,11 @@ class Shell:
                         else:
                             self.choose(words[1] if len(words) == 2 else None)
                         continue
-                    if words[0] in ('ingest-wizard', 'add-evidence'):
-                        if len(words) != 1:
-                            raise ValueError(words[0] + ' takes no arguments')
-                        if words[0] == 'add-evidence':
-                            print('`add-evidence` is now called `ingest-wizard`.')
+                    if words[0] in ('ingest-wizard', 'add-evidence') or words[:2] == ['ingest', 'wizard']:
+                        if len(words) != (2 if words[0] == 'ingest' else 1):
+                            raise ValueError('ingest wizard takes no arguments')
+                        if words[0] != 'ingest':
+                            print('`' + words[0] + '` is deprecated. Use `ingest wizard`.')
                         from .setup import add_evidence
                         self.last_status = 0 if add_evidence(self) else 1
                         continue
@@ -333,6 +324,16 @@ class Shell:
                             self.audit.record('COMMAND', command='help', argv=words)
                             self.last_status = 0
                             continue
+                        if words[1:] == ['ingest', 'wizard']:
+                            print(command_help('ingest-wizard'))
+                            self.audit.record('COMMAND', command='help', argv=words)
+                            self.last_status = 0
+                            continue
+                        if len(words) == 2 and words[1] == 'ask':
+                            print('`ask` is deprecated. Prefix AI requests with ! instead. Interactive ask uses the same advisory path.')
+                            self.audit.record('COMMAND', command='help', argv=words)
+                            self.last_status = 0
+                            continue
                         if len(words) == 2 and words[1] in SHELL_COMMANDS:
                             print(command_help(words[1]))
                             self.audit.record('COMMAND', command='help', argv=words)
@@ -356,6 +357,12 @@ class Shell:
                     # Also rejects argparse global-option abbreviations/equals forms.
                     if args.db != str(self.active) or any(w == '--db' or w.startswith('--db=') for w in words):
                         raise ValueError('Use case to change the active database')
+                    if args.command == 'ask':
+                        # Quoted command names/global flags must not reach legacy CLI retrieval.
+                        print('`ask` is deprecated. Prefix AI requests with ! instead.')
+                        executing = True
+                        self.request_advice(args.question)
+                        continue
                     executing = True
                     from .sources import prepare
                     from forensic_assistant import activity

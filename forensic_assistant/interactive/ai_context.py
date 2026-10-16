@@ -94,7 +94,7 @@ def _build_ai_case_context(path, case_name, deadline):
         stage = 'metadata'
         context = {
             'case_name': bounded(case_name, 'case_name'),
-            'locard_version': __version__, 'mode': 'AI',
+            'locard_version': __version__,
             'case_context_available': True, 'individual_records_inspected': False,
             'forensic_conclusions_reached': False,
             'artifact_inventory': {kind: 0 for kind in categories},

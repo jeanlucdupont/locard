@@ -23,7 +23,7 @@ def fresh_metadata():
 
 @pytest.mark.parametrize('text,expected', [
     ('ver', 'version '), ('qui', 'quit '), ('exi', 'exit '), ('?', '? '),
-    ('inv', 'investigat'), ('ing', 'ingest-'),
+    ('inv', 'investigat'), ('ing', 'ingest '),
     ('session --lo', 'session --logon-id '),
     ('investigate --time', 'investigate --timestamp-slot '),
     ('source a', 'source assign '), ('report sh', 'report show '),
@@ -39,7 +39,7 @@ def test_unique_and_common_prefix(text, expected):
 
 @pytest.mark.parametrize('text,expected', [
     ('', tuple(sorted(set(COMMANDS) - set(COMMAND_ALIASES)))),
-    ('ingest-', ('ingest-all', 'ingest-browser', 'ingest-evtx', 'ingest-mft', 'ingest-prefetch', 'ingest-registry', 'ingest-wizard')),
+    ('ingest ', ('all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'wizard')),
     ('investigat', ('investigate', 'investigate-ai', 'investigation')),
     ('session --l', ('--limit', '--logon-id')),
 ])
@@ -210,14 +210,14 @@ def test_candidate_redraw_middle_cursor_repeated_tab_and_ctrl_l(monkeypatch, col
     monkeypatch.setattr(console, 'clear_screen', lambda: cleared.append(True))
     prompt = Palette(color)('prompt', '[db]> ')
     stream = io.StringIO()
-    text = 'ingest- tail'
+    text = 'ingest  tail'
     keys = [*text, *(['LEFT'] * 5), '\t', '\t', '\x0c', 'a', '\r']
     value = console.edit(keys, output=stream, prompt=prompt, complete=completion.complete)
-    assert value == 'ingest-a tail' and cleared == [True]
+    assert value == 'ingest a tail' and cleared == [True]
     rows = screen(stream.getvalue())
-    assert rows.count('ingest-all') == 2 and rows.count('ingest-registry') == 2
+    assert rows.count('all') == 2 and rows.count('registry') == 2
     assert 'Import all supported' not in stream.getvalue()
-    frame = (SGR.sub('', prompt) + 'ingest-a')[-(width - 1):]
+    frame = (SGR.sub('', prompt) + 'ingest a')[-(width - 1):]
     expected = frame + ' tail'[:max(0, width - 1 - len(frame))]
     assert rows[-2] == expected.rstrip()
     assert ('\x1b' in stream.getvalue()) == color
@@ -226,11 +226,11 @@ def test_candidate_redraw_middle_cursor_repeated_tab_and_ctrl_l(monkeypatch, col
 def test_history_draft_cancel_and_limit_are_preserved():
     history = ['status']
     stream = io.StringIO()
-    assert console.edit([*'ingest-', '\t', 'UP', 'DOWN', '\r'], history=history,
-                        complete=completion.complete, output=stream) == 'ingest-'
+    assert console.edit([*'ingest ', '\t', 'UP', 'DOWN', '\r'], history=history,
+                        complete=completion.complete, output=stream) == 'ingest '
     assert history == ['status']
     with pytest.raises(KeyboardInterrupt):
-        console.edit([*'ingest-', '\t', '\x03'], complete=completion.complete, output=io.StringIO())
+        console.edit([*'ingest ', '\t', '\x03'], complete=completion.complete, output=io.StringIO())
     assert console.edit([*'ver', '\t', '\r'], limit=3, complete=completion.complete,
                         output=io.StringIO()) == 'ver'
     # Tab remains inert in ordinary value/approval readers without a completer.
@@ -269,7 +269,7 @@ def test_reader_enables_completion_only_for_submitted_command_history(monkeypatc
     assert reader.history == ['version ']
     keys.extend('ver\t\r')
     assert reader.read('Value: ') == 'ver' and reader.history == ['version ']
-    keys.extend('ingest-\t\x03')
+    keys.extend('ingest \t\x03')
     with pytest.raises(KeyboardInterrupt):
         reader.read('locard> ', remember=True)
     assert reader.history == ['version ']

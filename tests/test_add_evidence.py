@@ -9,7 +9,7 @@ from forensic_assistant.database.db import connect
 from forensic_assistant.interactive import creation, setup, setup_display, workspace
 from forensic_assistant.interactive.completion import complete
 from forensic_assistant.interactive.help import catalog, command_help
-from forensic_assistant.interactive.shell import Shell, Mode
+from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
 from forensic_assistant.terminal import Palette
 from test_interactive_shell import Input
@@ -43,19 +43,18 @@ def rows(shell, table):
 
 
 def test_navigation_documentation_and_completion():
-    assert 'ingest-wizard' in catalog(build_parser())
+    assert 'ingest' in catalog(build_parser()) and 'ingest-wizard' not in catalog(build_parser())
     assert 'add-evidence' not in catalog(build_parser())
     text = command_help('ingest-wizard')
     for phrase in ('current case', 'manual', 'source metadata', 'preserved', '$MFT', 'cancel'):
         assert phrase in text
-    assert complete('ingest-w', 8).text == 'ingest-wizard '
+    assert complete('ingest w', 8).text == 'ingest wizard '
     # Interactive workflow does not introduce a JSON/non-interactive command.
     with pytest.raises(SystemExit):
         build_parser().parse_args(['add-evidence'])
 
 
-@pytest.mark.parametrize('mode', [Mode.EXPERT, Mode.AI])
-def test_append_preserves_case_sources_ids_and_mode(opened, tmp_path, capsys, mode):
+def test_append_preserves_case_sources_ids(opened, tmp_path, capsys):
     shell = opened
     root = tmp_path / 'evidence'
     root.mkdir()
@@ -63,7 +62,6 @@ def test_append_preserves_case_sources_ids_and_mode(opened, tmp_path, capsys, mo
     mft_file(first)
     prefetch_file(second)
     before_evidence = snapshot(root)
-    shell.mode = mode
     target, session, recent = shell.active, shell.audit, list(shell.state.recent)
     shell.reader = Input(*manual(first, metadata=['first', 'HOST-A', 'user-a', 'C:']))
     assert setup.add_evidence(shell)
@@ -76,7 +74,7 @@ def test_append_preserves_case_sources_ids_and_mode(opened, tmp_path, capsys, mo
     text = capsys.readouterr().out
     assert 'Evidence added to case.' in text and 'Case created' not in text
     assert get_thin() in text
-    assert shell.active == target and shell.audit is session and shell.mode is mode
+    assert shell.active == target and shell.audit is session and not hasattr(shell, 'mode')
     assert shell.case_label == 'Human case' and shell.state.recent == recent
     assert len(list((tmp_path / 'cases').rglob('case.db'))) == 1
     new_records = rows(shell, 'evidence_records')
@@ -97,9 +95,8 @@ def test_append_preserves_case_sources_ids_and_mode(opened, tmp_path, capsys, mo
     assert 'Add selected evidence to this case? [Y/n]: ' in shell.reader.prompts
 
 
-@pytest.mark.parametrize('mode', [Mode.EXPERT, Mode.AI])
 @pytest.mark.parametrize('stop', ['cancel', '3', 'selection', 'decline', 'interrupt'])
-def test_preconfirmation_cancellation_changes_nothing(opened, tmp_path, capsys, mode, stop):
+def test_preconfirmation_cancellation_changes_nothing(opened, tmp_path, capsys, stop):
     shell = opened
     root = tmp_path / 'evidence'
     root.mkdir()
@@ -107,13 +104,12 @@ def test_preconfirmation_cancellation_changes_nothing(opened, tmp_path, capsys, 
     mft_file(path)
     lines = {'cancel': ['cancel'], '3': ['3'], 'selection': ['2', 'mft', str(path), '', 'cancel'],
              'decline': manual(path, confirm='n'), 'interrupt': [KeyboardInterrupt()]}[stop]
-    shell.mode = mode
     before = snapshot(tmp_path)
     current, audit, recent = shell.active, shell.audit, list(shell.state.recent)
     shell.reader = Input(*lines)
     assert not setup.add_evidence(shell)
     assert snapshot(tmp_path) == before
-    assert shell.active == current and shell.audit is audit and shell.mode is mode
+    assert shell.active == current and shell.audit is audit and not hasattr(shell, 'mode')
     assert shell.state.recent == recent
     assert 'cancelled' in capsys.readouterr().out
 
@@ -186,11 +182,10 @@ def test_mid_ingestion_cancel_retains_committed_records(opened, tmp_path, monkey
             raise KeyboardInterrupt
         return original(db, args, callback)
     monkeypatch.setattr(v2_cli, 'ingest_sources', interrupted)
-    opened.mode = Mode.AI
     opened.reader = Input('1', str(root), '2', 'mft,prefetch', 'n', 'yes')
     assert not setup.add_evidence(opened)
     assert {r['source_type'] for r in rows(opened, 'evidence_records')} == {'mft'}
-    assert opened.mode is Mode.AI
+    assert not hasattr(opened, 'mode')
     assert 'Already committed evidence and provenance were retained' in capsys.readouterr().out
     assert activity.inspect(activity.sidecar(opened.active))['valid']
 
@@ -209,18 +204,16 @@ def test_semantic_completion_colors_and_zero_record_outcome():
         'error', 'No evidence was added. Selected evidence ingestion failed.')
 
 
-@pytest.mark.parametrize('mode', [Mode.EXPERT, Mode.AI])
-def test_shell_dispatch_mode_prompt_and_reject_arguments(opened, monkeypatch, capsys, mode):
+def test_shell_dispatch_prompt_and_reject_arguments(opened, monkeypatch, capsys):
     shell = opened
-    shell.mode = mode
     monkeypatch.setattr(shell, 'startup', lambda: True)
     shell.reader = Input('help add-evidence', 'add-evidence unexpected', 'add-evidence', 'cancel', 'exit')
     assert shell.run() == 0
     text = capsys.readouterr().out
-    assert 'add-evidence takes no arguments' in text
+    assert 'ingest wizard takes no arguments' in text
     assert 'Add evidence to case: Human case' in text
-    assert shell.mode is mode
-    assert '[Human case]' + ('# ' if mode is Mode.AI else '> ') in shell.reader.prompts
+    assert not hasattr(shell, 'mode')
+    assert '[Human case]' + '> ' in shell.reader.prompts
 
 
 def test_no_active_case_does_not_create(tmp_path, capsys):
@@ -299,17 +292,15 @@ def test_browser_subset_uses_existing_context_and_occurrence_provenance(opened, 
     assert activity.inspect(activity.sidecar(opened.active), 100)['valid']
 
 
-@pytest.mark.parametrize('mode', [Mode.EXPERT, Mode.AI])
-def test_shell_success_returns_to_same_case_and_mode(opened, tmp_path, monkeypatch, capsys, mode):
+def test_shell_success_returns_to_same_case(opened, tmp_path, monkeypatch, capsys):
     path = tmp_path / 'evidence' / 'mft'
     path.parent.mkdir()
     mft_file(path)
-    opened.mode = mode
     monkeypatch.setattr(opened, 'startup', lambda: True)
     opened.reader = Input('add-evidence', *manual(path), 'exit')
     assert opened.run() == 0
-    assert opened.mode is mode and opened.last_status == 0
+    assert not hasattr(opened, 'mode') and opened.last_status == 0
     assert rows(opened, 'evidence_records')
     assert 'Evidence added to case.' in capsys.readouterr().out
-    prompt = '[Human case]' + ('# ' if mode is Mode.AI else '> ')
+    prompt = '[Human case]' + '> '
     assert opened.reader.prompts.count(prompt) == 2

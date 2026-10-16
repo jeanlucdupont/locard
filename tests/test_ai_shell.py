@@ -5,7 +5,7 @@ import pytest
 
 from forensic_assistant import __version__, activity
 from forensic_assistant.interactive import advisory
-from forensic_assistant.interactive.shell import Shell, Mode
+from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
 from forensic_assistant.terminal import Palette
 from test_interactive_shell import Input, case
@@ -35,24 +35,24 @@ def run_shell(tmp_path, *commands, no_color=True):
 
 
 @pytest.mark.parametrize('no_color', [False, True])
-def test_modes_and_prompt_styles(tmp_path, monkeypatch, model, no_color):
+def test_compatibility_notices_preserve_prompt_style(tmp_path, monkeypatch, model, no_color):
     monkeypatch.delenv('NO_COLOR', raising=False)
     monkeypatch.setattr('forensic_assistant.terminal.capable', lambda _: True)
     fresh = Shell(State(None))
-    assert fresh.mode is Mode.EXPERT
+    assert not hasattr(fresh, 'mode')
     shell, reader, _ = run_shell(tmp_path, 'ai', 'expert', no_color=no_color)
-    assert shell.mode is Mode.EXPERT and not model
+    assert not hasattr(shell, 'mode') and not model
     prompts = reader.prompts[1:]
     assert prompts == [Palette(not no_color)('prompt', '[case é.db]> '),
-                       Palette(not no_color)('ai_prompt', '[case é.db]# '),
+                       Palette(not no_color)('prompt', '[case é.db]> '),
                        Palette(not no_color)('prompt', '[case é.db]> ')]
 
 
-def test_no_color_environment_still_distinguishes_modes(tmp_path, monkeypatch, model):
+def test_no_color_environment_preserves_single_prompt(tmp_path, monkeypatch, model):
     monkeypatch.setenv('NO_COLOR', '1')
     monkeypatch.setattr('forensic_assistant.terminal.capable', lambda _: True)
     _, reader, _ = run_shell(tmp_path, 'ai', no_color=False)
-    assert reader.prompts[1:] == ['[case é.db]> ', '[case é.db]# ']
+    assert reader.prompts[1:] == ['[case é.db]> ', '[case é.db]> ']
     assert not model
 
 
@@ -64,11 +64,11 @@ def test_no_color_environment_still_distinguishes_modes(tmp_path, monkeypatch, m
 ])
 def test_exact_natural_language_routing(tmp_path, model, line, expected):
     shell, _, _ = run_shell(tmp_path, 'ai', line)
-    assert len(model) == 1 and shell.mode is Mode.AI
+    assert len(model) == 1 and not hasattr(shell, 'mode')
     supplied = json.loads(model[0][0][1]['content'])['case_context']
     assert json.loads(model[0][0][2]['content'])['request'] == expected
     assert supplied['case_name'] == 'case é.db'
-    assert supplied['locard_version'] == __version__ and supplied['mode'] == 'AI'
+    assert supplied['locard_version'] == __version__ and 'mode' not in supplied
     assert supplied['case_context_available'] is True and supplied['individual_records_inspected'] is False and supplied['forensic_conclusions_reached'] is False and supplied['artifact_inventory'] == dict.fromkeys(('evtx', 'mft', 'prefetch', 'registry', 'browser'), 0)
     assert str(tmp_path) not in model[0][0][1]['content']
 
@@ -83,29 +83,29 @@ def test_commands_use_same_dispatcher(tmp_path, monkeypatch, model, command, mod
     monkeypatch.setattr('forensic_assistant.cli.dispatch', dispatch)
     shell, _, _ = run_shell(tmp_path, mode, command)
     assert dispatched == [(command.split()[0], {'existing_only': True})]
-    assert shell.mode is (Mode.AI if mode == 'ai' else Mode.EXPERT)
+    assert not hasattr(shell, 'mode')
     assert not model
 
 
 @pytest.mark.parametrize('line', ['! What should I do?', '!whoami', ' \t! rm everything'])
-def test_expert_bang_does_not_contact_model(tmp_path, capsys, model, line):
+def test_bang_works_directly_without_transition(tmp_path, capsys, model, line):
     shell, _, _ = run_shell(tmp_path, line)
-    assert 'AI requests are available in AI mode. Enter: ai' in capsys.readouterr().out
-    assert not model and shell.mode is Mode.EXPERT and shell.last_status == 2
+    assert 'AI assistant — advisory, not evidence' in capsys.readouterr().out
+    assert len(model) == 1 and not hasattr(shell, 'mode') and shell.last_status == 0
 
 
 @pytest.mark.parametrize('line', ['serach example.exe', 'What should I investigate?'])
-def test_ai_mode_never_guesses_intent(tmp_path, capsys, model, line):
+def test_shell_never_guesses_intent(tmp_path, capsys, model, line):
     shell, _, _ = run_shell(tmp_path, 'ai', line)
     assert 'Unknown command' in capsys.readouterr().out
-    assert not model and shell.mode is Mode.AI and shell.last_status == 2
+    assert not model and not hasattr(shell, 'mode') and shell.last_status == 2
 
 
 @pytest.mark.parametrize('line', ['ai extra', 'expert extra'])
-def test_mode_commands_reject_arguments(tmp_path, capsys, model, line):
+def test_compatibility_notices_reject_arguments(tmp_path, capsys, model, line):
     shell, _, _ = run_shell(tmp_path, line)
     assert 'takes no arguments' in capsys.readouterr().out
-    assert shell.mode is Mode.EXPERT and not model
+    assert not hasattr(shell, 'mode') and not model
 
 
 def test_model_commands_are_inert_and_activity_is_derived(tmp_path, monkeypatch, capsys):
@@ -127,7 +127,7 @@ def test_model_commands_are_inert_and_activity_is_derived(tmp_path, monkeypatch,
     assert len(advice) == 1 and advice[0]['outcome'] == 'success'
     log = activity.sidecar(database).read_text(encoding='utf-8')
     assert 'A private question' not in log and 'ingest-evtx' not in log
-    assert 'Session UI state only' in log
+    assert not any(e['action'] == 'SHELL_MODE' for e in entries)
 
 
 @pytest.mark.parametrize('failure,expected', [(OSError('private error'), 'unavailable'),
@@ -143,7 +143,7 @@ def test_failure_preserves_mode_and_shell(tmp_path, monkeypatch, capsys, failure
     output = capsys.readouterr().out
     assert expected in output and 'private error' not in output
     assert 'Locard version ' + __version__ in output
-    assert shell.mode is Mode.AI and reader.prompts[-1].endswith('# ')
+    assert not hasattr(shell, 'mode') and reader.prompts[-1].endswith('> ')
 
 
 @pytest.mark.parametrize('raw', ['not JSON', '[]', '{"advice":"x","tools":[]}',
@@ -214,10 +214,10 @@ def test_help_completion_and_bang_no_completion():
     from forensic_assistant.interactive.completion import complete
     from forensic_assistant.cli import build_parser
     for name in ('ai', 'expert'):
-        assert name in catalog(build_parser(interactive=True))
+        assert not any(row.strip().startswith(name + ' ') for row in catalog(build_parser(interactive=True)).splitlines())
         assert 'advisory only' in command_help(name)
-        assert complete(name, len(name)).text == name + ' '
-    assert '!<text>' in catalog(build_parser(interactive=True))
+        assert complete(name, len(name)).text == name
+    assert 'natural-language request with !' in catalog(build_parser(interactive=True))
     assert complete('! question', 10).text == '! question'
 
 
@@ -226,9 +226,35 @@ def test_case_switch_uses_fresh_context_without_conversation(tmp_path, model):
     before = (a.read_bytes(), b.read_bytes())
     reader = Input(str(a), 'ai', '! first private question', 'case ' + str(b), '! second question', 'exit')
     shell = Shell(State(None), reader)
-    assert shell.run() == 0 and shell.mode is Mode.AI
+    assert shell.run() == 0 and not hasattr(shell, 'mode')
     assert len(model) == 2
     assert json.loads(model[1][0][1]['content'])['case_context']['case_name'] == 'b.db'
     assert 'first private question' not in json.dumps(model[1])
     assert before == (a.read_bytes(), b.read_bytes())
-    assert Shell(State(None)).mode is Mode.EXPERT
+    assert not hasattr(Shell(State(None)), 'mode')
+
+
+def test_direct_advice_interleaves_commands_and_deprecated_ask(tmp_path, model, capsys):
+    shell, reader, _ = run_shell(tmp_path, '! What evidence is available?', 'search --path example.exe --ids',
+                                'ask How should I investigate this?', '! What next?')
+    requests = [json.loads(call[0][2]['content'])['request'] for call in model]
+    assert requests == ['What evidence is available?', 'How should I investigate this?', 'What next?']
+    output = capsys.readouterr().out
+    assert '`ask` is deprecated' in output and 'No matching evidence.' in output
+    assert all(prompt == '[case é.db]> ' for prompt in reader.prompts[1:])
+    assert shell.last_status == 0 and not hasattr(shell, 'mode')
+
+
+@pytest.mark.parametrize('line', ['ask', 'ask   '])
+def test_empty_compatibility_request_does_not_invoke_model(tmp_path, model, capsys, line):
+    run_shell(tmp_path, line)
+    assert 'Enter a question after !.' in capsys.readouterr().out
+    assert not model
+
+
+@pytest.mark.parametrize('line', ['"ask" question', '--no-color ask question'])
+def test_parser_resolved_ask_still_uses_advisory_only(tmp_path, monkeypatch, model, line):
+    monkeypatch.setattr('forensic_assistant.cli.dispatch', lambda *a, **kw: pytest.fail('Legacy retrieval dispatched'))
+    run_shell(tmp_path, line)
+    assert len(model) == 1
+    assert json.loads(model[0][0][2]['content'])['request'] == 'question'

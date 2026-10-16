@@ -4,7 +4,7 @@ import pytest
 from forensic_assistant.cli import build_parser, get_thin
 from forensic_assistant.interactive import setup, setup_display, creation, workspace
 from forensic_assistant.interactive.help import catalog, command_help
-from forensic_assistant.interactive.shell import Shell, Mode
+from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
 from test_add_evidence import opened, manual, rows
 from test_interactive_shell import Input
@@ -19,31 +19,30 @@ def test_elapsed_format(seconds, expected):
     assert setup_display.duration(seconds) == expected
 
 
-@pytest.mark.parametrize('mode', [Mode.EXPERT, Mode.AI])
-@pytest.mark.parametrize('command', ['ingest-wizard', 'add-evidence'])
+@pytest.mark.parametrize('mode', ['expert', 'ai'])
+@pytest.mark.parametrize('command', ['ingest wizard', 'ingest-wizard', 'add-evidence'])
 def test_canonical_and_alias_dispatch_same_workflow(opened, monkeypatch, capsys, mode, command):
     seen = []
     def workflow(shell):
-        seen.append((shell.active, shell.mode))
+        seen.append((shell.active, hasattr(shell, 'mode')))
         return True
     monkeypatch.setattr(setup, 'add_evidence', workflow)
     monkeypatch.setattr(opened, 'startup', lambda: True)
-    opened.mode = mode
-    opened.reader = Input(command + ' unexpected', command, 'exit')
+    opened.reader = Input(mode, command + ' unexpected', command, 'exit')
     assert opened.run() == 0
-    assert seen == [(opened.active, mode)]
-    assert opened.mode is mode
+    assert seen == [(opened.active, False)]
+    assert not hasattr(opened, 'mode')
     text = capsys.readouterr().out
-    assert command + ' takes no arguments' in text
-    assert ('is now called' in text) is (command == 'add-evidence')
+    assert 'ingest wizard takes no arguments' in text
+    assert ('is deprecated' in text) is (command != 'ingest wizard')
 
 
 def test_canonical_help_and_direct_ingestion_unchanged():
     text = catalog(build_parser())
-    assert 'ingest-wizard' in text and 'add-evidence' not in text
-    assert 'ingest-wizard' in command_help('add-evidence')
+    assert 'ingest' in text and 'ingest-wizard' not in text and 'add-evidence' not in text
+    assert 'ingest wizard' in command_help('add-evidence')
     details = command_help('ingest-wizard')
-    for phrase in ('manual evidence selection', 'Direct ingest-*', 'analyst supplied', 'cancel', '$MFT'):
+    for phrase in ('manual evidence selection', 'Direct ingest subcommands', 'analyst supplied', 'cancel', '$MFT'):
         assert phrase in details
     # These are the existing direct commands, not new wizard parsers.
     for kind in ('mft', 'registry', 'prefetch', 'evtx'):
@@ -153,5 +152,5 @@ def test_creation_clock_and_preserved_manual_decoration(tmp_path, monkeypatch, c
     assert 'Case\n' not in final and 'Workspace\n' not in final
     assert 'Ingestion' in final
     assert '\n\n' + get_thin() + '\nYou can add more evidence at any time' in final
-    assert shell.case_label == 'Case name' and shell.mode is Mode.EXPERT
+    assert shell.case_label == 'Case name' and not hasattr(shell, 'mode')
     shell.audit.end()

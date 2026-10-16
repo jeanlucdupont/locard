@@ -7,7 +7,7 @@ import pytest
 from forensic_assistant import activity
 from forensic_assistant.database.db import connect
 from forensic_assistant.interactive import discovery, setup, setup_display, workspace
-from forensic_assistant.interactive.shell import Shell, Mode
+from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
 from forensic_assistant.terminal import Palette
 from forensic_assistant.artifacts.registry_logs import LIMITATION
@@ -31,7 +31,7 @@ def test_human_case_prompt_reopen_and_switch(tmp_path):
     reader = Input(str(first), 'ai', 'expert', 'exit')
     reopened = Shell(State(None), reader)
     assert reopened.run() == 0
-    assert '[my 3rd case]> ' in reader.prompts and '[my 3rd case]# ' in reader.prompts
+    assert '[my 3rd case]> ' in reader.prompts and '[my 3rd case]# ' not in reader.prompts
     assert not any('[case.db]' in p or '[my_3rd_case]' in p for p in reader.prompts)
     second = tmp_path / 'old-case.db'
     connect(second).close()
@@ -73,7 +73,7 @@ def test_browser_not_found_vs_not_selected(tmp_path, capsys, found):
     assert ('browser   no supported history found' in output) is not found
     assert 'No supported Chrome or Edge History files were found' not in output
     assert 'Progress updates between files; no mid-file estimate.' not in output
-    assert 'Reports\n' not in output and 'prefix natural-language requests with !' in output
+    assert 'Reports\n' not in output and 'Prefix a natural-language request with !' in output
     assert 'using the manual ingest commands' not in output
     assert snapshot(root) == before
 

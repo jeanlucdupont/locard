@@ -26,18 +26,15 @@ from v2_fixtures import registry_file
 
 
 def test_direct_ingestion_commands_and_shell_wizard(capsys):
-    expected = {'ingest-all', 'ingest-browser', 'ingest-evtx', 'ingest-mft', 'ingest-prefetch', 'ingest-registry'}
-    navigation = expected | {'ingest-wizard'}
-    assert {name for name in COMMANDS if name.startswith('ingest')} == navigation
-    assert set(completion.complete('ingest-', 7).candidates) == navigation
-    assert set(completion.complete('help ingest-', 12).candidates) == navigation
+    kinds = {'all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'wizard'}
+    assert set(completion.complete('ingest ', 7).candidates) == kinds
+    assert set(completion.complete('help ingest ', 12).candidates) == kinds
+    assert not completion.complete('ingest-', 7).candidates
     with pytest.raises(SystemExit) as exc:
         main(['ingest', 'unused'])
     assert exc.value.code == 2
-    assert not re.search(r'\bingest(?=[,}\s])', build_parser().format_help())
-    root = Path(__file__).resolve().parents[1]
-    for name in ('README.md', 'addendum.md'):
-        assert not re.search(r'`ingest`|cli ingest\s|\.db ingest\s', (root / name).read_text(encoding='utf-8'))
+    help_text = build_parser().format_help()
+    assert 'ingest' in help_text and 'ingest-mft' not in help_text
 
 
 def test_evtx_discovery_preserves_damaged_and_renamed_attempts(tmp_path, decode, capsys):

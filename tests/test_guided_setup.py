@@ -11,7 +11,7 @@ import pytest
 from forensic_assistant import activity, v2_cli
 from forensic_assistant.database.db import connect
 from forensic_assistant.interactive import creation, discovery, setup, workspace
-from forensic_assistant.interactive.shell import Shell, Mode
+from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
 from forensic_assistant.investigation_ai.lifecycle import CleanupError
 from test_interactive_shell import Input, case
@@ -158,21 +158,19 @@ def test_cancel_final_confirmation_no_files_created(tmp_path, cancel):
     assert not target.parent.exists() and not shell.state.recent
 
 
-def test_cancel_category_no_files_and_preserves_active_mode(tmp_path):
+def test_cancel_category_no_files_and_preserves_active_case(tmp_path):
     root = tree(tmp_path / 'root')
     target = tmp_path / 'cases/Synthetic_case/case.db'
     shell = Shell(State(None), Input(*prefix(target), '1', str(root), 'cancel'))
     old = case(tmp_path, 'old.db')
     shell.activate(old)
-    shell.mode = Mode.AI
-    assert not setup.create(shell) and shell.active == old and shell.mode is Mode.AI
+    assert not setup.create(shell) and shell.active == old and not hasattr(shell, 'mode')
     assert not target.exists()
 
 
-def test_empty_setup_uses_initializer_no_source_and_starts_expert(tmp_path, monkeypatch, capsys):
+def test_empty_setup_uses_initializer_no_source_and_normal_shell(tmp_path, monkeypatch, capsys):
     target = tmp_path / 'cases/Synthetic_case/case.db'
     shell = Shell(State(None), Input(*prefix(target, missing=True), '3', 'yes'))
-    shell.mode = Mode.AI
     original = creation.initialize
     calls = []
     def initialize(*args, **kw):
@@ -180,7 +178,7 @@ def test_empty_setup_uses_initializer_no_source_and_starts_expert(tmp_path, monk
         return original(*args, **kw)
     monkeypatch.setattr(creation, 'initialize', initialize)
     monkeypatch.setattr(v2_cli, 'ingest_sources', lambda *a, **k: pytest.fail('Empty ingestion'))
-    assert setup.create(shell) and shell.active == target and shell.mode is Mode.EXPERT
+    assert setup.create(shell) and shell.active == target and not hasattr(shell, 'mode')
     assert calls == [target] and shell.state.recent == [str(target)]
     with closing(connect(target, existing_only=True)) as db:
         assert db.execute('PRAGMA user_version').fetchone()[0] == 5
@@ -197,7 +195,7 @@ def test_real_mixed_ingestion_partial_retention_metadata_and_ids(tmp_path, capsy
     shell = Shell(State(None), Input(*prefix(target, metadata=('Examiner source', 'HOST-A', 'AnalystUser', 'C:')),
                                    '1', str(root), '1', 'all', 'yes', 'Examiner source', 'HOST-A', 'AnalystUser', 'C:', 'yes'))
     assert setup.create(shell)
-    assert shell.active == target and shell.mode is Mode.EXPERT
+    assert shell.active == target and not hasattr(shell, 'mode')
     assert snapshot(root) == before
     with closing(connect(target, existing_only=True)) as db:
         assert {r[0] for r in db.execute('SELECT DISTINCT source_type FROM evidence_records')} == {'mft', 'registry', 'prefetch', 'browser'}
