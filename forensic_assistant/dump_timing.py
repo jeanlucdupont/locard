@@ -56,6 +56,7 @@ class TimedDatabase:
     """Measure the existing execute/fetch operations without changing queries."""
     def __init__(self, db, timing, kind):
         self.db, self.timing, self.kind = db, timing, kind
+        self.registry_profile = getattr(timing, 'registry_profile', None)
 
     def execute(self, sql, params=()):
         phase = ('provenance_read' if any(name in sql for name in

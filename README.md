@@ -1723,6 +1723,38 @@ not a CPU profiler. Timings contain no paths, SQL or evidence values and are not
 added to CSVs or audit records. Compare repeated runs with cache/filesystem
 variability in mind before choosing an optimization.
 
+For detailed Registry diagnostics, run a single `dump registry` with the dump
+logger enabled. From the repository's PowerShell prompt:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import logging; from forensic_assistant.cli import main; logging.basicConfig(level=logging.WARNING, format='%(message)s'); logging.getLogger('forensic_assistant.dump_cli').setLevel(logging.DEBUG); raise SystemExit(main())" --db "$env:LOCALAPPDATA\Locard\cases\Standard2\case.db" dump registry --force
+```
+
+This uses Python's existing logging configuration, not a new environment variable
+or CLI option. It replaces only the derived Registry CSV through normal overwrite
+validation and audit handling. The `Registry dump performance` DEBUG summary
+contains seconds, calls, average and maximum call times, page/row counts, and a
+completion flag (false means a failed/partial attempt). Normal output is unchanged.
+
+The primary Registry and parent-timestamp phases measure the **whole `groups()`
+call**, including SQLite execution/fetch, dictionary construction, safety-bound
+checks and grouping. Parent-ID collection measures the existing Python set/sort.
+Row normalization measures per-row Python construction/JSON decoding/provenance
+selection. CSV time includes cell conversion, formula protection and serialization;
+publication includes final flush/fsync/close and link/replace. Buffered writes may
+also occur during CSV serialization. These nonoverlapping phases leave all other
+work (including base record pages, own timestamps, provenance queries, destination
+validation, checksums, audit and instrumentation overhead) in `other_seconds`.
+The general dump timing summary supplies additional context for that remainder.
+
+`parent_ids` is the sum of **page-local unique** parent counts, not a globally
+distinct count: a parent needed by multiple pages is counted each time. Timestamp
+and primary-row counters likewise count materialized rows across calls. No global
+ID set is retained. The configured page size is 128; the summary also reports the
+largest and average nonempty page sizes. Detailed Registry metrics are enabled
+only for the single-category command above, so totals cannot accidentally include
+other categories from `dump all`. No query plans or evidence content are logged.
+
 These CSV files are **derived analyst output, not evidence**. Each row includes its
 canonical evidence ID for `show <evidence-id>`. Zero-record categories produce no
 file. `dump all` reports those categories as skipped. Existing files require
