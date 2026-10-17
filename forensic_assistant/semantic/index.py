@@ -250,7 +250,7 @@ def eligible_ids(db, filters):
     return {r[0] for r in db.execute(sql, params)}
 
 
-def search(db, root, model, question, *, limit=20, **filters):
+def search(db, root, model, question, *, limit=20, _snapshot_proof=None, **filters):
     import numpy as np
     try:
         import faiss
@@ -267,7 +267,14 @@ def search(db, root, model, question, *, limit=20, **filters):
     with snapshot(db):
         if db.execute('SELECT count(*) FROM evidence_records').fetchone()[0] != m['eligible']:
             raise ValueError('Semantic index is stale; rebuild explicitly')
-        if fingerprint(db) != m['database_fingerprint']:
+        if _snapshot_proof is not None:
+            from forensic_assistant.investigation_ai.snapshot import SnapshotFingerprint
+            if type(_snapshot_proof) is not SnapshotFingerprint:
+                raise ValueError('Invalid private snapshot proof')
+            current_fingerprint = _snapshot_proof.value(db)
+        else:
+            current_fingerprint = fingerprint(db)
+        if current_fingerprint != m['database_fingerprint']:
             raise ValueError('Semantic index is stale; rebuild explicitly')
         allowed = eligible_ids(db, filters)
         q = np.asarray(model.encode([question], query=True), dtype='float32')

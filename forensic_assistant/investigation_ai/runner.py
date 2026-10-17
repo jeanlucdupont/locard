@@ -11,9 +11,10 @@ import time
 from .diagnostics import record, PHASES, LOG
 
 class WorkerError(ValueError):
-    def __init__(self, message, *, stage=None, timed_out=False):
+    def __init__(self, message, *, stage=None, timed_out=False, integrity=None):
         super().__init__(message)
         self.stage, self.timed_out = stage, timed_out
+        self.integrity = integrity
 
 class ForensicWorker:
     worker_script = Path(__file__).with_name('worker.py')
@@ -111,7 +112,8 @@ class ForensicWorker:
                     timeout = result.get('timed_out') is True
                     LOG.debug('investigate-ai worker failure stage=%s category=%s watchdog=operation remaining=%.6fs',
                               stage, 'timeout' if timeout else 'failure', max(0, deadline-time.monotonic()))
-                    raise WorkerError(result['error'], stage=stage, timed_out=timeout)
+                    raise WorkerError(result['error'], stage=stage, timed_out=timeout,
+                                      integrity=result.get('integrity'))
                 return result
         except (BrokenPipeError, OSError) as exc:
             self.close()

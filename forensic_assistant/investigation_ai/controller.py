@@ -29,7 +29,17 @@ def validate_anchor(state, name, args, rules):
     if name == 'session' and record.get('kind') != 'logon':
         raise ValueError('Successful logon anchor required')
 
-def run(
+def run(config, question, transcript_root, **kwargs):
+    # Production supervision supplies its own parent-owned directory so a killed
+    # controller cannot strand the copy. Direct callers own it for this call.
+    if config.get('_snapshot_dir'):
+        return _run(config, question, transcript_root, **kwargs)
+    from .snapshot import SnapshotDirectory
+    with SnapshotDirectory() as snapshot:
+        return _run({**config, '_snapshot_dir': str(snapshot.path)}, question, transcript_root, **kwargs)
+
+
+def _run(
     config,
     question,
     transcript_root,
@@ -72,6 +82,7 @@ def run(
         )
     worker = None
     fingerprint = None
+    integrity = {}
     final = None
     termination = 'INSUFFICIENT_EVIDENCE'
     feedback = ''
@@ -98,17 +109,24 @@ def run(
     def remaining():
         return max(0, deadline - time.monotonic())
     def call(name, args=None):
-        nonlocal fingerprint, tool_time
+        nonlocal fingerprint, tool_time, integrity
         if remaining() <= 0:
             raise WorkerError('INVESTIGATION_TIMEOUT')
-        response = worker.call(
-            name,
-            args,
-            fingerprint=fingerprint,
-            known_ids=state.exposed,
-            seconds=remaining() if name == 'initial' else min(budget.tool_seconds, remaining()),
-            question=question
-        )
+        try:
+            response = worker.call(
+                name,
+                args,
+                fingerprint=fingerprint,
+                known_ids=state.exposed,
+                seconds=remaining() if name == 'initial' else min(budget.tool_seconds, remaining()),
+                question=question
+            )
+        except WorkerError as exc:
+            if exc.integrity is not None:
+                integrity = exc.integrity
+            raise
+        if response.get('integrity') is not None:
+            integrity = response['integrity']
         if response.get('database_changes') != 0 or response.get('schema') not in (3, 4, 5):
             raise WorkerError('Evidence read-only/schema validation failed')
         if fingerprint is not None and response['fingerprint'] != fingerprint:
@@ -312,6 +330,12 @@ def run(
                     if isinstance(exc, activity.AuditError):
                         raise
                     rejected_diagnostic = rejection_record(decoded, validation_stage, exc)
+                    if rejected_diagnostic['category'] == 'GROUNDING_VIOLATION' and validation_stage == 'final_grounding':
+                        state.final_grounding_rejections += 1
+                        reason = ('unexposed_field' if rejected_diagnostic['reason'] ==
+                                  'Observed finding references an unexposed evidence field' else 'grounding_contract')
+                        if reason not in state.final_grounding_reasons:
+                            state.final_grounding_reasons.append(reason)
                     state.rejected += 1
                     feedback = 'REJECTED: ' + str(exc)[:200]
                     rejected = {}
@@ -350,6 +374,8 @@ def run(
         state.limit('Required investigation audit could not be recorded; execution stopped')
     except WorkerError as exc:
         reason = str(exc)
+        if 'EVIDENCE_STATE_CHANGED' in reason:
+            integrity['live_case_matches'] = False
         termination = ('EVIDENCE_STATE_CHANGED' if 'EVIDENCE_STATE_CHANGED' in reason else
                        'SEMANTIC_STATE_CHANGED' if 'SEMANTIC_STATE_CHANGED' in reason else
                        'BUDGET_EXHAUSTED' if any(s in reason for s in ('TIMEOUT', 'WAL_PRESSURE', 'byte budget')) else 'TOOL_FAILURE')
@@ -380,9 +406,13 @@ def run(
                     call('check')
                 except WorkerError as exc:
                     state.limit('Final state check failed: ' + str(exc))
+                    if 'EVIDENCE_STATE_CHANGED' in str(exc):
+                        integrity['live_case_matches'] = False
                     if 'STATE_CHANGED' in str(exc):
                         termination = str(exc)
             worker.close()
+    if integrity.get('strategy') == 'private_sqlite_snapshot' and integrity.get('live_case_matches') is not True:
+        state.limit('Live-case equality was not confirmed at completion; findings cover only the original private snapshot.')
     if final is None:
         final = state.partial()
     if remaining() <= 0:
@@ -400,7 +430,8 @@ def run(
             'elapsed_seconds': time.monotonic() - started,
             'tool_seconds': tool_time,
             'model_seconds': model_time,
-            'prompt_bytes': prompt_sizes
+            'prompt_bytes': prompt_sizes,
+            'integrity': integrity
         },
         'limitations': [
             'Bounded investigation; absence of findings does not prove absence of activity.',

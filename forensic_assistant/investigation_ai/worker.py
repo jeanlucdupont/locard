@@ -24,6 +24,12 @@ def serve():
     protocol = sys.stdout.buffer
     model = None
     index_identity = None
+    snapshot_path = None
+    snapshot_guard = None
+    baseline = None
+    integrity = dict(strategy='private_sqlite_snapshot', fingerprint_count=0,
+                     fingerprint_seconds=0.0, snapshot_seconds=0.0, snapshot_bytes=0,
+                     live_case_matches=None)
     while line := sys.stdin.buffer.readline(MAX_MESSAGE + 1):
         if len(line) > MAX_MESSAGE:
             raise ValueError('Worker request limit exceeded')
@@ -69,16 +75,49 @@ def serve():
                             if op != 'initial':
                                 raise
                             config['semantic_enabled'] = False
-                db = open_readonly(config['case_path'], started + request['seconds'], profile)
+                if config.get('_snapshot_dir') and op == 'initial':
+                    if snapshot_path is not None:
+                        raise ValueError('Investigation snapshot already initialized')
+                    from forensic_assistant.investigation_ai.snapshot import create, SnapshotFile
+                    with profile.phase('snapshot_creation'):
+                        copied_at = time.perf_counter()
+                        live = open_readonly(config['case_path'], started + request['seconds'], profile)
+                        try:
+                            with read_transaction(live):
+                                # Establish the source read view before backup; WAL is included.
+                                live.execute('SELECT name FROM sqlite_master LIMIT 1').fetchone()
+                                snapshot_path, integrity['snapshot_bytes'] = create(live, config['_snapshot_dir'], profile.deadline)
+                        finally:
+                            live.close()
+                        snapshot_guard = SnapshotFile(snapshot_path)
+                        integrity['snapshot_seconds'] = time.perf_counter() - copied_at
+                if config.get('_snapshot_dir') and snapshot_path is None:
+                    raise ValueError('Investigation snapshot not initialized')
+                selected_path = config['case_path'] if op == 'check' or snapshot_path is None else snapshot_path
+                db = open_readonly(selected_path, started + request['seconds'], profile)
                 try:
                     with read_transaction(db):
-                        with profile.phase('fingerprint'):
-                            observed = fingerprint(db)
+                        if snapshot_path is None or op in ('initial', 'check'):
+                            with profile.phase('fingerprint'):
+                                hashed_at = time.perf_counter()
+                                observed = fingerprint(db)
+                                integrity['fingerprint_count'] += 1
+                                integrity['fingerprint_seconds'] += time.perf_counter() - hashed_at
+                            if op == 'initial':
+                                baseline = observed
+                            if snapshot_path is not None and op == 'check':
+                                integrity['live_case_matches'] = observed == baseline
+                        else:
+                            observed = baseline
                         if request.get('expected_fingerprint') not in (None, observed):
                             raise ValueError('EVIDENCE_STATE_CHANGED')
+                        tool_config = config
+                        if snapshot_path is not None and op != 'check':
+                            from forensic_assistant.investigation_ai.snapshot import SnapshotFingerprint
+                            tool_config = {**config, '_snapshot_proof': SnapshotFingerprint(db, snapshot_guard, baseline)}
                         with contextlib.redirect_stdout(sys.stderr):
                             if op == 'initial':
-                                result = tools.initial(db, request['question'], {**config, '_profile': profile}, model)
+                                result = tools.initial(db, request['question'], {**tool_config, '_profile': profile}, model)
                             elif op == 'check':
                                 result = {'checked': True}
                             else:
@@ -86,7 +125,7 @@ def serve():
                                     db,
                                     op,
                                     request['arguments'],
-                                    {**config, 'known_ids': request['known_ids']},
+                                    {**tool_config, 'known_ids': request['known_ids']},
                                     model
                                 )
                         response = {
@@ -97,7 +136,8 @@ def serve():
                             'model_identity': model.identity if model else None,
                             'semantic_available': bool(model and config.get('semantic_enabled') and (op != 'initial' or result.get('semantic_used'))),
                             'elapsed_seconds': time.monotonic() - started,
-                            'database_changes': db.total_changes
+                            'database_changes': db.total_changes,
+                            **({'integrity': dict(integrity)} if snapshot_path is not None else {})
                         }
                 finally:
                     db.close()
@@ -107,6 +147,7 @@ def serve():
                 'error_type': type(exc).__name__,
                 'stage': profile.current if profile else 'worker_start',
                 'timed_out': bool(profile and time.monotonic() >= profile.deadline),
+                **({'integrity': dict(integrity)} if snapshot_path is not None else {}),
                 'elapsed_seconds': time.monotonic() - started
             }
         raw = json.dumps(response, ensure_ascii=True, separators=(',', ':')).encode()

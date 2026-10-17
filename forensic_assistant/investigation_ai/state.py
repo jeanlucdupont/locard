@@ -60,7 +60,13 @@ SYSTEM = ('You propose read-only Locard operations for the controller objective.
           'Never infer causation from similarity, proximity, a Run key or Prefetch. '
           'Free prose belongs only in explicitly unverified hypotheses with alternatives or '
           'model-proposed unknowns. Cite original IDs only. No private chain of thought. '
-          'Stop when supported or evidence is insufficient.')
+          'Final factual findings use ONLY exact leaf fields/values explicitly disclosed in records, '
+          'and relationships exposed by Locard. An exposed ID does not expose every field. '
+          'Absent fields, truncated_fields omissions and instructions to inspect raw data are NOT disclosed values. '
+          'If a required field is unavailable, propose an allowed grounded read-only tool to inspect it; '
+          'inspect its returned structure before finalizing. Never invent OBSERVED entries or guess yes/no. '
+          'If retrieval cannot resolve the question, an unresolved final result is valid: leave unsupported '
+          'findings empty and state what remains unknown.')
 
 class State:
     def __init__(self, budget):
@@ -76,6 +82,8 @@ class State:
         self.limits = []
         self.recent = []
         self.steps = self.requested = self.accepted = self.rejected = self.semantic = 0
+        self.final_grounding_rejections = 0
+        self.final_grounding_reasons = []
         self.no_new = 0
         self.calls = set()
         self.path = []
@@ -292,6 +300,8 @@ class State:
             'requested_calls': self.requested,
             'accepted_calls': self.accepted,
             'rejected_requests': self.rejected,
+            'final_grounding_rejections': self.final_grounding_rejections,
+            'final_grounding_reasons': list(self.final_grounding_reasons),
             'semantic_searches': self.semantic,
             'retrieved_ids': list(self.records),
             'selected_ids': sorted(self.selected),

@@ -9,6 +9,7 @@ from .terminal import Palette, capable, enabled, replace_progress_line
 FRAMES = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 PHASES = {
     'preparing': 'Preparing investigation...',
+    'snapshot_creation': 'Preparing private investigation snapshot...',
     'fingerprint': 'Calculating evidence fingerprint...',
     'initial_retrieval': 'Retrieving initial evidence...',
     'exposure': 'Preparing evidence context...',

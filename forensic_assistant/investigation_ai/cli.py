@@ -109,3 +109,26 @@ def dispatch(args):
 def render(result):
     # JSON quoting prevents terminal-control injection from evidence/model text.
     return json.dumps(result, ensure_ascii=True, indent=2)
+
+
+def rejection_notice(result):
+    """Use controller counters only; never echo a model rejection explanation."""
+    state = result.get('state') or {}
+    count = state.get('final_grounding_rejections', 0)
+    if type(count) is not int or not 1 <= count <= 16 or result.get('termination') == 'ANSWER_SUPPORTED':
+        return ''
+    completed = sum(entry.get('operation') != 'initial' for entry in state.get('investigation_path', [])
+                    if isinstance(entry, dict))
+    reason = ('they referenced evidence fields that had not been exposed to the model'
+              if state.get('final_grounding_reasons') == ['unexposed_field'] else
+              'the proposed findings did not satisfy the disclosed-evidence grounding contract')
+    noun = 'conclusion' if count == 1 else 'conclusions'
+    termination = {'BUDGET_EXHAUSTED': 'Investigation budget exhausted',
+                   'TOO_MANY_REJECTIONS': 'Rejection limit reached',
+                   'MAX_SECONDS': 'Time limit reached',
+                   'USER_REJECTED': 'Analyst declined an operation'}.get(result.get('termination'), 'Investigation ended')
+    return (f'Investigation stopped before a supported conclusion could be produced.\n'
+            f'Locard rejected {count} unsupported AI {noun} because {reason}.\n'
+            f'Successfully completed read-only operations: {completed}.\n'
+            f'Termination: {termination}.\n'
+            'The unsupported conclusions were not accepted as findings.')

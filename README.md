@@ -1837,3 +1837,18 @@ intent/completion, relative filename, category, count and checksum; the evidence
 database, semantic indexes and investigations are not modified. A long export's
 read snapshot can retain WAL pages until staging finishes; it closes before
 publication. No checkpoint or database repair is performed.
+
+### Bounded-investigation consistency and grounding
+
+`investigate-ai` uses a private, SQLite-consistent temporary case snapshot for all
+read-only tools, then compares the live case's full content fingerprint at completion.
+Allow temporary disk space approximately equal to the case size. A changed live
+case stops final acceptance; an unconfirmed comparison explicitly limits results
+to the original snapshot. Copies are removed after worker cleanup; uncertain cleanup
+surfaces `CLEANUP_LIMITATION`. See [the consistency design and measurements](docs/v4.md#snapshot-validation-gate-and-chosen-consistency-model).
+
+Missing or truncated fields must be retrieved through allowed tools before they
+can support factual findings. Grounding validation remains strict. When unsupported
+final proposals leave an interactive investigation without a supported conclusion,
+Locard displays a concise rejection notice based on controller state. `--json`
+remains machine-readable. This does not change advisory `!` behavior.

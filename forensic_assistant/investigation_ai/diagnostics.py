@@ -7,7 +7,7 @@ import time
 LOG = logging.getLogger('forensic_assistant.investigation_ai')
 PHASES = frozenset(('audit_init', 'transcript_init', 'worker_start', 'semantic_setup',
                     'database_open', 'schema_validation', 'fingerprint',
-                    'initial_retrieval', 'inventory', 'source_hydration',
+                    'snapshot_creation', 'initial_retrieval', 'inventory', 'source_hydration',
                     'initial_operation', 'exposure', 'pre_model', 'supervisor_start'))
 
 

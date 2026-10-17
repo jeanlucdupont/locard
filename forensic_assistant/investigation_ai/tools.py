@@ -211,7 +211,8 @@ def execute(db, name, args, config, model=None):
         question = kwargs.pop('query')
         if kwargs.get('hostname'):
             kwargs['strict_host'] = True
-        found = search(db, config['index_root'], model, question, **kwargs)
+        found = search(db, config['index_root'], model, question,
+                       _snapshot_proof=config.get('_snapshot_proof'), **kwargs)
         raw = {
             'records': [get_evidence(db, r['evidence_id']) for r in found['results']],
             'semantic_candidates': found['results'],
@@ -240,6 +241,11 @@ def execute(db, name, args, config, model=None):
 def initial(db, question, config, model=None):
     from forensic_assistant.semantic.hybrid import retrieve
     profile = config.get('_profile')
+    searcher = None
+    if config.get('_snapshot_proof') is not None:
+        from functools import partial
+        from forensic_assistant.semantic.index import search
+        searcher = partial(search, _snapshot_proof=config['_snapshot_proof'])
     with measure(profile, 'initial_retrieval'):
         plan, context = retrieve(
             Queries(db),
@@ -248,7 +254,8 @@ def initial(db, question, config, model=None):
             20,
             index_root=config.get('index_root') if config.get('semantic_enabled') else None,
             model_path=config.get('model_path'),
-            model=model
+            model=model,
+            searcher=searcher
         )
     # Availability is measured from this same read snapshot, not guessed by the LLM.
     with measure(profile, 'inventory'):

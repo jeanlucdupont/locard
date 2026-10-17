@@ -145,6 +145,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     process = context.Process(target=_child, args=(child, gate, request))
     messages = queue.Queue(maxsize=4)
     job = None
+    snapshot = None
     result = None
     reason = 'WORKER_START_FAILURE'
     startup_complete = False
@@ -157,6 +158,9 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         except (EOFError, OSError, ValueError, queue.Full):
             pass
     try:
+        from .snapshot import SnapshotDirectory
+        snapshot = SnapshotDirectory()
+        request['config']['_snapshot_dir'] = str(snapshot.path)
         spawn_started = time.perf_counter()
         process.start()
         LOG.debug("investigate-ai startup stage=supervisor_start elapsed=%.6fs", time.perf_counter()-spawn_started)
@@ -217,6 +221,11 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                     process.join(timeout=max(0, min(cleanup_deadline - time.monotonic(), 1)))
         parent.close()
         child.close()
+        if snapshot is not None:
+            try:
+                snapshot.close()
+            except Exception:
+                cleaned = False
     if result is None:
         result = dict(investigation_id=identity, termination=reason, derived_data=True,
                       findings={}, evidence_fingerprint=None,
@@ -247,7 +256,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                         cleaned = False
     if not cleaned:
         from .lifecycle import CleanupError
-        error = CleanupError('CLEANUP_LIMITATION: cannot confirm investigation worker cleanup; exit the shell')
+        error = CleanupError('CLEANUP_LIMITATION: cannot confirm investigation worker or private snapshot cleanup; exit the shell')
         result['termination'] = 'CLEANUP_LIMITATION'
         error.result = result
         raise error
