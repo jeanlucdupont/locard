@@ -5,13 +5,14 @@ source assertions are not collapsed into a guessed identity.
 """
 import csv
 import json
+import logging
 import os
 from collections import defaultdict
 from contextlib import closing, contextmanager, ExitStack
 from pathlib import Path
 import tempfile
-import time
 
+from forensic_assistant.dump_timing import Timings
 from forensic_assistant import activity
 from forensic_assistant.command_catalog import COMMANDS
 from forensic_assistant.investigation_ai.case import open_readonly, read_transaction
@@ -48,6 +49,12 @@ FIELDS = {
 PAGE = 128
 MAX_CELL = 2 * 1024 * 1024
 MAX_PAGE_BYTES = 32 * 1024 * 1024
+
+
+class DumpExistsError(ValueError):
+    def __init__(self, target):
+        self.target = target
+        super().__init__('Dump already exists: ' + str(target) + '\nUse --force to replace it.')
 
 
 def configure(commands):
@@ -241,28 +248,38 @@ def rows(db, kind):
         last = ids[-1]
 
 
-def run(args, output):
+def run(args, output, *, timings=None):
     kind = args.dump_type
     if kind not in (*TYPES, 'all') or any(getattr(args, n, None) for n in ('output_file', 'append_file', 'page')):
         raise ValueError('Dump requires a supported type and fixed case-local destination')
-    case = normalize(args.db)
-    with ExitStack() as locks:
-        for parent in reversed(case.parents):
-            locks.enter_context(pin_directory(parent))
-        return _run(args, output, case, locks)
+    timing = timings if timings is not None else Timings()
+    start = timing.clock()
+    try:
+        with ExitStack() as locks:
+            with timing.measure('path_setup'):
+                case = normalize(args.db)
+                for parent in reversed(case.parents):
+                    locks.enter_context(pin_directory(parent))
+            completed = _run(args, output, case, locks, timing)
+        if completed:
+            label = 'Total elapsed time' if kind == 'all' else 'Elapsed time'
+            output.write(f'{label}: {timing.clock() - start:.2f} sec')
+    finally:
+        timing.total = timing.clock() - start
+        logging.getLogger(__name__).debug('Dump timings (seconds): %s', timing.summary())
 
 
-def _run(args, output, case, locks):
+def _run(args, output, case, locks, timing):
     kind = args.dump_type
     root = safe_path(case.parent / 'dump')
     if root.exists() and not root.is_dir():
         raise ValueError('Dump destination must be a directory')
-    start = time.monotonic()
     staged, published = [], []
     try:
-        with closing(open_readonly(case)) as db, read_transaction(db):
-            check_structure(db)
-            counts = dict(db.execute('SELECT source_type,count(*) FROM evidence_records GROUP BY source_type'))
+        with closing(timing.call('database_open', 'shared', open_readonly, case)) as db, read_transaction(db):
+            with timing.measure('schema_and_counts'):
+                check_structure(db)
+                counts = dict(db.execute('SELECT source_type,count(*) FROM evidence_records GROUP BY source_type'))
             requested = TYPES if kind == 'all' else (kind,)
             selected = [t for t in requested if counts.get(t, 0)]
             if not selected:
@@ -271,27 +288,28 @@ def _run(args, output, case, locks):
             # Check every existing target before creating even the staging directory.
             before = {}
             for t in selected:
-                target = safe_path(root / (t + '.csv'))
-                # A recorded evidence pathname remains protected even when absent.
-                for row in db.execute('SELECT source_file FROM source_locations UNION SELECT source_file FROM ingestion_runs'):
-                    if target.resolve() == Path(row[0]).absolute().resolve():
-                        raise ValueError('Dump destination is recorded source evidence')
-                if target.exists():
-                    validate_destination(target, args)
-                    if target.stat().st_nlink != 1:
-                        raise ValueError('Hard-linked dump destination rejected')
-                    if not args.force:
-                        raise ValueError('Dump already exists: ' + str(target) + '\nUse --force to replace it.')
-                    with target.open(encoding='utf-8', newline='') as existing:
-                        header = existing.readline(16385)
-                    if len(header) > 16384 or next(csv.reader([header]), []) != list(COMMON + FIELDS[t]):
-                        raise ValueError('Existing file is not a recognized Locard dump; refusing replacement')
-                before[t] = file_state(target)
+                with timing.measure('preflight', t):
+                    target = safe_path(root / (t + '.csv'))
+                    # A recorded evidence pathname remains protected even when absent.
+                    for row in db.execute('SELECT source_file FROM source_locations UNION SELECT source_file FROM ingestion_runs'):
+                        if target.resolve() == Path(row[0]).absolute().resolve():
+                            raise ValueError('Dump destination is recorded source evidence')
+                    if target.exists():
+                        validate_destination(target, args)
+                        if target.stat().st_nlink != 1:
+                            raise ValueError('Hard-linked dump destination rejected')
+                        if not args.force:
+                            raise DumpExistsError(target)
+                        with target.open(encoding='utf-8', newline='') as existing:
+                            header = existing.readline(16385)
+                        if len(header) > 16384 or next(csv.reader([header]), []) != list(COMMON + FIELDS[t]):
+                            raise ValueError('Existing file is not a recognized Locard dump; refusing replacement')
+                    before[t] = file_state(target)
             safe_path(root).mkdir(exist_ok=True)
             locks.enter_context(pin_directory(root))
             for t in selected:
                 target = root / (t + '.csv')
-                validate_destination(target, args)
+                timing.call('destination_validation', t, validate_destination, target, args)
                 output.write('Dumping ' + t + '...')
                 with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='',
                         dir=safe_path(root), prefix='.locard-dump-', delete=False) as stream:
@@ -299,40 +317,50 @@ def _run(args, output, case, locks):
                     staged.append((t, temporary, target))
                     writer = csv.writer(stream, lineterminator='\r\n')
                     fields = COMMON + FIELDS[t]
-                    writer.writerow(fields)
+                    timing.call('csv_write', t, writer.writerow, fields)
                     total = 0
-                    for row in rows(db, t):
-                        writer.writerow([cell(encoded(row[f]) if f.endswith('_json') and row.get(f) is not None
-                                              else row.get(f)) for f in fields])
+                    for row in timing.records(db, t, rows):
+                        with timing.measure('csv_write', t):
+                            writer.writerow([cell(encoded(row[f]) if f.endswith('_json') and row.get(f) is not None
+                                                  else row.get(f)) for f in fields])
                         total += 1
                     if total != counts[t]:
                         raise ValueError('Dump count differs from snapshot count')
-                    stream.flush()
-                    os.fsync(stream.fileno())
+                    with timing.measure('csv_write', t):
+                        stream.flush()
+                        os.fsync(stream.fileno())
         # Release the snapshot before filesystem publication / audit writes.
         for t, temporary, target in staged:
-            safe_path(target)
-            validate_destination(target, args)
-            if file_state(target) != before[t]:
-                raise ValueError('Dump destination changed during export; review it and retry')
+            with timing.measure('publication_validation', t):
+                safe_path(target)
+                validate_destination(target, args)
+                if file_state(target) != before[t]:
+                    raise ValueError('Dump destination changed during export; review it and retry')
         for t, temporary, target in staged:
-            safe_path(target)
-            if file_state(target) != before[t]:
-                raise ValueError('Dump destination changed before publication')
+            with timing.measure('publication_validation', t):
+                safe_path(target)
+                if file_state(target) != before[t]:
+                    raise ValueError('Dump destination changed before publication')
             action = 'OUTPUT_OVERWRITE' if before[t] else 'OUTPUT_WRITE'
-            with activity.mutation(action, command='dump', path='dump/' + target.name,
-                                   artifact_type=t, row_count=counts[t]) as audit:
-                if before[t] is None:
-                    os.link(temporary, target)
-                else:
-                    os.replace(temporary, target)
-                published.append(target.name)
-                audit['new_sha256'] = file_hash(target)
-            output.write(f'Dump created: {target.name} — {counts[t]:,} rows')
+            audit_start = timing.clock()
+            measured = timing.elapsed(t)
+            try:
+                with activity.mutation(action, command='dump', path='dump/' + target.name,
+                                       artifact_type=t, row_count=counts[t]) as audit:
+                    if before[t] is None:
+                        timing.call('publication', t, os.link, temporary, target)
+                    else:
+                        timing.call('publication', t, os.replace, temporary, target)
+                    published.append(target.name)
+                    audit['new_sha256'] = timing.call('checksum', t, file_hash, target)
+            finally:
+                timing.phases[t]['audit'] += max(0.0, timing.clock() - audit_start - (timing.elapsed(t) - measured))
+            suffix = f' — {timing.elapsed(t):.2f} sec' if kind == 'all' else ''
+            output.write(f'Dump created: {target.name} — {counts[t]:,} rows' + suffix)
         for t in requested:
             if t not in selected:
                 output.write('Skipped ' + t + ': no retained records')
-        output.write(f'Elapsed time: {time.monotonic() - start:.2f} sec')
+        return True
     except BaseException:
         if published:
             output.write('Dump interrupted; already published files remain: ' + ', '.join(published))

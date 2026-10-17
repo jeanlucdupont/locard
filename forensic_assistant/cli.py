@@ -238,8 +238,15 @@ def _dispatch(args, output, *, existing_only=False):
     from forensic_assistant.reporting import cli as report_cli
     try:
         if args.command == 'dump':
-            from forensic_assistant.dump_cli import run
-            run(args, output)
+            from forensic_assistant.dump_cli import run, DumpExistsError
+            try:
+                run(args, output)
+            except DumpExistsError as exc:
+                from forensic_assistant.terminal import message
+                activity.note_error(exc)
+                message(human_error(ValueError('Dump already exists: ' + str(exc.target))), args)
+                message('Use --force to replace it.', args)
+                return 2
             return 0
         if args.command == 'activity':
             if activity.CURRENT.get() is None:

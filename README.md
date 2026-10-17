@@ -1705,6 +1705,24 @@ the active case database in `dump/<type>.csv`; managed cases use
 `%LOCALAPPDATA%\Locard\cases\<case>\dump\`. There is no output-path or filename option.
 For scripts: `locard --db C:\Cases\Example\case.db dump all`.
 
+Single-category dumps report elapsed time. `dump all` also reports elapsed time
+beside each created CSV and a total. Durations use a monotonic clock. Per-category
+times include attributed validation, reads, normalization, CSV encoding/write,
+publication, checksumming and output-audit work. Shared setup and small unassigned
+overheads are included in the total, so category times need not sum to the total.
+The total covers the dump operation and cleanup, not outer CLI/session audit work.
+
+For developer diagnostics, the `forensic_assistant.dump_cli` Python logger emits
+phase durations at DEBUG level when logging is explicitly configured. No new CLI
+option is required, and normal output does not include these details. Diagnostics
+separate database open/schema/counts, destination validation, database and
+provenance reads, Python row normalization, CSV encoding/write/flush, publication,
+checksum and output-audit overhead. Read timing includes SQLite execute/fetch;
+normalization excludes those measured reads. These are practical phase boundaries,
+not a CPU profiler. Timings contain no paths, SQL or evidence values and are not
+added to CSVs or audit records. Compare repeated runs with cache/filesystem
+variability in mind before choosing an optimization.
+
 These CSV files are **derived analyst output, not evidence**. Each row includes its
 canonical evidence ID for `show <evidence-id>`. Zero-record categories produce no
 file. `dump all` reports those categories as skipped. Existing files require
