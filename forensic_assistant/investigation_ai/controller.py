@@ -7,7 +7,8 @@ import uuid
 from forensic_assistant.detections.engine import available_rules
 from forensic_assistant.llm.client import LocalClient, LLMError
 from . import contracts
-from .diagnostics import Profile
+from .diagnostics import Profile, LOG
+from .rejection import diagnostic
 from .runner import ForensicWorker, WorkerError
 from .state import State, Budget, encoded
 from .transcript import Transcript, digest
@@ -44,6 +45,8 @@ def run(
     budget = budget or Budget()
     started = config.get('_started', time.monotonic())
     deadline = config.get('_deadline', started + budget.seconds)
+    status = config.get('_status') or (lambda phase: None)
+    status('preparing')
     profile = Profile(deadline)
     startup_complete = False
     state = State(budget)
@@ -84,6 +87,14 @@ def run(
         if call_metadata is not None:
             call_metadata['status'] = status
             transcript._manifest()
+    def rejection_record(decoded, stage, error):
+        record = diagnostic(transcript.id, state.steps,
+                            call_number if call_metadata is not None else None,
+                            decoded, stage, error)
+        if call_metadata is not None:
+            # The existing decision() write persists this beside its audit linkage.
+            call_metadata['diagnostic'] = record
+        return record
     def remaining():
         return max(0, deadline - time.monotonic())
     def call(name, args=None):
@@ -133,6 +144,7 @@ def run(
                     termination = 'BUDGET_EXHAUSTED'
                     break
                 names = state.applicable(semantic_available, rules)
+                status('exposure')
                 with profile.phase('exposure'):
                     messages, exposed, size = state.prompt(question, names, rules, feedback)
                     grammar = contracts.schema(names, state.browser_available)
@@ -160,6 +172,7 @@ def run(
                     startup_complete = True
                     if config.get('_startup_complete'):
                         config['_startup_complete']()
+                status('model')
                 model_started = time.monotonic()
                 try:
                     raw = client.complete(messages, grammar)
@@ -175,7 +188,10 @@ def run(
                     termination = 'BUDGET_EXHAUSTED'
                     break
                 try:
+                    status('validation')
                     call_metadata = None
+                    decoded = None
+                    validation_stage = 'proposal_parsing'
                     decoded = contracts.loads(raw)
                     if isinstance(decoded, dict) and decoded.get('action') == 'tool':
                         state.requested += 1
@@ -186,8 +202,10 @@ def run(
                         transcript.manifest.setdefault('tool_calls', []).append(call_metadata)
                         transcript._manifest()
                         audit('TOOL_PROPOSED', **{k: v for k, v in call_metadata.items() if k != 'status'})
+                    validation_stage = 'proposal_validation'
                     proposal = contracts.request(raw, names)
                     if proposal['action'] == 'final':
+                        validation_stage = 'final_grounding'
                         rendered = state.render(proposal['answer'])
                         if dry_run:
                             proposed_action = proposal
@@ -208,15 +226,18 @@ def run(
                     call_metadata['arguments_sha256'] = digest(args)
                     if args.get('artifact') == 'browser' and not state.browser_available:
                         raise ValueError('Browser evidence is unavailable in this case')
+                    validation_stage = 'anchor_validation'
                     validate_anchor(state, name, args, rules)
                     normalized = contracts.normalized_call(name, args)
                     if normalized in state.calls:
+                        rejection_record(decoded, 'loop_validation', 'Repeated normalized tool call')
                         decision('rejected')
                         audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=name, reason='repeated_call')
                         transcript.append('loop_rejected', proposal)
                         termination = 'TOOL_LOOP'
                         break
                     if state.accepted >= budget.calls or (name == 'semantic_search' and state.semantic >= budget.semantic):
+                        rejection_record(decoded, 'budget_validation', 'Tool-call budget exhausted')
                         decision('rejected')
                         audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=name, reason='call_budget')
                         termination = 'BUDGET_EXHAUSTED'
@@ -227,11 +248,15 @@ def run(
                         termination = 'USER_SCOPE_REACHED'
                         decision('dry_run_not_executed')
                         break
+                    if approval is not None:
+                        status('approval')
                     if approval is not None and not approval(proposal, remaining()):
+                        rejected_diagnostic = rejection_record(decoded, 'analyst_approval', 'Analyst rejected or approval timed out')
                         decision('rejected')
                         audit('TOOL_REJECTED', 'cancelled', tool_call_number=call_number, tool=name)
                         transcript.append('rejected', {'step': state.steps, 'tool_call_number': call_number,
-                                                      'reason': 'Analyst rejected or approval timed out', 'request': proposal})
+                                                      'reason': 'Analyst rejected or approval timed out', 'request': proposal,
+                                                      'diagnostic': rejected_diagnostic})
                         termination = 'MAX_SECONDS' if remaining() <= 0 else 'USER_REJECTED'
                         break
                     if remaining() <= 0:
@@ -246,9 +271,11 @@ def run(
                     if name == 'semantic_search':
                         state.semantic += 1
                     transcript.append('accepted', {'step': state.steps, 'tool_call_number': call_number, 'proposal': proposal})
+                    status('operation')
                     try:
                         response = call(name, args)
-                    except WorkerError:
+                    except WorkerError as exc:
+                        rejection_record(decoded, 'worker_execution', exc)
                         decision('failed')
                         audit('TOOL_FAILED', 'failure', tool_call_number=call_number, tool=name)
                         raise
@@ -284,6 +311,7 @@ def run(
                 except ValueError as exc:
                     if isinstance(exc, activity.AuditError):
                         raise
+                    rejected_diagnostic = rejection_record(decoded, validation_stage, exc)
                     state.rejected += 1
                     feedback = 'REJECTED: ' + str(exc)[:200]
                     rejected = {}
@@ -301,6 +329,7 @@ def run(
                             'step': state.steps,
                             'tool_call_number': call_number if call_metadata is not None else None,
                             'reason': str(exc)[:300],
+                            'diagnostic': rejected_diagnostic,
                             'request': rejected,
                             'response_sha256': hashlib.sha256(raw.encode()).hexdigest()
                         }
@@ -338,6 +367,7 @@ def run(
         termination = 'USER_SCOPE_REACHED'
         state.limit('Investigator interrupted the run')
     finally:
+        status('finalizing')
         if worker is not None:
             # Even partial results are checked when time remains. A timeout leaves
             # explicitly historical F0 findings, never an assertion about current state.
@@ -379,6 +409,8 @@ def run(
             'Hypotheses and model-proposed unknowns are unverified.'
         ] + state.limits
     }
+    LOG.debug('investigate-ai termination investigation=%s termination=%s steps=%d requested_calls=%d accepted_calls=%d rejected_requests=%d',
+              transcript.id, termination, state.steps, state.requested, state.accepted, state.rejected)
     transcript.finish(result)
     audit('INVESTIGATION_TERMINATION', termination=termination)
     result['transcript_bytes'] = transcript.size

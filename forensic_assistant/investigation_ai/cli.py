@@ -89,15 +89,18 @@ def dispatch(args):
         raise ValueError('--approve-tools requires an interactive terminal')
     if not Path(args.db).is_file():
         raise ValueError('Investigation requires an existing case database')
-    result = run(
-        config,
-        args.question,
-        root,
-        budget=Budget(steps=args.max_steps, calls=args.max_tool_calls, seconds=args.max_seconds),
-        client=LocalClient(args.endpoint),
-        dry_run=args.dry_run,
-        approval=approve if args.approve_tools else None
-    )
+    from forensic_assistant.terminal_activity import ActivityIndicator
+    with ActivityIndicator('Preparing investigation...', args=args) as indicator:
+        result = run(
+            config,
+            args.question,
+            root,
+            budget=Budget(steps=args.max_steps, calls=args.max_tool_calls, seconds=args.max_seconds),
+            client=LocalClient(args.endpoint),
+            dry_run=args.dry_run,
+            approval=approve if args.approve_tools else None,
+            status=indicator.phase
+        )
     if args.explain:
         _, events = load(root, result['investigation_id'])
         result['events'] = events

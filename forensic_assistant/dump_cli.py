@@ -345,7 +345,9 @@ def run(args, output, *, timings=None):
                 case = normalize(args.db)
                 for parent in reversed(case.parents):
                     locks.enter_context(pin_directory(parent))
-            completed = _run(args, output, case, locks, timing)
+            from forensic_assistant.terminal_activity import ActivityIndicator, ActivityOutput
+            with ActivityIndicator(args=args) as indicator:
+                completed = _run(args, ActivityOutput(output, indicator), case, locks, timing)
         if completed:
             label = 'Total elapsed time' if kind == 'all' else 'Elapsed time'
             output.write(f'{label}: {timing.clock() - start:.2f} sec')

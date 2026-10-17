@@ -19,6 +19,7 @@ class ForensicWorker:
     worker_script = Path(__file__).with_name('worker.py')
     def __init__(self, config):
         config = dict(config)
+        self.status = config.pop('_status', None)
         self.deadline = config.get('_deadline', float('inf'))
         if time.monotonic() >= self.deadline:
             raise WorkerError('INVESTIGATION_TIMEOUT')
@@ -101,6 +102,8 @@ class ForensicWorker:
                 if 'startup_diagnostic' in result:
                     record(result['startup_diagnostic'])
                     self.stage = result['startup_diagnostic']['stage']
+                    if self.status and result['startup_diagnostic']['event'] == 'start':
+                        self.status(self.stage)
                     continue
                 if 'error' in result:
                     stage = result.get('stage')

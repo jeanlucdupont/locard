@@ -7,7 +7,7 @@ Only analyst approval is relayed to the owning terminal. No model dispatch here.
 from dataclasses import asdict
 import json
 import logging
-from .diagnostics import LOG
+from .diagnostics import LOG, PHASES
 import multiprocessing
 import os
 import queue
@@ -33,6 +33,7 @@ def _child(connection, gate, request):
         logging.basicConfig(level=logging.WARNING, format='%(message)s')
         LOG.setLevel(logging.DEBUG)
     request['config']['_startup_complete'] = lambda: connection.send_bytes(b'{"kind":"startup_complete"}')
+    request['config']['_status'] = lambda phase: connection.send_bytes(json.dumps({'kind': 'status', 'phase': phase}).encode())
     session = activity.Session(request['config']['case_path'])
     session.id = request['session_id']
     def approve(proposal, seconds):
@@ -120,12 +121,12 @@ def _stop(process, job, deadline):
     return not process.is_alive()
 
 
-def run(config, question, transcript_root, *, budget=None, client=None, dry_run=False, approval=None, **testing):
+def run(config, question, transcript_root, *, budget=None, client=None, dry_run=False, approval=None, status=None, **testing):
     # Explicit dependency injection is retained for deterministic in-process tests.
     # The CLI always constructs the real loopback LocalClient.
     if testing or (client is not None and not isinstance(client, LocalClient)):
         from .controller import run as controlled
-        return controlled(config, question, transcript_root, budget=budget, client=client,
+        return controlled({**config, '_status': status}, question, transcript_root, budget=budget, client=client,
                           dry_run=dry_run, approval=approval, **testing)
     budget = budget or Budget()
     started = time.monotonic()
@@ -171,10 +172,19 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                 if not process.is_alive():
                     break
                 continue
+            if message['kind'] == 'status':
+                phase = message.get('phase')
+                if status is not None and type(phase) is str and phase in PHASES | {
+                    'preparing', 'model', 'validation', 'operation', 'finalizing', 'approval'
+                }:
+                    status(phase)
+                continue
             if message['kind'] == 'startup_complete':
                 startup_complete = True
                 continue
             if message['kind'] == 'approval':
+                if status is not None:
+                    status('approval')
                 approved = approval(message['proposal'], max(0, deadline - time.monotonic()))
                 if time.monotonic() >= deadline:
                     break
