@@ -37,7 +37,7 @@ def fields(value, prefix=''):
     """JSON pointers refer to precisely the displayed value, never hidden raw data."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if key not in ('id', 'supporting_evidence_ids', 'truncated_fields', 'retrieval_basis'):
+            if key not in ('id', 'supporting_evidence_ids', 'truncated_fields', 'retrieval_basis', 'source_context'):
                 yield from fields(item, prefix + '/' + key.replace('~', '~0').replace('/', '~1'))
     elif isinstance(value, list):
         for i, item in enumerate(value):
@@ -79,8 +79,11 @@ class State:
         self.no_new = 0
         self.calls = set()
         self.path = []
+        self.browser_available = False
 
     def ingest(self, result):
+        self.browser_available |= bool(result.get('plan', {}).get('browser_available')) or any(
+            r.get('source_type') == 'browser' for r in result['records'])
         before = set(self.records)
         self.recent = []
         for record in result['records']:
@@ -102,6 +105,14 @@ class State:
             self.limit(value)
         if result.get('truncated'):
             self.limit('Retrieval was truncated; absence is not established')
+        for record in result['records']:
+            if record.get('truncated_fields'):
+                self.limit('Some exposed fields are truncated; absence is not established')
+            context = record.get('source_context', {})
+            if context.get('conflicts') or len(context.get('source_ids') or []) > 1:
+                self.limit('Source/host attribution is ambiguous; do not merge records across sources')
+            if context.get('basis') not in (None, 'unknown', 'artifact field'):
+                self.limit('Source metadata contains analyst assertions, not independently verified facts')
         new = len(set(self.records) - before)
         self.no_new = 0 if new else self.no_new + 1
         return new
@@ -109,6 +120,8 @@ class State:
     def limit(self, value):
         if value not in self.limits and len(self.limits) < 30:
             self.limits.append(value[:300])
+        elif value not in self.limits:
+            self.limits[-1] = 'Additional deterministic limitations omitted by retention bound; coverage is incomplete'
 
     def applicable(self, semantic_available, rules):
         names = ['search_evidence', 'timeline']
@@ -143,6 +156,7 @@ class State:
                 'rule_ids': rules if 'detections' in names else [],
                 'step': self.steps,
                 'calls_remaining': self.budget.calls - self.accepted,
+                'browser_available': self.browser_available,
                 'last_result': feedback[:250],
                 'omitted_records': len(self.records),
                 'limitations': 'Partial bounded view. Detections are not compromise. Similarity is not correlation.'
@@ -225,6 +239,7 @@ class State:
                 'truncated_fields': record.get('truncated_fields', []),
                 'timestamp_semantics': record.get('timestamps', record.get('timestamp_type')),
                 'host_context_basis': record.get('host_context_basis'),
+                **({'source_context': deepcopy(record['source_context'])} if 'source_context' in record else {}),
                 'warnings': record.get('warnings', [])
             })
         for rid in answer['relationships']:

@@ -3,12 +3,14 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
 import time
+import uuid
 from forensic_assistant.detections.engine import available_rules
 from forensic_assistant.llm.client import LocalClient, LLMError
 from . import contracts
 from .runner import ForensicWorker, WorkerError
 from .state import State, Budget, encoded
 from .transcript import Transcript, digest
+from forensic_assistant import activity
 
 def validate_anchor(state, name, args, rules):
     if name == 'detections' and args['rule_id'] not in rules:
@@ -39,12 +41,14 @@ def run(
     if not isinstance(question, str) or not question.strip() or len(question.encode()) > 1000:
         raise ValueError('Question must be 1..1000 UTF-8 bytes')
     budget = budget or Budget()
+    started = config.get('_started', time.monotonic())
+    deadline = config.get('_deadline', started + budget.seconds)
     state = State(budget)
     rules = [r.rule_id for r in available_rules()]
     config = {**config, 'rule_ids': rules}
     client = client or LocalClient()
-    started = time.monotonic()
-    deadline = started + budget.seconds
+    investigation_id = config.get('_investigation_id') or uuid.uuid4().hex
+    activity.event('INVESTIGATION_START', required=True, investigation_id=investigation_id)
     transcript = Transcript(
         transcript_root,
         {
@@ -55,7 +59,8 @@ def run(
             'rule_ids': rules,
             'dry_run': dry_run,
             'date_hint': config.get('date_hint')
-        }
+        },
+        investigation_id=investigation_id
     )
     worker = None
     fingerprint = None
@@ -66,6 +71,14 @@ def run(
     tool_time = model_time = 0.0
     prompt_sizes = []
     proposed_action = None
+    call_number = 0
+    call_metadata = None
+    def audit(action, outcome='success', **data):
+        activity.event(action, outcome, required=True, investigation_id=transcript.id, **data)
+    def decision(status):
+        if call_metadata is not None:
+            call_metadata['status'] = status
+            transcript._manifest()
     def remaining():
         return max(0, deadline - time.monotonic())
     def call(name, args=None):
@@ -93,7 +106,7 @@ def run(
         tool_time += response['elapsed_seconds']
         return response
     try:
-        worker = worker_factory(config)
+        worker = worker_factory({**config, '_deadline': deadline})
         initial = call('initial')
         transcript.manifest.update(
             schema=initial['schema'],
@@ -114,7 +127,7 @@ def run(
                     break
                 names = state.applicable(semantic_available, rules)
                 messages, exposed, size = state.prompt(question, names, rules, feedback)
-                grammar = contracts.schema(names)
+                grammar = contracts.schema(names, state.browser_available)
                 if len(encoded(grammar).encode()) > 32768:
                     raise ValueError('Grammar byte budget exceeded')
                 transcript.append(
@@ -129,13 +142,16 @@ def run(
                 )
                 state.disclose(exposed)
                 prompt_sizes.append(size)
+                if remaining() <= 0:
+                    termination = 'MAX_SECONDS'
+                    break
                 # LocalClient applies a wall-clock socket watchdog as well as I/O timeouts.
                 client.timeout = min(budget.tool_seconds, remaining())
                 model_started = time.monotonic()
                 try:
                     raw = client.complete(messages, grammar)
                 except (LLMError, OSError, ValueError):
-                    termination = 'MODEL_FAILURE'
+                    termination = 'MAX_SECONDS' if remaining() <= 0 else 'MODEL_FAILURE'
                     break
                 finally:
                     model_time += time.monotonic() - model_started
@@ -146,9 +162,17 @@ def run(
                     termination = 'BUDGET_EXHAUSTED'
                     break
                 try:
+                    call_metadata = None
                     decoded = contracts.loads(raw)
                     if isinstance(decoded, dict) and decoded.get('action') == 'tool':
                         state.requested += 1
+                        call_number += 1
+                        call_metadata = dict(tool_call_number=call_number,
+                                             tool=decoded.get('tool') if type(decoded.get('tool')) is str and decoded['tool'] in contracts.TOOLS else 'invalid',
+                                             proposed_arguments_sha256=digest(decoded.get('arguments')), status='proposed')
+                        transcript.manifest.setdefault('tool_calls', []).append(call_metadata)
+                        transcript._manifest()
+                        audit('TOOL_PROPOSED', **{k: v for k, v in call_metadata.items() if k != 'status'})
                     proposal = contracts.request(raw, names)
                     if proposal['action'] == 'final':
                         rendered = state.render(proposal['answer'])
@@ -168,36 +192,62 @@ def run(
                         transcript.append('validated_final', proposal)
                         break
                     name, args = proposal['tool'], proposal['arguments']
+                    call_metadata['arguments_sha256'] = digest(args)
+                    if args.get('artifact') == 'browser' and not state.browser_available:
+                        raise ValueError('Browser evidence is unavailable in this case')
                     validate_anchor(state, name, args, rules)
                     normalized = contracts.normalized_call(name, args)
                     if normalized in state.calls:
+                        decision('rejected')
+                        audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=name, reason='repeated_call')
                         transcript.append('loop_rejected', proposal)
                         termination = 'TOOL_LOOP'
                         break
                     if state.accepted >= budget.calls or (name == 'semantic_search' and state.semantic >= budget.semantic):
+                        decision('rejected')
+                        audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=name, reason='call_budget')
                         termination = 'BUDGET_EXHAUSTED'
                         break
                     if dry_run:
                         proposed_action = proposal
                         transcript.append('dry_run_proposal', proposal)
                         termination = 'USER_SCOPE_REACHED'
+                        decision('dry_run_not_executed')
                         break
                     if approval is not None and not approval(proposal, remaining()):
-                        termination = 'USER_SCOPE_REACHED'
+                        decision('rejected')
+                        audit('TOOL_REJECTED', 'cancelled', tool_call_number=call_number, tool=name)
+                        transcript.append('rejected', {'step': state.steps, 'tool_call_number': call_number,
+                                                      'reason': 'Analyst rejected or approval timed out', 'request': proposal})
+                        termination = 'MAX_SECONDS' if remaining() <= 0 else 'USER_REJECTED'
                         break
                     if remaining() <= 0:
                         termination = 'BUDGET_EXHAUSTED'
                         break
+                    decision('approved' if approval is not None else 'policy_authorized')
+                    audit('TOOL_APPROVED', tool_call_number=call_number, tool=name,
+                          arguments_sha256=digest(args),
+                          approval='analyst' if approval is not None else 'configured_policy')
                     state.calls.add(normalized)
                     state.accepted += 1
                     if name == 'semantic_search':
                         state.semantic += 1
-                    transcript.append('accepted', {'step': state.steps, 'proposal': proposal})
-                    response = call(name, args)
+                    transcript.append('accepted', {'step': state.steps, 'tool_call_number': call_number, 'proposal': proposal})
+                    try:
+                        response = call(name, args)
+                    except WorkerError:
+                        decision('failed')
+                        audit('TOOL_FAILED', 'failure', tool_call_number=call_number, tool=name)
+                        raise
+                    decision('executed')
+                    audit('TOOL_EXECUTED', tool_call_number=call_number, tool=name,
+                          arguments_sha256=digest(args),
+                          result_count=response['result']['returned_count'])
                     transcript.append(
                         'result',
                         {
                             'step': state.steps,
+                            'tool_call_number': call_number,
                             'operation': name,
                             'response': response,
                             'result_sha256': digest(response['result'])
@@ -219,6 +269,8 @@ def run(
                 except WorkerError:
                     raise
                 except ValueError as exc:
+                    if isinstance(exc, activity.AuditError):
+                        raise
                     state.rejected += 1
                     feedback = 'REJECTED: ' + str(exc)[:200]
                     rejected = {}
@@ -234,11 +286,15 @@ def run(
                         'rejected',
                         {
                             'step': state.steps,
+                            'tool_call_number': call_number if call_metadata is not None else None,
                             'reason': str(exc)[:300],
                             'request': rejected,
                             'response_sha256': hashlib.sha256(raw.encode()).hexdigest()
                         }
                     )
+                    if call_metadata is not None and call_metadata.get('status') == 'proposed':
+                        decision('rejected')
+                        audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=call_metadata['tool'])
                     if dry_run:
                         termination = 'USER_SCOPE_REACHED'
                         break
@@ -247,6 +303,9 @@ def run(
                         break
             else:
                 termination = 'BUDGET_EXHAUSTED'
+    except activity.AuditError:
+        termination = 'AUDIT_FAILURE'
+        state.limit('Required investigation audit could not be recorded; execution stopped')
     except WorkerError as exc:
         reason = str(exc)
         termination = ('EVIDENCE_STATE_CHANGED' if 'EVIDENCE_STATE_CHANGED' in reason else
@@ -277,6 +336,8 @@ def run(
             worker.close()
     if final is None:
         final = state.partial()
+    if remaining() <= 0:
+        termination = 'MAX_SECONDS'
     result = {
         'investigation_id': transcript.id,
         'termination': termination,
@@ -300,5 +361,6 @@ def run(
         ] + state.limits
     }
     transcript.finish(result)
+    audit('INVESTIGATION_TERMINATION', termination=termination)
     result['transcript_bytes'] = transcript.size
     return result

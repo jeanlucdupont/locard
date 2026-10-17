@@ -79,7 +79,7 @@ def test_steps_calls_model_failure_and_approval(tmp_path):
     )
     assert result['termination'] == 'BUDGET_EXHAUSTED' and result['state']['accepted_calls'] == 1
     result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted([call]), approval=lambda p, t: False)
-    assert result['termination'] == 'USER_SCOPE_REACHED' and result['state']['accepted_calls'] == 0
+    assert result['termination'] == 'USER_REJECTED' and result['state']['accepted_calls'] == 0
     class Failed:
         def complete(self, *args):
             raise LLMError('unavailable')

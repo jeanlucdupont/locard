@@ -6,7 +6,7 @@ from forensic_assistant.retrieval.queries import required_time
 from forensic_assistant.correlation.models import time_ns
 
 VERSION = '1'
-EID = re.compile(r'(?:(?:EVTX|MFT):[a-f0-9]{64}:Offset:[0-9]+|PREFETCH:[a-f0-9]{64}:File|REGISTRY:[a-f0-9]{64}:(?:KeyOffset|ValueOffset):[0-9]+)\Z')
+EID = re.compile(r'(?:(?:EVTX|MFT):[a-f0-9]{64}:Offset:[0-9]+|PREFETCH:[a-f0-9]{64}:File|REGISTRY:[a-f0-9]{64}:(?:KeyOffset|ValueOffset):[0-9]+|BROWSER:[a-f0-9]{64}:(?:visit|download):-?[0-9]+)\Z')
 
 def string(maximum=1024):
     return {'type': 'string', 'minLength': 1, 'maxLength': maximum}
@@ -20,7 +20,7 @@ def array(items, maximum=8, minimum=0):
     return {'type': 'array', 'items': items, 'maxItems': maximum, 'minItems': minimum, 'uniqueItems': True}
 
 FILTERS = {
-    'artifact': enumeration('evtx', 'mft', 'prefetch', 'registry'),
+    'artifact': enumeration('evtx', 'mft', 'prefetch', 'registry', 'browser'),
     **{k: string() for k in ('hostname', 'username', 'process', 'path', 'ip')},
     'event_id': integer(0, 65535),
     'start': string(40),
@@ -283,12 +283,20 @@ def request(text, advertised):
     value['arguments'] = arguments(value['tool'], value['arguments'])
     return value
 
-def schema(advertised):
-    return {'oneOf': [obj(
+def schema(advertised, browser_available=True):
+    result = {'oneOf': [obj(
         {'action': enumeration('tool'), 'tool': enumeration(name), 'arguments': TOOLS[name][1], 'reason': string(256)},
         ('action', 'tool', 'arguments', 'reason')
     ) for name in advertised] +
             [obj({'action': enumeration('final'), 'answer': FINAL}, ('action', 'answer'))]}
+    if not browser_available:
+        from copy import deepcopy
+        result = deepcopy(result)
+        for variant in result['oneOf']:
+            fields = variant['properties'].get('arguments', {}).get('properties', {})
+            if 'artifact' in fields and 'browser' in fields['artifact']['enum']:
+                fields['artifact']['enum'].remove('browser')
+    return result
 
 def normalized_call(name, args):
     args = dict(args)

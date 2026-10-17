@@ -21,6 +21,20 @@ The bounded `investigate-ai` engine is assessed in [the investigation architectu
 and safety review](V4.md), including its tool inventory, limits, privacy boundaries
 and requirements for future reuse. The normal `!` interface remains advisory-only.
 
+`investigate-ai --max-seconds` uses one deadline, including local model calls,
+worker startup, tools, transcript finalization and analyst approval waiting.
+Cancellation/timeout has an additional maximum five-second cleanup allowance.
+Inspect the returned `termination`; command completion does not mean a supported
+forensic conclusion. Interrupted runs explicitly mark their transcript incomplete.
+
+Investigation transcripts default to `DATABASE.investigations`. They are sensitive
+local **derived output, not evidence**: questions, model responses, evidence
+excerpts, IDs and source metadata may be retained. `--transcripts` must name local
+storage without traversal, symlinks or Windows reparse redirection. Use a directory
+with appropriate analyst-controlled permissions; Locard does not change its ACLs.
+Locard does not transmit transcripts externally. Analysts control retention and
+deletion according to policy; there is no automatic deletion schedule.
+
 Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.
 

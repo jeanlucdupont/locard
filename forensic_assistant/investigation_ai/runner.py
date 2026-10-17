@@ -16,6 +16,9 @@ class ForensicWorker:
     worker_script = Path(__file__).with_name('worker.py')
     def __init__(self, config):
         config = dict(config)
+        self.deadline = config.get('_deadline', float('inf'))
+        if time.monotonic() >= self.deadline:
+            raise WorkerError('INVESTIGATION_TIMEOUT')
         for key in ('index_root', 'model_path'):
             if config.get(key):
                 config[key] = str(Path(config[key]).resolve())
@@ -53,7 +56,8 @@ class ForensicWorker:
         threading.Thread(target=output, daemon=True).start()
         threading.Thread(target=diagnostic, daemon=True).start()
         try:
-            ready = self._exchange({'config': {**config, 'case_path': str(self.case_path)}}, 10)
+            ready = self._exchange({'config': {**config, 'case_path': str(self.case_path)}},
+                                   min(10, max(0, self.deadline - time.monotonic())))
             self.worker_pid = ready['worker_pid']
             from .lifecycle import WorkerJob
             self.job = WorkerJob(self.worker_pid)
@@ -74,7 +78,7 @@ class ForensicWorker:
         if len(raw) > 512 * 1024:
             raise WorkerError('Worker input size violation')
         baseline = self._wal_size()
-        deadline = time.monotonic() + seconds
+        deadline = min(self.deadline, time.monotonic() + seconds)
         try:
             self.process.stdin.write(raw)
             self.process.stdin.flush()

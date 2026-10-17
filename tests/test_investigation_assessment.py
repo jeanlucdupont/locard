@@ -103,7 +103,7 @@ def test_deadline_prevents_subsequent_execution(tmp_path, monkeypatch, expire_at
     result = controller.run({}, 'Inspect', tmp_path, budget=Budget(seconds=10),
                             client=Scripted([proposal]), approval=approve,
                             worker_factory=lambda _: worker)
-    assert result['termination'] == 'BUDGET_EXHAUSTED'
+    assert result['termination'] == 'MAX_SECONDS'
     assert worker.calls == ['initial']
     assert result['state']['accepted_calls'] == 0
 

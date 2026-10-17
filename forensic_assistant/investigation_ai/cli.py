@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 from forensic_assistant.config import Config
 from forensic_assistant.llm.client import LocalClient
-from .controller import run
+from .supervision import run
 from .state import Budget
 from .transcript import load, implementation
 
@@ -34,7 +34,7 @@ def configure(commands):
     replay = subs.add_parser('replay')
     replay.add_argument('investigation_id')
     for command in (p, show, replay):
-        command.add_argument('--transcripts', help='Derived sidecar root; default: DATABASE.investigations')
+        command.add_argument('--transcripts', help='Sensitive local derived records, not evidence; default: DATABASE.investigations. Analyst controls retention/deletion.')
         command.add_argument('--json', action='store_true')
         command.add_argument('--explain', action='store_true', help='Include step-by-step transcript data')
     for command in (p, replay):
@@ -87,6 +87,8 @@ def dispatch(args):
         return replay(config, root, args.investigation_id)
     if args.approve_tools and not sys.stdin.isatty():
         raise ValueError('--approve-tools requires an interactive terminal')
+    if not Path(args.db).is_file():
+        raise ValueError('Investigation requires an existing case database')
     result = run(
         config,
         args.question,

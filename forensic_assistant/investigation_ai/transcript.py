@@ -8,6 +8,7 @@ import time
 import uuid
 from forensic_assistant import __version__
 from .state import encoded
+from .storage import DirectoryGuard, local_path
 
 MAX_BYTES = 4 * 1024 * 1024
 ID = re.compile(r'[a-f0-9]{32}\Z')
@@ -24,12 +25,23 @@ def implementation():
     return {'application_version': __version__, 'code_sha256': h.hexdigest(), 'policy_version': 'v4-1', 'schema': 3}
 
 class Transcript:
-    def __init__(self, root, metadata):
-        root = Path(root).resolve()
-        root.mkdir(parents=True, exist_ok=True)
-        self.id = uuid.uuid4().hex
+    def __init__(self, root, metadata, *, investigation_id=None):
+        self.guard = None
+        self.stream = None
+        root = local_path(root)
+        self.guard = DirectoryGuard(root, create=True)
+        self.id = investigation_id or uuid.uuid4().hex
+        if not ID.fullmatch(self.id):
+            self.close()
+            raise ValueError('Invalid investigation ID')
         self.path = root / self.id
-        self.path.mkdir()
+        try:
+            self.path.mkdir(mode=0o700)
+            self.child_guard = DirectoryGuard(self.path)
+            self.stream = (self.path / 'events.jsonl').open('xb')
+        except BaseException:
+            self.close()
+            raise
         self.size = 0
         self.chain = '0' * 64
         self.count = 0
@@ -46,6 +58,8 @@ class Transcript:
     def _manifest(self):
         self.manifest.update(event_count=self.count, chain=self.chain)
         pending = self.path / 'manifest.tmp'
+        local_path(self.path)
+        local_path(self.path / 'manifest.json')
         with pending.open('xb') as stream:
             stream.write(encoded(self.manifest).encode())
             stream.flush()
@@ -68,29 +82,45 @@ class Transcript:
         cap = MAX_BYTES if terminal else MAX_BYTES - 512 * 1024
         if len(raw) > 600 * 1024 or self.size + len(raw) > cap:
             raise ValueError('TRANSCRIPT_BUDGET_EXHAUSTED')
-        with (self.path / 'events.jsonl').open('ab') as stream:
-            stream.write(raw)
-            stream.flush()
-            os.fsync(stream.fileno())
+        local_path(self.path / 'events.jsonl')
+        self.stream.write(raw)
+        self.stream.flush()
+        os.fsync(self.stream.fileno())
         self.size += len(raw)
         self.chain = event['hash']
         self.count += 1
         self._manifest()
 
     def finish(self, result):
-        self.append('terminal', result, terminal=True)
-        self.manifest['status'] = result['termination']
-        self._manifest()
+        try:
+            self.append('terminal', result, terminal=True)
+            self.manifest['status'] = result['termination']
+            self._manifest()
+        finally:
+            self.close()
+
+    def close(self):
+        if self.stream is not None:
+            self.stream.close()
+            self.stream = None
+        if getattr(self, 'child_guard', None):
+            self.child_guard.close()
+        if self.guard:
+            self.guard.close()
+
+    def __del__(self):
+        self.close()
 
 def load(root, investigation_id):
     if not ID.fullmatch(investigation_id):
         raise ValueError('Invalid investigation ID')
-    root = Path(root).resolve()
+    root = local_path(root)
     path = root / investigation_id
+    local_path(path)
     if path.resolve().parent != root:
         raise ValueError('Transcript directory escapes configured root')
     def read(name, limit):
-        file = path / name
+        file = local_path(path / name)
         if file.is_symlink() or file.resolve().parent != path.resolve():
             raise ValueError('Transcript file redirection rejected')
         with file.open('rb') as stream:
@@ -121,6 +151,12 @@ def load(root, investigation_id):
             raise ValueError('Invalid transcript manifest')
         if manifest.get('event_count') != len(events) or manifest.get('chain') != chain:
             raise ValueError('Transcript incomplete or modified')
+        if (path / 'termination.json').exists():
+            marker = json.loads(read('termination.json', 4096))
+            if (not isinstance(marker, dict) or marker.get('investigation_id') != investigation_id
+                    or marker.get('derived_data') is not True):
+                raise ValueError('Invalid interruption marker')
+            manifest['interruption'] = marker
         return manifest, events
     except (TypeError, KeyError, RecursionError, json.JSONDecodeError) as exc:
         raise ValueError('Malformed untrusted transcript') from exc

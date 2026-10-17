@@ -20,6 +20,25 @@ def compact(record):
     result['artifact_type'] = record.get('artifact_type')
     result['source_type'] = record.get('source_type', 'evtx')
     result['kind'] = record.get('kind')
+    context = record.get('context', {})
+    if context:
+        # Assertions remain attributed metadata, never independently verified facts.
+        result['source_context'] = {k: context.get(k) for k in
+                                    ('source_ids', 'hostname', 'username', 'volume_root', 'basis', 'conflicts')}
+        result['source_context']['assertions'] = [
+            {k: row.get(k) for k in ('source_id', 'hostname', 'username', 'volume_root', 'basis')}
+            for row in context.get('source_assertions', [])[:8]]
+        if len(context.get('source_assertions', [])) > 8:
+            result.setdefault('truncated_fields', []).append('source assertions')
+    if record.get('source_type') == 'browser':
+        detail = record.get('detail', {})
+        for key in ('browser_product', 'profile', 'context_id', 'url', 'title', 'target_path', 'current_path', 'full_path', 'state'):
+            if key in detail:
+                value = detail[key]
+                if isinstance(value, str) and len(value) > 220:
+                    value = value[:220]
+                    result.setdefault('truncated_fields', []).append(key)
+                result[key] = value
     for stamp in result.get('timestamps', []):
         original = next(
             (t for t in record.get('timestamps', []) if t['timestamp_utc'] == stamp['utc'] and t['source'] == stamp['type']),
@@ -37,7 +56,8 @@ def compact(record):
 
 def envelope(db, name, raw, limit=50):
     rows = raw.get('evidence_records', raw.get('records', raw.get('nodes', [])))
-    records = {r['id']: compact(r) for r in rows[:limit]}
+    records = {r['id']: compact(get_evidence(db, r['id']) if db is not None and 'context' not in r else r)
+               for r in rows[:limit]}
     semantic_ids = {r['evidence_id'] for r in raw.get('semantic_candidates', [])}
     if name == 'semantic_search':
         for eid, record in records.items():
@@ -52,9 +72,17 @@ def envelope(db, name, raw, limit=50):
     all_relations = []
     all_detections = []
     omitted = max(0, len(relations) - 100) + max(0, len(findings) - 25)
+    ambiguous = 0
     for r in relations[:100]:
         if not set(r.get('evidence_ids', [])) <= records.keys():
             omitted += 1
+            continue
+        contexts = [records[eid].get('source_context', {}) for eid in r.get('evidence_ids', [])]
+        sources = {sid for ctx in contexts for sid in ctx.get('source_ids') or []}
+        if len(sources) > 1 and (any(ctx.get('conflicts') or not ctx.get('hostname') for ctx in contexts)
+                                 or len({ctx.get('hostname') for ctx in contexts}) != 1):
+            omitted += 1
+            ambiguous += 1
             continue
         value = {k: r[k] for k in (
             'relationship',
@@ -66,6 +94,9 @@ def envelope(db, name, raw, limit=50):
             'source_id',
             'target_id'
         ) if k in r}
+        if len(sources) > 1:
+            value['limitations'] = [*value.get('limitations', []),
+                                    'Cross-source relationship; host context may include analyst assertions']
         value['relationship_id'] = identity('REL:', value)
         all_relations.append(value)
     for r in findings[:25]:
@@ -97,8 +128,17 @@ def envelope(db, name, raw, limit=50):
         limits_omitted |= len(str(raw['reason'])) > 300
     if limits_omitted:
         limits.append('Limitation text was truncated; inspect deterministic results for full limitations')
+    if any(r.get('source_context', {}).get('conflicts') or
+           len(r.get('source_context', {}).get('source_ids') or []) > 1 for r in records.values()):
+        limits.append('Source/host context is ambiguous; records must not be attributed to a single source or host')
+    if any(r.get('source_context', {}).get('basis') not in (None, 'artifact field', 'unknown') for r in records.values()):
+        limits.append('Source metadata includes analyst assertions; these are not independently verified artifact facts')
+    if any(r.get('truncated_fields') for r in records.values()):
+        limits.append('Some evidence fields are truncated; inspect the original records')
     if omitted:
-        limits.append(f'{omitted} relationship/detection objects omitted because support was outside result bounds')
+        limits.append(f'{omitted} relationship/detection objects omitted because support was unavailable, ambiguous or outside result bounds')
+    if ambiguous:
+        limits.append('Cross-source relationships omitted: host attribution is missing, conflicting or ambiguous')
     return {
         'tool': name,
         'behavior': 'semantic' if name == 'semantic_search' else 'deterministic',
@@ -133,17 +173,12 @@ def execute(db, name, args, config, model=None):
     elif name == 'around':
         anchor = get_evidence(db, args['evidence_id'])
         stamp = anchor_time(anchor, args.get('timestamp_slot'))
-        if not anchor['host_key']:
-            raise ValueError('Anchor hostname is missing or conflicting')
+        from forensic_assistant.retrieval.evidence import same_host_window
         seconds = args['seconds']
         direction = args['direction']
+        window = same_host_window(anchor, stamp, seconds, direction=direction)
         raw = q.search(
-            start=shift(stamp, -seconds) if direction != 'after' else stamp,
-            end=shift(stamp, seconds) if direction != 'before' else stamp,
-            exclude_time=stamp if direction != 'around' else None,
-            hostname=anchor['host_key'],
-            strict_host=True,
-            source_scope=next(iter(anchor['context'].get('source_ids', [])), ''),
+            **window,
             timeline=True,
             limit=limit,
             nearest_to=stamp
@@ -212,8 +247,20 @@ def initial(db, question, config, model=None):
         model_path=config.get('model_path'),
         model=model
     )
+    # Availability is measured from this same read snapshot, not guessed by the LLM.
+    browser_count = db.execute("SELECT count(*) FROM evidence_records WHERE source_type='browser'").fetchone()[0]
+    if browser_count:
+        context = dict(context)
+        rows = list(context.get('evidence_records', []))
+        seen = {r['id'] for r in rows}
+        browser_rows = EvidenceQueries(db).search(artifact='browser', limit=10)
+        context['evidence_records'] = rows[:40] + [r for r in browser_rows.records if r['id'] not in seen]
+        context['limits'] = [*context.get('limits', []),
+                             'Initial browser sample is bounded context, not an exhaustive download investigation']
+        context['truncated'] = bool(context.get('truncated') or browser_rows.truncated or len(rows) > 40)
     result = envelope(db, 'initial_retrieval', context, 50)
     result['plan'] = {k: v for k, v in plan.items() if k not in ('semantic_results', 'selection_reasons')}
+    result['plan']['browser_available'] = browser_count > 0
     result['semantic_used'] = bool(plan.get('semantic_coverage') == 'searched')
     if result['semantic_used']:
         result['semantic_candidates'] = plan['semantic_results']['results']
