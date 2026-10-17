@@ -8,9 +8,12 @@ import subprocess
 import sys
 import threading
 import time
+from .diagnostics import record, PHASES, LOG
 
 class WorkerError(ValueError):
-    pass
+    def __init__(self, message, *, stage=None, timed_out=False):
+        super().__init__(message)
+        self.stage, self.timed_out = stage, timed_out
 
 class ForensicWorker:
     worker_script = Path(__file__).with_name('worker.py')
@@ -28,6 +31,7 @@ class ForensicWorker:
         self.diagnostics = deque(maxlen=4)
         self.job = None
         self.worker_pid = None
+        self.stage = 'worker_start'
         environment = dict(os.environ)
         for name in ('PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONINSPECT'):
             environment.pop(name, None)
@@ -57,7 +61,7 @@ class ForensicWorker:
         threading.Thread(target=diagnostic, daemon=True).start()
         try:
             ready = self._exchange({'config': {**config, 'case_path': str(self.case_path)}},
-                                   min(10, max(0, self.deadline - time.monotonic())))
+                                   max(0, self.deadline - time.monotonic()) if self.deadline != float('inf') else 10)
             self.worker_pid = ready['worker_pid']
             from .lifecycle import WorkerJob
             self.job = WorkerJob(self.worker_pid)
@@ -84,7 +88,8 @@ class ForensicWorker:
             self.process.stdin.flush()
             while True:
                 if time.monotonic() >= deadline:
-                    raise WorkerError('TOOL_TIMEOUT')
+                    LOG.debug('investigate-ai watchdog=operation stage=%s remaining=%.6fs', self.stage, max(0, self.deadline-time.monotonic()))
+                    raise WorkerError('TOOL_TIMEOUT', stage=self.stage, timed_out=True)
                 if self._wal_size() - baseline > 64 * 1024 * 1024:
                     raise WorkerError('WAL_PRESSURE')
                 try:
@@ -93,8 +98,17 @@ class ForensicWorker:
                     if self.process.poll() is not None:
                         raise WorkerError('Worker terminated abnormally')
                     continue
+                if 'startup_diagnostic' in result:
+                    record(result['startup_diagnostic'])
+                    self.stage = result['startup_diagnostic']['stage']
+                    continue
                 if 'error' in result:
-                    raise WorkerError(result['error'])
+                    stage = result.get('stage')
+                    stage = stage if stage in PHASES else self.stage
+                    timeout = result.get('timed_out') is True
+                    LOG.debug('investigate-ai worker failure stage=%s category=%s watchdog=operation remaining=%.6fs',
+                              stage, 'timeout' if timeout else 'failure', max(0, deadline-time.monotonic()))
+                    raise WorkerError(result['error'], stage=stage, timed_out=timeout)
                 return result
         except (BrokenPipeError, OSError) as exc:
             self.close()

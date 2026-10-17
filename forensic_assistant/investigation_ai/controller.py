@@ -7,6 +7,7 @@ import uuid
 from forensic_assistant.detections.engine import available_rules
 from forensic_assistant.llm.client import LocalClient, LLMError
 from . import contracts
+from .diagnostics import Profile
 from .runner import ForensicWorker, WorkerError
 from .state import State, Budget, encoded
 from .transcript import Transcript, digest
@@ -43,25 +44,29 @@ def run(
     budget = budget or Budget()
     started = config.get('_started', time.monotonic())
     deadline = config.get('_deadline', started + budget.seconds)
+    profile = Profile(deadline)
+    startup_complete = False
     state = State(budget)
     rules = [r.rule_id for r in available_rules()]
     config = {**config, 'rule_ids': rules}
     client = client or LocalClient()
     investigation_id = config.get('_investigation_id') or uuid.uuid4().hex
-    activity.event('INVESTIGATION_START', required=True, investigation_id=investigation_id)
-    transcript = Transcript(
-        transcript_root,
-        {
-            'started_utc': datetime.now(timezone.utc).isoformat(),
-            'question': question,
-            'budgets': asdict(budget),
-            'tools': list(contracts.TOOLS),
-            'rule_ids': rules,
-            'dry_run': dry_run,
-            'date_hint': config.get('date_hint')
-        },
-        investigation_id=investigation_id
-    )
+    with profile.phase('audit_init'):
+        activity.event('INVESTIGATION_START', required=True, investigation_id=investigation_id)
+    with profile.phase('transcript_init'):
+        transcript = Transcript(
+            transcript_root,
+            {
+                'started_utc': datetime.now(timezone.utc).isoformat(),
+                'question': question,
+                'budgets': asdict(budget),
+                'tools': list(contracts.TOOLS),
+                'rule_ids': rules,
+                'dry_run': dry_run,
+                'date_hint': config.get('date_hint')
+            },
+            investigation_id=investigation_id
+        )
     worker = None
     fingerprint = None
     final = None
@@ -90,7 +95,7 @@ def run(
             args,
             fingerprint=fingerprint,
             known_ids=state.exposed,
-            seconds=min(budget.tool_seconds, remaining()),
+            seconds=remaining() if name == 'initial' else min(budget.tool_seconds, remaining()),
             question=question
         )
         if response.get('database_changes') != 0 or response.get('schema') not in (3, 4, 5):
@@ -106,8 +111,10 @@ def run(
         tool_time += response['elapsed_seconds']
         return response
     try:
-        worker = worker_factory({**config, '_deadline': deadline})
-        initial = call('initial')
+        with profile.phase('worker_start'):
+            worker = worker_factory({k: v for k, v in {**config, '_deadline': deadline}.items() if k != '_startup_complete'})
+        with profile.phase('initial_operation'):
+            initial = call('initial')
         transcript.manifest.update(
             schema=initial['schema'],
             evidence_fingerprint=fingerprint,
@@ -126,27 +133,33 @@ def run(
                     termination = 'BUDGET_EXHAUSTED'
                     break
                 names = state.applicable(semantic_available, rules)
-                messages, exposed, size = state.prompt(question, names, rules, feedback)
-                grammar = contracts.schema(names, state.browser_available)
-                if len(encoded(grammar).encode()) > 32768:
-                    raise ValueError('Grammar byte budget exceeded')
-                transcript.append(
-                    'exposure',
-                    {
-                        'step': state.steps,
-                        'content': exposed,
-                        'prompt_bytes': size,
-                        'prompt_sha256': digest(messages),
-                        'tools': names
-                    }
-                )
-                state.disclose(exposed)
+                with profile.phase('exposure'):
+                    messages, exposed, size = state.prompt(question, names, rules, feedback)
+                    grammar = contracts.schema(names, state.browser_available)
+                    if len(encoded(grammar).encode()) > 32768:
+                        raise ValueError('Grammar byte budget exceeded')
+                    transcript.append(
+                        'exposure',
+                        {
+                            'step': state.steps,
+                            'content': exposed,
+                            'prompt_bytes': size,
+                            'prompt_sha256': digest(messages),
+                            'tools': names
+                        }
+                    )
+                    state.disclose(exposed)
                 prompt_sizes.append(size)
                 if remaining() <= 0:
                     termination = 'MAX_SECONDS'
                     break
                 # LocalClient applies a wall-clock socket watchdog as well as I/O timeouts.
                 client.timeout = min(budget.tool_seconds, remaining())
+                if step == 0:
+                    profile.send('pre_model', 'complete', time.perf_counter() - profile.started)
+                    startup_complete = True
+                    if config.get('_startup_complete'):
+                        config['_startup_complete']()
                 model_started = time.monotonic()
                 try:
                     raw = client.complete(messages, grammar)
@@ -311,6 +324,12 @@ def run(
         termination = ('EVIDENCE_STATE_CHANGED' if 'EVIDENCE_STATE_CHANGED' in reason else
                        'SEMANTIC_STATE_CHANGED' if 'SEMANTIC_STATE_CHANGED' in reason else
                        'BUDGET_EXHAUSTED' if any(s in reason for s in ('TIMEOUT', 'WAL_PRESSURE', 'byte budget')) else 'TOOL_FAILURE')
+        if not startup_complete:
+            termination = ('STARTUP_TIMEOUT' if getattr(exc, 'timed_out', False) or remaining() <= 0 else
+                           'FINGERPRINT_FAILURE' if getattr(exc, 'stage', None) == 'fingerprint' else
+                           'WORKER_START_FAILURE' if worker is None else 'INITIAL_RETRIEVAL_FAILURE')
+            profile.send(getattr(exc, 'stage', None) or profile.current,
+                         'timeout' if termination == 'STARTUP_TIMEOUT' else 'failure', time.perf_counter()-profile.started)
         state.limit(reason)
     except ValueError as exc:
         termination = 'BUDGET_EXHAUSTED' if 'BUDGET' in str(exc) or 'budget' in str(exc) else 'INSUFFICIENT_EVIDENCE'
@@ -337,7 +356,7 @@ def run(
     if final is None:
         final = state.partial()
     if remaining() <= 0:
-        termination = 'MAX_SECONDS'
+        termination = 'MAX_SECONDS' if startup_complete else 'STARTUP_TIMEOUT'
     result = {
         'investigation_id': transcript.id,
         'termination': termination,

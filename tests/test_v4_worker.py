@@ -139,5 +139,8 @@ def test_worker_does_not_advertise_semantics_after_stale_index_fallback(tmp_path
     )
     monkeypatch.setattr(module.sys, 'stdout', SimpleNamespace(buffer=output))
     module.serve()
-    response = json.loads(output.getvalue().splitlines()[1])
+    responses = [json.loads(line) for line in output.getvalue().splitlines()]
+    responses = [r for r in responses if 'startup_diagnostic' not in r]
+    assert len(responses) == 2 and responses[0]['ready']
+    response = responses[1]
     assert response['result']['records'] and response['semantic_available'] is False

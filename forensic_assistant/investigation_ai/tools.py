@@ -11,6 +11,7 @@ from forensic_assistant.detections.engine import available_rules, detections
 from forensic_assistant.llm.context import compact_record
 from forensic_assistant.v2_cli import anchor_time
 from .contracts import arguments
+from .diagnostics import measure
 
 def identity(prefix, value):
     return prefix + hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=True).encode()).hexdigest()[:24]
@@ -238,17 +239,20 @@ def execute(db, name, args, config, model=None):
 
 def initial(db, question, config, model=None):
     from forensic_assistant.semantic.hybrid import retrieve
-    plan, context = retrieve(
-        Queries(db),
-        question,
-        config.get('date_hint'),
-        20,
-        index_root=config.get('index_root') if config.get('semantic_enabled') else None,
-        model_path=config.get('model_path'),
-        model=model
-    )
+    profile = config.get('_profile')
+    with measure(profile, 'initial_retrieval'):
+        plan, context = retrieve(
+            Queries(db),
+            question,
+            config.get('date_hint'),
+            20,
+            index_root=config.get('index_root') if config.get('semantic_enabled') else None,
+            model_path=config.get('model_path'),
+            model=model
+        )
     # Availability is measured from this same read snapshot, not guessed by the LLM.
-    browser_count = db.execute("SELECT count(*) FROM evidence_records WHERE source_type='browser'").fetchone()[0]
+    with measure(profile, 'inventory'):
+        browser_count = db.execute("SELECT count(*) FROM evidence_records WHERE source_type='browser'").fetchone()[0]
     if browser_count:
         context = dict(context)
         rows = list(context.get('evidence_records', []))
@@ -258,7 +262,8 @@ def initial(db, question, config, model=None):
         context['limits'] = [*context.get('limits', []),
                              'Initial browser sample is bounded context, not an exhaustive download investigation']
         context['truncated'] = bool(context.get('truncated') or browser_rows.truncated or len(rows) > 40)
-    result = envelope(db, 'initial_retrieval', context, 50)
+    with measure(profile, 'source_hydration'):
+        result = envelope(db, 'initial_retrieval', context, 50)
     result['plan'] = {k: v for k, v in plan.items() if k not in ('semantic_results', 'selection_reasons')}
     result['plan']['browser_available'] = browser_count > 0
     result['semantic_used'] = bool(plan.get('semantic_coverage') == 'searched')

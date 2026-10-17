@@ -13,6 +13,7 @@ if __package__ in (None, ''):
 from forensic_assistant.investigation_ai.case import open_readonly, read_transaction
 from forensic_assistant.semantic.documents import fingerprint
 from forensic_assistant.investigation_ai import tools
+from forensic_assistant.investigation_ai.diagnostics import Profile
 
 MAX_MESSAGE = 512 * 1024
 
@@ -20,6 +21,7 @@ def serve():
     from forensic_assistant.artifacts.worker import limit_memory
     memory_guard = limit_memory()
     config = None
+    protocol = sys.stdout.buffer
     model = None
     index_identity = None
     while line := sys.stdin.buffer.readline(MAX_MESSAGE + 1):
@@ -27,6 +29,7 @@ def serve():
             raise ValueError('Worker request limit exceeded')
         started = time.monotonic()
         response = {}
+        profile = None
         try:
             request = json.loads(line)
             if config is None:
@@ -34,42 +37,48 @@ def serve():
                 response = {'ready': True, 'worker_pid': os.getpid()}
             else:
                 op = request['operation']
-                # A pinned generation cannot change underneath the investigation.
-                if config.get('semantic_enabled'):
-                    from forensic_assistant.semantic.index import _generation
-                    from forensic_assistant.semantic.model import sha
-                    try:
-                        generation = _generation(config['index_root'])
-                        current = {'generation': generation.name, 'manifest_sha256': sha(generation / 'manifest.json')}
-                        if index_identity is not None and current != index_identity:
-                            raise ValueError('SEMANTIC_STATE_CHANGED')
-                        index_identity = current
-                    except (OSError, ValueError):
-                        if index_identity is not None:
-                            raise
-                        config['semantic_enabled'] = False
-                needs_model = op == 'semantic_search'
-                if op == 'initial' and config.get('semantic_enabled'):
-                    from forensic_assistant.semantic.hybrid import precise
-                    needs_model = not precise(request['question'])
-                if needs_model and model is None:
-                    try:
-                        with contextlib.redirect_stdout(sys.stderr):
-                            from forensic_assistant.semantic.model import LocalModel
-                            model = LocalModel(config['model_path'])
-                    except (ImportError, OSError, ValueError):
-                        if op != 'initial':
-                            raise
-                        config['semantic_enabled'] = False
-                db = open_readonly(config['case_path'], started + request['seconds'])
+                def emit(value):
+                    protocol.write(json.dumps({'startup_diagnostic': value}).encode() + b'\n')
+                    protocol.flush()
+                profile = Profile(started + request['seconds'], emit, config.get('_deadline'))
+                with profile.phase('semantic_setup'):
+                    # A pinned generation cannot change underneath the investigation.
+                    if config.get('semantic_enabled'):
+                        from forensic_assistant.semantic.index import _generation
+                        from forensic_assistant.semantic.model import sha
+                        try:
+                            generation = _generation(config['index_root'])
+                            current = {'generation': generation.name, 'manifest_sha256': sha(generation / 'manifest.json')}
+                            if index_identity is not None and current != index_identity:
+                                raise ValueError('SEMANTIC_STATE_CHANGED')
+                            index_identity = current
+                        except (OSError, ValueError):
+                            if index_identity is not None:
+                                raise
+                            config['semantic_enabled'] = False
+                    needs_model = op == 'semantic_search'
+                    if op == 'initial' and config.get('semantic_enabled'):
+                        from forensic_assistant.semantic.hybrid import precise
+                        needs_model = not precise(request['question'])
+                    if needs_model and model is None:
+                        try:
+                            with contextlib.redirect_stdout(sys.stderr):
+                                from forensic_assistant.semantic.model import LocalModel
+                                model = LocalModel(config['model_path'])
+                        except (ImportError, OSError, ValueError):
+                            if op != 'initial':
+                                raise
+                            config['semantic_enabled'] = False
+                db = open_readonly(config['case_path'], started + request['seconds'], profile)
                 try:
                     with read_transaction(db):
-                        observed = fingerprint(db)
+                        with profile.phase('fingerprint'):
+                            observed = fingerprint(db)
                         if request.get('expected_fingerprint') not in (None, observed):
                             raise ValueError('EVIDENCE_STATE_CHANGED')
                         with contextlib.redirect_stdout(sys.stderr):
                             if op == 'initial':
-                                result = tools.initial(db, request['question'], config, model)
+                                result = tools.initial(db, request['question'], {**config, '_profile': profile}, model)
                             elif op == 'check':
                                 result = {'checked': True}
                             else:
@@ -96,6 +105,8 @@ def serve():
             response = {
                 'error': str(exc)[:1000],
                 'error_type': type(exc).__name__,
+                'stage': profile.current if profile else 'worker_start',
+                'timed_out': bool(profile and time.monotonic() >= profile.deadline),
                 'elapsed_seconds': time.monotonic() - started
             }
         raw = json.dumps(response, ensure_ascii=True, separators=(',', ':')).encode()

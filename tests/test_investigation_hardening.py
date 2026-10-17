@@ -272,7 +272,7 @@ def test_supervisor_interrupts_blocked_transcript_io(tmp_path, monkeypatch):
     monkeypatch.setattr(supervision, '_child', blocked_transcript_child)
     started = time.monotonic()
     result = supervision.run(config(path), 'PowerShell', tmp_path / 'runs', budget=Budget(seconds=1))
-    assert result['termination'] == 'MAX_SECONDS'
+    assert result['termination'] == 'STARTUP_TIMEOUT'
     assert time.monotonic() - started < 1 + supervision.CLEANUP_SECONDS + 1
     assert result['transcript_complete'] is False
 

@@ -27,6 +27,15 @@ def fingerprint(db):
     Caller holds a consistent SQLite snapshot. No file-stat/WAL assumptions.
     """
     h = hashlib.sha256()
+    from functools import lru_cache
+    def framed(value):
+        value = str(value).encode('utf-8')
+        return len(value).to_bytes(8, 'little') + value
+    @lru_cache(maxsize=1024)
+    def header(kind, size):
+        # Cache only framing of SQLite type/length, never evidence or digests.
+        # Concatenation is exactly the prior feed(kind), feed(size), value prefix.
+        return framed(kind) + framed(size) + min(size or 0, 65536).to_bytes(8, 'little')
     def feed(value):
         value = value if isinstance(value, bytes) else str(value).encode('utf-8')
         h.update(len(value).to_bytes(8, 'little'))
@@ -43,13 +52,13 @@ def fingerprint(db):
         for col in cols:
             col = quoted(col)
             expressions += [f'typeof({col})', f'length(CAST({col} AS BLOB))', f'substr(CAST({col} AS BLOB),1,65536)']
-        for row in db.execute('SELECT rowid,' + ','.join(expressions) + ' FROM ' + quoted(name) + ' ORDER BY rowid'):
+        cursor = db.execute('SELECT rowid,' + ','.join(expressions) + ' FROM ' + quoted(name) + ' ORDER BY rowid')
+        cursor.row_factory = None
+        for row in cursor:
             feed('row')
             for i, col in enumerate(cols):
                 kind, size, value = row[1 + i * 3:4 + i * 3]
-                feed(kind)
-                feed(size)
-                feed(value or b'')
+                h.update(header(kind, size) + (value or b''))
                 for offset in range(65536, size or 0, 65536):
                     value = db.execute(
                         'SELECT substr(CAST(' + quoted(col) + ' AS BLOB),?,65536) FROM ' + quoted(name) + ' WHERE rowid=?',

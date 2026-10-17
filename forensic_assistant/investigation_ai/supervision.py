@@ -6,6 +6,8 @@ Only analyst approval is relayed to the owning terminal. No model dispatch here.
 """
 from dataclasses import asdict
 import json
+import logging
+from .diagnostics import LOG
 import multiprocessing
 import os
 import queue
@@ -27,6 +29,10 @@ def _child(connection, gate, request):
     if os.name != 'nt':
         os.setsid()
     from .controller import run
+    if request['config'].get('_debug_startup'):
+        logging.basicConfig(level=logging.WARNING, format='%(message)s')
+        LOG.setLevel(logging.DEBUG)
+    request['config']['_startup_complete'] = lambda: connection.send_bytes(b'{"kind":"startup_complete"}')
     session = activity.Session(request['config']['case_path'])
     session.id = request['session_id']
     def approve(proposal, seconds):
@@ -139,7 +145,9 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     messages = queue.Queue(maxsize=4)
     job = None
     result = None
-    reason = 'WORKER_FAILURE'
+    reason = 'WORKER_START_FAILURE'
+    startup_complete = False
+    request['config']['_debug_startup'] = LOG.isEnabledFor(logging.DEBUG)
     def receive():
         try:
             while True:
@@ -148,7 +156,9 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         except (EOFError, OSError, ValueError, queue.Full):
             pass
     try:
+        spawn_started = time.perf_counter()
         process.start()
+        LOG.debug("investigate-ai startup stage=supervisor_start elapsed=%.6fs", time.perf_counter()-spawn_started)
         child.close()
         job = WorkerJob(process.pid) if os.name == 'nt' else None
         gate.set()
@@ -160,6 +170,9 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
             except queue.Empty:
                 if not process.is_alive():
                     break
+                continue
+            if message['kind'] == 'startup_complete':
+                startup_complete = True
                 continue
             if message['kind'] == 'approval':
                 approved = approval(message['proposal'], max(0, deadline - time.monotonic()))
@@ -174,12 +187,13 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                           'TRANSCRIPT_FAILURE' if message.get('type') in ('OSError', 'PermissionError', 'FileExistsError') else 'WORKER_FAILURE')
                 break
         if time.monotonic() >= deadline:
-            reason = 'MAX_SECONDS'
+            reason = 'MAX_SECONDS' if startup_complete else 'STARTUP_TIMEOUT'
+            LOG.debug('investigate-ai watchdog=overall category=%s elapsed=%.6fs remaining=0', reason, time.monotonic()-started)
             result = None
     except KeyboardInterrupt:
         reason = 'USER_SCOPE_REACHED'
     except (OSError, ValueError):
-        reason = 'WORKER_FAILURE'
+        reason = 'WORKER_FAILURE' if startup_complete else 'WORKER_START_FAILURE'
     finally:
         cleanup_deadline = time.monotonic() + CLEANUP_SECONDS
         cleaned = True

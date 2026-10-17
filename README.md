@@ -21,6 +21,13 @@ The bounded `investigate-ai` engine is assessed in [the investigation architectu
 and safety review](V4.md), including its tool inventory, limits, privacy boundaries
 and requirements for future reuse. The normal `!` interface remains advisory-only.
 
+For pre-model startup failures, enable the standard Python DEBUG logger
+`forensic_assistant.investigation_ai`. It reports content-free phase timings,
+remaining overall time and child-watchdog time. See the [startup diagnosis and
+PowerShell acceptance commands](V4.md#664-startup-correction--pending-manual-acceptance).
+Startup uses the remaining overall budget; it is not capped by the 45-second
+tool-operation watchdog. Fingerprints still cover all authoritative case content.
+
 `investigate-ai --max-seconds` uses one deadline, including local model calls,
 worker startup, tools, transcript finalization and analyst approval waiting.
 Cancellation/timeout has an additional maximum five-second cleanup allowance.
