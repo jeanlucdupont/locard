@@ -30,7 +30,7 @@ class ForensicWorker:
             environment.pop(name, None)
         environment.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1', DO_NOT_TRACK='1')
         self.process = subprocess.Popen(
-            [sys.executable, '-I', str(self.worker_script)],
+            [sys.executable, '-I', '-B', str(self.worker_script)],
             cwd=str(Path(__file__).parent),
             env=environment,
             stdin=subprocess.PIPE,

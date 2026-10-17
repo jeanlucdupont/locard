@@ -17,6 +17,10 @@
 
 ## Reminders
 
+The bounded `investigate-ai` engine is assessed in [the investigation architecture
+and safety review](V4.md), including its tool inventory, limits, privacy boundaries
+and requirements for future reuse. The normal `!` interface remains advisory-only.
+
 Evidence establishes facts. Model output is analysis, not evidence. Locard is an
 investigative aid, not a replacement for validation by a forensic analyst.
 

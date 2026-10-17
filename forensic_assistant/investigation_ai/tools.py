@@ -31,6 +31,8 @@ def compact(record):
         result['supporting_evidence_ids'] = record['supporting_evidence_ids']
     if record.get('warnings'):
         result['warnings'] = [str(v)[:200] for v in record['warnings'][:4]]
+        if len(record['warnings']) > 4 or any(len(str(v)) > 200 for v in record['warnings'][:4]):
+            result.setdefault('truncated_fields', []).append('warnings')
     return result
 
 def envelope(db, name, raw, limit=50):
@@ -89,8 +91,12 @@ def envelope(db, name, raw, limit=50):
         value.setdefault('detection_id', identity('DET:', value))
         all_detections.append(value)
     limits = [str(v)[:300] for v in raw.get('limits', [])[:8]]
+    limits_omitted = len(raw.get('limits', [])) > 8 or any(len(str(v)) > 300 for v in raw.get('limits', [])[:8])
     if raw.get('reason'):
         limits.append(str(raw['reason'])[:300])
+        limits_omitted |= len(str(raw['reason'])) > 300
+    if limits_omitted:
+        limits.append('Limitation text was truncated; inspect deterministic results for full limitations')
     if omitted:
         limits.append(f'{omitted} relationship/detection objects omitted because support was outside result bounds')
     return {
@@ -101,7 +107,7 @@ def envelope(db, name, raw, limit=50):
         'detections': all_detections,
         'limitations': limits,
         'returned_count': len(records),
-        'truncated': bool(raw.get('truncated') or len(rows) > limit or omitted),
+        'truncated': bool(raw.get('truncated') or len(rows) > limit or omitted or limits_omitted),
         'semantic_candidates': raw.get('semantic_candidates', []),
         'label': 'UNTRUSTED FORENSIC EVIDENCE'
     }
