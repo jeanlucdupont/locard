@@ -34,7 +34,7 @@ def test_human_projection_is_nonmutating_and_sanitized():
     text = render(result)
     assert result == original
     assert EID in text and 'Completed: 1' in text
-    assert 'Live case changed' in text and 'original snapshot' in text
+    assert 'live case changed' in text and 'not accepted against the changed case state' in text
     assert 'Locard rejected 2' in text
     assert 'Source metadata includes analyst assertions.' not in text
     assert '\x1b' not in text and 'HIDDEN' not in text
@@ -74,8 +74,12 @@ def test_bang_reuses_engine_and_every_approval(tmp_path, monkeypatch, capsys, an
     assert not hasattr(shell, 'mode')
     assert [n for n in worker.calls if n not in ('initial','check')] == executed
     output = capsys.readouterr()
-    assert 'Record-level evidence is needed' in output.out
-    assert 'Proposed read-only operation' in output.err
+    assert 'More evidence needs to be inspected.' in output.out
+    assert 'Proposed forensic lookup' in output.err
+    assert output.out.count('More evidence needs to be inspected.') == 1
+    assert 'Locard may propose additional forensic lookups.' in output.out
+    assert 'More evidence is needed' not in output.err
+    assert 'bounded read-only investigation' not in output.out
     assert EID in output.err and '"action"' not in output.err
     assert 'Investigation' in output.out
     assert phases[-1] == 'cleared'
@@ -85,7 +89,7 @@ def test_bang_reuses_engine_and_every_approval(tmp_path, monkeypatch, capsys, an
 def test_inventory_bang_never_enters_engine(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, 'run', lambda *a, **k: pytest.fail('investigation launched'))
     run_shell(tmp_path, '! What evidence is available in this case?')
-    assert 'Record-level evidence is needed' not in capsys.readouterr().out
+    assert 'More evidence needs to be inspected.' not in capsys.readouterr().out
 
 
 def test_invalid_window_feedback_does_not_rewrite_or_execute(tmp_path):

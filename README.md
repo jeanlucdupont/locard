@@ -1893,3 +1893,9 @@ Human results use existing terminal colors, semantic timestamp labels where
 available, and grouped material caveats. Successful integrity checks and generic
 boilerplate remain in JSON rather than normal output. Dry-run displays one proposal
 block and no zero-operation counter. Color-off and redirected output remain plain.
+
+AI proposals use **Proposed forensic lookup** and **Approve this lookup? [y/N]**.
+Each lookup remains strictly read-only and requires its own approval through `!`.
+Normal results show concise rejection/outcome messages and material case warnings;
+full diagnostics remain in JSON. Final integrity hashing can use the remaining
+investigation deadline rather than the shorter individual-tool timeout.

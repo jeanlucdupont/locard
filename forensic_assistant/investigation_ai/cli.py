@@ -53,7 +53,7 @@ def approve(proposal, seconds, *, args=None):
     try:
         from contextlib import redirect_stdout
         with redirect_stdout(sys.stderr):
-            return timed_line(palette('key', 'Approve this read-only operation? [y/N] '), max(.001, seconds)).strip().casefold() == 'y'
+            return timed_line(palette('key', 'Approve this lookup? [y/N] '), max(.001, seconds)).strip().casefold() == 'y'
     except (TimeoutError, EOFError):
         return False
 

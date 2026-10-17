@@ -84,7 +84,8 @@ def test_initial_request_uses_overall_remaining_time(tmp_path):
     result = controller.run({}, 'Inspect', tmp_path / 'runs', worker_factory=Measured,
                             budget=Budget(seconds=200), client=Scripted([final]), dry_run=True)
     assert 45 < seen[0][1] <= 200
-    assert all(seconds <= 45 for name, seconds in seen if name != 'initial')
+    assert all(45 < seconds <= 200 for name, seconds in seen if name == 'check')
+    assert all(seconds <= 45 for name, seconds in seen if name not in ('initial', 'check'))
     assert result['state']['accepted_calls'] == 0
 
 

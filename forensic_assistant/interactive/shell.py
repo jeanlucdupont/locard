@@ -68,8 +68,9 @@ class Shell:
         if needs_investigation(request):
             from forensic_assistant.cli import build_parser, dispatch
             from forensic_assistant import activity
-            print('Record-level evidence is needed to answer this question.\n'
-                  'Locard will use bounded read-only investigation and ask before each operation.')
+            print('More evidence needs to be inspected.\n\n'
+                  'Locard may propose additional forensic lookups.\n'
+                  'You will be asked to approve each one before it runs.')
             words = ['investigate-ai', '--approve-tools', '--', request]
             args = build_parser(interactive=True).parse_args(['--db', str(self.active), *words])
             args.no_color = self.no_color

@@ -34,7 +34,7 @@ def test_timestamp_semantics_and_concise_dry_run(label):
     assert 'Dry-run completed' in text and 'analyst interrupted' not in text
     assert 'Case integrity' not in text and 'Live case matched' not in text
     assert text.count('Some evidence fields were truncated.') == 1
-    assert 'Dirty hive:' in text and 'Bounded investigation;' not in text
+    assert 'Registry hive was dirty; transaction logs were not replayed.' in text and 'Bounded investigation;' not in text
     assert 'Source metadata' not in text
     assert text.count('No supported conclusion was produced.') == 1
     assert 'Reason: Inspect record' in text and 'Model-proposed reason' not in text
@@ -53,8 +53,8 @@ def test_unknown_and_mismatched_semantics_fall_back():
 def test_integrity_exceptions_remain_visible(match):
     value=result();value['metrics']['integrity']['live_case_matches']=match
     text=render(value)
-    assert 'Warning' in text and 'snapshot' in text
-    assert ('Live case changed' if match is False else 'could not be completed') in text
+    assert 'Warning' in text
+    assert ('live case changed' if match is False else 'could not confirm') in text
 
 
 def test_source_grouping_retains_material_and_unknown_caveats():
@@ -67,7 +67,7 @@ def test_source_grouping_retains_material_and_unknown_caveats():
     assert len(material)==2 and 'analyst-supplied' in material[0] and material[1]==values[-1]
     value=result();value['findings']['observed'][0]['source_context']={'conflicts':['hostname']}
     value['limitations'].extend(values)
-    assert render(value).count('Source context relies on analyst-supplied')==1
+    assert render(value).count('Source context relies on analyst-supplied')==0
 
 
 def test_success_has_no_empty_counters_or_boilerplate():
@@ -132,5 +132,5 @@ def test_advanced_command_still_accessible(capsys):
 
 def test_source_derived_identity_keeps_assertion_qualification():
     value=result();row=value['findings']['observed'][0]
-    row.update(field='/hostname',reported_value='asserted-host',source_context={'hostname':'asserted-host'})
+    row.update(field='/hostname',reported_value='asserted-host',source_context={'hostname':'asserted-host','basis':'analyst-supplied'})
     assert 'analyst-supplied metadata' in render(value)

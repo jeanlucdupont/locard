@@ -118,7 +118,8 @@ def _run(
                 args,
                 fingerprint=fingerprint,
                 known_ids=state.exposed,
-                seconds=remaining() if name == 'initial' else min(budget.tool_seconds, remaining()),
+                # Full-case startup and completion hashes share the global deadline.
+                seconds=remaining() if name in ('initial', 'check') else min(budget.tool_seconds, remaining()),
                 question=question
             )
         except WorkerError as exc:
@@ -141,6 +142,8 @@ def _run(
         return response
     try:
         with profile.phase('worker_start'):
+            if remaining() <= 0:
+                raise WorkerError('INVESTIGATION_TIMEOUT', stage='worker_start', timed_out=True)
             worker = worker_factory({k: v for k, v in {**config, '_deadline': deadline}.items() if k != '_startup_complete'})
         with profile.phase('initial_operation'):
             initial = call('initial')
