@@ -2,7 +2,7 @@
 import argparse
 from forensic_assistant.terminal import Palette
 from forensic_assistant.retrieval.presentation import safe
-from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS, COMMAND_ALIASES
+from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS, COMMAND_ALIASES, ADVANCED_COMMANDS
 
 # Argument syntax stays with the interactive command implementation.
 SHELL_USAGE = {
@@ -55,7 +55,7 @@ def catalog(parser, palette=None):
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             for name in action.choices:
-                if name not in COMMAND_ALIASES:
+                if name not in set(COMMAND_ALIASES) | ADVANCED_COMMANDS:
                     commands[name] = COMMANDS[name]
     width = max(map(len, commands))
     lines = ['']

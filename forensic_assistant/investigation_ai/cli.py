@@ -10,7 +10,7 @@ from .state import Budget
 from .transcript import load, implementation
 
 def configure(commands):
-    p = commands.add_parser('investigate-ai', help=COMMANDS['investigate-ai'])
+    p = commands.add_parser('investigate-ai', help=COMMANDS['investigate-ai'], description='Advanced / Diagnostic interface. Use ! <question> for normal interactive AI requests.')
     p.add_argument('question')
     p.add_argument('--endpoint', default=Config.endpoint)
     p.add_argument('--date')
@@ -42,16 +42,18 @@ def configure(commands):
         command.add_argument('--semantic-index')
         command.add_argument('--embedding-model')
 
-def approve(proposal, seconds):
+def approve(proposal, seconds, *, args=None):
     if not sys.stdin.isatty():
         raise ValueError('--approve-tools requires an interactive terminal')
     from .presentation import proposal_text
-    print(proposal_text(proposal), file=sys.stderr)
+    from forensic_assistant.terminal import Palette, enabled
+    palette = Palette(enabled(args, sys.stderr))
+    print(proposal_text(proposal, palette), file=sys.stderr)
     from forensic_assistant.interactive.console import timed_line
     try:
         from contextlib import redirect_stdout
         with redirect_stdout(sys.stderr):
-            return timed_line('Approve this read-only operation? [y/N] ', max(.001, seconds)).strip().casefold() == 'y'
+            return timed_line(palette('key', 'Approve this read-only operation? [y/N] '), max(.001, seconds)).strip().casefold() == 'y'
     except (TimeoutError, EOFError):
         return False
 
@@ -93,6 +95,7 @@ def dispatch(args):
     if not Path(args.db).is_file():
         raise ValueError('Investigation requires an existing case database')
     from forensic_assistant.terminal_activity import ActivityIndicator
+    from functools import partial
     with ActivityIndicator('Preparing investigation...', args=args) as indicator:
         result = run(
             config,
@@ -101,7 +104,7 @@ def dispatch(args):
             budget=Budget(steps=args.max_steps, calls=args.max_tool_calls, seconds=args.max_seconds),
             client=LocalClient(args.endpoint),
             dry_run=args.dry_run,
-            approval=approve if args.approve_tools else None,
+            approval=partial(approve, args=args) if args.approve_tools else None,
             status=indicator.phase
         )
     if args.explain:

@@ -1,3 +1,4 @@
+from forensic_assistant.command_catalog import ADVANCED_COMMANDS
 from shell_output import before_shutdown
 """Command summaries share one authority; detailed parsing remains local."""
 import argparse
@@ -73,7 +74,7 @@ def test_every_top_level_parser_has_central_summary(interactive):
     names = set(commands.choices) | set(SHELL_COMMANDS)
     assert names == set(COMMANDS), 'Every user-facing command must have command_catalog metadata'
     summaries = {entry.dest: entry.help for entry in commands._choices_actions}
-    assert summaries == {name: COMMANDS[name] for name in commands.choices if name not in COMMAND_ALIASES}
+    assert summaries == {name: COMMANDS[name] for name in commands.choices if name not in set(COMMAND_ALIASES) | ADVANCED_COMMANDS}
 
 
 @pytest.mark.parametrize('color', [False, True])
@@ -81,7 +82,7 @@ def test_catalog_exact_wording_and_order(color):
     text = catalog(build_parser(interactive=True), Palette(color))
     plain = SGR.sub('', text)
     rows = [line.strip().split('  ', 1) for line in plain.splitlines() if line.startswith('  ')]
-    assert [(name, description.strip()) for name, description in rows] == sorted((name, text) for name, text in EXPECTED.items() if name not in COMMAND_ALIASES)
+    assert [(name, description.strip()) for name, description in rows] == sorted((name, text) for name, text in EXPECTED.items() if name not in set(COMMAND_ALIASES) | ADVANCED_COMMANDS)
     assert plain.endswith('Type `help <command>` for details.\n')
     assert ('\x1b' in text) == color
     assert 'Same as' not in plain and 'usage:' not in plain

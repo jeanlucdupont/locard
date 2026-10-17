@@ -1875,8 +1875,8 @@ no advanced flags. The explicit command retains its existing advanced controls
 and policy; use `--approve-tools` for per-operation approval there.
 
 `investigate-ai "question"` now renders concise human text, including canonical
-IDs, completed operations, rejection notices, termination, integrity status and
-limitations. Observed values are reported fields, not proof of execution or
+IDs, completed operations, rejection notices, termination, exceptional integrity warnings and
+material limitations. Observed values are reported fields, not proof of execution or
 causation. Unverified model hypotheses/unknowns remain in the full JSON, labelled
 as unverified. `investigate-ai --json "question"` preserves the complete result;
 approval interaction uses stderr and requires an interactive stdin. Redirected
@@ -1886,3 +1886,10 @@ commands retain their existing output.
 Time filters supplied by the model remain paired with `start <= end` and a
 maximum span of 24 hours. Rejections return compact contract corrections; Locard
 does not repair arguments or expand permissions.
+
+Normal help presents `!` as the AI interface. For explicit budgets, dry-run or JSON,
+`help investigate-ai` documents the retained Advanced / Diagnostic command.
+Human results use existing terminal colors, semantic timestamp labels where
+available, and grouped material caveats. Successful integrity checks and generic
+boilerplate remain in JSON rather than normal output. Dry-run displays one proposal
+block and no zero-operation counter. Color-off and redirected output remain plain.

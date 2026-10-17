@@ -287,7 +287,7 @@ def _dispatch(args, output, *, existing_only=False):
             result = investigation_cli.dispatch(args)
             if args.command == 'investigate-ai' and not args.json:
                 from forensic_assistant.investigation_ai.presentation import render
-                output.write(render(result))
+                output.write(render(result, output.palette, dry_run=args.dry_run))
             else:
                 emit(result)
             return 0

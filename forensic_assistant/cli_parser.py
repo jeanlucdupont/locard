@@ -99,7 +99,7 @@ def configure_ingest_namespace(commands):
     Internal command IDs remain stable for provenance/audit and existing dispatch.
     Compatibility choices remain parseable, but are omitted from primary help.
     """
-    from forensic_assistant.command_catalog import COMMANDS, COMMAND_ALIASES
+    from forensic_assistant.command_catalog import COMMANDS, COMMAND_ALIASES, ADVANCED_COMMANDS
     family = commands.add_parser('ingest', help=COMMANDS['ingest'], description=COMMANDS['ingest'])
     kinds = family.add_subparsers(dest='ingest_type', metavar='{all,browser,evtx,mft,prefetch,registry,wizard}')
     commands.add_parser('ingest-wizard', help=COMMANDS['ingest-wizard'],
@@ -111,5 +111,5 @@ def configure_ingest_namespace(commands):
         kinds._name_parser_map[kind] = child
         kinds._choices_actions.append(kinds._ChoicesPseudoAction(kind, [], COMMANDS[name]))
         child.prog = family.prog + ' ' + kind
-    commands._choices_actions[:] = [a for a in commands._choices_actions if a.dest not in COMMAND_ALIASES]
-    commands.metavar = '{' + ','.join(name for name in commands.choices if name not in COMMAND_ALIASES) + '}'
+    commands._choices_actions[:] = [a for a in commands._choices_actions if a.dest not in set(COMMAND_ALIASES) | ADVANCED_COMMANDS]
+    commands.metavar = '{' + ','.join(name for name in commands.choices if name not in set(COMMAND_ALIASES) | ADVANCED_COMMANDS) + '}'

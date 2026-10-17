@@ -81,3 +81,6 @@ def investigation_capabilities():
     """Small catalog projection for advisory use only; no command execution."""
     return {name: {'purpose': COMMANDS[name], 'usage': usage, 'input': expected}
             for name, (usage, expected) in INVESTIGATION_INPUTS.items()}
+
+# Hidden from ordinary discovery, still directly callable and documented.
+ADVANCED_COMMANDS = frozenset({'investigate-ai'})

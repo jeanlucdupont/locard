@@ -35,8 +35,8 @@ def test_human_projection_is_nonmutating_and_sanitized():
     assert result == original
     assert EID in text and 'Completed: 1' in text
     assert 'Live case changed' in text and 'original snapshot' in text
-    assert 'Locard rejected 2' in text and 'not independently verified' in text
-    assert text.count('Source metadata includes analyst assertions.') == 1
+    assert 'Locard rejected 2' in text
+    assert 'Source metadata includes analyst assertions.' not in text
     assert '\x1b' not in text and 'HIDDEN' not in text
     assert 'truncated' in text and 'No supported conclusion' in text
 
@@ -64,7 +64,8 @@ def test_bang_reuses_engine_and_every_approval(tmp_path, monkeypatch, capsys, an
     monkeypatch.setattr('sys.stdin.isatty', lambda: True)
     monkeypatch.setattr('forensic_assistant.interactive.console.timed_line', read)
     def engine(config, question, root, **kwargs):
-        assert kwargs['approval'] is cli.approve
+        assert kwargs['approval'].func is cli.approve
+        assert kwargs['approval'].keywords['args'].approve_tools
         assert (kwargs['budget'].steps, kwargs['budget'].calls, kwargs['budget'].seconds) == (8,6,300)
         kwargs['client'] = client
         return controller.run({**config, '_status': kwargs.pop('status')}, question, root, worker_factory=lambda _:worker, **kwargs)
