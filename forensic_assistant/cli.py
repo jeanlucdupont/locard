@@ -285,11 +285,11 @@ def _dispatch(args, output, *, existing_only=False):
                 return 2
         if args.command in ('investigate-ai', 'investigation'):
             result = investigation_cli.dispatch(args)
-            if args.command == 'investigate-ai' and existing_only and not args.json:
-                notice = investigation_cli.rejection_notice(result)
-                if notice:
-                    output.write(output.palette('warning', notice))
-            emit(result)
+            if args.command == 'investigate-ai' and not args.json:
+                from forensic_assistant.investigation_ai.presentation import render
+                output.write(render(result))
+            else:
+                emit(result)
             return 0
         if args.command == 'semantic' and args.semantic_command == 'setup':
             result = semantic_cli.setup(args)

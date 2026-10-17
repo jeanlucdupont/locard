@@ -28,7 +28,7 @@ FILTERS = {
 }
 ANCHOR = {'evidence_id': string(160)}
 TOOLS = {
-    'search_evidence': ('Search case metadata using exact SQL filters.', obj({**FILTERS, 'limit': integer(1, 50)})),
+    'search_evidence': ('Search case metadata using exact SQL filters. Time bounds must be paired: start <= end; maximum span 24 hours.', obj({**FILTERS, 'limit': integer(1, 50)})),
     'semantic_search': (
         'Find candidates; similarity establishes no relationship or confidence.',
         obj({'query': string(1000), **FILTERS, 'limit': integer(1, 20)}, ('query',))

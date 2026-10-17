@@ -64,6 +64,20 @@ class Shell:
         return Palette(enabled(self))('prompt', '[' + label + ']> ')
 
     def request_advice(self, request):
+        from .ai_routing import needs_investigation
+        if needs_investigation(request):
+            from forensic_assistant.cli import build_parser, dispatch
+            from forensic_assistant import activity
+            print('Record-level evidence is needed to answer this question.\n'
+                  'Locard will use bounded read-only investigation and ask before each operation.')
+            words = ['investigate-ai', '--approve-tools', '--', request]
+            args = build_parser(interactive=True).parse_args(['--db', str(self.active), *words])
+            args.no_color = self.no_color
+            args._argv = words
+            args._audit_session = self.audit
+            with activity.bind(self.audit):
+                self.last_status = dispatch(args, existing_only=True)
+            return
         from .advisory import advise, AdvisoryError, response_characters
         from forensic_assistant.terminal_activity import ActivityIndicator
         try:
@@ -333,7 +347,7 @@ class Shell:
                             self.last_status = 0
                             continue
                         if len(words) == 2 and words[1] == 'ask':
-                            print('`ask` is deprecated. Prefix AI requests with ! instead. Interactive ask uses the same advisory path.')
+                            print('`ask` is deprecated. Prefix AI requests with ! instead. Interactive ask uses the same AI routing.')
                             self.audit.record('COMMAND', command='help', argv=words)
                             self.last_status = 0
                             continue

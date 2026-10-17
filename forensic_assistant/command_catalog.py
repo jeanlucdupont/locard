@@ -6,7 +6,7 @@ from types import MappingProxyType
 COMMANDS = MappingProxyType({
     'add-evidence': 'Compatibility alias for ingest wizard',
     'ingest-wizard': 'Guided evidence discovery and ingestion',
-    'ai': 'Compatibility notice: prefix advisory requests with !',
+    'ai': 'Compatibility notice: prefix AI requests with !',
     'expert': 'Compatibility notice: the shell has no mode switch',
     '?': 'Show help for a command',
     'activity': 'Review and verify analyst activity',

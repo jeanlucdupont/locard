@@ -45,10 +45,13 @@ def configure(commands):
 def approve(proposal, seconds):
     if not sys.stdin.isatty():
         raise ValueError('--approve-tools requires an interactive terminal')
-    print(json.dumps(proposal, ensure_ascii=True), file=sys.stderr)
+    from .presentation import proposal_text
+    print(proposal_text(proposal), file=sys.stderr)
     from forensic_assistant.interactive.console import timed_line
     try:
-        return timed_line('Approve this read-only operation? [y/N] ', max(.001, seconds)).strip().casefold() == 'y'
+        from contextlib import redirect_stdout
+        with redirect_stdout(sys.stderr):
+            return timed_line('Approve this read-only operation? [y/N] ', max(.001, seconds)).strip().casefold() == 'y'
     except (TimeoutError, EOFError):
         return False
 

@@ -215,7 +215,7 @@ def test_help_completion_and_bang_no_completion():
     from forensic_assistant.cli import build_parser
     for name in ('ai', 'expert'):
         assert not any(row.strip().startswith(name + ' ') for row in catalog(build_parser(interactive=True)).splitlines())
-        assert 'advisory only' in command_help(name)
+        assert 'approval before each proposed tool' in command_help(name)
         assert complete(name, len(name)).text == name
     assert 'natural-language request with !' in catalog(build_parser(interactive=True))
     assert complete('! question', 10).text == '! question'

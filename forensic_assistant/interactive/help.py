@@ -33,7 +33,7 @@ def command_help(name):
                    'work is retained on interruption. No arguments are accepted. Direct ingest subcommands accept a known artifact and explicit options. '
                    'Source metadata is analyst supplied; identities are never inferred from directory names.')
     if name == 'new-case':
-        result += ('\nGuided setup: create a case and ingest evidence, investigate using commands or ! advisory requests, '
+        result += ('\nGuided setup: create a case and ingest evidence, investigate using commands or ! AI requests, '
                    'then generate a report. Scan a mounted/extracted Windows filesystem, select evidence manually, '
                    'or skip ingestion. A case name creates a managed workspace; analyst/organization are optional. '
                    'Select browser profiles explicitly. Mounted $MFT may require extraction. Administrator '
@@ -44,7 +44,7 @@ def command_help(name):
                    'The prompt uses the human case name when available. No model is called during setup.')
     if name in ('ai', 'expert'):
         result += ('\nPrefix a natural-language request with ! to ask the local AI assistant. '
-                   'AI is advisory only: no commands are executed and no records are automatically retrieved. '
+                   'Inventory and uncertain questions stay advisory; record-level questions use bounded investigation with approval before each proposed tool. '
                    'The prompt remains >; no mode change is needed.')
     return result
 
@@ -61,5 +61,5 @@ def catalog(parser, palette=None):
     lines = ['']
     for name, description in sorted(commands.items()):
         lines.append('  ' + palette('key', name.ljust(width)) + '  ' + safe(description))
-    return '\n'.join([*lines, '', 'Prefix a natural-language request with ! to ask the local AI assistant (advisory only).',
+    return '\n'.join([*lines, '', 'Prefix a natural-language request with ! to ask the local AI assistant (approval required for each proposed tool).',
                       '', 'Type `help <command>` for details.\n'])

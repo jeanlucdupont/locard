@@ -337,7 +337,8 @@ def _run(
                         if reason not in state.final_grounding_reasons:
                             state.final_grounding_reasons.append(reason)
                     state.rejected += 1
-                    feedback = 'REJECTED: ' + str(exc)[:200]
+                    from .feedback import correction
+                    feedback = correction(decoded, rejected_diagnostic)
                     rejected = {}
                     try:
                         value = contracts.loads(raw)

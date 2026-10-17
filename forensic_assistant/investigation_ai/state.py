@@ -160,12 +160,13 @@ class State:
                 'tools': names,
                 'tool_inputs': {name: ','.join(key + ('*' if key in TOOLS[name][1]['required'] else '')
                                                for key in TOOLS[name][1]['properties']) for name in names},
+                'time_window_contract': 'Paired start/end: start <= end, maximum span 24 hours.',
                 'completed_tools': completed,
                 'rule_ids': rules if 'detections' in names else [],
                 'step': self.steps,
                 'calls_remaining': self.budget.calls - self.accepted,
                 'browser_available': self.browser_available,
-                'last_result': feedback[:250],
+                'last_result': feedback if isinstance(feedback, dict) else feedback[:250],
                 'omitted_records': len(self.records),
                 'limitations': 'Partial bounded view. Detections are not compromise. Similarity is not correlation.'
             },

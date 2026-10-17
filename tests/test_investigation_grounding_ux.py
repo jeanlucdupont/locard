@@ -92,9 +92,13 @@ def test_json_preserved_and_notice_not_model_prose(tmp_path, monkeypatch, capsys
         assert json.loads(output) == result
         assert 'Locard rejected' not in output
     else:
-        notice, structured = output.split('{', 1)
-        assert 'Locard rejected 2' in notice and 'MODEL CLAIM' not in notice
-        assert json.loads('{' + structured) == result
+        assert 'Locard rejected 2' in output and 'MODEL CLAIM' not in output
+        assert 'Investigation incomplete' in output
+        assert 'model_proposed_explanation' not in output
 
     assert main(args) == 0
-    assert json.loads(capsys.readouterr().out) == result
+    output = capsys.readouterr().out
+    if json_mode:
+        assert json.loads(output) == result
+    else:
+        assert 'Investigation incomplete' in output and 'MODEL CLAIM' not in output

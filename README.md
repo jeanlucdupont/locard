@@ -28,7 +28,7 @@ See [bounded investigation diagnostics](docs/v4.md#budgets-and-termination).
 
 The bounded `investigate-ai` engine is assessed in [the investigation architecture
 and safety review](V4.md), including its tool inventory, limits, privacy boundaries
-and requirements for future reuse. The normal `!` interface remains advisory-only.
+and requirements for future reuse. The normal `!` interface supports advisory guidance and bounded investigation with per-tool approval.
 
 For pre-model startup failures, enable the standard Python DEBUG logger
 `forensic_assistant.investigation_ai`. It reports content-free phase timings,
@@ -1851,4 +1851,38 @@ Missing or truncated fields must be retrieved through allowed tools before they
 can support factual findings. Grounding validation remains strict. When unsupported
 final proposals leave an interactive investigation without a supported conclusion,
 Locard displays a concise rejection notice based on controller state. `--json`
-remains machine-readable. This does not change advisory `!` behavior.
+remains machine-readable. The `!` routing described below reuses this same bounded engine.
+
+### Interactive AI questions and investigation output
+
+Use `! What evidence is available in this case?` for deterministic inventory.
+General guidance and uncertain questions remain advisory. Clear factual queries
+beginning with `did`, `was`, `were`, `has`, `have`, `when did`, `when was`,
+`which records`, `show evidence for`, or `inspect evidence for`, together with a
+recognized file extension or canonical evidence-ID reference, use bounded
+investigation. Examples include `! Did example.exe execute?` and
+`! Inspect evidence for EVTX:<hash>:Offset:<offset>`. This deliberately narrow
+routing is not a general intent classifier; use `investigate-ai` explicitly for
+questions outside it.
+
+Locard announces this transition and asks **[y/N] before each proposed tool**.
+Only `y` approves; declining or timing out prevents that operation. Each later
+tool needs a new approval. The same read-only engine, snapshot, grounding,
+audit and transcript protections apply. Initial deterministic retrieval is part
+of investigation startup; it is not a model-proposed tool. There is no AI mode or
+second prefix. Default bounds are 8 steps, 6 tool calls and 300 seconds; `!` adds
+no advanced flags. The explicit command retains its existing advanced controls
+and policy; use `--approve-tools` for per-operation approval there.
+
+`investigate-ai "question"` now renders concise human text, including canonical
+IDs, completed operations, rejection notices, termination, integrity status and
+limitations. Observed values are reported fields, not proof of execution or
+causation. Unverified model hypotheses/unknowns remain in the full JSON, labelled
+as unverified. `investigate-ai --json "question"` preserves the complete result;
+approval interaction uses stderr and requires an interactive stdin. Redirected
+human output is static; JSON has no animation or human summary. Transcript review
+commands retain their existing output.
+
+Time filters supplied by the model remain paired with `start <= end` and a
+maximum span of 24 hours. Rejections return compact contract corrections; Locard
+does not repair arguments or expand permissions.
