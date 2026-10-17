@@ -57,9 +57,14 @@ def test_profile_counts_content_and_audit(mixed, monkeypatch, caplog):
     assert metrics['phases']['parent_timestamp_query']['calls'] == len(parent_calls)
     for m in metrics['phases'].values():
         assert m['seconds'] >= m['max_seconds'] >= 0
-        assert m['average_seconds'] == pytest.approx(m['seconds'] / m['calls'])
+        assert m['average_seconds'] == pytest.approx(m['seconds'] / m['calls'] if m['calls'] else 0)
     assert metrics['other_seconds'] >= 0
-    assert sum(m['seconds'] for m in metrics['phases'].values()) + metrics['other_seconds'] == pytest.approx(metrics['total_seconds'])
+    parts = metrics['phases']
+    assert parts['csv_value_conversion']['calls'] == metrics['csv_rows']
+    assert parts['csv_writerow']['calls'] == metrics['csv_rows']
+    assert parts['csv_value_conversion']['seconds'] + parts['csv_writerow']['seconds'] <= parts['csv_write']['seconds']
+    assert parts['file_write_flush']['seconds'] <= parts['publication']['seconds']
+    assert sum(m['seconds'] for name, m in metrics['phases'].items() if name not in metrics['nested_components']) + metrics['other_seconds'] == pytest.approx(metrics['total_seconds'])
     assert re.sub(r'\d+\.\d+ sec', 'TIME', plain) == re.sub(r'\d+\.\d+ sec', 'TIME', profiled)
     assert csv_before == target.read_bytes() and before == mixed.read_bytes()
     assert audit[-1] == audit_before
@@ -94,3 +99,15 @@ def test_failed_dump_reports_partial_status(mixed, monkeypatch, caplog):
     result = next(r.args for r in caplog.records if r.msg == 'Registry dump performance: %s')
     assert result['completed'] is False and result['csv_rows'] == 0
     assert not (mixed.parent / 'dump' / 'registry.csv').exists()
+
+
+def test_nested_components_do_not_double_count_total():
+    clock = Clock()
+    profile = RegistryProfile(128, clock)
+    with profile.measure('csv_write'):
+        with profile.measure('csv_value_conversion'): clock.advance(2)
+        with profile.measure('csv_writerow'): clock.advance(3)
+    clock.advance(1)
+    result = profile.summary(True)
+    assert result['total_seconds'] == 6
+    assert result['other_seconds'] == 1

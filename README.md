@@ -1746,6 +1746,12 @@ also occur during CSV serialization. These nonoverlapping phases leave all other
 work (including base record pages, own timestamps, provenance queries, destination
 validation, checksums, audit and instrumentation overhead) in `other_seconds`.
 The general dump timing summary supplies additional context for that remainder.
+Nested components now separate value conversion from `writerow`, plus final
+flush/fsync and Python materialization/bound-check work. `writerow` includes
+buffered writes that occur inside it; these cannot be treated as separate disk
+I/O measurements. Components overlap their parent phases and are excluded from
+the top-level sum used for `other_seconds`. Registry exports reuse bounded,
+page-local source projections while preserving identical CSV bytes.
 
 `parent_ids` is the sum of **page-local unique** parent counts, not a globally
 distinct count: a parent needed by multiple pages is counted each time. Timestamp

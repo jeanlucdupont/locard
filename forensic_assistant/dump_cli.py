@@ -10,6 +10,7 @@ import os
 from collections import defaultdict
 from contextlib import closing, contextmanager, ExitStack
 from pathlib import Path
+from types import MappingProxyType
 import tempfile
 
 from forensic_assistant.dump_timing import Timings
@@ -50,6 +51,7 @@ FIELDS = {
 PAGE = 128
 MAX_CELL = 2 * 1024 * 1024
 MAX_PAGE_BYTES = 32 * 1024 * 1024
+REGISTRY_BUFFER_SIZE = 1024 * 1024
 
 
 class DumpExistsError(ValueError):
@@ -65,8 +67,8 @@ def configure(commands):
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling')
 
 
-def encoded(value):
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+# Stateless encoder: identical JSON options without allocating an encoder per cell.
+encoded = json.JSONEncoder(ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode
 
 
 def cell(value):
@@ -80,6 +82,50 @@ def cell(value):
     if text.startswith(("'", '\t', '\r', '\n')) or text.lstrip().startswith(('=', '+', '-', '@')):
         text = "'" + text
     return text
+
+
+SOURCE_COLUMNS = (('source_id', 'source_id'), ('source_display_name', 'display_name'),
+                  ('hostname', 'hostname'), ('username', 'username'), ('volume_root', 'volume_root'))
+MAX_SOURCE_CELL_CACHE = 4 * 1024 * 1024
+
+
+class RegistryRow(dict):
+    """Normal row values plus private, immutable page-local CSV projections."""
+    __slots__ = ('csv_cells',)
+
+
+def source_csv_cells(hashes, members, contexts):
+    # Rebuilt from the current page's read-only snapshot, never reused across cases.
+    result, used = {}, 0
+    for sha in hashes:
+        assertions = members.get(sha, [])
+        values = {field: [a[source] for a in assertions] for field, source in SOURCE_COLUMNS}
+        values.update(source_assertions_json=assertions, legacy_contexts_json=contexts.get(sha, []))
+        cells = {field: cell(value) for field, value in values.items()}
+        size = sum(len(value.encode('utf-8')) for value in cells.values())
+        if used + size <= MAX_SOURCE_CELL_CACHE:
+            result[sha] = MappingProxyType(cells)
+            used += size
+    return result
+
+
+class CsvValues:
+    def __init__(self, fields):
+        self.columns = tuple((field, field.endswith('_json')) for field in fields)
+
+    def __call__(self, row):
+        cached = getattr(row, 'csv_cells', {})
+        result = []
+        append, get, encode, protect = result.append, row.get, encoded, cell
+        for field, is_json in self.columns:
+            if field in cached:
+                append(cached[field])
+                continue
+            value = get(field)
+            if is_json and value is not None:
+                value = encode(value)
+            append(protect(value))
+        return result
 
 
 @contextmanager
@@ -109,16 +155,30 @@ def pin_directory(path):
 
 
 def groups(db, sql, params, key='evidence_id'):
-    result = defaultdict(list)
-    size = count = 0
-    for row in db.execute(sql, params):
-        data = dict(row)
-        size += len(encoded(data).encode('utf-8'))
-        count += 1
-        if size > MAX_PAGE_BYTES or count > 100000:
-            raise ValueError('Dump related-record page exceeds safety bound; no data was truncated')
-        result[data[key]].append(data)
-    return result
+    profile = getattr(db, 'registry_profile', None)
+    start = profile.clock() if profile is not None else None
+    timing = getattr(db, 'timing', None)
+    reads = timing.read_elapsed(db.kind) if profile is not None else 0
+    try:
+        result = defaultdict(list)
+        size = count = 0
+        for row in db.execute(sql, params):
+            data = dict(row)
+            with measure(profile, 'group_bound_check'):
+                size += len(encoded(data).encode('utf-8'))
+            count += 1
+            if size > MAX_PAGE_BYTES or count > 100000:
+                raise ValueError('Dump related-record page exceeds safety bound; no data was truncated')
+            result[data[key]].append(data)
+        return result
+    finally:
+        if profile is not None:
+            profile.add('group_python', profile.clock() - start - (timing.read_elapsed(db.kind) - reads))
+
+
+def decoded(value, profile):
+    with measure(profile, 'json_decode'):
+        return json.loads(value)
 
 
 def rows(db, kind):
@@ -137,7 +197,8 @@ def rows(db, kind):
                                  'WHERE source_type=? AND evidence_id>? '
                                  'ORDER BY evidence_id LIMIT ?', (kind, last, PAGE)):
             data = dict(record)
-            size += len(encoded(data).encode('utf-8'))
+            with measure(profile, 'record_page_bound_check'):
+                size += len(encoded(data).encode('utf-8'))
             if size > MAX_PAGE_BYTES:
                 raise ValueError('Dump record page exceeds safety bound; no data was truncated')
             records.append(data)
@@ -204,19 +265,24 @@ def rows(db, kind):
                     extra = groups(db, 'SELECT * FROM evidence_timestamps WHERE evidence_id IN (' + ','.join('?' for _ in parents) + ') ORDER BY evidence_id,slot', parents)
                 if profile is not None:
                     profile.counts['timestamp_rows'] += sum(map(len, extra.values()))
+        cached_cells = {}
+        if kind == 'registry':
+            with measure(profile, 'static_value_conversion'):
+                cached_cells = source_csv_cells(hashes, members, contexts)
+        row_type = RegistryRow if kind == 'registry' else dict
         for record in records:
             with measure(profile, 'row_normalization'):
                 eid = record['evidence_id']
                 assertions = members.get(eid if kind == 'browser' else record['file_sha256'], [])
                 ts = stamps.get(eid, [])
-                result = dict(evidence_id=eid, source_assertions_json=assertions,
+                result = row_type(evidence_id=eid, source_assertions_json=assertions,
                               legacy_contexts_json=contexts.get(record['file_sha256'], []),
                               artifact_hostname=record['hostname'], artifact_username=record['username'],
                               source_file=record['source_file'], file_sha256=record['file_sha256'],
-                              artifact_type=record['artifact_type'], warnings_json=json.loads(record['warnings_json']), timestamps_json=ts)
-                for field, source in (('source_id', 'source_id'), ('source_display_name', 'display_name'),
-                                      ('hostname', 'hostname'), ('username', 'username'), ('volume_root', 'volume_root')):
-                    result[field] = [a[source] for a in assertions]
+                              artifact_type=record['artifact_type'], warnings_json=decoded(record['warnings_json'], profile), timestamps_json=ts)
+                with measure(profile, 'source_expansion'):
+                    for field, source in SOURCE_COLUMNS:
+                        result[field] = [a[source] for a in assertions]
                 if kind != 'browser':
                     if len(details.get(eid, [])) != 1:
                         raise ValueError('Missing or ambiguous normalized artifact record: ' + eid)
@@ -237,10 +303,10 @@ def rows(db, kind):
                     result.update(kind=record['artifact_type'], key_time=[t for t in keyts if t['source'].startswith('Registry')])
                     for field in ('value_data_json', 'hive_warnings_json'):
                         if result[field] is not None:
-                            result[field] = json.loads(result[field])
+                            result[field] = decoded(result[field], profile)
                 elif kind == 'evtx':
                     for field in ('event_data_json', 'normalization_warnings_json'):
-                        result[field] = json.loads(result[field])
+                        result[field] = decoded(result[field], profile)
                 elif kind == 'browser':
                     if record['artifact_type'] not in ('browser_visit', 'browser_download'):
                         raise ValueError('Unsupported retained browser record kind')
@@ -258,6 +324,8 @@ def rows(db, kind):
                                   url=d.get('url'), title=d.get('title'), visit_count=d.get('url_visit_count'),
                                   download_path=d.get('target_path'), referrer=d.get('referrer'),
                                   url_chain_json=d.get('url_chain', []), browser_context_id=d['context_id'], occurrences_json=occ)
+            if kind == 'registry':
+                result.csv_cells = cached_cells.get(record['file_sha256'], {})
             yield result
         last = ids[-1]
 
@@ -332,25 +400,29 @@ def _run(args, output, case, locks, timing):
                 timing.call('destination_validation', t, validate_destination, target, args)
                 output.write('Dumping ' + t + '...')
                 with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='',
+                        buffering=REGISTRY_BUFFER_SIZE if t == 'registry' else -1,
                         dir=safe_path(root), prefix='.locard-dump-', delete=False) as stream:
                     temporary = Path(stream.name)
                     staged.append((t, temporary, target))
                     writer = csv.writer(stream, lineterminator='\r\n')
                     fields = COMMON + FIELDS[t]
+                    convert = CsvValues(fields)
                     with measure(profile, 'csv_write'):
                         timing.call('csv_write', t, writer.writerow, fields)
                     total = 0
                     for row in timing.records(db, t, rows):
                         with measure(profile, 'csv_write'), timing.measure('csv_write', t):
-                            writer.writerow([cell(encoded(row[f]) if f.endswith('_json') and row.get(f) is not None
-                                                  else row.get(f)) for f in fields])
+                            with measure(profile, 'csv_value_conversion'):
+                                values = convert(row)
+                            with measure(profile, 'csv_writerow'):
+                                writer.writerow(values)
                         total += 1
                         if profile is not None:
                             profile.counts['csv_rows'] += 1
                     if total != counts[t]:
                         raise ValueError('Dump count differs from snapshot count')
                     publication_start = profile.clock() if profile is not None else None
-                    with timing.measure('csv_write', t):
+                    with measure(profile, 'file_write_flush'), timing.measure('csv_write', t):
                         stream.flush()
                         os.fsync(stream.fileno())
                 if profile is not None:
