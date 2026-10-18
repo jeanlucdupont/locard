@@ -60,6 +60,7 @@ def identity(config):
 
 
 def argv(config, port):
+    settings.require_local(config)
     executable, model = (local_path(config[k]) for k in ('executable', 'model_path'))
     if not executable.is_file() or not model.is_file():
         raise ValueError('Local AI executable/model missing. Use ai configure --executable PATH --model-path PATH; no downloads are automatic.')
@@ -191,21 +192,24 @@ def ensure(config, phase=None):
             time.sleep(.1)
 
 
-def model_ready(port, model):
+def model_identity(port):
     connection = http.client.HTTPConnection('127.0.0.1', port, timeout=1)
     try:
         connection.request('GET', '/v1/models')
         response = connection.getresponse()
         raw = response.read(65537)
         if response.status != 200 or len(raw) > 65536:
-            return False
-        names = [str(item.get('id', '')).replace('\\', '/').split('/')[-1]
-                 for item in json.loads(raw).get('data', [])]
-        return Path(model).name in names
-    except (OSError, ValueError, http.client.HTTPException):
-        return False
+            return []
+        return [item['id'] for item in json.loads(raw).get('data', [])[:64]
+                if type(item) is dict and type(item.get('id')) is str and len(item['id']) <= 1024]
+    except (OSError, ValueError, TypeError, AttributeError, http.client.HTTPException):
+        return []
     finally:
         connection.close()
+
+
+def model_ready(port, model):
+    return Path(model).name in [name.replace('\\', '/').split('/')[-1] for name in model_identity(port)]
 
 
 def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
@@ -222,6 +226,7 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
         job = None
         published = False
         leases = {}
+        reported_models = []
         last_use = time.monotonic()
         stopping = False
         class Handler(BaseHTTPRequestHandler):
@@ -238,7 +243,8 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
                     action = body['action']
                     result = dict(instance=instance, runtime='running', owned=True,
                         endpoint=f'http://127.0.0.1:{port}', model=Path(config['model_path']).name,
-                        idle_timeout_seconds=IDLE_SECONDS, config_identity=identity(config))
+                        idle_timeout_seconds=IDLE_SECONDS, config_identity=identity(config),
+                        runtime_reported_models=reported_models)
                     if action == 'begin':
                         seconds = body.get('seconds')
                         if type(seconds) not in (int, float) or not 0 < seconds <= 600: raise ValueError()
@@ -280,6 +286,7 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
                     raise ValueError('Local model did not become ready')
                 time.sleep(.1)
             if cancelled(): return
+            reported_models = model_identity(port)
             settings.write(root / 'runtime.json', dict(format=1, token=token, instance=instance,
                 control_port=server.server_port, pid=child.pid, started=time.time()))
             published = True

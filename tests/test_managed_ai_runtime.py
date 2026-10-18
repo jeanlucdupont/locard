@@ -75,6 +75,7 @@ def test_separate_clients_reuse_and_owned_stop(manager):
             capture_output=True,text=True,timeout=5,check=True)
         value=json.loads(result.stdout)
         assert value['runtime']=='running' and value['owned'] is True
+        assert value['runtime_reported_models']==['synthetic.gguf']
         assert value['endpoint'].startswith('http://127.0.0.1:')
         assert proc.poll() is None
     assert runtime.state()['instance']==saved['instance']
@@ -118,7 +119,7 @@ def test_bad_token_or_stale_pid_never_terminates_process(manager):
 def test_runtime_missing_files_no_process(tmp_path,monkeypatch):
     monkeypatch.setenv('LOCALAPPDATA',str(tmp_path))
     monkeypatch.setattr(subprocess,'Popen',lambda *a,**k:pytest.fail('unexpected child'))
-    with pytest.raises(ValueError,match='missing'):
+    with pytest.raises(ValueError,match='not configured'):
         runtime.ensure(settings.defaults())
 
 

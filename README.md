@@ -1967,12 +1967,37 @@ ai stop
 ai provider local
 ```
 
-`ai configure` offers Local first. Selecting cloud requires an explicit model and
-an acknowledgement that supplied evidence may leave this computer. Declining
+After case selection, an unconfigured interactive shell offers `Configure AI now?
+[Y/n]`, defaulting to Yes. Declining skips setup for that session; deterministic
+commands and inventory-only advice remain available. Future sessions may offer
+again until configuration is valid. Setup never launches or loads a model.
+
+`ai configure` offers Local first. Local means llama.cpp / llama-server, with no
+engine selector. Basic setup asks only for the executable and GGUF paths. Both
+must be accessible regular files; Windows executables require `.exe`, and models
+require `.gguf` (case-insensitive). Invalid input can be retried or cancelled without
+replacing previous settings. The local display name is derived from the model
+filename, never configured independently; `--model` is for cloud identifiers only.
+Qwen3-4B-Q4_K_M.gguf is the currently tested/recommended model, not a requirement.
+Other llama.cpp-compatible GGUF models may work: ability to load/serve a model is
+separate from reliably following Locard's structured-output, grounding, forensic,
+and tool-proposal contracts. Compatibility with every GGUF is not guaranteed.
+
+Status distinguishes provider selection, configuration readiness, and runtime
+state. Fresh configuration is `not_configured`, invalid paths are
+`configured_invalid`, and valid paths are `configured_ready`; path validation does
+not attest model behavior. Status displays configured paths and derives the model
+label only when a model path is supplied. Runtime-reported model IDs are separate
+diagnostics and do not override that configured label. Real readiness is checked
+on first inference or `ai start`, using the existing filename comparison.
+
+Selecting cloud first requires acknowledgement that supplied evidence may leave
+this computer, then asks for an explicit model identifier. Declining
 preserves the previous configuration. Scripts can use `ai provider openai --model
 MODEL --acknowledge-cloud`. Set credentials in the documented environment variable
 before launching Locard; never put a key in a command argument or configuration file.
-Missing keys fail with the variable name, without fallback. `ai status --json`
+A provider/model can be saved without a key, but status reports `credential_missing`
+and the required variable name. Model calls fail without fallback until it is set. `ai status --json`
 reports availability only. Live cloud validation is optional and analyst-controlled.
 
 Preferences are in `%LOCALAPPDATA%\Locard\ai\config.json`, outside cases.
@@ -1986,8 +2011,10 @@ killing another process. Directory redirection through symlinks/reparse points i
 On first inference Locard starts the configured llama.cpp executable, waits for the
 configured model to become ready, and reuses the runtime. Inventory-only advice does not start a model. Timeline dry runs do not call
 the model; investigation dry runs retain their existing one-model-proposal behavior
-while suppressing iterative tools. Default paths resolve from the current directory;
-configure absolute paths for use from different directories. Defaults produce:
+while suppressing iterative tools. Fresh Local configuration has no executable or
+model path: a suggested filename is not a configured model. Supply the executable
+and GGUF paths; normalized absolute paths are saved. With the recommended model,
+the default runtime options produce:
 
 ```text
 llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -ngl 99 -c 4096 --host 127.0.0.1 --port 8080
@@ -2017,3 +2044,18 @@ runs in a bounded disposable process, with request/response logging disabled; pr
 exceptions are replaced with generic errors. API keys are not stored in preferences,
 case databases, transcripts, or audit records. Configured provider/model identifiers
 are metadata, not proof of provider execution or model-weight identity.
+
+
+To manually test first-run AI setup without altering existing user preferences,
+use a temporary LOCALAPPDATA for this PowerShell process and select an existing
+case explicitly. This isolates all Locard user-level UI/AI preferences for the test;
+it does not copy or reset the case. Restore the environment after exiting:
+
+```powershell
+$previousLocardAppData = $env:LOCALAPPDATA
+$env:LOCALAPPDATA = Join-Path $env:TEMP ("Locard-AI-UX-" + [guid]::NewGuid())
+try { .\locard.ps1 } finally { $env:LOCALAPPDATA = $previousLocardAppData }
+```
+
+The original configuration remains untouched. Test configuration persists only
+under that temporary directory; no model or executable is copied there.

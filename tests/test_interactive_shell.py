@@ -10,11 +10,16 @@ from forensic_assistant.interactive.console import edit
 
 
 class Input:
-    def __init__(self, *lines):
+    def __init__(self, *lines, ai_setup=False):
+        self.ai_setup = ai_setup
         self.lines = iter(lines)
         self.prompts = []
         self.cleared = 0
     def read(self, prompt, **kwargs):
+        # Existing workflow fixtures explicitly skip the independent AI wizard.
+        # Configuration tests opt in and consume/verify its real prompts.
+        if prompt.startswith('Configure AI now?') and not self.ai_setup:
+            return 'n'
         self.prompts.append(prompt)
         value = next(self.lines, EOFError())
         if isinstance(value, BaseException):

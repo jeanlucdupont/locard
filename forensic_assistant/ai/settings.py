@@ -68,8 +68,7 @@ def write(path, value):
 
 def defaults():
     return dict(format=1, provider='local', model='', cloud_acknowledged=False,
-                executable=str(Path('llama-server.exe').absolute()),
-                model_path=str(Path('models/Qwen3-4B-Q4_K_M.gguf').absolute()),
+                executable='', model_path='',
                 context=4096, gpu_layers=99, port=8080, startup_seconds=120)
 
 
@@ -86,9 +85,8 @@ def validate(value):
         if type(value[name]) is not int or not low <= value[name] <= high:
             raise ValueError('Invalid AI runtime setting: ' + name)
     for name in ('executable', 'model_path'):
-        if type(value[name]) is not str or not Path(value[name]).is_absolute():
+        if type(value[name]) is not str or (value[name] and not Path(value[name]).is_absolute()):
             raise ValueError('AI runtime paths must be absolute')
-        local_path(value[name])
     return value
 
 
@@ -111,3 +109,29 @@ def key(provider):
     if variable and not value.strip():
         raise ValueError(f'API key for {PROVIDERS[provider][0]} is not configured. Set {variable} and retry.')
     return value
+
+
+def local_configuration(config):
+    if not config['executable'] or not config['model_path']:
+        return {'configuration': 'not_configured', 'configuration_detail': 'Run ai configure to select llama-server and a compatible GGUF model.'}
+    for field, label, extension in [('executable', 'llama-server executable', '.exe'),
+                                     ('model_path', 'Model file', '.gguf')]:
+        try:
+            path = local_path(config[field])
+            if not path.is_file():
+                raise ValueError(label + ' not found or not a regular file.')
+            if (field == 'model_path' or os.name == 'nt') and path.suffix.lower() != extension:
+                raise ValueError(label + ' must have the ' + extension + ' extension.')
+            with path.open('rb'):
+                pass
+        except (OSError, ValueError):
+            return {'configuration': 'configured_invalid',
+                    'configuration_detail': label + ' is missing, inaccessible, redirected, or invalid' +
+                    (' (requires .gguf).' if field == 'model_path' else '.')}
+    return {'configuration': 'configured_ready'}
+
+
+def require_local(config):
+    state = local_configuration(config)
+    if state['configuration'] != 'configured_ready':
+        raise ValueError('Local AI is not configured or is invalid. ' + state['configuration_detail'] + ' Use ai configure.')

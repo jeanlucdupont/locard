@@ -24,7 +24,7 @@ def test_local_defaults_no_runtime_spawn(monkeypatch):
     monkeypatch.setattr(runtime.subprocess, 'Popen', lambda *a, **k: pytest.fail('unexpected process'))
     value = cli.dispatch(args('status'))
     assert value['provider'] == 'Local' and value['runtime'] == 'stopped'
-    assert value['model'] == 'Qwen3-4B-Q4_K_M.gguf'
+    assert value['configuration'] == 'not_configured' and 'model' not in value
     assert value['idle_timeout_seconds'] == 900
     assert settings.load()['context'] == 4096 and settings.load()['gpu_layers'] == 99
 

@@ -68,6 +68,7 @@ class ModelBackend:
 
     def prepare(self, phase=None):
         if self.provider_name == 'local' and not self.endpoint:
+            settings.require_local(self.config)
             startup = {**self.config, 'startup_seconds': min(self.config['startup_seconds'], max(1, int(self.timeout)))}
             self.managed = runtime.ensure(startup, phase)
             self.endpoint = runtime.request(self.managed, 'status')['endpoint']

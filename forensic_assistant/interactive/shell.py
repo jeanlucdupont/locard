@@ -243,6 +243,8 @@ class Shell:
         from forensic_assistant.terminal import Palette, enabled, clear_screen
         if not self.startup():
             return 0
+        from forensic_assistant.ai.cli import offer_setup
+        offer_setup(self.reader.read)
         try:
             while True:
                 try:
