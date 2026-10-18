@@ -90,9 +90,6 @@ def configure_interactive(parser, path=(), context=None):
             action.help = argparse.SUPPRESS
         if isinstance(action, argparse._SubParsersAction):
             for name, child in action.choices.items():
-                from forensic_assistant.command_catalog import COMMAND_ALIASES
-                if action.choices.get(COMMAND_ALIASES.get(name)) is child:
-                    continue
                 configure_interactive(child, (*path, name), context)
 
 

@@ -24,7 +24,7 @@ def _generation(root):
     root = Path(root)
     pointer = root / 'CURRENT'
     if not pointer.exists():
-        raise ValueError('Semantic index unavailable; run semantic build')
+        raise ValueError('Semantic index unavailable; run interactive semantic search to build the index')
     if pointer.stat().st_size > 64:
         raise ValueError('Invalid index pointer')
     name = pointer.read_text(encoding='ascii')
@@ -78,7 +78,7 @@ def build(db, root, model, *, rebuild=False, max_vectors=100000, progress=None):
     from forensic_assistant.reporting.transcripts import safe_path
     root = safe_path(root)
     if (root / 'CURRENT').exists() and not rebuild:
-        raise ValueError('Index exists; use semantic rebuild')
+        raise ValueError('Index exists; approve rebuilding through interactive semantic search')
     root.mkdir(parents=True, exist_ok=True)
     generation = uuid.uuid4().hex
     stage = root / generation

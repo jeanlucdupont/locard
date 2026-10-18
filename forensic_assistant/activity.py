@@ -378,8 +378,6 @@ class Command:
                 path = getattr(self.args, 'db', None)
                 if self.args.command == 'report' and self.args.report_command != 'generate':
                     path = getattr(self.args, 'case', None)
-                if self.args.command == 'semantic' and self.args.semantic_command == 'setup':
-                    path = None
                 if path and Path(path).is_file():
                     from .interactive.case import validate
                     try:

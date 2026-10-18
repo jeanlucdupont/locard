@@ -3,7 +3,8 @@ import json
 import re
 import time
 
-from forensic_assistant.llm.client import LocalClient, LLMError
+from forensic_assistant.ai.backend import backend as LocalClient
+from forensic_assistant.llm.client import LLMError
 from forensic_assistant.retrieval.presentation import safe_text
 
 SYSTEM = (
@@ -239,7 +240,7 @@ def advise(context, request):
             cause = cause.__cause__
         if timed_out:
             raise AdvisoryError('AI assistant timed out. Try a shorter request or check the local model.') from None
-        raise AdvisoryError('AI assistant unavailable. The local analysis model could not provide a valid response.') from None
+        raise AdvisoryError('AI assistant unavailable. The selected model could not provide a valid response.') from None
     preview = raw
     reason = 'Response is not text or exceeds the response size limit.'
     try:

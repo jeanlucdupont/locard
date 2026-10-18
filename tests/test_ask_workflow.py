@@ -102,7 +102,7 @@ def test_json_never_calls_supplied_approval(case, monkeypatch):
     ready_model(monkeypatch)
     args = request(path, '--json')
     args._confirm = lambda p: pytest.fail('JSON approval')
-    with pytest.raises(ValueError, match='semantic build'):
+    with pytest.raises(ValueError, match='index build'):
         ask(Queries(db), args.question, dry_run=True, semantic_options=args)
     assert not index.default_root(path).exists()
 

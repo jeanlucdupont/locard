@@ -17,6 +17,7 @@ import uuid
 
 from forensic_assistant import activity
 from forensic_assistant.llm.client import LocalClient
+from forensic_assistant.ai.backend import ModelBackend
 from .state import Budget
 from .lifecycle import WorkerJob
 
@@ -43,7 +44,7 @@ def _child(connection, gate, request):
         with activity.bind(session):
             result = run(request['config'], request['question'], request['root'],
                          budget=Budget(**request['budget']),
-                         client=LocalClient(request['endpoint']), dry_run=request['dry_run'],
+                         client=(ModelBackend.restore(request['backend']) if request.get('backend') else LocalClient(request['endpoint'])), dry_run=request['dry_run'],
                          approval=approve if request['approval'] else None)
         connection.send_bytes(json.dumps({'kind': 'result', 'result': result}).encode())
     except BaseException as exc:
@@ -123,8 +124,8 @@ def _stop(process, job, deadline):
 
 def run(config, question, transcript_root, *, budget=None, client=None, dry_run=False, approval=None, status=None, **testing):
     # Explicit dependency injection is retained for deterministic in-process tests.
-    # The CLI always constructs the real loopback LocalClient.
-    if testing or (client is not None and not isinstance(client, LocalClient)):
+    # Production clients cross the disposable-worker boundary by descriptor.
+    if testing or (client is not None and not isinstance(client, (LocalClient, ModelBackend))):
         from .controller import run as controlled
         return controlled({**config, '_status': status}, question, transcript_root, budget=budget, client=client,
                           dry_run=dry_run, approval=approval, **testing)
@@ -132,12 +133,23 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     started = time.monotonic()
     deadline = started + budget.seconds
     identity = uuid.uuid4().hex
-    client = client or LocalClient()
+    client = client or ModelBackend()
+    descriptor = None
+    if isinstance(client, ModelBackend):
+        # Persistent owner must start outside the disposable investigation job.
+        client.config = {**client.config, 'startup_seconds': min(client.config['startup_seconds'], max(1, int(budget.seconds)))}
+        from forensic_assistant.ai.backend import STATUS
+        # Investigation dry-run still requests one model proposal; only tool
+        # execution is suppressed. Its owner must also stay outside this job.
+        client.prepare(STATUS.get())
+        descriptor = client.descriptor()
+        from forensic_assistant.llm.client import endpoint_parts
+        client.host, client.port = endpoint_parts(client.endpoint or 'http://127.0.0.1:8080')
     host = '[' + client.host + ']' if ':' in client.host else client.host
     session = activity.CURRENT.get()
     request = dict(config={**config, '_deadline': deadline, '_started': started, '_investigation_id': identity},
                    question=question, root=str(transcript_root), budget=asdict(budget),
-                   endpoint=f'http://{host}:{client.port}', dry_run=dry_run, approval=approval is not None,
+                   backend=descriptor, endpoint=f'http://{host}:{client.port}', dry_run=dry_run, approval=approval is not None,
                    session_id=session.id if session else str(uuid.uuid4()))
     context = multiprocessing.get_context('spawn')
     parent, child = context.Pipe()

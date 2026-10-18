@@ -145,7 +145,7 @@ def build_parser(*, interactive=False):
     ask_output.add_argument('--text', dest='json', action='store_false', help='Human-readable output')
     ask_parser.set_defaults(json=not interactive, _ask_interactive=interactive)
     ask_parser.add_argument("question")
-    ask_parser.add_argument("--endpoint", default=Config.endpoint)
+    ask_parser.add_argument("--endpoint", default=None)
     ask_parser.add_argument("--date", help="UTC date for time-only questions")
     ask_parser.add_argument("--limit", type=int, default=30)
     ask_parser.add_argument("--timeout", type=float, default=Config.timeout)
@@ -165,10 +165,10 @@ def build_parser(*, interactive=False):
     source_cli.configure(commands)
     from forensic_assistant import activity
     activity.configure(commands)
+    from forensic_assistant.ai import cli as ai_cli
+    ai_cli.configure(commands)
     from forensic_assistant.output import configure
     configure(commands)
-    # Share the fully configured history parser without adding output options twice.
-    commands._name_parser_map['investigation'] = commands.choices['ai-history']
     from forensic_assistant.cli_parser import configure_ingest_namespace
     configure_ingest_namespace(commands)
     if interactive:
@@ -193,6 +193,17 @@ def main(argv=None):
 
 
 def dispatch(args, *, existing_only=False):
+    if args.command == 'ai':
+        from forensic_assistant.ai import cli as ai_cli
+        if not hasattr(args, '_confirm') and sys.stdin.isatty():
+            args._confirm = input
+        try:
+            value = ai_cli.dispatch(args)
+            print(json.dumps(value, ensure_ascii=True, indent=2) if getattr(args, 'json', False) else ai_cli.render(value))
+            return 0
+        except (ValueError, OSError) as exc:
+            print('Locard: ' + str(exc), file=sys.stderr)
+            return 2
     if args.command == 'dump' and args.dump_type is None:
         from forensic_assistant.dump_cli import HELP
         print(HELP)
@@ -285,21 +296,13 @@ def _dispatch(args, output, *, existing_only=False):
                         'published': getattr(exc, 'action_completed', False) if args.report_command == 'generate' else None
                     })
                 return 2
-        if args.command in ('investigate-ai', 'investigation'):
+        if args.command in ('investigate-ai', 'ai-history'):
             result = investigation_cli.dispatch(args)
             if args.command == 'investigate-ai' and not args.json:
                 from forensic_assistant.investigation_ai.presentation import render
                 output.write(render(result, output.palette, dry_run=args.dry_run))
             else:
                 emit(result)
-            return 0
-        if args.command == 'semantic' and args.semantic_command == 'setup':
-            result = semantic_cli.setup(args)
-            if args.json:
-                emit(result)
-            else:
-                from forensic_assistant.semantic.presentation import render
-                output.write(render(result, args, output.palette))
             return 0
         if args.command == 'semantic':
             from pathlib import Path

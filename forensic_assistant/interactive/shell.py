@@ -88,8 +88,10 @@ class Shell:
                     context = build_ai_case_context(self.active, self.case_label)
                 except (OSError, ValueError, sqlite3.Error):
                     raise AdvisoryError('AI case context unavailable. No action was taken.') from None
-                indicator.update('Waiting for local AI...')
-                response = advise(context, request)
+                from forensic_assistant.ai.backend import status_callback, waiting_label
+                indicator.update(waiting_label())
+                with status_callback(indicator.update):
+                    response = advise(context, request)
         except KeyboardInterrupt:
             self.audit.record('AI_ADVICE', 'cancelled', request_characters=len(request))
             raise
@@ -281,11 +283,10 @@ class Shell:
                     words = split(line)
                     if not words:
                         continue
-                    if words[0] in ('ai', 'expert'):
+                    if words[0] == 'expert':
                         if len(words) != 1:
                             raise ValueError(words[0] + ' takes no arguments')
-                        print('AI requests are now available directly. Prefix a request with !.'
-                              if words[0] == 'ai' else 'Locard now uses a single shell mode. No mode change is required.')
+                        print('Locard now uses a single shell mode. No mode change is required.')
                         self.last_status = 0
                         continue
                     if words[0] in ('exit', 'quit'):

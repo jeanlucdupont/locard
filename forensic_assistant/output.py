@@ -45,7 +45,7 @@ def configure(commands):
             help='Append rendered output to a derived UTF-8 file'
         )
     for name, parser in commands.choices.items():
-        if name == 'dump':
+        if name in ('dump', 'ai'):
             continue  # Fixed case-local destinations; no generic output redirection.
         add(parser)
         for action in parser._actions:

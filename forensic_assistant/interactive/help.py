@@ -8,7 +8,6 @@ from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS, COMMAND
 SHELL_USAGE = {
     'add-evidence': 'add-evidence',
     'ingest-wizard': 'ingest wizard',
-    'ai': 'ai',
     'expert': 'expert',
     '?': '? [command]',
     'case': 'case [path|new]',
@@ -42,8 +41,8 @@ def command_help(name):
                    'Disk images must be mounted/extracted separately. Existing case new and direct ingest '
                    'commands remain available for adding evidence later. Prefix natural-language requests with !. '
                    'The prompt uses the human case name when available. No model is called during setup.')
-    if name in ('ai', 'expert'):
-        result += ('\nPrefix a natural-language request with ! to ask the local AI assistant. '
+    if name == 'expert':
+        result += ('\nPrefix a natural-language request with ! to ask the configured AI assistant. '
                    'Inventory and uncertain questions stay advisory; record-level questions use bounded investigation with approval before each proposed tool. '
                    'The prompt remains >; no mode change is needed.')
     return result
@@ -61,5 +60,5 @@ def catalog(parser, palette=None):
     lines = ['']
     for name, description in sorted(commands.items()):
         lines.append('  ' + palette('key', name.ljust(width)) + '  ' + safe(description))
-    return '\n'.join([*lines, '', 'Prefix a natural-language request with ! to ask the local AI assistant (approval required for each proposed tool).',
+    return '\n'.join([*lines, '', 'Prefix a natural-language request with ! to ask the configured AI assistant (approval required for each proposed tool).',
                       '', 'Type `help <command>` for details.\n'])

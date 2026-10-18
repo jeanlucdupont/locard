@@ -71,7 +71,7 @@ def configure(commands):
     analysis.add_argument("--hostname")
     analysis.add_argument("--user")
     analysis.add_argument("--candidate-limit", type=int, default=500)
-    analysis.add_argument("--endpoint", default="http://127.0.0.1:8080")
+    analysis.add_argument("--endpoint", default=None)
     analysis.add_argument("--timeout", type=float, default=120)
     analysis.add_argument("--dry-run", action="store_true")
     for command in (tree, auth, sessions, detect, investigation):

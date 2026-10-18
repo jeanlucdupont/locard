@@ -40,7 +40,7 @@ def configure(commands, *, interactive=False):
         action='store_true',
         help='Optional grounded narrative composition through local MiniCPM; rejected output falls back safely'
     )
-    create.add_argument('--endpoint', default='http://127.0.0.1:8080')
+    create.add_argument('--endpoint', default=None)
     view = sub.add_parser('show')
     view.add_argument('directory', help='Report bundle directory, not a report ID')
     check = sub.add_parser('validate')
@@ -84,7 +84,7 @@ def _dispatch(args):
         raise ValueError('--transcript-root is required for investigation reports')
     client = None
     if args.llm_narrative:
-        from forensic_assistant.llm.client import LocalClient
+        from forensic_assistant.ai.backend import backend as LocalClient
         client = LocalClient(args.endpoint, timeout=min(45, args.seconds))
     metadata = {name: getattr(args, name) for name in (
         'case_name',

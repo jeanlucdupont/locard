@@ -104,7 +104,7 @@ def inspect_model(path):
         if actual not in (expected, expected + [('2_Normalize', 'sentence_transformers.models.Normalize')]):
             raise ValueError('Unapproved model module configuration')
     except (OSError, KeyError, TypeError, AttributeError, json.JSONDecodeError) as exc:
-        raise ValueError('Local model unavailable or malformed; run explicit semantic setup') from exc
+        raise ValueError('Local model unavailable or malformed; run interactive semantic search to configure local assets') from exc
     return manifest
 
 

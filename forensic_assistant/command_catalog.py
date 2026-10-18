@@ -6,7 +6,7 @@ from types import MappingProxyType
 COMMANDS = MappingProxyType({
     'add-evidence': 'Compatibility alias for ingest wizard',
     'ingest-wizard': 'Guided evidence discovery and ingestion',
-    'ai': 'Compatibility notice: prefix AI requests with !',
+    'ai': 'Configure AI provider and local runtime',
     'expert': 'Compatibility notice: the shell has no mode switch',
     '?': 'Show help for a command',
     'activity': 'Review and verify analyst activity',
@@ -30,7 +30,6 @@ COMMANDS = MappingProxyType({
     'investigate': 'Gather and correlate evidence around a specific evidence record',
     'investigate-ai': 'Analyze case evidence using the local AI model',
     'ai-history': 'Review or replay saved AI investigations',
-    'investigation': 'Deprecated alias for ai-history',
     'logons': 'Review Windows logon-related activity from normalized Windows Event Log evidence',
     'process-tree': 'Reconstruct process parent-child relationships',
     'quit': 'Exit Locard',
@@ -49,14 +48,13 @@ COMMANDS = MappingProxyType({
 # Shell-only commands participate in the same catalog without adding CLI parsers.
 SHELL_COMMANDS = MappingProxyType({
     name: COMMANDS[name]
-    for name in ('?', 'add-evidence', 'ingest-wizard', 'ai', 'expert', 'case', 'new-case', 'color', 'exit', 'help', 'quit', 'version')
+    for name in ('?', 'add-evidence', 'ingest-wizard', 'expert', 'case', 'new-case', 'color', 'exit', 'help', 'quit', 'version')
 })
 
 
 COMMAND_ALIASES = MappingProxyType({
-    'investigation': 'ai-history',
     'add-evidence': 'ingest wizard',
-    'ai': '!', 'expert': '!', 'ask': '!',
+    'expert': '!', 'ask': '!',
     **{'ingest-' + kind: 'ingest ' + kind for kind in
        ('all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'wizard')},
 })

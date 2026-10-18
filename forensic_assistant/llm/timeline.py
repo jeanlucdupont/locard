@@ -2,7 +2,7 @@ import json
 from forensic_assistant.correlation.investigation import timeline_context
 from forensic_assistant.llm.context import context_bundle, annotate_relationship_support
 from forensic_assistant.llm.prompts import messages
-from forensic_assistant.llm.client import LocalClient
+from forensic_assistant.ai.backend import backend as LocalClient
 
 
 def summary_schema(ids):
@@ -85,7 +85,7 @@ def analyze_timeline(
     hostname=None,
     username=None,
     max_candidates=500,
-    endpoint="http://127.0.0.1:8080",
+    endpoint=None,
     timeout=120,
     dry_run=False,
     client=None

@@ -1,4 +1,4 @@
-from forensic_assistant.llm.client import LocalClient
+from forensic_assistant.ai.backend import backend as LocalClient
 from forensic_assistant.llm.prompts import messages, validate_answer, answer_schema
 from forensic_assistant.llm.context import context_bundle, annotate_relationship_support
 
@@ -7,7 +7,7 @@ def ask(
     queries,
     question,
     *,
-    endpoint="http://127.0.0.1:8080",
+    endpoint=None,
     date_hint=None,
     limit=30,
     dry_run=False,

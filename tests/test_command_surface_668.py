@@ -16,13 +16,11 @@ def choices(parser):
 def test_history_single_parser_and_internal_identity(interactive):
     parser = build_parser(interactive=interactive)
     commands = choices(parser)
-    assert commands['ai-history'] is commands['investigation']
+    assert 'investigation' not in commands
     assert 'investigation' not in commands['ai-history'].prog
     for operation in ('show', 'replay'):
         canonical = parser.parse_args(['ai-history', operation, 'synthetic-id', '--json'])
-        alias = parser.parse_args(['investigation', operation, 'synthetic-id', '--json'])
-        assert vars(canonical) == vars(alias)
-        assert canonical.command == 'investigation'
+        assert canonical.command == 'ai-history'
         assert canonical.investigation_command == operation
 
 
@@ -39,7 +37,7 @@ def test_discovery():
     assert 'ai-history' in normal and 'investigate-ai' not in normal
 
 
-@pytest.mark.parametrize('name', ['ai-history', 'investigation'])
+@pytest.mark.parametrize('name', ['ai-history'])
 @pytest.mark.parametrize('interactive', [False, True])
 def test_history_help(name, interactive, capsys):
     with pytest.raises(SystemExit) as stopped:
@@ -47,11 +45,11 @@ def test_history_help(name, interactive, capsys):
     assert stopped.value.code == 0
     text = ' '.join(capsys.readouterr().out.split())
     for expected in ('derived AI investigation records', 'not source evidence', 'show', 'replay',
-                     'deprecated compatibility alias for ai-history'):
+                     'Saved records are derived data'):
         assert expected in text
 
 
-@pytest.mark.parametrize('name', ['ai-history', 'investigation'])
+@pytest.mark.parametrize('name', ['ai-history'])
 @pytest.mark.parametrize('operation', ['show', 'replay'])
 @pytest.mark.parametrize('json_flag', [False, True])
 def test_real_history_handler_json_equivalence(tmp_path, monkeypatch, capsys, name, operation, json_flag):
@@ -121,22 +119,22 @@ def test_shell_help_routes_canonical_and_alias(tmp_path, capsys):
     from test_interactive_shell import Input
     db = case(tmp_path)
     shell = Shell(State(None), Input(str(db), 'color off', 'help ai-history',
-        'help investigation', 'help investigate', 'help investigate-ai', 'exit'))
+        'help investigate', 'help investigate-ai', 'exit'))
     assert shell.run() == 0 and shell.last_status == 0
     text = ' '.join(capsys.readouterr().out.split())
-    assert text.count('deprecated compatibility alias for ai-history') == 2
+    assert text.count('Saved records are derived data') == 1
     assert 'Deterministic correlation' in text
     assert 'Advanced / Diagnostic' in text
     assert 'Unknown command' not in text
 
 
-@pytest.mark.parametrize('name', ['ai-history', 'investigation'])
+@pytest.mark.parametrize('name', ['ai-history'])
 def test_redirected_history_json(tmp_path, monkeypatch, name):
     db = case(tmp_path)
     output = tmp_path / 'history.txt'
     expected = {'manifest': {'synthetic': True}, 'recorded_not_revalidated': True}
     def handler(args):
-        assert args.command == 'investigation' and args.investigation_command == 'show'
+        assert args.command == 'ai-history' and args.investigation_command == 'show'
         return expected
     monkeypatch.setattr(cli, 'dispatch', handler)
     assert main(['--db', str(db), name, 'show', 'synthetic-id', '--json', '--output', str(output)]) == 0

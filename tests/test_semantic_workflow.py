@@ -24,6 +24,15 @@ def environment(tmp_path, monkeypatch):
 
 
 def args(command, *extra, interactive=True):
+    if command == 'build':
+        return SimpleNamespace(semantic_command='build', json='--json' in extra,
+                               output_file=None, append_file=None)
+    if command == 'setup':
+        # Internal setup is still used by prompted search; no public setup parser.
+        values = dict(destination=None, model_path=None, model='bge', download='--download' in extra, json=not interactive)
+        if '--model-path' in extra:
+            values['model_path'] = extra[extra.index('--model-path')+1]
+        return SimpleNamespace(**values)
     return build_parser(interactive=interactive).parse_args(['semantic', command, *extra])
 
 
@@ -67,7 +76,7 @@ def test_status_states_and_integrity(environment, monkeypatch):
     generation = index._generation(request.index)
     (generation / 'vectors.f32').write_bytes(b'corrupt')
     result = cli.status(db, request)
-    assert result['state'] == 'index_malformed' and result['next_step'] == 'semantic rebuild'
+    assert result['state'] == 'index_malformed' and 'index rebuilding' in result['next_step']
 
 
 def test_dependencies_missing_uses_exact_runtime_guidance(environment, monkeypatch):
@@ -131,7 +140,7 @@ def test_decline_has_no_filesystem_effect(environment, answer):
 
 def test_noninteractive_setup_requires_download_flag(environment, monkeypatch):
     monkeypatch.setattr(model, 'setup', lambda *a: pytest.fail('unapproved download'))
-    with pytest.raises(ValueError, match='--download'):
+    with pytest.raises(ValueError, match='prepared local assets'):
         cli.setup(args('setup', interactive=False))
     assert not (environment / 'appdata').exists()
 
@@ -176,7 +185,7 @@ def test_missing_index_script_and_json_never_prompt(environment, monkeypatch):
     for request in (args('search', 'q', interactive=False), args('search', 'q', '--json')):
         request.index = str(environment / 'absent')
         request._confirm = lambda text: pytest.fail('script/json prompt')
-        with pytest.raises(ValueError, match='semantic build'):
+        with pytest.raises(ValueError, match='index build'):
             cli.dispatch(db, request)
     assert not (environment / 'absent').exists()
 

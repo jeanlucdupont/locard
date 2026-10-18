@@ -335,10 +335,10 @@ The first `!` and one optional following space are removed; remaining text is pa
 literally. Unprefixed text, including command typos, stays a Locard command. Empty
 requests never invoke the model. `!` is never an OS shell escape.
 
-`ai` and `expert` are compatibility notices only: neither changes state or prompt.
+`ai` controls provider/runtime settings. `expert` retains its single-mode compatibility notice.
 Interactive `ask <question>` prints a deprecation notice and forwards to the same
 advisory path as `!`. These compatibility names are hidden from primary help and
-completion; `help ask`, `help ai` and `help expert` explain them. Separately, the
+completion; `help ask` and `help expert` explain compatibility behavior; `help ai` documents provider controls. Separately, the
 hidden **non-interactive** `locard ask` command retains its existing bounded
 retrieval behavior and options for scripts; this does not add retrieval to `!`.
 
@@ -346,8 +346,7 @@ New sessions no longer emit `SHELL_MODE` UI transition events because no transit
 occurs. Historical activity entries remain readable and verifiable with the same
 audit schema and hash-chain rules. AI request audit records are unchanged.
 
-Advice uses the existing analysis `LocalClient` and its default numeric loopback endpoint
-(`http://127.0.0.1:8080`), with a 45-second deadline. It does not use the embedding model.
+Advice uses the configured generative provider. It does not use the embedding model.
 Requests are independent and bounded
 to 4096 UTF-8 bytes. Before each request a short read-only snapshot supplies the human
 case name, version, actual retained record counts by supported artifact category,
@@ -1583,7 +1582,6 @@ In the interactive shell, start with:
 ```text
 semantic search "core updater executable"
 semantic status
-semantic rebuild
 ```
 
 Semantic search uses a small local embedding model, separate from the analysis
@@ -1595,9 +1593,9 @@ prompt; normal interactive output is concise text. Direct CLI defaults to JSON;
 use `--text` for human output.
 
 The default model is BAAI/bge-small-en-v1.5, stored once under
-`%LOCALAPPDATA%\Locard\models\bge-small-en-v1.5`. Successful `semantic setup`
+`%LOCALAPPDATA%\Locard\models\bge-small-en-v1.5`. Confirmed interactive setup
 remembers the directory in `%LOCALAPPDATA%\Locard\semantic-state.json`.
-`--model-path` overrides it for one build/search/status command. Explicit setup
+`--model-path` overrides it for one search/status command. Explicit setup
 with a custom directory updates the remembered model only after verification.
 The case-specific index remains `<database-path>.semantic-index`.
 
@@ -1614,19 +1612,17 @@ building and searching are offline.
 Advanced/scripted lifecycle (no prompts):
 
 ```powershell
-locard semantic setup --download
-locard --db case.db semantic build --text
 locard --db case.db semantic search "core updater executable" --text
 locard --db case.db semantic status --json
 ```
 
-Advanced controls include `semantic setup --model-path <directory>` (with
-`--download` in scripts), `semantic build`, `semantic rebuild`, `--model-path`,
-`--index`, and `--max-vectors`. Setup's legacy positional directory remains optional.
-`--max-vectors N` is a hard safety cap, **not sampling**: exceeding it aborts without
-publishing an index and reports the known lower bound. Use explicit build/rebuild
-with a higher cap when necessary. Incomplete model directories are preserved and
-reported as malformed; choose a new destination rather than overwriting them.
+Only `semantic search` and `semantic status` are public commands. Interactive
+search offers model download and index build/rebuild with explicit confirmation.
+Scripts require prepared local assets and never silently download or build.
+Use `--model-path`, `--index`, and `--max-vectors` on search/status as applicable.
+`--max-vectors N` is a hard safety cap, not sampling: exceeding it aborts without
+publishing an index. Retry interactive search with a higher cap when appropriate.
+Incomplete model directories are preserved; choose a new destination.
 
 Status distinguishes missing dependencies, missing/malformed models, missing,
 current, stale and malformed indexes. Case content fingerprints, model/runtime
@@ -1932,9 +1928,92 @@ assistance, with approval required for each proposed forensic lookup.
 `ai-history show <investigation-id>` reviews saved derived AI records;
 `ai-history replay <investigation-id>` replays their lookups against the current
 case. These records support audit/review/replay and are not source evidence.
-`investigation` remains available as a deprecated alias in 6.68, with unchanged
-structured output and no runtime warning that could contaminate automation.
+Use the canonical `ai-history` command for saved AI records.
 
 `analyze-timeline --start <timestamp> --end <timestamp>` remains a specialized
 workflow: bounded deterministic time-range retrieval/correlation followed by
-local AI analysis. `--dry-run` builds the bundle without calling the model.
+configured-provider AI analysis. `--dry-run` builds the bundle without calling the model.
+
+
+## Generative AI providers and managed local runtime
+
+Local is the default and recommended provider. With Local selected, generative
+inference uses numeric loopback and evidence supplied to the model stays on this
+computer. Cloud providers are optional and may receive the bounded case context
+and evidence disclosed to the model. They do not preserve local confidentiality.
+Embedding/indexing remains separate and local regardless of generative provider.
+
+| Provider | Mode | Environment variable |
+| --- | --- | --- |
+| Local | Local | none |
+| OpenAI | Cloud | `OPENAI_API_KEY` |
+| Anthropic Claude | Cloud | `ANTHROPIC_API_KEY` |
+| Google Gemini | Cloud | `GEMINI_API_KEY` |
+| DeepSeek | Cloud | `DEEPSEEK_API_KEY` |
+| xAI Grok | Cloud | `XAI_API_KEY` |
+
+Provider names/keys follow the [LiteLLM provider documentation](https://docs.litellm.ai/docs/providers).
+Install cloud support explicitly with `python -m pip install ".[cloud]"` from the
+checkout. The base installation does not install LiteLLM. Configure a model that
+supports the requested structured response format; unsupported models fail without
+switching provider or dropping the schema. Model availability is provider-specific.
+
+```text
+ai status
+ai configure
+ai configure local --executable "C:\Tools\llama.cpp\llama-server.exe" --model-path "C:\Models\Qwen3-4B-Q4_K_M.gguf"
+ai start
+ai stop
+ai provider local
+```
+
+`ai configure` offers Local first. Selecting cloud requires an explicit model and
+an acknowledgement that supplied evidence may leave this computer. Declining
+preserves the previous configuration. Scripts can use `ai provider openai --model
+MODEL --acknowledge-cloud`. Set credentials in the documented environment variable
+before launching Locard; never put a key in a command argument or configuration file.
+Missing keys fail with the variable name, without fallback. `ai status --json`
+reports availability only. Live cloud validation is optional and analyst-controlled.
+
+Preferences are in `%LOCALAPPDATA%\Locard\ai\config.json`, outside cases.
+Runtime state uses format 1 in `runtime.json` in that private directory: a random
+instance ID, authenticated loopback control endpoint/token, child PID for status,
+and start time. The control token is local authorization material, not a cloud key;
+it is never printed by status. No PID read from state is used to terminate a process.
+The supervisor owns its process/job handles; stale/unreachable state does not authorize
+killing another process. Directory redirection through symlinks/reparse points is rejected.
+
+On first inference Locard starts the configured llama.cpp executable, waits for the
+configured model to become ready, and reuses the runtime. Inventory-only advice does not start a model. Timeline dry runs do not call
+the model; investigation dry runs retain their existing one-model-proposal behavior
+while suppressing iterative tools. Default paths resolve from the current directory;
+configure absolute paths for use from different directories. Defaults produce:
+
+```text
+llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -ngl 99 -c 4096 --host 127.0.0.1 --port 8080
+```
+
+Launch uses an argument list, without a shell. Nothing downloads llama.cpp or model
+weights. Port 8080 is preferred: an occupied configured port causes a clear startup
+failure, never termination of its occupant. `ai configure --port 0` requests a free
+loopback port. The persistent supervisor survives direct CLI exit. It shuts down
+its owned runtime after 15 minutes without successful inference and no active bounded
+request. `ai stop` requests owned shutdown and checks completion; active requests
+prevent an explicit stop. Startup cancellation asks the owner to clean up, and
+unconfirmed cleanup is surfaced as `CLEANUP_LIMITATION`.
+
+`!`, `investigate-ai`, `analyze-timeline`, hidden scripted `ask`, and optional report
+narrative assistance share the backend. An explicit `--endpoint` on supported
+advanced commands selects that numeric-loopback endpoint for that invocation only;
+Locard neither manages nor terminates that external server. No session preference
+changes implicitly. Human `ai-history show`/`replay` uses the shared activity indicator;
+JSON and non-terminal output remain spinner-free.
+
+Locard controls evidence retrieval, disclosure, tool authorization, approval, and
+grounding independently of the provider. LiteLLM receives only caller-built bounded
+messages and the response schema, with no provider-native tools, router, fallback,
+or automatic retry. Responses still pass the existing Locard validators. The SDK
+runs in a bounded disposable process, with request/response logging disabled; provider
+exceptions are replaced with generic errors. API keys are not stored in preferences,
+case databases, transcripts, or audit records. Configured provider/model identifiers
+are metadata, not proof of provider execution or model-weight identity.

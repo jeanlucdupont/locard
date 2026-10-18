@@ -40,10 +40,10 @@ def test_cli_never_uses_write_opener(tmp_path, monkeypatch, capsys):
     assert main(['--db', str(path), 'investigate-ai', 'PowerShell', '--no-semantic', '--json']) == 0
     result = json.loads(capsys.readouterr().out)
     assert result['termination'] == 'ANSWER_SUPPORTED'
-    assert main(['--db', str(path), 'investigation', 'show', result['investigation_id'], '--explain']) == 0
+    assert main(['--db', str(path), 'ai-history', 'show', result['investigation_id'], '--explain']) == 0
     reviewed = json.loads(capsys.readouterr().out)
     assert reviewed['events'] and reviewed['current_case_status']['matches_recorded_fingerprint'] is True
-    assert main(['--db', str(path), 'investigation', 'replay', result['investigation_id'], '--no-semantic']) == 0
+    assert main(['--db', str(path), 'ai-history', 'replay', result['investigation_id'], '--no-semantic']) == 0
     assert json.loads(capsys.readouterr().out)['termination'] == 'REPLAY_MATCH'
 
 def test_missing_database_never_created_and_noninteractive_approval_rejected(tmp_path, capsys):

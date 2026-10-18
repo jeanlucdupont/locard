@@ -62,7 +62,8 @@ def _run(
     state = State(budget)
     rules = [r.rule_id for r in available_rules()]
     config = {**config, 'rule_ids': rules}
-    client = client or LocalClient()
+    from forensic_assistant.ai.backend import backend
+    client = client or backend()
     investigation_id = config.get('_investigation_id') or uuid.uuid4().hex
     with profile.phase('audit_init'):
         activity.event('INVESTIGATION_START', required=True, investigation_id=investigation_id)

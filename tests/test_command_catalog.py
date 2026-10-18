@@ -19,7 +19,7 @@ from test_interactive_shell import Input, case
 EXPECTED = dict(line.split('|', 1) for line in """?|Show help for a command
 add-evidence|Compatibility alias for ingest wizard
 ingest-wizard|Guided evidence discovery and ingestion
-ai|Compatibility notice: prefix AI requests with !
+ai|Configure AI provider and local runtime
 expert|Compatibility notice: the shell has no mode switch
 new-case|Create a case with guided evidence discovery and ingestion
 activity|Review and verify analyst activity
@@ -42,7 +42,6 @@ ingest-registry|Import Windows Registry evidence
 investigate|Gather and correlate evidence around a specific evidence record
 investigate-ai|Analyze case evidence using the local AI model
 ai-history|Review or replay saved AI investigations
-investigation|Deprecated alias for ai-history
 logons|Review Windows logon-related activity from normalized Windows Event Log evidence
 process-tree|Reconstruct process parent-child relationships
 quit|Exit Locard

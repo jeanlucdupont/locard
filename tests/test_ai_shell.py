@@ -82,7 +82,8 @@ def test_commands_use_same_dispatcher(tmp_path, monkeypatch, model, command, mod
         return 0
     monkeypatch.setattr('forensic_assistant.cli.dispatch', dispatch)
     shell, _, _ = run_shell(tmp_path, mode, command)
-    assert dispatched == [(command.split()[0], {'existing_only': True})]
+    expected = [('ai', {'existing_only': True})] if mode == 'ai' else []
+    assert dispatched == expected + [(command.split()[0], {'existing_only': True})]
     assert not hasattr(shell, 'mode')
     assert not model
 
@@ -104,7 +105,7 @@ def test_shell_never_guesses_intent(tmp_path, capsys, model, line):
 @pytest.mark.parametrize('line', ['ai extra', 'expert extra'])
 def test_compatibility_notices_reject_arguments(tmp_path, capsys, model, line):
     shell, _, _ = run_shell(tmp_path, line)
-    assert 'takes no arguments' in capsys.readouterr().out
+    assert ('Invalid arguments' if line == 'ai extra' else 'takes no arguments') in capsys.readouterr().out
     assert not hasattr(shell, 'mode') and not model
 
 
@@ -118,7 +119,7 @@ def test_model_commands_are_inert_and_activity_is_derived(tmp_path, monkeypatch,
     monkeypatch.setattr(advisory, 'LocalClient', Client)
     monkeypatch.setattr('forensic_assistant.cli.dispatch', lambda *_a, **_k: pytest.fail('Model text dispatched'))
     monkeypatch.setattr(Shell, 'new', lambda _: pytest.fail('Model created a case'))
-    _, _, database = run_shell(tmp_path, 'ai', '! A private question')
+    _, _, database = run_shell(tmp_path, '! A private question')
     output = capsys.readouterr().out
     assert 'AI assistant — advisory, not evidence' in output
     assert '  case new' in output and '{"advice"' not in output
@@ -169,8 +170,9 @@ def test_empty_and_oversized_requests_do_not_contact_model(model, question):
 
 
 def test_prompt_boundaries_and_shared_loopback_transport():
+    from forensic_assistant.ai.backend import backend
+    assert advisory.LocalClient is backend
     from forensic_assistant.llm.client import LocalClient
-    assert advisory.LocalClient is LocalClient
     client = LocalClient()
     assert client.host == '127.0.0.1' and client.port == 8080
     with pytest.raises(ValueError, match='loopback'):
@@ -213,10 +215,15 @@ def test_help_completion_and_bang_no_completion():
     from forensic_assistant.interactive.help import command_help, catalog
     from forensic_assistant.interactive.completion import complete
     from forensic_assistant.cli import build_parser
-    for name in ('ai', 'expert'):
+    for name in ('expert',):
         assert not any(row.strip().startswith(name + ' ') for row in catalog(build_parser(interactive=True)).splitlines())
         assert 'approval before each proposed tool' in command_help(name)
         assert complete(name, len(name)).text == name
+    assert 'Configure AI provider and local runtime' in catalog(build_parser(interactive=True))
+    import argparse
+    parser = build_parser(interactive=True)
+    commands = next(a.choices for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    assert 'provider' in commands['ai'].format_help()
     assert 'natural-language request with !' in catalog(build_parser(interactive=True))
     assert complete('! question', 10).text == '! question'
 

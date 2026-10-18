@@ -56,3 +56,15 @@ anyio, filelock, h11, markdown-it-py, mdurl, narwhals, rich, setuptools and type
 Retain bundled NumPy/SciPy/Torch component notices as well. No new V3 dependency
 requires relicensing Locard's original source under a different license; this
 does not remove any component-specific distribution obligations.
+
+
+Optional cloud inference uses LiteLLM 1.106.0 (MIT-licensed SDK; no enterprise or
+proxy distribution is included). Its transitive components retain their own
+licenses. This does not change Locard's Apache-2.0 license or the existing forensic
+parser obligations above. The Windows cp310-abi3 wheel reviewed during development
+had SHA-256 `791625a05eb1481d14633d593c19dfaa4b91ad69ec9c3e0886a72855cd76c1d1`
+and no `.pth` startup hooks. Package source: https://pypi.org/project/litellm/1.106.0/.
+The pin excludes the compromised March 2026 releases 1.82.7/1.82.8 documented at
+https://docs.litellm.ai/blog/security-update-march-2026. This review is not a guarantee
+against future supply-chain vulnerabilities. Model weights and cloud services
+have separate terms; Locard does not download or redistribute generative weights.

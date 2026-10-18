@@ -82,7 +82,7 @@ def render(result, args, palette):
         line('Location', result['location'])
         line('Files', len(result['files']))
         line('Verification', 'Passed')
-        line('Next step', 'semantic build')
+        line('Next step', 'Run interactive semantic search and approve index construction')
     elif command in ('build', 'rebuild'):
         lines.append(palette('heading', 'Semantic index built.'))
         line('Model', result['model']['model_id'])

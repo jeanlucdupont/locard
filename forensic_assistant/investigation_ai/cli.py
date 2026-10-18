@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import sys
 from forensic_assistant.config import Config
-from forensic_assistant.llm.client import LocalClient
+from forensic_assistant.ai.backend import backend as LocalClient
 from .supervision import run
 from .state import Budget
 from .transcript import load, implementation
@@ -12,7 +12,7 @@ from .transcript import load, implementation
 def configure(commands):
     p = commands.add_parser('investigate-ai', help=COMMANDS['investigate-ai'], description='Advanced / Diagnostic interface. Use ! <question> for normal interactive AI requests.')
     p.add_argument('question')
-    p.add_argument('--endpoint', default=Config.endpoint)
+    p.add_argument('--endpoint', default=None, help='Advanced existing loopback endpoint; overrides configured provider for this invocation')
     p.add_argument('--date')
     p.add_argument('--max-steps', type=int, default=8)
     p.add_argument('--max-tool-calls', type=int, default=6)
@@ -29,9 +29,7 @@ def configure(commands):
     )
     review = commands.add_parser('ai-history', help=COMMANDS['ai-history'],
         description='Review or replay saved derived AI investigation records for audit and review. These records are not source evidence.',
-        epilog='investigation is a deprecated compatibility alias for ai-history in 6.68.')
-    # One parser/handler; preserve the internal command identity for existing callers.
-    review.set_defaults(command='investigation')
+        epilog='Saved records are derived data; replay does not establish forensic conclusions.')
     subs = review.add_subparsers(dest='investigation_command', required=True)
     show = subs.add_parser('show', help='Review a saved AI investigation')
     show.add_argument('investigation_id')
@@ -63,8 +61,15 @@ def approve(proposal, seconds, *, args=None):
 
 
 def dispatch(args):
+    from forensic_assistant.terminal_activity import ActivityIndicator
+    label = ("Loading saved AI investigation..." if getattr(args, "investigation_command", None) == "show" else "Replaying AI investigation...") if args.command == "ai-history" else ""
+    with ActivityIndicator(label, args=args):
+        return _dispatch(args)
+
+
+def _dispatch(args):
     root = args.transcripts or str(Path(args.db)) + '.investigations'
-    if args.command == 'investigation' and args.investigation_command == 'show':
+    if args.command == 'ai-history' and args.investigation_command == 'show':
         manifest, events = load(root, args.investigation_id)
         result = {
             'manifest': manifest,
@@ -91,7 +96,7 @@ def dispatch(args):
         'model_path': args.embedding_model or str(Path(args.db).parent / 'semantic-models' / 'bge'),
         'date_hint': getattr(args, 'date', None)
     }
-    if args.command == 'investigation':
+    if args.command == 'ai-history':
         from .replay import replay
         return replay(config, root, args.investigation_id)
     if args.approve_tools and not sys.stdin.isatty():
@@ -100,7 +105,8 @@ def dispatch(args):
         raise ValueError('Investigation requires an existing case database')
     from forensic_assistant.terminal_activity import ActivityIndicator
     from functools import partial
-    with ActivityIndicator('Preparing investigation...', args=args) as indicator:
+    from forensic_assistant.ai.backend import status_callback, waiting_label
+    with ActivityIndicator('Preparing investigation...', args=args) as indicator, status_callback(indicator.update):
         result = run(
             config,
             args.question,
@@ -109,7 +115,7 @@ def dispatch(args):
             client=LocalClient(args.endpoint),
             dry_run=args.dry_run,
             approval=partial(approve, args=args) if args.approve_tools else None,
-            status=indicator.phase
+            status=lambda phase: indicator.start(waiting_label()) if phase == "model" else indicator.phase(phase)
         )
     if args.explain:
         _, events = load(root, result['investigation_id'])

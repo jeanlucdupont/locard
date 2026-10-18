@@ -12,9 +12,6 @@ def configure(commands, ask, *, interactive=False):
     descriptions = {
         'search': 'Search current case evidence by semantic similarity',
         'status': 'Show semantic runtime, model, and current-case index status',
-        'rebuild': 'Rebuild the semantic index for the current case',
-        'setup': 'Install the reusable local embedding model (advanced setup)',
-        'build': 'Build the current case semantic index manually (advanced)',
     }
     for name, description in descriptions.items():
         p = sub.add_parser(name, help=description, description=description)
@@ -23,15 +20,7 @@ def configure(commands, ask, *, interactive=False):
         output.add_argument('--text', dest='json', action='store_false', help='Concise human-readable output')
         p.set_defaults(json=not interactive)
         p.add_argument('--model-path', help='Advanced local model-directory override; does not change other commands')
-        if name == 'setup':
-            p.add_argument('destination', nargs='?', help='Optional legacy model directory; default is the reusable user-local model')
-            p.add_argument('--model', choices=['bge', 'minilm'], default='bge')
-            p.add_argument('--download', action='store_true', help='Approve Internet download of pinned model files; no evidence is uploaded')
-            continue
         p.add_argument('--index', help='Advanced case-specific derived index directory override')
-        if name in ('build', 'rebuild'):
-            p.add_argument('--max-vectors', type=int, default=100000,
-                           help='Safety limit: abort without publishing if the build exceeds N vectors; not sampling', metavar='N')
         if name == 'search':
             p.add_argument('question')
             p.add_argument('--limit', type=int, default=None)
@@ -70,7 +59,7 @@ def setup(args):
             raise ValueError('Configured model differs from --model; select another --model-path')
     else:
         notice = (f"Download the pinned {MODELS[args.model][0]} embedding model from the Internet to {destination}. "
-                  'No case evidence is uploaded. For scripts, explicitly approve with semantic setup --download.')
+                  'No case evidence is uploaded. Use interactive semantic search to approve setup; scripts require prepared local assets.')
         if not args.download:
             approve(args, notice)
         manifest = download(destination, args.model)
@@ -89,17 +78,17 @@ def status(db, args):
     path = runtime.model_path(args.model_path)
     result['model_location'] = str(path)
     if not path.exists():
-        return {**result, 'state': 'model_missing', 'model_state': 'missing', 'next_step': 'semantic setup'}
+        return {**result, 'state': 'model_missing', 'model_state': 'missing', 'next_step': 'Use interactive semantic search to approve local embedding setup'}
     try:
         result['model'] = inspect_model(path)
     except (ValueError, OSError) as exc:
         return {**result, 'state': 'model_malformed', 'model_state': 'malformed', 'reason': str(exc),
-                'next_step': 'Preserve the incomplete model; use semantic setup --model-path <new-directory>'}
+                'next_step': 'Preserve the incomplete model; use interactive semantic search with --model-path <new-directory>'}
     result['model_state'] = 'ready'
     root = args.index or index.default_root(args.db)
     result['current_evidence_records'] = db.execute('SELECT count(*) FROM evidence_records').fetchone()[0]
     if not (Path(root) / 'CURRENT').exists():
-        return {**result, 'state': 'index_missing', 'index_state': 'not_built', 'next_step': 'semantic build'}
+        return {**result, 'state': 'index_missing', 'index_state': 'not_built', 'next_step': 'Use interactive semantic search to approve index construction'}
     details = index.status(db, root)
     state = details['state']
     if state == 'current':
@@ -112,7 +101,7 @@ def status(db, args):
     result['index'] = details
     return {**details, **result, 'model': details.get('model', result['model']),
             'index_state': state, 'state': {'current': 'ready', 'stale': 'index_stale'}.get(state, 'index_malformed'),
-            'next_step': 'semantic search "question"' if state == 'current' else 'semantic rebuild'}
+            'next_step': 'semantic search "question"' if state == 'current' else 'Use interactive semantic search to approve index rebuilding'}
 
 
 def dispatch(db, args):
@@ -155,7 +144,7 @@ def prepare(db, args):
     if operation == 'search' and result['state'] != 'ready':
         action = 'build' if result['state'] == 'index_missing' else 'rebuild'
         state = result['state'].removeprefix('index_')
-        approve(args, f'Semantic index is {state} for this case. Run semantic {action} before searching.',
+        approve(args, f'Semantic index is {state} for this case. A local index {action} is needed before searching.',
                 prompt=action.capitalize() + ' now? [Y/n]: ')
         operation = action
     model = LocalModel(runtime.model_path(args.model_path))

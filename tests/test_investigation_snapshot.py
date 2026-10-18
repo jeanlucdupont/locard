@@ -169,7 +169,10 @@ def test_abnormal_controller_termination_cleans_snapshot(tmp_path, monkeypatch):
     make_case(path)
     monkeypatch.setattr(snapshot.tempfile, 'gettempdir', lambda: str(tmp_path))
     monkeypatch.setattr(supervision, '_child', blocked_snapshot_child)
-    result = supervision.run(config(path), 'Inspect', tmp_path / 'runs', budget=Budget(seconds=1))
+    # This deliberately blocked controller tests snapshot cleanup, not runtime startup.
+    from forensic_assistant.llm.client import LocalClient
+    result = supervision.run(config(path), 'Inspect', tmp_path / 'runs',
+                             client=LocalClient(), budget=Budget(seconds=1))
     assert result['termination'] == 'STARTUP_TIMEOUT'
     assert not list(tmp_path.glob('locard-investigation-*'))
 
