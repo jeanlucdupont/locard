@@ -7,7 +7,7 @@ from contextlib import closing
 import pytest
 from forensic_assistant import terminal
 from forensic_assistant.cli import build_parser, main
-from forensic_assistant.command_catalog import COMMAND_ALIASES
+from forensic_assistant.command_catalog import COMMAND_ALIASES, ADVANCED_COMMANDS
 from forensic_assistant.interactive.help import catalog, SHELL_COMMANDS
 from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
@@ -29,7 +29,7 @@ def test_catalog_actual_commands_alphabetical(color):
     assert plain.startswith('\n  ?')
     names = [line.split()[0] for line in plain.splitlines() if line.startswith('  ')]
     actual = next(a.choices for a in parser._actions if isinstance(a, argparse._SubParsersAction))
-    assert names == sorted((set(actual) | set(SHELL_COMMANDS)) - set(COMMAND_ALIASES))
+    assert names == sorted((set(actual) | set(SHELL_COMMANDS)) - set(COMMAND_ALIASES) - ADVANCED_COMMANDS)
     for bad in ('usage:', 'positional arguments:', 'options:', '--db', '--version', '.venv', 'python.exe', 'Shell:'):
         assert bad not in plain
     assert plain.endswith('Type `help <command>` for details.\n')

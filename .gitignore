@@ -183,4 +183,5 @@ report-bundles/
 !/scripts/install-support.ps1
 !/scripts/windows-process.ps1
 !/scripts/windows-process.cs
+!/scripts/protected_manifest.py
 .locard-install.lock

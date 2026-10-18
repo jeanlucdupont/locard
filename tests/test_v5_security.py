@@ -208,10 +208,15 @@ def test_conceptual_semantic_history_needs_no_embedding_model(tmp_path):
         def call(self, operation, arguments=None, **kwargs):
             if operation != 'initial':
                 return super().call(operation, arguments, **kwargs)
+            # Initialize the private SQLite snapshot through the normal worker path.
+            initial = super().call('initial', arguments, **{**kwargs, 'question': 'process'})
+            assert initial['fingerprint'] and initial['database_changes'] == 0
             response = super().call(
                 'investigate_evidence',
                 {'evidence_id': child['id'], 'limit': 50},
-                known_ids=[child['id']]
+                known_ids=[child['id']],
+                fingerprint=initial['fingerprint'],
+                seconds=kwargs.get('seconds', 45)
             )
             result = response['result']
             result['tool'] = 'initial_retrieval'

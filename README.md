@@ -1899,3 +1899,25 @@ Each lookup remains strictly read-only and requires its own approval through `!`
 Normal results show concise rejection/outcome messages and material case warnings;
 full diagnostics remain in JSON. Final integrity hashing can use the remaining
 investigation deadline rather than the shorter individual-tool timeout.
+
+### Protected-file validation metadata
+
+`scripts/protected_manifest.py` creates or verifies SHA-256 validation metadata
+for an explicit JSON list of root-relative file paths. It records path, byte size
+and SHA-256 in deterministic path order; it reads evidence without opening SQLite
+or invoking parsers. Symlink/reparse paths and traversal are rejected, files that
+change during hashing fail validation, and existing manifests are never overwritten
+by `create`. Keep selection lists and manifests outside the repository and evidence
+folders; they may reveal sensitive filenames.
+
+```powershell
+python scripts/protected_manifest.py create --root C:\Evidence --paths C:\Validation\selected.json --manifest C:\Validation\baseline.json
+python scripts/protected_manifest.py verify --root C:\Evidence --manifest C:\Validation\baseline.json
+```
+
+Verification covers the selected files, including missing or changed files; it
+does not discover unlisted additions. Keep evidence quiescent while comparing.
+This is analyst-side validation metadata, not evidence or a forensic conclusion.
+A newly generated baseline establishes only current bytes, not equivalence to a
+historical state whose hashes were never recorded. Report unreadable exclusions
+explicitly; do not equate size/mtime equality with cryptographic integrity.
