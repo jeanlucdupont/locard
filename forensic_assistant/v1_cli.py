@@ -59,11 +59,13 @@ def configure(commands):
     detect.add_argument("--candidate-limit", type=int, default=1000)
     detect.add_argument("--failure-threshold", type=int, default=5)
     detect.add_argument("--failure-window", type=int, default=300)
-    investigation = commands.add_parser("investigate", help=COMMANDS['investigate'])
-    investigation.add_argument("evidence_id")
-    investigation.add_argument("--seconds", type=int, default=120)
-    investigation.add_argument("--candidate-limit", type=int, default=500)
-    analysis = commands.add_parser("analyze-timeline", help=COMMANDS['analyze-timeline'])
+    investigation = commands.add_parser("investigate", help=COMMANDS['investigate'],
+        description="Deterministic correlation around a specific evidence record identified by its canonical evidence_id. Gathers nearby and related evidence within bounded criteria; no AI required.")
+    investigation.add_argument("evidence_id", help="Canonical evidence ID of the anchor record")
+    investigation.add_argument("--seconds", type=int, default=120, help="Time window around the anchor, in seconds (default: 120)")
+    investigation.add_argument("--candidate-limit", type=int, default=500, help="Maximum candidate volume (default: 500)")
+    analysis = commands.add_parser("analyze-timeline", help=COMMANDS['analyze-timeline'],
+        description="Specialized workflow: deterministic retrieval and correlation in an explicit time range, followed by local AI analysis. --dry-run builds the bounded evidence bundle without calling the model. Model analysis is not evidence; citation checks do not establish factual correctness.")
     analysis.add_argument("--start", required=True)
     analysis.add_argument("--end", required=True)
     analysis.add_argument("--hostname")

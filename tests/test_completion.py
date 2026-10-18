@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from forensic_assistant.cli import build_parser
-from forensic_assistant.command_catalog import COMMANDS, COMMAND_ALIASES
+from forensic_assistant.command_catalog import COMMANDS, COMMAND_ALIASES, ADVANCED_COMMANDS
 from forensic_assistant.interactive import completion, console
 from forensic_assistant.terminal import Palette, SGR
 
@@ -23,7 +23,7 @@ def fresh_metadata():
 
 @pytest.mark.parametrize('text,expected', [
     ('ver', 'version '), ('qui', 'quit '), ('exi', 'exit '), ('?', '? '),
-    ('inv', 'investigat'), ('ing', 'ingest '),
+    ('inv', 'investigate '), ('ing', 'ingest '),
     ('session --lo', 'session --logon-id '),
     ('investigate --time', 'investigate --timestamp-slot '),
     ('source a', 'source assign '), ('report sh', 'report show '),
@@ -38,9 +38,8 @@ def test_unique_and_common_prefix(text, expected):
 
 
 @pytest.mark.parametrize('text,expected', [
-    ('', tuple(sorted(set(COMMANDS) - set(COMMAND_ALIASES)))),
+    ('', tuple(sorted(set(COMMANDS) - set(COMMAND_ALIASES) - ADVANCED_COMMANDS))),
     ('ingest ', ('all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'wizard')),
-    ('investigat', ('investigate', 'investigate-ai', 'investigation')),
     ('session --l', ('--limit', '--logon-id')),
 ])
 def test_ambiguous_sorted_candidates_preserve_buffer(text, expected):
@@ -156,7 +155,7 @@ def test_empty_tab_lists_commands_and_preserves_empty_prompt():
     stream = io.StringIO()
     assert console.edit(['\t', '\r'], prompt='locard> ', complete=completion.complete, output=stream) == ''
     rows = screen(stream.getvalue())
-    assert rows[1:-2] == sorted(set(COMMANDS) - set(COMMAND_ALIASES))
+    assert rows[1:-2] == sorted(set(COMMANDS) - set(COMMAND_ALIASES) - ADVANCED_COMMANDS)
     assert rows[-2] == 'locard>'
 
 
@@ -176,7 +175,7 @@ def test_completion_does_not_dispatch_or_access_case_network_or_paths(monkeypatc
 
 
 @pytest.mark.parametrize('text,expected', [
-    ('inv', 'investigat'), ('ingest-', 'ingest-'), ('session --lo', 'session --logon-id '),
+    ('inv', 'investigate '), ('ingest-', 'ingest-'), ('session --lo', 'session --logon-id '),
     ('investigate --time', 'investigate --timestamp-slot '), ('source a', 'source assign '),
     ('source assign --', 'source assign --'), ('ver', 'version '), ('nonsense', 'nonsense'),
 ])

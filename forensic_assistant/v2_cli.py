@@ -43,7 +43,7 @@ def configure(commands):
     values.add_argument('--value-name', help='Registry value name: exact raw or decoded UserAssist name (SQLite NOCASE)')
     values.add_argument('--value-name-contains', help='Registry value name: literal substring of raw or decoded UserAssist name (SQLite NOCASE); no wildcards')
     commands.choices['around'].add_argument('--timestamp-slot')
-    commands.choices['investigate'].add_argument('--timestamp-slot')
+    commands.choices['investigate'].add_argument('--timestamp-slot', help='Select the anchor timestamp slot when multiple slots exist')
 
 
 

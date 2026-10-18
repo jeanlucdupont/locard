@@ -23,7 +23,7 @@ ai|Compatibility notice: prefix AI requests with !
 expert|Compatibility notice: the shell has no mode switch
 new-case|Create a case with guided evidence discovery and ingestion
 activity|Review and verify analyst activity
-analyze-timeline|Analyze timeline evidence using the local AI model
+analyze-timeline|Analyze a bounded timeline bundle using the local AI model
 around|Show evidence near a specific event or timestamp
 ask|Ask the local AI questions about case evidence
 case|Open or create a case
@@ -39,9 +39,10 @@ ingest-evtx|Import Windows Event Logs (EVTX)
 ingest-mft|Import NTFS Master File Table (MFT) evidence
 ingest-prefetch|Import Windows Prefetch evidence
 ingest-registry|Import Windows Registry evidence
-investigate|Gather related evidence around an event
+investigate|Gather and correlate evidence around a specific evidence record
 investigate-ai|Analyze case evidence using the local AI model
-investigation|Review or replay saved AI investigations
+ai-history|Review or replay saved AI investigations
+investigation|Deprecated alias for ai-history
 logons|Review Windows logon-related activity from normalized Windows Event Log evidence
 process-tree|Reconstruct process parent-child relationships
 quit|Exit Locard

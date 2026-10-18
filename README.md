@@ -1921,3 +1921,20 @@ This is analyst-side validation metadata, not evidence or a forensic conclusion.
 A newly generated baseline establishes only current bytes, not equivalence to a
 historical state whose hashes were never recorded. Report unreadable exclusions
 explicitly; do not equate size/mtime equality with cryptographic integrity.
+
+### AI command discovery
+
+Use deterministic commands such as `investigate <evidence_id>` to gather and
+correlate bounded evidence without AI. Use `! <question>` for interactive AI
+assistance, with approval required for each proposed forensic lookup.
+`investigate-ai` remains a hidden Advanced / Diagnostic interface.
+
+`ai-history show <investigation-id>` reviews saved derived AI records;
+`ai-history replay <investigation-id>` replays their lookups against the current
+case. These records support audit/review/replay and are not source evidence.
+`investigation` remains available as a deprecated alias in 6.68, with unchanged
+structured output and no runtime warning that could contaminate automation.
+
+`analyze-timeline --start <timestamp> --end <timestamp>` remains a specialized
+workflow: bounded deterministic time-range retrieval/correlation followed by
+local AI analysis. `--dry-run` builds the bundle without calling the model.

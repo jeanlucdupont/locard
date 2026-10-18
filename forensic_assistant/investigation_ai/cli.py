@@ -27,11 +27,15 @@ def configure(commands):
         action='store_true',
         help='Require interactive approval for each proposed operation'
     )
-    review = commands.add_parser('investigation', help=COMMANDS['investigation'])
+    review = commands.add_parser('ai-history', help=COMMANDS['ai-history'],
+        description='Review or replay saved derived AI investigation records for audit and review. These records are not source evidence.',
+        epilog='investigation is a deprecated compatibility alias for ai-history in 6.68.')
+    # One parser/handler; preserve the internal command identity for existing callers.
+    review.set_defaults(command='investigation')
     subs = review.add_subparsers(dest='investigation_command', required=True)
-    show = subs.add_parser('show')
+    show = subs.add_parser('show', help='Review a saved AI investigation')
     show.add_argument('investigation_id')
-    replay = subs.add_parser('replay')
+    replay = subs.add_parser('replay', help='Replay saved lookups against the current case')
     replay.add_argument('investigation_id')
     for command in (p, show, replay):
         command.add_argument('--transcripts', help='Sensitive local derived records, not evidence; default: DATABASE.investigations. Analyst controls retention/deletion.')

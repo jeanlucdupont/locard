@@ -167,6 +167,8 @@ def build_parser(*, interactive=False):
     activity.configure(commands)
     from forensic_assistant.output import configure
     configure(commands)
+    # Share the fully configured history parser without adding output options twice.
+    commands._name_parser_map['investigation'] = commands.choices['ai-history']
     from forensic_assistant.cli_parser import configure_ingest_namespace
     configure_ingest_namespace(commands)
     if interactive:
