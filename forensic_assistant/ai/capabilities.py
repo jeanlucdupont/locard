@@ -25,9 +25,14 @@ CAPABILITIES = {
 def configure(kwargs, provider, schema):
     capability = CAPABILITIES[provider]
     schema = copy.deepcopy(schema if schema is not None else {"type": "object"})
+    from .openai_schema import investigation, request_schema, instruct
+    adapted = provider == 'openai' and investigation(schema)
+    if adapted:
+        schema = request_schema(provider, schema)
+        kwargs['messages'] = instruct(kwargs['messages'])
     if capability.mode == "json_schema":
         kwargs["response_format"] = {"type": "json_schema", "json_schema": {
-            "name": "forensic_analysis", "strict": True, "schema": schema}}
+            "name": "investigation_proposal" if adapted else "forensic_analysis", "strict": True, "schema": schema}}
     elif capability.mode == "anthropic_schema":
         # Avoid LiteLLM's response_format -> synthetic tool fallback.
         kwargs["output_config"] = {"format": {"type": "json_schema", "schema": schema}}

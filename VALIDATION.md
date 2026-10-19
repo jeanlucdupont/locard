@@ -1036,3 +1036,40 @@ Only the investigation logger is DEBUG; SDK/HTTP logging is not enabled. Approva
 wait events show remaining_execution_budget; other phase events show remaining and
 watchdog_remaining. `--json` may be appended for structured metrics; approval prompts
 remain on stderr. Use the existing configured provider, without an endpoint override.
+
+## OpenAI investigation schema adapter (6.69 pre-acceptance)
+
+Schema-path diagnosis:
+
+| Path | Generator | Shape and constraints |
+|---|---|---|
+| Connection | `ai.readiness.SCHEMA` | Closed object; required status enum; no arrays, unions, references or optional fields. |
+| Advisory | `interactive.advisory.SCHEMA` | Closed objects; all properties required; nullable goal, bounded strings/arrays and nested steps. |
+| Investigation | `investigation_ai.contracts.schema` | Root oneOf over nine tool shapes and a final proposal; closed objects, 45 optional argument properties, bounded strings/numbers/arrays, enums and uniqueItems. |
+
+All three use `ai.capabilities.configure` to construct OpenAI's strict response_format;
+there was no separate submission helper. No schema uses recursive references, defaults,
+format or patternProperties. The canonical investigation schema contains only model
+proposals, not fingerprints, audit fields, counters, timing, transcript metadata or
+controller-rendered evidence wrappers. Final proposals contain field references,
+relationship/detection IDs, hypotheses and unknowns; controller grounding is separate.
+
+The root union and optional properties conflict with OpenAI's documented strict subset.
+The original live 400 identifies response_format but not which rule was reported first.
+The adapter replaces root oneOf with a required proposal property containing nested
+anyOf; all optional arguments become nullable required properties. Discriminators
+remain disjoint. uniqueItems, absent from the documented supported subset, is omitted
+only on the wire and still checked locally. No canonical contract was changed.
+
+The full nine-tool profile changes from 102 properties, 57 required, 45 optional,
+22 objects, depth 7, one oneOf and seven uniqueItems constraints to 103 properties,
+103 required, zero optional, 23 objects, depth 8, 46 anyOf and 45 nullable unions.
+Both have seven arrays, 23 enum constraints, zero references and 148 min/max constraints.
+These are structural counts, not logged schema contents. Model-specific live acceptance
+is still required; mocked tests cannot certify the remote service.
+
+Focused synthetic tests cover all nine tool round trips, strict wire shape, malformed
+and ambiguous proposals, canonical duplicate rejection, ungrounded final rejection,
+readiness family gates, safe diagnostics, DeepSeek JSON-object mode and local behavior.
+The canonical contracts, controller authorization and grounding code remain unchanged.
+No full regression suite, protected-data hashing, commit or push is part of this patch.

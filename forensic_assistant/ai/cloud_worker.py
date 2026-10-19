@@ -15,9 +15,11 @@ def request_kwargs(request):
     # Explicit provider + model, no router, fallback or provider-native tools.
     from .capabilities import CAPABILITIES, configure
     route = CAPABILITIES[provider].route
+    from .openai_schema import investigation
+    probe_tokens = 256 if provider == 'openai' and investigation(request.get('schema')) else 64
     kwargs = dict(model=route + '/' + request['model'],
                   custom_llm_provider=route, api_key=os.environ[PROVIDERS[provider][1]],
-                  messages=request['messages'], stream=False, max_tokens=64 if request.get('handshake') is True else 1024,
+                  messages=request['messages'], stream=False, max_tokens=probe_tokens if request.get('handshake') is True else 1024,
                   timeout=request['timeout'], num_retries=0, drop_params=False)
     return configure(kwargs, provider, request.get('schema'))
 
@@ -28,7 +30,8 @@ def generate(request, sdk):
     try:
         return complete(kwargs, sdk)
     except Exception as exc:
-        metadata = {**error_metadata(exc), 'request_features': request_features(kwargs)}
+        from .schema_diagnostics import profiles
+        metadata = {**error_metadata(exc), **profiles(request['provider'], request.get('schema')), 'request_features': request_features(kwargs)}
         raise ProviderFailure(classify(exc), exc.stage if isinstance(exc, ProviderFailure) else
                               'timeout' if classify(exc) == 'timeout' else 'provider_request',
                               metadata=metadata) from None

@@ -215,7 +215,7 @@ def test_cloud_controller_keeps_grounding_and_safe_transcript(tmp_path,monkeypat
         captured.append(messages)
         assert secret not in json.dumps(messages)
         assert str(tmp_path) not in json.dumps(messages)
-        return {'text':json.dumps(final(messages)),'usage':{'total_tokens':5}}
+        return {'text':json.dumps({'proposal': final(messages)}),'usage':{'total_tokens':5}}
     monkeypatch.setattr(client,'_cloud_request',cloud)
     monkeypatch.setattr(client,'prepare',lambda *a:client)
     worker=RecordingWorker({})

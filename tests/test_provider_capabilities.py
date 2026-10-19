@@ -24,6 +24,16 @@ def config(provider):
     return {**settings.defaults(), 'provider': provider, 'model': 'unchanged-id', 'cloud_acknowledged': True}
 
 
+def probe_responses(provider):
+    replies = ['{"status":"ok"}']
+    if provider == 'openai':
+        for family, _, expected, _ in readiness.openai_probes():
+            replies.append(json.dumps({'proposal': expected} if family == 'investigation' else expected))
+    else:
+        replies.append('{"status":"ok","message":"locard"}')
+    return replies
+
+
 def mock_transport(monkeypatch, replies, calls):
     responses = iter(replies)
     def transport(self, messages, schema, **kw):
@@ -40,15 +50,14 @@ def mock_transport(monkeypatch, replies, calls):
 @pytest.mark.parametrize('provider,mode', [(p,c.mode) for p,c in capabilities.CAPABILITIES.items()])
 def test_probe_and_normal_use_identical_mode_and_canonical_contract(provider,mode,monkeypatch):
     calls=[]
-    mock_transport(monkeypatch, ['{"status":"ok"}', '{"status":"ok","message":"locard"}',
-        '{"status":"ok","message":"locard"}'], calls)
+    mock_transport(monkeypatch, probe_responses(provider) + ['{"status":"ok","message":"locard"}'], calls)
     schema=copy.deepcopy(readiness.COMPAT_SCHEMA)
     before=copy.deepcopy(schema)
     client=ModelBackend(config=config(provider))
     assert json.loads(client.complete([{'role':'user','content':'SYNTHETIC EVIDENCE'}],schema))=={'status':'ok','message':'locard'}
-    assert len(calls)==3
+    assert len(calls)==len(probe_responses(provider))+1
     assert all(request_features(call[2])['structured_output']==mode for call in calls)
-    assert all('SYNTHETIC EVIDENCE' not in json.dumps(call) for call in calls[:2])
+    assert all('SYNTHETIC EVIDENCE' not in json.dumps(call) for call in calls[:-1])
     assert calls[-1][1]==schema==before
     assert client.config['model']=='unchanged-id'
     assert calls[-1][2]['model']==provider+'/unchanged-id'
@@ -64,11 +73,11 @@ def test_probe_and_normal_use_identical_mode_and_canonical_contract(provider,mod
     ('{"status":"ok","message":"locard","extra":1}','structured_validation_failed')])
 def test_every_provider_response_locally_validated(provider,response,category,monkeypatch):
     calls=[]
-    mock_transport(monkeypatch,['{"status":"ok"}','{"status":"ok","message":"locard"}',response],calls)
+    mock_transport(monkeypatch,probe_responses(provider)+[response],calls)
     client=ModelBackend(config=config(provider))
     with pytest.raises(ProviderFailure) as failure:
         client.complete([{'role':'user','content':'SECRET-EVIDENCE'}],readiness.COMPAT_SCHEMA)
-    assert failure.value.category==category and len(calls)==3
+    assert failure.value.category==category and len(calls)==len(probe_responses(provider))+1
     assert readiness.status(client.config)['provider_readiness']=='unchecked'
     log=diagnostics.tail('provider.log')
     assert capabilities.CAPABILITIES[provider].mode in log
@@ -89,13 +98,14 @@ def test_failed_compatibility_blocks_evidence_and_cache(monkeypatch):
 
 def test_no_fallback_and_new_probe_required_after_real_failure(monkeypatch):
     calls=[]
-    mock_transport(monkeypatch,['{"status":"ok"}','{"status":"ok","message":"locard"}',
+    mock_transport(monkeypatch,probe_responses('openai')+[
         ProviderFailure('structured_output_unsupported'),'{"status":"wrong"}'],calls)
-    client=ModelBackend(config=config('openai'))
+    provider='openai'
+    client=ModelBackend(config=config(provider))
     with pytest.raises(ProviderFailure):client.complete([],readiness.COMPAT_SCHEMA)
-    assert len(calls)==3
+    assert len(calls)==len(probe_responses(provider))+1
     with pytest.raises(ProviderFailure):client.complete([],readiness.COMPAT_SCHEMA)
-    assert len(calls)==4 and calls[-1][0]==readiness.MESSAGES
+    assert len(calls)==len(probe_responses(provider))+2 and calls[-1][0]==readiness.MESSAGES
     assert all(c[2]['response_format']['type']=='json_schema' for c in calls)
 
 
@@ -149,15 +159,15 @@ def test_schema_valid_ungrounded_conclusion_still_rejected(provider,tmp_path,mon
     from test_investigation_assessment import RecordingWorker
     from test_investigation_grounding_ux import unsupported
     calls=[]
-    mock_transport(monkeypatch,['{"status":"ok"}','{"status":"ok","message":"locard"}',
-        json.dumps(unsupported())],calls)
+    mock_transport(monkeypatch,probe_responses(provider)+[
+        json.dumps({'proposal': unsupported()} if provider == 'openai' else unsupported())],calls)
     client=ModelBackend(config=config(provider))
     result=controller.run({},'Inspect synthetic evidence',tmp_path/'runs',
         client=client,budget=Budget(steps=1),worker_factory=RecordingWorker)
     assert result['state']['final_grounding_rejections']==1
     assert result['state']['final_grounding_reasons']==['unexposed_field']
     assert result['termination']!='ANSWER_SUPPORTED'
-    assert len(calls)==3
+    assert len(calls)==len(probe_responses(provider))+1
 
 
 def test_cancelled_probe_preserves_cancellation(monkeypatch):

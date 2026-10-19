@@ -13,6 +13,7 @@ from forensic_assistant.llm.client import LocalClient, LLMError
 from forensic_assistant.investigation_ai.lifecycle import WorkerJob
 
 
+PREPARATION_FAMILY = ContextVar('preparation_family', default='investigation')
 OPERATION = ContextVar('model_operation', default='request')
 
 
@@ -109,7 +110,8 @@ class ModelBackend:
             result = readiness.check(self.config, timeout=min(15, self.timeout))
             if result['readiness_category'] == 'cancelled':
                 raise KeyboardInterrupt()
-            if result['locard_compatibility'] != 'ready':
+            ready = result.get(PREPARATION_FAMILY.get()+'_compatibility', result['locard_compatibility'])
+            if ready != 'ready':
                 raise ProviderFailure('compatibility_failed' if result['connection_readiness'] == 'ready' else result['readiness_category'], result['readiness_stage'])
         return self
 
@@ -132,7 +134,12 @@ class ModelBackend:
         if len(payload) > 512 * 1024:
             raise LLMError('Model request exceeds the disclosure size limit')
         started = time.monotonic()
-        self.prepare(STATUS.get())
+        from .openai_schema import investigation
+        family_token = PREPARATION_FAMILY.set('investigation' if investigation(schema) else 'advisory')
+        try:
+            self.prepare(STATUS.get())
+        finally:
+            PREPARATION_FAMILY.reset(family_token)
         remaining = self.timeout - (time.monotonic() - started)
         if remaining <= 0:
             raise LLMError('Model request timed out during startup')
@@ -165,23 +172,26 @@ class ModelBackend:
     def _cloud(self, messages, schema, *, timeout=None, handshake=False):
         from .provider_diagnostics import ProviderFailure, record
         started = time.monotonic()
+        from .schema_diagnostics import profiles
+        shape = profiles(self.provider_name, schema)
         try:
-            from .response_contract import validator, validate
+            from .response_contract import validator
             validator(schema)  # Validate the contract before any evidence leaves the process.
             result = self._cloud_request(messages, schema, timeout=timeout, handshake=handshake)
-            validate(result['text'], schema)
+            from .openai_schema import response
+            result = {**result, 'text': response(self.provider_name, result['text'], schema)}
             if not handshake:
                 from .capabilities import CAPABILITIES
                 record(self.provider_name, self.model_name, 'structured_validation', 'response_validated',
                        time.monotonic()-started, operation=OPERATION.get(), usage=result.get('usage'),
-                       metadata={'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}})
+                       metadata={**shape, 'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}})
             return result
         except ProviderFailure as exc:
             if not handshake:
                 from . import readiness
                 readiness.invalidate(self.config)
                 from .capabilities import CAPABILITIES
-                metadata = {'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}, **exc.metadata}
+                metadata = {**shape, 'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}, **exc.metadata}
                 record(self.provider_name, self.model_name, exc.stage, exc.category, time.monotonic()-started, operation=OPERATION.get(), metadata=metadata)
             raise
         except (OSError, ValueError):

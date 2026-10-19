@@ -2163,7 +2163,8 @@ runtime schema-to-JSON downgrades. Unsupported models fail the synthetic check.
 
 Anthropic and Gemini use explicit native parameters to avoid LiteLLM's tool/prompt
 fallback conversions. Provider/model schema subsets differ: no canonical schema
-keywords are removed to satisfy a provider. The configured model must accept the
+keywords are removed from local validation to satisfy a provider. OpenAI investigation
+requests use the deterministic wire adapter described below. The configured model must accept the
 selected mechanism; failure does not trigger a weaker request. DeepSeek now uses
 JSON-object mode for **normal requests as well as readiness**, replacing the previous
 normal strict-json_schema request. It receives an explicit JSON instruction and the
@@ -2195,3 +2196,28 @@ Final integrity hashing still uses the remaining execution budget. `ai logs` now
 includes safe successful cloud request timings; structural success is not grounding
 acceptance. See [timing accounting and DEBUG instructions](VALIDATION.md#investigation-timing-and-analyst-approval--locard-669)
 for metrics, timeout causes and manual acceptance steps.
+
+OpenAI investigation compatibility (6.69 pre-acceptance patch):
+
+OpenAI remains on native `json_schema` with `strict=true`. The canonical investigation
+contract uses a root `oneOf` and optional tool arguments. OpenAI requires an object
+root and every object property to be required. A transport-only adapter wraps the
+proposal in a closed object, uses nested `anyOf` branches, and represents omitted
+arguments as required nullable properties. It removes `uniqueItems` only from the
+wire schema; Locard still rejects duplicate items during canonical validation.
+The adapter validates the wire response, deterministically removes optional null
+arguments, and validates the original canonical schema before controller processing.
+It does not supply evidence, grounding, approval, or controller-owned metadata.
+See [OpenAI's structured-output requirements](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+OpenAI readiness now checks the connection, actual advisory schema, and synthetic
+tool and final proposals using the full investigation schema. It reports advisory
+and investigation compatibility separately. Advisory readiness alone cannot authorize
+an investigation. These four evidence-free requests share the existing 15-second
+readiness deadline; investigation probes allow 256 output tokens. Other providers'
+two-probe behavior is unchanged. No fallback or retries are introduced. Passing a
+synthetic probe establishes format compatibility, not forensic correctness.
+
+`ai logs` includes allowlisted numeric structural profiles for the canonical and
+provider schemas, and fixed schema-rule labels when recognized in provider errors.
+No schema bodies, property names, prompts, evidence, or raw error messages are logged.
