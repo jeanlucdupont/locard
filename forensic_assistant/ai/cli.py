@@ -228,7 +228,7 @@ def render(value, args=None):
     if 'logs' in value:
         return '\n'.join(safe_text(line) for line in value['logs'].splitlines())
     labels = {'provider':'Provider', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
-              'api_key':'API key', 'provider_readiness':'Provider readiness', 'readiness_reason':'Reason', 'readiness_stage':'Stage', 'http_status':'HTTP status', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
+              'api_key':'API key', 'provider_readiness':'Provider readiness', 'readiness_reason':'Reason', 'readiness_stage':'Stage', 'http_status':'HTTP status', 'connection_readiness':'Connection readiness', 'model_readiness':'Model readiness', 'locard_compatibility':'Locard compatibility', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
     lines = [palette('heading', 'AI provider')]
     for key, label in labels.items():
         if key in value:

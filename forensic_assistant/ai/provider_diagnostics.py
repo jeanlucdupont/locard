@@ -22,6 +22,7 @@ REASONS = {
     'provider_server_error': 'Provider service error',
     'unknown_provider_error': 'Provider request failed; no specific safe metadata available',
     'request_rejected': 'Provider rejected the request',
+    'structured_output_unsupported': 'Provider rejected the required structured-output mode',
     'unsupported_schema': 'Provider rejected structured-output parameters',
     'unsupported_parameter': 'Provider rejected unsupported request parameters',
     'response_parse_failed': 'Expected JSON object was not returned',
@@ -59,6 +60,41 @@ CLASSES = frozenset(('AuthenticationError', 'PermissionDeniedError', 'NotFoundEr
     'APIError', 'APIStatusError', 'BudgetExceededError'))
 
 
+PARAMETERS = frozenset(('response_format', 'response_format.type', 'response_format.json_schema',
+    'json_schema', 'max_tokens', 'max_completion_tokens', 'temperature', 'tools', 'tool_choice',
+    'stream', 'timeout', 'model', 'messages', 'api_base', 'base_url'))
+FEATURE_FLAGS = ('json_schema', 'tools', 'tool_choice', 'streaming', 'timeout', 'temperature',
+                 'custom_endpoint', 'extra_headers')
+
+
+def safe_features(value):
+    if type(value) is not dict: return {}
+    result = {key:value[key] for key in FEATURE_FLAGS if type(value.get(key)) is bool}
+    for key, choices in (('structured_output', ('json_schema', 'json_object', 'text', 'unset')),
+                         ('max_token_parameter', ('max_tokens', 'max_completion_tokens', 'unset')),
+                         ('provider_route', tuple(settings.PROVIDERS)),
+                         ('provider_prefix', tuple(settings.PROVIDERS))):
+        item = value.get(key)
+        if type(item) is str and item in choices: result[key] = item
+    return result
+
+
+def request_features(kwargs):
+    """Actual Locard-to-LiteLLM argument features, never contents or arbitrary keys."""
+    response = kwargs.get('response_format')
+    response = response if type(response) is dict else {}
+    model = kwargs.get('model', '')
+    return safe_features(dict(structured_output=response.get('type', 'unset'),
+        json_schema='json_schema' in response, tools=bool(kwargs.get('tools')),
+        tool_choice='tool_choice' in kwargs, streaming=kwargs.get('stream') is True,
+        timeout='timeout' in kwargs, temperature='temperature' in kwargs,
+        custom_endpoint=any(key in kwargs for key in ('api_base', 'base_url')),
+        extra_headers='extra_headers' in kwargs,
+        max_token_parameter=next((key for key in ('max_tokens', 'max_completion_tokens') if key in kwargs), 'unset'),
+        provider_route=kwargs.get('custom_llm_provider'),
+        provider_prefix=model.split('/', 1)[0] if type(model) is str else None))
+
+
 def category_name(value):
     value = ALIASES.get(value, value) if type(value) is str else None
     return value if value in REASONS else 'unknown_provider_error'
@@ -74,6 +110,10 @@ def safe_metadata(value):
         item = value.get(key)
         if type(item) is str and len(item) <= 64 and item in CODES:
             result[key] = item
+    parameter = value.get('rejected_parameter')
+    if type(parameter) is str and parameter in PARAMETERS: result['rejected_parameter'] = parameter
+    features = safe_features(value.get('request_features'))
+    if features: result['request_features'] = features
     name = value.get('exception_class')
     if type(name) is str and name in CLASSES: result['exception_class'] = name
     if value.get('retry_after_present') is True: result['retry_after_present'] = True
@@ -99,7 +139,7 @@ def error_metadata(exc):
     status = getattr(exc, 'status_code', None)
     if type(status) is not int: status = getattr(response, 'status_code', None)
     value = {'http_status':status, 'exception_class':type(exc).__name__,
-             'provider_code':getattr(exc, 'code', None), 'provider_type':getattr(exc, 'type', None)}
+             'provider_code':getattr(exc, 'code', None), 'provider_type':getattr(exc, 'type', None), 'rejected_parameter':getattr(exc, 'param', None)}
     body = getattr(exc, 'body', None)
     if type(body) is not dict:
         # Read only an already-buffered, bounded response. Never call network/read methods.
@@ -111,6 +151,7 @@ def error_metadata(exc):
     if type(body) is dict:
         error = body.get('error', body)
         if type(error) is dict:
+            if value['rejected_parameter'] is None: value['rejected_parameter'] = error.get('param')
             for field in ('code', 'type'):
                 if value['provider_'+field] is None: value['provider_'+field] = error.get(field)
     headers = getattr(response, 'headers', None)
@@ -133,6 +174,8 @@ def classify(exc):
     if status == 401 or name == 'AuthenticationError': return 'authentication_failed'
     if status is not None and status >= 500: return 'provider_server_error'
     specific = CODES.get(info.get('provider_code'))
+    if (specific in ('unsupported_parameter', 'unsupported_schema') or name == 'UnsupportedParamsError') and info.get('rejected_parameter') in ('response_format', 'response_format.type', 'response_format.json_schema', 'json_schema'):
+        return 'structured_output_unsupported'
     if specific: return specific
     if status == 403 or name == 'PermissionDeniedError': return 'authorization_failed'
     specific = CODES.get(info.get('provider_type'))
@@ -196,8 +239,12 @@ def render(text):
         rows.append('  Model: ' + safe_text(redact(model)))
         rows.append('  Operation: ' + ('handshake' if value.get('operation') == 'handshake' else 'request'))
         rows.append('  Stage: ' + (value['stage'] if type(value.get('stage')) is str and value['stage'] in STAGES else 'provider_request'))
-        labels = {'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
+        labels = {'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
-        for key, item in safe_metadata(value).items(): rows.append('  ' + labels[key] + ': ' + str(item))
+        for key, item in safe_metadata(value).items():
+            if key == 'request_features':
+                rows.append('  Request features:')
+                for feature, state in item.items(): rows.append('    ' + feature + ': ' + str(state).lower())
+            else: rows.append('  ' + labels[key] + ': ' + str(item))
         rows.extend(('  Category: ' + category, '  Reason: ' + REASONS[category], ''))
     return '\n'.join(rows).rstrip() if rows else 'No cloud provider diagnostics are available.'

@@ -5,10 +5,10 @@ import os
 import sys
 
 from .settings import PROVIDERS
-from .provider_diagnostics import ProviderFailure, classify, error_metadata
+from .provider_diagnostics import ProviderFailure, classify, error_metadata, request_features
 
 
-def generate(request, sdk):
+def request_kwargs(request):
     provider = request['provider']
     if provider not in PROVIDERS or provider == 'local':
         raise ValueError('Invalid cloud provider')
@@ -17,11 +17,30 @@ def generate(request, sdk):
                   custom_llm_provider=provider, api_key=os.environ[PROVIDERS[provider][1]],
                   messages=request['messages'], stream=False, max_tokens=64 if request.get('handshake') is True else 1024,
                   timeout=request['timeout'], num_retries=0, drop_params=False)
-    if request.get('schema'):
+    if request.get('handshake') is True and provider == 'deepseek':
+        # DeepSeek /chat/completions documents text/json_object, not json_schema.
+        # This selection is synthetic-handshake-only; never retry or downgrade inference.
+        kwargs['response_format'] = {'type': 'json_object'}
+    elif request.get('schema'):
         kwargs['response_format'] = {'type': 'json_schema', 'json_schema': {
             'name': 'forensic_analysis', 'strict': True, 'schema': request['schema']}}
     else:
         kwargs['response_format'] = {'type': 'json_object'}
+    return kwargs
+
+
+def generate(request, sdk):
+    kwargs = request_kwargs(request)
+    try:
+        return complete(kwargs, sdk)
+    except Exception as exc:
+        metadata = {**error_metadata(exc), 'request_features': request_features(kwargs)}
+        raise ProviderFailure(classify(exc), exc.stage if isinstance(exc, ProviderFailure) else
+                              'timeout' if classify(exc) == 'timeout' else 'provider_request',
+                              metadata=metadata) from None
+
+
+def complete(kwargs, sdk):
     result = sdk.completion(**kwargs)
     try:
         choice = result.choices[0]

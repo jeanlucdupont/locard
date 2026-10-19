@@ -161,7 +161,7 @@ def test_worker_error_ipc_contains_category_only(monkeypatch,capsys):
         sys.stdout,sys.stderr=output,error
         logging.disable(disabled)
     captured=capsys.readouterr()
-    assert json.loads(captured.out)=={'error':'authentication_failed','stage':'provider_request','metadata':{'exception_class':'AuthenticationError'}}
+    assert json.loads(captured.out)=={'error':'authentication_failed','stage':'provider_request','metadata':{'exception_class':'AuthenticationError','request_features':dict(structured_output='json_object',json_schema=False,tools=False,tool_choice=False,streaming=False,timeout=True,temperature=False,custom_endpoint=False,extra_headers=False,max_token_parameter='max_tokens',provider_route='deepseek',provider_prefix='deepseek')}}
     assert secret not in captured.out+captured.err
 
 

@@ -166,7 +166,7 @@ def test_worker_parent_metadata_round_trip(monkeypatch,capsys):
     raw=capsys.readouterr().out
     packet=json.loads(raw)
     assert packet['error']=='model_rejected'
-    assert packet['metadata']==dict(http_status=400,provider_code='model_not_found',provider_type='invalid_request_error',exception_class='BadRequestError',retry_after_present=True,retry_after_seconds=8)
+    assert packet['metadata']==dict(http_status=400,provider_code='model_not_found',provider_type='invalid_request_error',exception_class='BadRequestError',retry_after_present=True,retry_after_seconds=8,request_features=dict(structured_output='json_object',json_schema=False,tools=False,tool_choice=False,streaming=False,timeout=True,temperature=False,custom_endpoint=False,extra_headers=False,max_token_parameter='max_tokens',provider_route='deepseek',provider_prefix='deepseek'))
     assert secret not in raw and 'FORBIDDEN BODY' not in raw and 'RAW EXCEPTION' not in raw
     class Process:
         pid=12345;returncode=0

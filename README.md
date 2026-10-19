@@ -2117,7 +2117,7 @@ under that temporary directory; no model or executable is copied there.
 Cloud interactive startup performs one evidence-free readiness check after case
 selection. Changing provider/model in human configuration runs a new check. Local
 startup stays lazy. The fixed request asks only for `{"status":"ok"}` with a strict
-object schema, 64 output tokens and a 15-second timeout, with no tools, retries or
+locally validated object contract, 64 output tokens and a 15-second timeout, with no tools, retries or
 fallback. It contains no case data. Failure does not prevent deterministic commands.
 Readiness is cached only in the current process for the selected provider/model/key;
 `ai status` does not send another request. A successful check confirms this synthetic
@@ -2140,3 +2140,46 @@ categories. A bare 404 remains a generic request rejection: it does not prove th
 model identifier is wrong. Model-specific classification requires structured metadata.
 Model identifiers remain exactly as configured. Generic investigation
 termination is displayed as **AI model failure**; its JSON code remains unchanged.
+
+DeepSeek handshake/request-shape diagnostics (6.69 patch):
+
+All cloud calls use `ModelBackend` and the same isolated LiteLLM worker. The
+handshake calls `_cloud` with `handshake=True`; advisory calls `complete` with its
+existing schema; the bounded controller calls `complete` with its existing grammar.
+The worker supplies `model`, `custom_llm_provider`, `api_key`, `messages`,
+`response_format`, `stream=False`, `max_tokens`, `timeout`, `num_retries=0`, and
+`drop_params=False`. Locard supplies no temperature, tools, tool_choice, extra_headers,
+api_base/base_url or other provider-specific parameters. SDK transport transformations
+and its default endpoint are separate from these Locard-to-LiteLLM arguments.
+
+| Call | Response format | Output budget | Timeout |
+|---|---|---|---|
+| DeepSeek synthetic handshake | json_object; exact local validation | 64 | 15 seconds |
+| Other cloud synthetic handshake | strict json_schema; exact local validation | 64 | 15 seconds |
+| Advisory | existing strict json_schema | 1024 | existing remaining advisory deadline |
+| Bounded investigation | existing strict json_schema | 1024 | existing remaining investigation/tool deadline |
+
+User configuration `deepseek-flash` remains unchanged; the worker qualifies it as
+`deepseek/deepseek-flash`, with `custom_llm_provider=deepseek`, following
+[LiteLLM routing](https://docs.litellm.ai/docs/providers/deepseek).
+The [DeepSeek Chat Completions reference](https://api-docs.deepseek.com/api/create-chat-completion/)
+lists text/json_object response formats, unlike its separate Responses API. The old
+handshake requested json_schema. This establishes a documented incompatibility,
+not proof of the cause of a particular historical 400 without its structured error.
+
+DeepSeek's handshake now selects JSON-object mode directly, never retrying a failed
+strict request. No plain-text fallback or second compatibility probe is performed.
+The returned JSON must still be exactly `{"status":"ok"}` with no duplicate keys or
+extra fields. Normal forensic requests remain strict and never silently downgrade.
+Handshake success reports connection/model readiness separately from
+`Locard compatibility: not_verified`; it does not prove the normal forensic contract
+is supported. A normal request may still fail and deterministic commands remain usable.
+
+Failed worker requests record allowlisted request-feature flags: response-format mode,
+schema presence, tools/tool-choice/streaming, timeout/temperature presence, token
+parameter name, endpoint/header override presence, and provider route/prefix.
+These describe arguments entering LiteLLM, not a captured HTTP request. No message,
+schema body, key, header value or model response is recorded. An allowlisted rejected
+parameter can be retained from structured exception metadata. Only an explicit
+unsupported-code/class plus a schema parameter is classified as
+`structured_output_unsupported`; a bare 400 remains generic.

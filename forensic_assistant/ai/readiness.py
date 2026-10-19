@@ -34,12 +34,14 @@ def check(config, *, force=False):
     if not force and key in _cache: return _cache[key]
     started = time.monotonic()
     category, stage = 'ready', 'handshake'
+    connection = model = 'unverified'
     metadata = {}
     try:
         if not os.environ.get(settings.PROVIDERS[config['provider']][1], '').strip():
             raise ProviderFailure('missing_key', 'configuration')
         from .backend import ModelBackend
         response = ModelBackend(config=config, timeout=TIMEOUT)._cloud(MESSAGES, SCHEMA, timeout=TIMEOUT, handshake=True)
+        connection = model = 'ready'
         try:
             def pairs(items):
                 result = {}
@@ -62,7 +64,8 @@ def check(config, *, force=False):
     except (OSError, ValueError):
         category, stage = 'unknown_provider_error', 'provider_request'
     result = dict(provider_readiness='ready' if category == 'ready' else 'unavailable',
-                  readiness_reason=REASONS[category], readiness_stage=stage, readiness_category=category)
+                  readiness_reason=REASONS[category], readiness_stage=stage, readiness_category=category, connection_readiness=connection, model_readiness=model,
+                  locard_compatibility='not_verified')
     if "http_status" in metadata: result["http_status"] = metadata["http_status"]
     record(config['provider'], config['model'], stage, category, time.monotonic()-started, operation="handshake", metadata=metadata)
     _cache.clear()  # Current configuration only; no cross-session/key history.
@@ -88,9 +91,10 @@ def present(config, args=None, *, force=False):
     print('  API key: ' + ('missing' if missing else 'available'))
     if ready:
         print('  Connection: OK\n  Model: accepted\n  Response check: OK')
+        print('  Locard compatibility: not verified; normal requests still require strict structured output.')
     else:
         summary = {'model_rejected':'Model: rejected', 'authentication_failed':'Authentication: failed',
                    'authorization_failed':'Access: denied'}.get(result['readiness_category'], result['readiness_reason'] + '.')
         print(palette('warning', '  ' + summary))
         if missing: print('  Set ' + variable + ' and retry.')
-    print(palette('success' if ready else 'warning', 'AI ready.' if ready else 'AI provider unavailable; deterministic commands remain available.'))
+    print(palette('success' if ready else 'warning', 'Synthetic readiness check passed.' if ready else 'AI provider unavailable; deterministic commands remain available.'))
