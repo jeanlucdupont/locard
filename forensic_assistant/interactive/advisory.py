@@ -242,12 +242,14 @@ def advise(context, request):
             raise AdvisoryError('AI assistant timed out. Try a shorter request or check the local model.') from None
         raise AdvisoryError('AI assistant unavailable. The selected model could not provide a valid response.') from None
     preview = raw
+    diagnostic_stage = 'response_parse'
     reason = 'Response is not text or exceeds the response size limit.'
     try:
         if type(raw) is not str or len(raw.encode('utf-8')) > 16384:
             raise ValueError('Response bound')
         reason = 'Response is not valid JSON with unique keys.'
         result = json.loads(raw, object_pairs_hook=_pairs)
+        diagnostic_stage = 'structured_validation'
         from .advisory_display import PresentationError
         try:
             return validate_response(result, request)
@@ -256,6 +258,8 @@ def advise(context, request):
             raise
 
     except (ValueError, TypeError, RecursionError):
+        from forensic_assistant.ai.provider_diagnostics import validation
+        validation(client, diagnostic_stage)
         raise AdvisoryError(
             'AI assistant returned an invalid response. No action was taken.\n'
             + reason + '\nUnvalidated model response (diagnostic only, not evidence):\n'

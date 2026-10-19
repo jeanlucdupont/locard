@@ -1,7 +1,7 @@
-"""Owned persistent llama.cpp supervisor; control uses authenticated loopback JSON.
+"""Session-owned llama.cpp monitor; control uses authenticated loopback JSON.
 
-No PID read from disk is ever terminated. Only the supervisor's Popen/job handles
-can stop a child. Direct clients communicate with the owner, not the server PID.
+No PID read from disk is ever terminated. Only this process's Popen/job handles
+can stop a child. Bounded workers use authenticated control, not the server PID.
 """
 from contextlib import contextmanager
 import hashlib
@@ -26,22 +26,47 @@ from forensic_assistant.investigation_ai.lifecycle import WorkerJob, CleanupErro
 IDLE_SECONDS = 900
 
 
-def verify_independent():
-    """BREAKAWAY may leave an outer nested job intact; verify the actual result."""
-    if os.name != 'nt':
+# Only this process may own/stop this runtime. Disk metadata is not ownership.
+_worker = None
+_cancel = None
+_saved = None
+_finished = None
+_failure = []
+
+
+def close():
+    global _worker, _cancel, _saved, _finished
+    if _worker is None:
         return
-    import ctypes
-    from ctypes import wintypes as w
-    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
-    kernel.GetCurrentProcess.restype = w.HANDLE
-    kernel.IsProcessInJob.argtypes = [w.HANDLE, w.HANDLE, ctypes.POINTER(w.BOOL)]
-    inside = w.BOOL()
-    if not kernel.IsProcessInJob(kernel.GetCurrentProcess(), None, ctypes.byref(inside)) or inside.value:
-        raise ValueError('Persistent AI supervisor cannot escape the enclosing Windows job; use a launcher that permits breakaway.')
+    _cancel.set()
+    deadline = time.monotonic() + 15
+    while not _finished.is_set() and time.monotonic() < deadline:
+        try:
+            _finished.wait(timeout=min(.25, max(0, deadline-time.monotonic())))
+        except KeyboardInterrupt:
+            # A second Ctrl+C cannot abandon owned-process cleanup.
+            continue
+    if not _finished.is_set():
+        raise CleanupError('CLEANUP_LIMITATION: session AI runtime cleanup could not be confirmed')
+    _worker.join(timeout=1)
+    _worker = _cancel = _saved = _finished = None
+    if _failure and isinstance(_failure[0], CleanupError):
+        raise _failure[0]
+
+
+def _exit_cleanup():
+    try:
+        close()
+    except CleanupError:
+        print('CLEANUP_LIMITATION: session AI runtime cleanup could not be confirmed', file=sys.stderr)
+
+
+import atexit
+atexit.register(_exit_cleanup)
 
 
 def clean_environment():
-    # No provider credentials, proxy overrides or SDK telemetry settings in daemon.
+    # No provider credentials, proxy overrides or SDK telemetry settings in the managed child.
     keep = ('SYSTEMROOT', 'WINDIR', 'PATH', 'TEMP', 'TMP', 'LOCALAPPDATA', 'USERPROFILE',
             'APPDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'COMSPEC')
     return {k: v for k, v in os.environ.items() if k.upper() in keep}
@@ -151,11 +176,7 @@ def external(config):
 
 def status(config=None):
     config = settings.load() if config is None else config
-    try:
-        saved = state()
-    except (OSError, ValueError):
-        logging.getLogger(__name__).debug('Unreadable or invalid runtime metadata')
-        saved = None
+    saved = _saved
     if saved:
         try:
             result = request(saved, 'status')
@@ -180,91 +201,54 @@ def acquire(config, phase=None, confirm=None):
 
 
 def stop():
-    saved = state()
-    if not saved:
-        return {'runtime': 'stopped'}
-    try:
-        result = request(saved, 'stop')
-        deadline = time.monotonic() + 8
-        while time.monotonic() < deadline:
-            current = state()
-            if not current or current.get('instance') != saved['instance']:
-                return {'runtime': 'stopped'}
-            time.sleep(.05)
-        raise CleanupError('CLEANUP_LIMITATION: owned runtime shutdown could not be confirmed')
-    except (OSError, ValueError, http.client.HTTPException):
-        raise ValueError('Managed runtime is unavailable; no process was terminated by PID.') from None
+    if _saved and _worker and _worker.is_alive():
+        request(_saved, 'stop')  # Active leases still prevent explicit shutdown.
+    close()
+    return {'runtime': 'stopped'}
 
 
 def ensure(config, phase=None):
+    global _worker, _cancel, _saved, _finished
     config = settings.validate(config)
-    deadline = time.monotonic() + config['startup_seconds']
-    with settings.private_root() as root:
-        while True:
-            try:
-                with lock(root / 'startup.lock'):
-                    saved = state()
-                    if saved:
-                        try:
-                            current = request(saved, 'status')
-                        except (OSError, ValueError, http.client.HTTPException):
-                            current = None
-                        if current:
-                            if current.get('config_identity') != identity(config):
-                                raise ValueError('Managed runtime uses different settings. Run ai stop before changing the running model.')
-                            return saved
-                    argv(config, config['port'])  # Validate before starting a supervisor.
-                    if phase: phase('Starting local AI...')
-                    # Explicit breakaway from the launcher's job; never silently
-                    # fall back to a supervisor whose lifetime belongs to a client.
-                    flags = (subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP |
-                             subprocess.CREATE_BREAKAWAY_FROM_JOB) if os.name == 'nt' else 0
-                    process = subprocess.Popen([sys.executable, '-B', '-m', 'forensic_assistant.ai.runtime'],
-                        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        env=clean_environment(), creationflags=flags, close_fds=True, start_new_session=os.name != 'nt',
-                        cwd=str(Path(__file__).resolve().parents[2]))
-                    cancellation = root / ('cancel-' + secrets.token_hex(16))
-                    ready = False
-                    try:
-                        process.stdin.write(json.dumps({'config': config, 'cancel': cancellation.name}).encode())
-                        process.stdin.close()
-                        if phase: phase('Waiting for local AI...')
-                        while time.monotonic() < deadline:
-                            if process.poll() is not None:
-                                raise ValueError('Local AI startup failed. Check executable/model settings, port availability, and Windows job breakaway restrictions. See ai logs.')
-                            latest = state()
-                            if latest and latest != saved:
-                                try:
-                                    current = request(latest, 'status')
-                                    if current.get('config_identity') == identity(config) and current.get('runtime') == 'running':
-                                        ready = True
-                                        return latest
-                                except (OSError, ValueError, http.client.HTTPException):
-                                    pass
-                            time.sleep(.1)
-                        raise ValueError('Local AI startup timed out')
-                    finally:
-                        if not ready:
-                            if not process.stdin.closed:
-                                process.stdin.close()
-                            # Cooperative cancellation lets the supervisor close its
-                            # own job even during model loading; never kill a saved PID.
-                            cancellation.touch(exist_ok=False)
-                            try:
-                                process.wait(timeout=8)
-                            except subprocess.TimeoutExpired:
-                                raise CleanupError('CLEANUP_LIMITATION: local startup cleanup could not be confirmed') from None
-                            finally:
-                                if process.poll() is not None:
-                                    cancellation.unlink(missing_ok=True)
-            except BlockingIOError:
-                pass
-            except OSError as exc:
-                if getattr(exc, 'winerror', None) not in (33, 36):
-                    raise
-            if time.monotonic() >= deadline:
-                raise ValueError('Another local AI startup is still in progress')
-            time.sleep(.1)
+    if _worker is not None:
+        if _worker.is_alive() and _saved:
+            if request(_saved, 'status').get('config_identity') != identity(config):
+                raise ValueError('Managed runtime uses different settings. Run ai stop first.')
+            return _saved
+        close()
+    argv(config, config['port'])
+    if phase: phase('Starting local AI...')
+    _cancel = threading.Event()
+    _finished = threading.Event()
+    _failure.clear()
+    instance = secrets.token_hex(16)
+    def monitor():
+        try:
+            serve(config, cancelled_event=_cancel, instance_id=instance)
+        except BaseException as exc:
+            _failure.append(exc)
+        finally:
+            _finished.set()
+    _worker = threading.Thread(target=monitor, daemon=True, name='Locard session AI runtime')
+    _worker.start()
+    ready = False
+    try:
+        deadline = time.monotonic() + config['startup_seconds']
+        while time.monotonic() < deadline:
+            if not _worker.is_alive():
+                raise ValueError('Local AI startup failed. Check executable/model settings and port availability. See ai logs.')
+            latest = state()
+            if latest and latest.get('instance') == instance:
+                current = request(latest, 'status')
+                if current.get('runtime') == 'running':
+                    _saved = latest
+                    ready = True
+                    return latest
+            time.sleep(.05)
+        raise ValueError('Local AI startup timed out')
+    finally:
+        if not ready:
+            close()
 
 
 def model_identity(port):
@@ -287,7 +271,7 @@ def model_ready(port, model):
     return Path(model).name in [name.replace('\\', '/').split('/')[-1] for name in model_identity(port)]
 
 
-def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
+def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None, cancelled_event=None, instance_id=None):
     # idle_seconds is a test injection only; production CLI has no timeout override.
     with settings.private_root() as root, lock(root / 'supervisor.lock'):
         with socket.socket() as probe:
@@ -295,8 +279,8 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
             port = probe.getsockname()[1]
         cancellation = local_path(root / cancel) if cancel else None
         def cancelled():
-            return cancellation is not None and cancellation.exists()
-        token, instance = secrets.token_hex(32), secrets.token_hex(16)
+            return (cancelled_event is not None and cancelled_event.is_set()) or (cancellation is not None and cancellation.exists())
+        token, instance = secrets.token_hex(32), instance_id or secrets.token_hex(16)
         child = None
         reader = None
         job = None
@@ -380,36 +364,25 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
                 if not leases and now - last_use >= idle_seconds: break
                 server.handle_request()
         finally:
-            server.server_close()
-            if job: job.close()
-            if child and child.poll() is None:
-                child.terminate()
-            if child: child.wait(timeout=5)
+            cleanup_failed = False
+            for action in (server.server_close, lambda: job.close() if job else None,
+                           lambda: child.terminate() if child and child.poll() is None else None,
+                           lambda: child.wait(timeout=5) if child else None):
+                try:
+                    action()
+                except Exception:
+                    cleanup_failed = True
             if reader:
                 reader.join(timeout=5)
-                if reader.is_alive():
-                    raise CleanupError('CLEANUP_LIMITATION: runtime diagnostic reader did not stop')
+                cleanup_failed = cleanup_failed or reader.is_alive()
             elif child and child.stdout:
                 child.stdout.close()
+            if cleanup_failed:
+                raise CleanupError('CLEANUP_LIMITATION: session AI runtime cleanup could not be confirmed')
             from . import diagnostics
+            try:
+                if published and (state() or {}).get('instance') == instance:
+                    local_path(root / 'runtime.json').unlink()
+            except (OSError, ValueError):
+                raise CleanupError('CLEANUP_LIMITATION: runtime state cleanup could not be confirmed') from None
             diagnostics.record('stopped' if published else 'failed')
-            if published and (state() or {}).get('instance') == instance:
-                local_path(root / 'runtime.json').unlink()
-
-
-if __name__ == '__main__':
-    try:
-        value = json.loads(sys.stdin.buffer.read(65537))
-        import re
-        if not re.fullmatch(r'cancel-[0-9a-f]{32}', value['cancel']):
-            raise ValueError('Invalid cancellation identifier')
-        sys.stdin.close()  # Bootstrap EOF is not a lifetime/control channel.
-        try:
-            verify_independent()
-        except ValueError:
-            from .diagnostics import record
-            record('job_rejected')
-            raise
-        serve(settings.validate(value['config']), cancel=value['cancel'])
-    except BaseException:
-        sys.exit(1)

@@ -48,7 +48,7 @@ runtime.serve(config,idle_seconds=float(sys.argv[2]),cancel=cancel)
     yield start
     for proc in children:
         if proc.poll() is None:
-            try:runtime.stop()
+            try:runtime.request(runtime.state(),'stop')
             except (OSError,ValueError):pass
             try:proc.wait(timeout=7)
             except subprocess.TimeoutExpired:proc.kill();proc.wait(timeout=3)
@@ -67,21 +67,13 @@ def ready(proc):
     pytest.fail('supervisor readiness timeout')
 
 
-def test_separate_clients_reuse_and_owned_stop(manager):
+def test_foreign_session_is_never_owned(manager):
     proc=manager()
     saved=ready(proc)
-    assert runtime.ensure(proc.config)['instance']==saved['instance']
-    for _ in range(2):
-        result=subprocess.run([sys.executable,'-B','-c',
-            'from forensic_assistant.ai.runtime import status; import json; print(json.dumps(status()))'],
-            capture_output=True,text=True,timeout=5,check=True)
-        value=json.loads(result.stdout)
-        assert value['runtime']=='running' and value['owned'] is True
-        assert value['runtime_reported_models']==['synthetic.gguf']
-        assert value['endpoint'].startswith('http://127.0.0.1:')
-        assert proc.poll() is None
-    assert runtime.state()['instance']==saved['instance']
-    runtime.stop()
+    assert runtime.status(proc.config)['runtime']=='stopped'  # Port 0: no external discovery.
+    runtime.close()
+    assert proc.poll() is None
+    runtime.request(saved,'stop')
     assert proc.wait(timeout=5)==0
     assert runtime.state() is None
 
@@ -152,128 +144,109 @@ def test_startup_cancellation_closes_owned_listener(manager):
 
 
 
-def test_auto_start_survives_requesting_cli_exit_and_reuses(manager,tmp_path):
-    model=tmp_path/'synthetic.gguf'
-    model.write_bytes(b'synthetic only')
-    config={**settings.defaults(),'executable':sys.executable,'model_path':str(model),'port':0,'startup_seconds':10}
-    client=tmp_path/'client.py'
-    client.write_text("""import json,sys,subprocess
-from forensic_assistant.ai import runtime
-original=subprocess.Popen
-def spawn(command,**kwargs):
- return original([command[0],'-B',sys.argv[1],sys.argv[2],'15',''],**kwargs)
-runtime.subprocess.Popen=spawn
-saved=runtime.ensure(json.loads(sys.argv[3]))
-print(saved['instance'])
-""")
-    command=[sys.executable,'-B',str(client),str(manager.entry),str(manager.fake),json.dumps(config)]
+def test_session_reuse_stop_and_exit(manager, tmp_path, monkeypatch):
+    config={**settings.defaults(),'port':0,'model_path':str(tmp_path/'synthetic.gguf'),'startup_seconds':5}
+    monkeypatch.setattr(runtime,'argv',lambda config,port:[sys.executable,str(manager.fake),str(port)])
     try:
-        first=subprocess.run(command,capture_output=True,text=True,timeout=15,check=True)
-        assert runtime.status()['runtime']=='running'
-        second=subprocess.run(command,capture_output=True,text=True,timeout=15,check=True)
-        assert first.stdout.strip()==second.stdout.strip()==runtime.state()['instance']
-    finally:
-        if runtime.state():runtime.stop()
+        saved=runtime.ensure(config)
+        assert runtime.ensure(config)['instance']==saved['instance']
+        assert runtime.status(config)['ownership']=='Locard-managed'
+        lease=runtime.request(saved,'begin',seconds=5)['lease']
+        with pytest.raises(ValueError):runtime.stop()
+        runtime.request(saved,'end',lease=lease,success=True)
+        runtime.stop()
+        assert runtime.state() is None
+        newer=runtime.ensure(config)
+        assert newer['instance']!=saved['instance']
+        runtime.close()
+        assert runtime.state() is None
+        with pytest.raises(OSError):runtime.request(newer,'status')
+    finally:runtime.close()
+
+
+def test_process_exit_cleans_server_and_state(manager,tmp_path):
+    config={**settings.defaults(),'port':0,'model_path':str(tmp_path/'synthetic.gguf'),'startup_seconds':5}
+    code="""import json,sys
+from forensic_assistant.ai import runtime
+runtime.argv=lambda config,port:[sys.executable,sys.argv[1],str(port)]
+saved=runtime.ensure(json.loads(sys.argv[2]))
+print(json.dumps(saved))
+"""
+    result=subprocess.run([sys.executable,'-B','-c',code,str(manager.fake),json.dumps(config)],capture_output=True,text=True,timeout=15)
+    assert result.returncode==0,result.stderr
+    saved=json.loads(result.stdout)
     assert runtime.state() is None
+    with pytest.raises(OSError):runtime.request(saved,'status')
+    assert runtime.IDLE_SECONDS==900
 
 
-
-def test_interrupted_startup_closes_config_pipe_and_waits(tmp_path,monkeypatch):
-    import io
-    monkeypatch.setenv('LOCALAPPDATA',str(tmp_path))
-    monkeypatch.setattr(runtime,'argv',lambda *a:[])
-    class Pipe(io.BytesIO):
-        def write(self,data):raise KeyboardInterrupt()
-    class Process:
-        stdin=Pipe()
-        waited=False
-        def wait(self,timeout):
-            assert self.stdin.closed
-            assert list(settings.root().glob('cancel-*'))
-            self.waited=True
-        def poll(self):return 0 if self.waited else None
-    process=Process()
-    monkeypatch.setattr(runtime.subprocess,'Popen',lambda *a,**k:process)
-    with pytest.raises(KeyboardInterrupt):runtime.ensure(settings.defaults())
-    assert process.waited and not list(settings.root().glob('cancel-*'))
-
-@pytest.mark.skipif(os.name != 'nt', reason='Windows launcher Job Object boundary')
-@pytest.mark.parametrize('entry_launcher,cached_legacy', [(False,False),(True,False),(True,True)])
-def test_supervisor_breaks_away_from_launcher_job(manager, tmp_path, entry_launcher, cached_legacy):
-    import base64
-    import shutil
-    shell = shutil.which('powershell')
-    if not shell: pytest.skip('Windows PowerShell unavailable')
-    model = tmp_path/'synthetic.gguf'; model.write_bytes(b'synthetic')
-    config = {**settings.defaults(), 'executable':sys.executable, 'model_path':str(model), 'port':0, 'startup_seconds':10}
-    config_file = tmp_path/'config-input.json'; config_file.write_text(json.dumps(config))
-    client = tmp_path/'client.py'
-    client.write_text('''import json,sys,subprocess
-from forensic_assistant.ai import runtime
-original=subprocess.Popen
-def spawn(command,**kwargs):
- assert kwargs['close_fds'] is True
- assert kwargs['creationflags'] & subprocess.CREATE_NO_WINDOW
- assert kwargs['creationflags'] & subprocess.CREATE_BREAKAWAY_FROM_JOB
- return original([command[0],'-B',sys.argv[1],sys.argv[2],'30',''],**kwargs)
-runtime.subprocess.Popen=spawn
-saved=runtime.ensure(json.load(open(sys.argv[3])))
-print(saved['instance'])
-''')
-    client.write_text("import sys; sys.path.insert(0, %r)\n" % str(Path(__file__).resolve().parents[1]) + client.read_text())
-    interpreter = os.environ.get("LOCARD_TEST_PYTHON", sys.executable)
-    executable = interpreter
-    arguments = ['-B',client,manager.entry,manager.fake,config_file]
-    if entry_launcher:
-        # Match pip's real console entry-point executable, including its job.
-        import io, zipfile
-        from pip._vendor import distlib
-        archive = io.BytesIO()
-        with zipfile.ZipFile(archive, 'w') as bundle:
-            bundle.writestr('__main__.py', client.read_text())
-        executable = tmp_path/'locard-fixture.exe'
-        launcher = Path(distlib.__file__).parent/'t64.exe'
-        executable.write_bytes(launcher.read_bytes() + ('#!'+interpreter+'\n').encode() + archive.getvalue())
-        arguments = [manager.entry,manager.fake,config_file]
-    def literal(value): return "'" + str(value).replace("'", "''") + "'"
-    root = Path(__file__).resolve().parents[1]
-    code = '. '+literal(root/'scripts/windows-process.ps1')+'; $r=Invoke-LocardProcess -Interactive -Executable '+literal(executable)+' -Arguments @('+','.join(map(literal, arguments))+'); exit $r.ExitCode'
-    if cached_legacy:
-        old = (root/'scripts/windows-process.cs').read_text().replace('if(!cancelOnSignal) limits.basic.flags |= 0x800;', '')
-        code = 'Add-Type -TypeDefinition '+literal(old)+'; '+code
-    encoded=base64.b64encode(code.encode('utf-16le')).decode()
-    try:
-        first=subprocess.run([shell,'-NoProfile','-NonInteractive','-EncodedCommand',encoded], capture_output=True,text=True,timeout=25)
-        assert first.returncode == 0, first.stderr
-        saved=runtime.state()
-        assert saved and runtime.request(saved,'status')['runtime']=='running'
-        second=subprocess.run([shell,'-NoProfile','-NonInteractive','-EncodedCommand',encoded],capture_output=True,text=True,timeout=25)
-        assert second.returncode == 0, second.stderr
-        assert first.stdout.strip() == second.stdout.strip() == saved['instance']
-        assert runtime.state()['instance'] == saved['instance']
-        assert runtime.request(saved,'status')['active_configuration'] == saved['active_configuration']
-        assert saved['active_configuration']['context'] == 4096
-    finally:
-        if runtime.state(): runtime.stop()
-
-
-def test_two_model_requests_reuse_owned_runtime(manager, monkeypatch):
+def test_two_model_requests_reuse_owned_runtime(manager,tmp_path,monkeypatch):
     from forensic_assistant.ai import backend
-    proc = manager(idle=10)
-    saved = ready(proc)
-    calls = []
+    config={**settings.defaults(),'port':0,'model_path':str(tmp_path/'synthetic.gguf'),'startup_seconds':5}
+    monkeypatch.setattr(runtime,'argv',lambda config,port:[sys.executable,str(manager.fake),str(port)])
+    calls=[]
     class SyntheticClient:
-        def __init__(self, endpoint, timeout):
-            calls.append(endpoint)
-            self.last_metadata = {}
-        def complete(self, messages, schema): return '{"synthetic":true}'
-    monkeypatch.setattr(backend, 'LocalClient', SyntheticClient)
-    for _ in range(2):
-        client = backend.ModelBackend(config=proc.config)
-        assert client.complete([{'role':'user','content':'synthetic'}]) == '{"synthetic":true}'
-        assert client.managed['instance'] == saved['instance']
-    assert len(calls) == 2 and calls[0] == calls[1]
-    assert runtime.state()['instance'] == saved['instance'] and proc.poll() is None
-    changed = {**proc.config, 'extra_options':['--flash-attn','on']}
-    assert runtime.status(changed)['restart_required'] is True
-    assert runtime.status(proc.config)['restart_required'] is False
+        def __init__(self,endpoint,timeout):
+            calls.append(endpoint);self.last_metadata={}
+        def complete(self,messages,schema):return '{"synthetic":true}'
+    monkeypatch.setattr(backend,'LocalClient',SyntheticClient)
+    try:
+        saved=runtime.ensure(config)
+        for _ in range(2):
+            client=backend.ModelBackend(config=config)
+            assert client.complete([{'role':'user','content':'synthetic'}])=='{"synthetic":true}'
+            assert client.managed['instance']==saved['instance']
+        assert len(calls)==2 and calls[0]==calls[1]
+        assert runtime.status({**config,'extra_options':['--flash-attn','on']})['restart_required']
+    finally:runtime.close()
+
+
+def test_cancelled_owned_startup_cleans_worker(manager,tmp_path,monkeypatch):
+    config={**settings.defaults(),'port':0,'model_path':str(tmp_path/'never-ready.gguf'),'startup_seconds':5}
+    monkeypatch.setattr(runtime,'argv',lambda config,port:[sys.executable,str(manager.fake),str(port)])
+    def interrupt():raise KeyboardInterrupt()
+    monkeypatch.setattr(runtime,'state',interrupt)
+    with pytest.raises(KeyboardInterrupt):runtime.ensure(config)
+    assert runtime._worker is None and runtime._saved is None
+
+
+@pytest.mark.skipif(os.name!='nt',reason='Windows launcher containment')
+def test_launcher_exit_cleans_runtime(manager,tmp_path):
+    import base64,shutil
+    shell=shutil.which('powershell')
+    if not shell:pytest.skip('Windows PowerShell unavailable')
+    config={**settings.defaults(),'port':0,'model_path':str(tmp_path/'synthetic.gguf'),'startup_seconds':5}
+    client=tmp_path/'session.py'
+    client.write_text("import sys;sys.path.insert(0,%r)\n" % str(Path(__file__).resolve().parents[1])+'''import json
+from forensic_assistant.ai import runtime
+runtime.argv=lambda config,port:[sys.executable,sys.argv[1],str(port)]
+saved=runtime.ensure(json.loads(sys.argv[2]))
+print(json.dumps(runtime.request(saved,'status')))
+''')
+    def literal(value):return "'"+str(value).replace("'","''")+"'"
+    helper=Path(__file__).resolve().parents[1]/'scripts/windows-process.ps1'
+    code='. '+literal(helper)+'; $r=Invoke-LocardProcess -Interactive -Executable '+literal(sys.executable)+' -Arguments @('+','.join(map(literal,['-B',client,manager.fake,json.dumps(config)]))+'); exit $r.ExitCode'
+    encoded=base64.b64encode(code.encode('utf-16le')).decode()
+    result=subprocess.run([shell,'-NoProfile','-NonInteractive','-EncodedCommand',encoded],capture_output=True,text=True,timeout=25)
+    assert result.returncode==0,result.stderr
+    value=json.loads(result.stdout)
+    assert runtime.state() is None
+    port=int(value['endpoint'].rsplit(':',1)[1])
+    with socket.socket() as probe:probe.bind(('127.0.0.1',port))
+
+
+@pytest.mark.skipif(os.name!='nt',reason='Windows job cleanup')
+def test_cleanup_failure_is_surfaced(manager,tmp_path,monkeypatch):
+    config={**settings.defaults(),'port':0,'model_path':str(tmp_path/'synthetic.gguf'),'startup_seconds':5}
+    monkeypatch.setattr(runtime,'argv',lambda config,port:[sys.executable,str(manager.fake),str(port)])
+    original=runtime.WorkerJob
+    class FailingJob:
+        def __init__(self,pid):self.job=original(pid)
+        def close(self):
+            self.job.close()
+            raise OSError('synthetic cleanup verification failure')
+    monkeypatch.setattr(runtime,'WorkerJob',FailingJob)
+    saved=runtime.ensure(config)
+    with pytest.raises(runtime.CleanupError,match='CLEANUP_LIMITATION'):runtime.close()
+    assert runtime._worker is None
+    with pytest.raises(OSError):runtime.request(saved,'status')

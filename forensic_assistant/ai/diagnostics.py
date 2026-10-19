@@ -7,8 +7,7 @@ import time
 from . import settings
 from forensic_assistant.investigation_ai.storage import local_path
 
-MESSAGES = {'job_rejected': 'Persistent supervisor refused: an enclosing Windows job still controls its lifetime. Use a launcher that permits breakaway.',
-            'starting': 'Starting managed llama-server.',
+MESSAGES = {'starting': 'Starting managed llama-server.',
             'ready': 'Managed llama-server is ready.',
             'stopped': 'Managed llama-server stopped.',
             'error': 'llama-server reported an error; check model, executable and performance settings.',
@@ -17,15 +16,22 @@ MESSAGES = {'job_rejected': 'Persistent supervisor refused: an enclosing Windows
 
 
 def record(category):
+    line = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()) + ' ' + MESSAGES[category] + '\n'
+    append('llama-server.log', line)
+
+
+def append(filename, text):
+    if filename not in ('llama-server.log', 'provider.log'):
+        raise ValueError('Invalid diagnostic destination')
     with settings.private_root() as root:
-        path = local_path(root / 'llama-server.log')
+        path = local_path(root / filename)
         # Atomic replacement avoids following a redirected destination on append.
         previous = b''
         if path.exists():
             with path.open('rb') as stream:
                 stream.seek(max(0, path.stat().st_size - 32768))
                 previous = stream.read(32768)
-        line = (time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()) + ' ' + MESSAGES[category] + '\n').encode()
+        line = text.encode()
         import os
         import tempfile
         fd, temporary = tempfile.mkstemp(prefix='.log-', dir=root)
@@ -56,10 +62,12 @@ def drain(stream):
         stream.close()
 
 
-def tail():
-    path = local_path(settings.root() / 'llama-server.log')
+def tail(filename='llama-server.log'):
+    if filename not in ('llama-server.log', 'provider.log'):
+        raise ValueError('Invalid diagnostic destination')
+    path = local_path(settings.root() / filename)
     if not path.exists():
-        return 'No managed runtime diagnostics are available.'
+        return 'No cloud provider diagnostics are available.' if filename == 'provider.log' else 'No managed runtime diagnostics are available.'
     with path.open('rb') as stream:
         stream.seek(max(0, path.stat().st_size - 32768))
         text = stream.read(32768).decode('utf-8', errors='replace')

@@ -86,7 +86,12 @@ class ModelBackend:
             startup = {**self.config, 'startup_seconds': min(self.config['startup_seconds'], max(1, int(self.timeout)))}
             self.endpoint, self.managed = runtime.acquire(startup, phase, RESTART.get())
         elif self.provider_name != 'local':
-            settings.key(self.provider_name)
+            try:
+                settings.key(self.provider_name)
+            except ValueError:
+                from .provider_diagnostics import record
+                record(self.provider_name, self.model_name, 'configuration', 'missing_key')
+                raise
         return self
 
     def descriptor(self):
@@ -138,17 +143,30 @@ class ModelBackend:
                     # Lease expiry bounds orphaned clients, without stopping others.
                     pass
 
-    def _cloud(self, messages, schema, *, timeout=None):
+    def _cloud(self, messages, schema, *, timeout=None, handshake=False):
+        from .provider_diagnostics import ProviderFailure, record
+        started = time.monotonic()
+        try:
+            return self._cloud_request(messages, schema, timeout=timeout, handshake=handshake)
+        except ProviderFailure as exc:
+            record(self.provider_name, self.model_name, exc.stage, exc.category, time.monotonic()-started)
+            raise
+        except (OSError, ValueError):
+            record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
+            raise ProviderFailure('provider_failure') from None
+
+    def _cloud_request(self, messages, schema, *, timeout=None, handshake=False):
+        from .provider_diagnostics import ProviderFailure, REASONS, STAGES
         timeout = self.timeout if timeout is None else timeout
         from importlib.util import find_spec
         if find_spec('litellm') is None:
-            raise LLMError('Cloud AI requires the optional cloud dependencies: pip install "locard-forensics[cloud]"')
+            raise ProviderFailure('missing_dependency', 'configuration')
         variable = settings.PROVIDERS[self.provider_name][1]
         env = runtime.clean_environment()
         env[variable] = settings.key(self.provider_name)
         env.update(LITELLM_LOCAL_MODEL_COST_MAP='True', LITELLM_TELEMETRY='False', DO_NOT_TRACK='1')
         request = dict(provider=self.provider_name, model=self.model_name, messages=messages,
-                       schema=schema, timeout=timeout)
+                       schema=schema, timeout=timeout, handshake=handshake)
         process = subprocess.Popen([sys.executable, '-B', '-m', 'forensic_assistant.ai.cloud_worker'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
             cwd=str(Path(__file__).resolve().parents[2]),
@@ -157,16 +175,21 @@ class ModelBackend:
         try:
             job = WorkerJob(process.pid) if os.name == 'nt' else None
             output, _ = process.communicate(json.dumps(request).encode(), timeout=timeout)
-            if len(output) > 2 * 1024 * 1024 or process.returncode:
+            if process.returncode:
+                raise ProviderFailure('provider_failure')
+            if len(output) > 2 * 1024 * 1024:
                 raise ValueError()
             result = json.loads(output)
+            if type(result) is dict and set(result) == {'error', 'stage'}:
+                raise ProviderFailure(result['error'] if result['error'] in REASONS else 'provider_failure',
+                                      result['stage'] if result['stage'] in STAGES else 'provider_request')
             if set(result) != {'text', 'usage'}:
                 raise ValueError()
             return result
         except subprocess.TimeoutExpired:
-            raise LLMError('Cloud AI request timed out; no fallback was attempted') from None
+            raise ProviderFailure('timeout', 'timeout') from None
         except (ValueError, KeyError, TypeError):
-            raise LLMError('Cloud provider could not return a supported structured response; no fallback was attempted') from None
+            raise ProviderFailure('response_parse', 'response_parse') from None
         finally:
             if job: job.close()
             if process.poll() is None: process.kill()

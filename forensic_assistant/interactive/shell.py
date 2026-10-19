@@ -244,7 +244,15 @@ class Shell:
         if not self.startup():
             return 0
         from forensic_assistant.ai.cli import offer_setup
+        from forensic_assistant.ai import readiness, settings as ai_settings
+        readiness.reset()
         offer_setup(self.reader.read, self)
+        try:
+            config = ai_settings.load()
+            if readiness.status(config).get("provider_readiness") == "unchecked":
+                readiness.present(config, self)
+        except (OSError, ValueError):
+            print("AI configuration unavailable; deterministic commands remain available.")
         try:
             while True:
                 try:
@@ -420,7 +428,11 @@ class Shell:
                     # Release cyclic command-local objects; retain only schema metadata.
                     gc.collect()
         finally:
-            self.reader.clear()
+            from forensic_assistant.ai import runtime
+            try:
+                runtime.close()
+            finally:
+                self.reader.clear()
 
 
 def run(*, no_color=False):

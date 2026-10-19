@@ -5,6 +5,7 @@ import os
 import sys
 
 from .settings import PROVIDERS
+from .provider_diagnostics import ProviderFailure, classify
 
 
 def generate(request, sdk):
@@ -14,7 +15,7 @@ def generate(request, sdk):
     # Explicit provider + model, no router, fallback or provider-native tools.
     kwargs = dict(model=provider + '/' + request['model'],
                   custom_llm_provider=provider, api_key=os.environ[PROVIDERS[provider][1]],
-                  messages=request['messages'], stream=False, max_tokens=1024,
+                  messages=request['messages'], stream=False, max_tokens=64 if request.get('handshake') is True else 1024,
                   timeout=request['timeout'], num_retries=0, drop_params=False)
     if request.get('schema'):
         kwargs['response_format'] = {'type': 'json_schema', 'json_schema': {
@@ -22,16 +23,20 @@ def generate(request, sdk):
     else:
         kwargs['response_format'] = {'type': 'json_object'}
     result = sdk.completion(**kwargs)
-    choice = result.choices[0]
-    if choice.finish_reason not in ('stop', 'end_turn') or getattr(choice.message, 'tool_calls', None) or getattr(choice.message, 'function_call', None):
-        raise ValueError('Unsupported completion')
-    text = choice.message.content
-    if not isinstance(text, str) or not text.strip() or len(text.encode()) > 1024 * 1024:
-        raise ValueError('Invalid completion')
-    usage = getattr(result, 'usage', None)
-    return {'text': text, 'usage': {name: getattr(usage, name) for name in
-            ('prompt_tokens', 'completion_tokens', 'total_tokens')
-            if type(getattr(usage, name, None)) is int and 0 <= getattr(usage, name) <= 10000000}}
+    try:
+        choice = result.choices[0]
+        if choice.finish_reason not in ('stop', 'end_turn') or getattr(choice.message, 'tool_calls', None) or getattr(choice.message, 'function_call', None):
+            raise ProviderFailure('structured_validation', 'structured_validation')
+        text = choice.message.content
+        if not isinstance(text, str) or not text.strip() or len(text.encode()) > 1024 * 1024:
+            raise ProviderFailure('structured_validation', 'structured_validation')
+        usage = getattr(result, 'usage', None)
+        return {'text': text, 'usage': {name: getattr(usage, name) for name in
+                ('prompt_tokens', 'completion_tokens', 'total_tokens')
+                if type(getattr(usage, name, None)) is int and 0 <= getattr(usage, name) <= 10000000}}
+    except (AttributeError, IndexError, TypeError, UnicodeError):
+        raise ProviderFailure('structured_validation', 'structured_validation') from None
+
 
 
 def main():
@@ -55,8 +60,11 @@ def main():
             litellm.failure_callback = []
             result = generate(request, litellm)
         output.write(json.dumps(result))
-    except BaseException:
-        output.write('{"error":"Cloud provider could not return a supported response"}')
+    except BaseException as exc:
+        # Never include str(exc), response bodies, headers or request metadata.
+        category = classify(exc)
+        output.write(json.dumps({'error': category,
+                                 'stage': exc.stage if isinstance(exc, ProviderFailure) else 'timeout' if category == 'timeout' else 'provider_request'}))
     finally:
         output.flush()
 

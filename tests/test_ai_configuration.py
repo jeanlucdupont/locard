@@ -11,6 +11,8 @@ from test_interactive_shell import Input, case
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
+    from forensic_assistant.ai import readiness
+    monkeypatch.setattr(readiness, "present", lambda *a, **k: None)
     monkeypatch.setattr(runtime, 'external', lambda config: None)
     monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'appdata'))
     for _, variable in settings.PROVIDERS.values():

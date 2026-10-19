@@ -333,6 +333,9 @@ def _run(
                 except ValueError as exc:
                     if isinstance(exc, activity.AuditError):
                         raise
+                    from forensic_assistant.ai.provider_diagnostics import validation
+                    validation(client, 'response_parse' if validation_stage == 'proposal_parsing' else
+                               'grounding' if validation_stage == 'final_grounding' else 'structured_validation')
                     rejected_diagnostic = rejection_record(decoded, validation_stage, exc)
                     if rejected_diagnostic['category'] == 'GROUNDING_VIOLATION' and validation_stage == 'final_grounding':
                         state.final_grounding_rejections += 1

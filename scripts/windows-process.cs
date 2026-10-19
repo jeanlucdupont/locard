@@ -91,10 +91,7 @@ namespace Locard.Setup {
             uint code=1;
             try {
                 job=CreateJobObject(IntPtr.Zero,null); Check(job!=IntPtr.Zero);
-                // Only the interactive launcher permits an explicit breakaway.
-                // Normal children remain contained; installer jobs never allow it.
                 Limits limits=new Limits(); limits.basic.flags=0x2000;
-                if(!cancelOnSignal) limits.basic.flags |= 0x800;
                 Check(SetInformationJobObject(job,9,ref limits,Marshal.SizeOf(typeof(Limits))));
                 Startup startup=new Startup(); startup.cb=Marshal.SizeOf(typeof(Startup));
                 startup.flags=0x100; startup.input=GetStdHandle(-10);

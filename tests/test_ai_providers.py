@@ -86,7 +86,8 @@ def test_native_tool_response_rejected(monkeypatch):
     monkeypatch.setenv('OPENAI_API_KEY','synthetic-secret')
     sdk = SimpleNamespace(completion=lambda **kw: SimpleNamespace(choices=[SimpleNamespace(
         finish_reason='tool_calls', message=SimpleNamespace(content='', tool_calls=[{'name':'execute'}]))]))
-    with pytest.raises(ValueError):
+    from forensic_assistant.ai.provider_diagnostics import ProviderFailure
+    with pytest.raises(ProviderFailure, match='structured contract'):
         cloud_worker.generate(dict(provider='openai',model='synthetic',messages=[],schema={},timeout=1),sdk)
 
 

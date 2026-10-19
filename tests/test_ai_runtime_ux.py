@@ -182,10 +182,23 @@ def test_external_options_remain_configured_only(endpoint):
     assert 'restart required' not in text and 'manually to apply' not in text
 
 
-def test_quit_does_not_stop_runtime(tmp_path, monkeypatch):
+def test_quit_closes_session_owned_runtime(tmp_path, monkeypatch):
     from test_interactive_shell import Input, case
     from forensic_assistant.interactive.shell import Shell
     from forensic_assistant.interactive.state import State
-    monkeypatch.setattr(runtime, 'stop', lambda: pytest.fail('quit must not stop AI'))
+    closed = []
+    monkeypatch.setattr(runtime, 'close', lambda: closed.append(True))
     monkeypatch.setattr(runtime, 'external', lambda config: None)
     assert Shell(State(None), Input(str(case(tmp_path)), 'quit'), no_color=True).run() == 0
+
+    assert closed == [True]
+
+
+def test_external_survives_shell_exit(endpoint,tmp_path):
+    from test_interactive_shell import Input, case
+    from forensic_assistant.interactive.shell import Shell
+    from forensic_assistant.interactive.state import State
+    config={**settings.defaults(),'port':endpoint.server_port}
+    settings.save(config)
+    assert Shell(State(None),Input(str(case(tmp_path)),'quit'),no_color=True).run()==0
+    assert runtime.external(config)['ownership']=='external'

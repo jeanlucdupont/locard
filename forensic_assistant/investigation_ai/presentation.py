@@ -17,7 +17,7 @@ LABELS = {
     'FINGERPRINT_FAILURE': 'Evidence integrity calculation failed',
     'INITIAL_RETRIEVAL_FAILURE': 'Initial evidence lookup failed',
     'WORKER_START_FAILURE': 'Investigation could not start',
-    'MODEL_FAILURE': 'Local AI model failure',
+    'MODEL_FAILURE': 'AI model failure',
     'MAX_SECONDS': 'Investigation time limit reached',
     'STARTUP_TIMEOUT': 'Investigation startup timed out',
     'EVIDENCE_STATE_CHANGED': 'The live case changed during investigation; final acceptance stopped',

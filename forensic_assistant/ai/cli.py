@@ -16,7 +16,7 @@ def configure(commands):
     for name in ('provider', 'status', 'configure', 'start', 'stop', 'logs'):
         child = subs.add_parser(name, help={'provider':'View or select provider', 'status':'Show provider and runtime status',
             'configure':'Configure provider/model or local paths', 'start':'Start the owned local runtime',
-            'stop':'Stop only the Locard-owned runtime', 'logs':'Show private managed runtime diagnostics'}[name])
+            'stop':'Stop only the Locard-owned runtime', 'logs':'Show private runtime or cloud provider diagnostics'}[name])
         child.add_argument('--json', action='store_true')
         if name in ('provider', 'configure'):
             child.add_argument('provider', nargs='?', choices=list(settings.PROVIDERS))
@@ -54,11 +54,13 @@ def status(config):
         if config['executable']:
             result['executable'] = config['executable']
     else:
+        from . import readiness
         available = bool(os.environ.get(settings.PROVIDERS[provider][1], '').strip())
         result.update(model=config['model'], api_key='available' if available else 'missing',
                       configuration='configured_ready' if available else 'credential_missing')
         if not available:
             result['configuration_detail'] = 'Set ' + settings.PROVIDERS[provider][1] + ' before starting Locard.'
+        result.update(readiness.status(config))
     return result
 
 
@@ -116,6 +118,8 @@ def dispatch(args):
         runtime.stop()
     elif operation == 'logs':
         from .diagnostics import tail
+        if config['provider'] != 'local':
+            return {'logs': tail('provider.log')}
         current = runtime.status(config)
         return {'logs': ('Locard does not own or capture external runtime logs.'
                          if current.get('ownership') == 'external' else tail())}
@@ -181,6 +185,9 @@ def configure_settings(args, config, operation):
         settings.require_local(updated)
     if updated != config:
         settings.save(updated)
+        if human and updated['provider'] != 'local' and (updated['provider'], updated['model']) != (config['provider'], config['model']):
+            from . import readiness
+            readiness.present(updated, args, force=True)
     result = status(updated)
     if updated != config:
         result['message'] = ('Configuration changed. Restart the external llama-server manually for the new settings to take effect.'
@@ -219,15 +226,15 @@ def render(value, args=None):
     if 'logs' in value:
         return '\n'.join(safe_text(line) for line in value['logs'].splitlines())
     labels = {'provider':'Provider', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
-              'api_key':'API key', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
+              'api_key':'API key', 'provider_readiness':'Provider readiness', 'readiness_reason':'Reason', 'readiness_stage':'Stage', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
     lines = [palette('heading', 'AI provider')]
     for key, label in labels.items():
         if key in value:
             text = safe_text(str(value[key]).replace('_', ' ') if key == 'configuration' else str(value[key]))
-            role = ('success' if value[key] in ('configured_ready', 'running') else
+            role = ('success' if value[key] in ('configured_ready', 'running', 'ready') else
                     'secondary_text' if value[key] == 'stopped' else 'error')
             if key == 'provider': role = 'key'
-            if key in ('provider', 'configuration', 'runtime'): text = palette(role, text)
+            if key in ('provider', 'configuration', 'runtime', 'provider_readiness'): text = palette(role, text)
             lines.append('  ' + label + ': ' + text)
     configured = value.get('configured_options')
     if configured is not None:

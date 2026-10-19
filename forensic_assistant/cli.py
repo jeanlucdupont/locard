@@ -177,6 +177,14 @@ def build_parser(*, interactive=False):
 
 
 def main(argv=None):
+    from forensic_assistant.ai import runtime
+    try:
+        return _main(argv)
+    finally:
+        runtime.close()
+
+
+def _main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv == ['--no-color']:
         if not sys.stdin.isatty() or not sys.stdout.isatty():

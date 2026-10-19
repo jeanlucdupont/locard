@@ -1998,7 +1998,7 @@ MODEL --acknowledge-cloud`. Set credentials in the documented environment variab
 before launching Locard; never put a key in a command argument or configuration file.
 A provider/model can be saved without a key, but status reports `credential_missing`
 and the required variable name. Model calls fail without fallback until it is set. `ai status --json`
-reports availability only. Live cloud validation is optional and analyst-controlled.
+reports configuration availability and any session-cached readiness result; it does not itself contact the provider. Interactive cloud startup performs the synthetic check described below.
 
 Preferences are in `%LOCALAPPDATA%\Locard\ai\config.json`, outside cases.
 Runtime state uses format 1 in `runtime.json` in that private directory: a random
@@ -2026,26 +2026,18 @@ numeric-loopback endpoint for a successful `/health` response and a nonempty
 `/v1/models` list. A compatible endpoint is reused as **external**, without gaining
 process ownership. An incompatible occupied port fails safely; its occupant is never
 terminated. `ai configure --port 0` requests a free loopback port (no external discovery).
-The persistent supervisor survives direct CLI and interactive launcher exit. Windows
-launcher jobs allow explicit breakaway for this hidden supervisor only by launch flags;
-ordinary children remain contained, and installer jobs do not permit breakaway. The
-supervisor owns the server's separate cleanup job. Both processes use hidden-console
-creation flags. If the enclosing environment disallows breakaway, startup fails rather
-than silently creating a client-bound runtime. It shuts down
-its owned runtime after 15 minutes without successful inference and no active bounded
-request. `ai stop` requests owned shutdown and checks completion; active requests
-prevent an explicit stop. Startup cancellation asks the owner to clean up, and
-unconfirmed cleanup is surfaced as `CLEANUP_LIMITATION`.
+A monitor thread owns the hidden server and its Windows cleanup job inside the
+current Locard process. `quit` or process exit stops the managed server and removes
+runtime state. There is no detached supervisor, job breakaway, or cross-process
+ownership recovery. Direct non-interactive commands also clean up at completion;
+use the interactive shell or a manually launched external server for repeated use.
+The 15-minute idle unload remains while the shell is open; active bounded requests
+prevent idle shutdown. The next model request starts the managed server again.
+`ai stop` checks owned shutdown; active requests prevent an explicit stop.
+Unconfirmed cleanup is surfaced as `CLEANUP_LIMITATION`.
 
-PowerShell caches native `Add-Type` definitions for the life of its process. The
-launcher now keys its native helper namespace by the source hash, so updating the
-checkout cannot silently reuse older job-containment code in an already-open shell.
-Supervisor bootstrap explicitly restricts inherited handles and closes its input
-after reading configuration. Client disconnect and shell `quit` are not shutdown
-requests. Before starting a server, the Windows supervisor verifies that it is
-outside all Job Objects. A restrictive outer job can prevent complete breakaway even
-when process creation succeeds; startup then fails with an `ai logs` diagnostic.
-Use a PowerShell environment that permits breakaway rather than disabling cleanup.
+PowerShell native helpers remain keyed by source hash so an open PowerShell cannot
+reuse an older helper with different containment rules after updating Locard.
 
 `ai status` shows `running` or `stopped`, and `Ownership: Locard-managed` or
 `Ownership: external` when running. Stale control-state details are DEBUG diagnostics,
@@ -2081,7 +2073,7 @@ validated extra options. With a pending managed restart, configured and active v
 are shown separately. The supervisor persists its non-secret active configuration
 (including path identities, actual port, and fingerprint) alongside existing private
 control state and returns it through authenticated status. Normal output does not
-display fingerprints or control credentials. Older supervisors without this snapshot
+display fingerprints or control credentials. Older state without this snapshot
 show active settings as unavailable rather than guessing. External servers show only
 Locard's **configured options**; their active GPU/context settings are unknown.
 
@@ -2121,3 +2113,21 @@ try { .\locard.ps1 } finally { $env:LOCALAPPDATA = $previousLocardAppData }
 
 The original configuration remains untouched. Test configuration persists only
 under that temporary directory; no model or executable is copied there.
+
+Cloud interactive startup performs one evidence-free readiness check after case
+selection. Changing provider/model in human configuration runs a new check. Local
+startup stays lazy. The fixed request asks only for `{"status":"ok"}` with a strict
+object schema, 64 output tokens and a 15-second timeout, with no tools, retries or
+fallback. It contains no case data. Failure does not prevent deterministic commands.
+Readiness is cached only in the current process for the selected provider/model/key;
+`ai status` does not send another request. A successful check confirms this synthetic
+response, not forensic accuracy or compatibility with every investigation response.
+
+For cloud providers, `ai logs` reads the bounded private
+`%LOCALAPPDATA%\Locard\ai\provider.log`. It records fixed diagnostic categories
+for configuration, authentication, model/endpoint rejection, connection, timeout,
+provider failure, response parsing, structured validation and grounding. Logs contain
+only safe metadata, never raw exceptions, headers, prompts, evidence or responses.
+Model identifiers remain exactly as configured. A 404 indicates model/endpoint
+rejection without guessing which model name should replace it. Generic investigation
+termination is displayed as **AI model failure**; its JSON code remains unchanged.
