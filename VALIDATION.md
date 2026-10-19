@@ -922,3 +922,117 @@ authorized synthetic/test case. Include one deliberately invalid model configura
 (or other controlled failure), verify safe failure diagnostics, and restore the intended
 configuration. No automatic fallback is expected. A successful synthetic compatibility
 probe is a prerequisite, not certification of larger contracts or forensic accuracy.
+
+## Investigation timing and analyst approval — Locard 6.69
+
+Before this patch, production supervision created one absolute monotonic deadline
+before provider/runtime preparation. The controller inherited it and the forensic
+worker retained it. Everything between that start and completion consumed the same
+wall-clock budget, including time reading and answering analyst approval prompts.
+Approval input itself was limited to the remaining investigation time. Extending
+only the input timeout would not have fixed the supervisor or worker deadline.
+
+| Phase | Previous accounting | Current accounting |
+|---|---|---|
+| Provider/runtime startup and process startup | Included | Execution |
+| Consistent SQLite snapshot creation | Included | Execution |
+| Initial full fingerprint | Included | Execution |
+| Initial retrieval and semantic setup | Included | Execution |
+| Model inference, including cloud compatibility preparation | Included | Execution |
+| Tool execution | Included; also per-tool watchdog | Execution; same per-tool watchdog |
+| Parsing, structural and grounding validation | Included | Execution |
+| Final full live-case fingerprint | Remaining global budget | Remaining execution budget |
+| Transcript/audit work | Included | Execution |
+| Proposal presentation and approval input callback | Included | Analyst wait, excluded |
+| Other in-run status rendering/IPC | Included | Execution |
+| Rendering the final result after return | Outside investigation | Outside investigation |
+
+The execution default remains **300 seconds**, with the existing configurable
+ceiling of 600 seconds. No global wall-clock ceiling was added. Each approval prompt
+has a separate **900-second (15-minute) abandonment timeout**, enforced by the existing
+synchronous timed-input implementation. It returns rejection on timeout/EOF; Ctrl+C
+retains cancellation behavior. Existing call/step limits also bound the number of
+prompts. There are no new background input readers. Production uses only the trusted
+terminal callback; custom test callbacks are responsible for respecting their timeout.
+
+`ExecutionClock` uses monotonic time. The terminal owner measures each approval
+interval exactly once (nested pause contexts count only the outer interval), then
+passes the same finite wait credit in its approval reply to the controller. Neither
+models nor tool output can supply credits. The worker's deadline is refreshed before
+its next operation; its request carries the adjusted overall deadline for diagnostics.
+Waiting while the approval IPC travels is execution overhead, not analyst wait.
+
+Deadline checks and scopes:
+
+- `supervision.run`: overall execution watchdog around the disposable process;
+  covers blocked model, SQLite, transcript and audit work. Approval pauses only while
+  the terminal callback runs. Already-expired execution cannot open another prompt.
+- `controller._run`: checks before startup, loop/model, approval, dispatch and final
+  state checks. Ordinary model/tool calls retain `min(tool_seconds, remaining)`.
+- `ForensicWorker._exchange`: minimum of adjusted overall and per-operation deadline.
+  Initial retrieval and final integrity use the entire remaining execution allowance.
+- `worker.serve` / `case.open_readonly`: per-request SQLite progress interruption;
+  `snapshot.create`: backup progress deadline. Snapshot consistency is unchanged.
+- `LocalClient`: existing socket/timer watchdog; `ModelBackend`: existing remaining
+  request timeout and isolated cloud-worker termination. No local lifecycle change.
+- Cleanup/recovery retains its independent bounded five-second allowance. Reported
+  elapsed/execution time can therefore exceed the execution limit slightly during
+  cleanup; that is not extra model/tool execution authorization.
+
+JSON/result metrics:
+
+- `elapsed_seconds`: wall elapsed time, including analyst waiting; the supervisor's
+  returned value includes cleanup. Historical field meaning is preserved.
+- `execution_seconds`: elapsed minus analyst wait, clamped nonnegative.
+- `analyst_wait_seconds`: accumulated approval callback time, including declined,
+  timed-out and cancelled input.
+- `model_seconds`: existing model-call total, including failed calls and preparation;
+  reused rather than adding a duplicate `provider_seconds` counter.
+- `tool_seconds`: existing successful worker-reported total (including initial/check
+  operations); it overlaps snapshot/fingerprint phases and is not an additive partition.
+- `validation_seconds`: controller parsing, proposal/anchor and final-grounding checks.
+- `phase_seconds`: other controller phase totals, including failed operations. These
+  overlap broad worker totals; do not sum all metrics to derive execution time.
+- `integrity.snapshot_seconds`, `integrity.fingerprint_seconds`, `fingerprint_count`
+  and snapshot bytes: existing worker integrity metrics, reused without aliases.
+- `timeout_cause`: execution_budget_exhausted, provider_request_timeout, tool_timeout,
+  or final_integrity_timeout, otherwise null. Existing termination codes remain.
+
+Transcript terminal metrics are sampled before publishing that terminal event; the
+returned result updates timing after finalization/cleanup. Finalization DEBUG timing
+covers transcript finish and termination audit. A forcibly terminated worker may only
+return supervisor totals and a timeout cause; completed worker phase metrics cannot
+be invented. DEBUG records snapshot, fingerprint, retrieval, model, tools, approval
+wait, validation and finalization using fixed phase names and numeric timings only.
+
+One safe provider timing event is written per successful normal cloud request after
+local structural validation. It includes provider/model, operation, selected mode,
+elapsed seconds, success status and existing bounded integer token usage. Success
+means provider/structural success, **not grounding acceptance**. Grounding rejection
+remains a separate diagnostic. There are no prompts, evidence, raw responses or
+headers in these logs. Local calls do not acquire cloud telemetry.
+
+Manual acceptance: keep the currently working DeepSeek configuration and run:
+
+```text
+! Did coreupdater.exe execute after loot.zip was downloaded?
+ai logs
+```
+
+Read each proposal at a normal pace before approving. Waiting should appear separately
+from execution, and logs should show successful DeepSeek timings with json_object.
+Other providers' manual certification remains deferred until this timing patch is
+accepted.
+
+For DEBUG timing from PowerShell in the installed project checkout (adjust `$case`
+if the active case is different):
+
+```powershell
+$case = Join-Path $env:LOCALAPPDATA 'Locard\cases\Standard2\case.db'
+.\.venv\Scripts\python.exe -B -c "import logging; logging.basicConfig(level=logging.WARNING, format='%(message)s'); logging.getLogger('forensic_assistant.investigation_ai').setLevel(logging.DEBUG); from forensic_assistant.cli import main; raise SystemExit(main())" --db "$case" investigate-ai "Did coreupdater.exe execute after loot.zip was downloaded?" --approve-tools
+```
+
+Only the investigation logger is DEBUG; SDK/HTTP logging is not enabled. Approval
+wait events show remaining_execution_budget; other phase events show remaining and
+watchdog_remaining. `--json` may be appended for structured metrics; approval prompts
+remain on stderr. Use the existing configured provider, without an endpoint override.

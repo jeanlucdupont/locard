@@ -18,7 +18,7 @@ LABELS = {
     'INITIAL_RETRIEVAL_FAILURE': 'Initial evidence lookup failed',
     'WORKER_START_FAILURE': 'Investigation could not start',
     'MODEL_FAILURE': 'AI model failure',
-    'MAX_SECONDS': 'Investigation time limit reached',
+    'MAX_SECONDS': 'Execution time limit reached',
     'STARTUP_TIMEOUT': 'Investigation startup timed out',
     'EVIDENCE_STATE_CHANGED': 'The live case changed during investigation; final acceptance stopped',
     'SEMANTIC_STATE_CHANGED': 'Semantic index changed during investigation',

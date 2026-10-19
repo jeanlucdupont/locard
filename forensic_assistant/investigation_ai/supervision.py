@@ -19,6 +19,7 @@ from forensic_assistant import activity
 from forensic_assistant.llm.client import LocalClient
 from forensic_assistant.ai.backend import ModelBackend
 from .state import Budget
+from .timing import ExecutionClock, APPROVAL_SECONDS
 from .lifecycle import WorkerJob
 
 CLEANUP_SECONDS = 5.0
@@ -33,13 +34,19 @@ def _child(connection, gate, request):
     if request['config'].get('_debug_startup'):
         logging.basicConfig(level=logging.WARNING, format='%(message)s')
         LOG.setLevel(logging.DEBUG)
+    request['config']['_execution_clock'] = request['_execution_clock']
+    request['config']['_approval_clock_managed'] = True
     request['config']['_startup_complete'] = lambda: connection.send_bytes(b'{"kind":"startup_complete"}')
     request['config']['_status'] = lambda phase: connection.send_bytes(json.dumps({'kind': 'status', 'phase': phase}).encode())
     session = activity.Session(request['config']['case_path'])
     session.id = request['session_id']
     def approve(proposal, seconds):
         connection.send_bytes(json.dumps({'kind': 'approval', 'proposal': proposal}).encode())
-        return json.loads(connection.recv_bytes(16)) is True
+        reply = json.loads(connection.recv_bytes(128))
+        if type(reply) is not dict or set(reply) != {'approved', 'wait_seconds'} or type(reply['approved']) is not bool:
+            raise ValueError('Invalid approval response')
+        request['_execution_clock'].credit_wait(reply['wait_seconds'])
+        return reply['approved']
     try:
         with activity.bind(session):
             result = run(request['config'], request['question'], request['root'],
@@ -132,6 +139,8 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     budget = budget or Budget()
     started = time.monotonic()
     deadline = started + budget.seconds
+    context = multiprocessing.get_context('spawn')
+    clock = ExecutionClock(started, deadline)
     identity = uuid.uuid4().hex
     client = client or ModelBackend()
     descriptor = None
@@ -151,7 +160,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                    question=question, root=str(transcript_root), budget=asdict(budget),
                    backend=descriptor, endpoint=f'http://{host}:{client.port}', dry_run=dry_run, approval=approval is not None,
                    session_id=session.id if session else str(uuid.uuid4()))
-    context = multiprocessing.get_context('spawn')
+    request['_execution_clock'] = clock
     parent, child = context.Pipe()
     gate = context.Event()
     process = context.Process(target=_child, args=(child, gate, request))
@@ -161,6 +170,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     result = None
     reason = 'WORKER_START_FAILURE'
     startup_complete = False
+    current_phase = 'preparing'
     request['config']['_debug_startup'] = LOG.isEnabledFor(logging.DEBUG)
     def receive():
         try:
@@ -181,15 +191,17 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         gate.set()
         reader = threading.Thread(target=receive, daemon=True)
         reader.start()
-        while time.monotonic() < deadline:
+        while clock.remaining() > 0:
             try:
-                message = messages.get(timeout=min(.05, max(.001, deadline - time.monotonic())))
+                message = messages.get(timeout=min(.05, max(.001, clock.remaining())))
             except queue.Empty:
                 if not process.is_alive():
                     break
                 continue
             if message['kind'] == 'status':
                 phase = message.get('phase')
+                if type(phase) is str and phase in PHASES | {'preparing', 'model', 'validation', 'operation', 'finalizing', 'approval'}:
+                    current_phase = phase
                 if status is not None and type(phase) is str and phase in PHASES | {
                     'preparing', 'model', 'validation', 'operation', 'finalizing', 'approval'
                 }:
@@ -199,12 +211,19 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                 startup_complete = True
                 continue
             if message['kind'] == 'approval':
+                if clock.remaining() <= 0:
+                    break
                 if status is not None:
                     status('approval')
-                approved = approval(message['proposal'], max(0, deadline - time.monotonic()))
-                if time.monotonic() >= deadline:
+                prior_wait = clock.analyst_wait
+                with clock.approval_wait():
+                    try:
+                        approved = approval(message['proposal'], APPROVAL_SECONDS)
+                    except (EOFError, TimeoutError):
+                        approved = False
+                if clock.remaining() <= 0:
                     break
-                parent.send_bytes(json.dumps(bool(approved)).encode())
+                parent.send_bytes(json.dumps({'approved': bool(approved), 'wait_seconds': clock.analyst_wait-prior_wait}).encode())
             elif message['kind'] == 'result':
                 result = message['result']
                 break
@@ -212,7 +231,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                 reason = ('AUDIT_FAILURE' if message.get('type') == 'AuditError' else
                           'TRANSCRIPT_FAILURE' if message.get('type') in ('OSError', 'PermissionError', 'FileExistsError') else 'WORKER_FAILURE')
                 break
-        if time.monotonic() >= deadline:
+        if clock.remaining() <= 0:
             reason = 'MAX_SECONDS' if startup_complete else 'STARTUP_TIMEOUT'
             LOG.debug('investigate-ai watchdog=overall category=%s elapsed=%.6fs remaining=0', reason, time.monotonic()-started)
             result = None
@@ -243,7 +262,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                       findings={}, evidence_fingerprint=None,
                       state={'accepted_calls': None}, transcript_complete=False,
                       limitations=['Investigation interrupted; partial transcript is not a completed investigation.'],
-                      metrics={'elapsed_seconds': time.monotonic() - started})
+                      metrics={**clock.metrics(), 'timeout_cause': ('final_integrity_timeout' if current_phase in ('final_fingerprint', 'fingerprint') and startup_complete else 'execution_budget_exhausted') if reason in ('MAX_SECONDS', 'STARTUP_TIMEOUT') else None})
         recovery = context.Process(target=_recover, args=(request, result))
         result['termination_recorded'] = False
         if cleaned and time.monotonic() < cleanup_deadline:
@@ -272,5 +291,5 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         result['termination'] = 'CLEANUP_LIMITATION'
         error.result = result
         raise error
-    result['metrics']['elapsed_seconds'] = time.monotonic() - started
+    result['metrics'].update(clock.metrics())
     return result

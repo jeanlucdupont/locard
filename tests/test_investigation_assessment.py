@@ -88,7 +88,7 @@ def test_step_and_call_limits_include_retries(tmp_path):
         assert worker.closed
 
 
-@pytest.mark.parametrize('expire_at', ['model', 'approval'])
+@pytest.mark.parametrize('expire_at', ['model'])
 def test_deadline_prevents_subsequent_execution(tmp_path, monkeypatch, expire_at):
     now = [0.0]
     monkeypatch.setattr(controller.time, 'monotonic', lambda: now[0])

@@ -2188,3 +2188,10 @@ one bounded diagnostic event; `ai logs` displays the selected mode there as well
 
 Manual provider certification is tracked in [the certification matrix](VALIDATION.md#cloud-provider-manual-certification--locard-669).
 Mocked tests and offline SDK transformation checks are not live certification.
+
+Investigation execution budgeting excludes analyst approval waiting. The default
+remains 300 execution seconds; unanswered prompts have a separate 15-minute timeout.
+Final integrity hashing still uses the remaining execution budget. `ai logs` now
+includes safe successful cloud request timings; structural success is not grounding
+acceptance. See [timing accounting and DEBUG instructions](VALIDATION.md#investigation-timing-and-analyst-approval--locard-669)
+for metrics, timeout causes and manual acceptance steps.

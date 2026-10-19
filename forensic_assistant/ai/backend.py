@@ -13,6 +13,18 @@ from forensic_assistant.llm.client import LocalClient, LLMError
 from forensic_assistant.investigation_ai.lifecycle import WorkerJob
 
 
+OPERATION = ContextVar('model_operation', default='request')
+
+
+@contextmanager
+def model_operation(name):
+    token = OPERATION.set(name if name in ('investigation', 'advisory') else 'request')
+    try:
+        yield
+    finally:
+        OPERATION.reset(token)
+
+
 STATUS = ContextVar('ai_status', default=None)
 RESTART = ContextVar('ai_restart_confirmation', default=None)
 
@@ -158,6 +170,11 @@ class ModelBackend:
             validator(schema)  # Validate the contract before any evidence leaves the process.
             result = self._cloud_request(messages, schema, timeout=timeout, handshake=handshake)
             validate(result['text'], schema)
+            if not handshake:
+                from .capabilities import CAPABILITIES
+                record(self.provider_name, self.model_name, 'structured_validation', 'response_validated',
+                       time.monotonic()-started, operation=OPERATION.get(), usage=result.get('usage'),
+                       metadata={'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}})
             return result
         except ProviderFailure as exc:
             if not handshake:
@@ -165,7 +182,7 @@ class ModelBackend:
                 readiness.invalidate(self.config)
                 from .capabilities import CAPABILITIES
                 metadata = {'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}, **exc.metadata}
-                record(self.provider_name, self.model_name, exc.stage, exc.category, time.monotonic()-started, metadata=metadata)
+                record(self.provider_name, self.model_name, exc.stage, exc.category, time.monotonic()-started, operation=OPERATION.get(), metadata=metadata)
             raise
         except (OSError, ValueError):
             if not handshake:

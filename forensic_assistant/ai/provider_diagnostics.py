@@ -1,5 +1,6 @@
 """Allowlisted cloud diagnostics. Never serialize provider exception text/payloads."""
 import json
+import math
 import os
 import re
 import time
@@ -7,6 +8,7 @@ from . import settings, diagnostics
 from forensic_assistant.llm.client import LLMError
 
 REASONS = {
+    'response_validated': 'Provider response passed canonical structural validation; grounding is checked separately',
     'compatibility_failed': "AI provider is connected, but the selected model is not compatible with Locard's required response format",
     'ready': 'Synthetic response check passed',
     'missing_credential': 'Required API key is missing',
@@ -196,7 +198,7 @@ def classify(exc):
     return 'unknown_provider_error'
 
 
-def record(provider, model, stage, category, elapsed=0, *, operation="request", metadata=None):
+def record(provider, model, stage, category, elapsed=0, *, operation="request", metadata=None, usage=None):
     if provider not in settings.PROVIDERS or provider == 'local': return
     stage = stage if stage in STAGES else 'provider_request'
     category = category_name(category)
@@ -207,9 +209,13 @@ def record(provider, model, stage, category, elapsed=0, *, operation="request", 
     value = dict(utc=time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()),
                  provider=settings.PROVIDERS[provider][0], model=model, stage=stage,
                  category=category, reason=REASONS[category], retries=0,
-                 operation="handshake" if operation == "handshake" else "request",
+                 operation=operation if operation in ("handshake", "investigation", "advisory") else "request",
+                 status="success" if category in ("ready", "response_validated") else "failure",
                  elapsed_seconds=round(max(0, min(float(elapsed), 3600)), 3))
     value.update(safe_metadata(metadata))
+    if type(usage) is dict:
+        value['usage'] = {key: usage[key] for key in ('prompt_tokens', 'completion_tokens', 'total_tokens')
+                          if type(usage.get(key)) is int and 0 <= usage[key] <= 10000000}
     try:
         diagnostics.append('provider.log', json.dumps(value, ensure_ascii=True) + '\n')
     except (OSError, ValueError):
@@ -239,12 +245,18 @@ def render(text):
         if type(model) is not str or len(model) > 200: model = '[unavailable]'
         rows.append(stamp + ' — ' + provider)
         rows.append('  Model: ' + safe_text(redact(model)))
-        rows.append('  Operation: ' + ('handshake' if value.get('operation') == 'handshake' else 'request'))
+        rows.append('  Operation: ' + (value['operation'] if value.get('operation') in ('handshake', 'investigation', 'advisory') else 'request'))
+        rows.append('  Status: ' + ('success' if category in ('ready', 'response_validated') else 'failure'))
+        elapsed = value.get('elapsed_seconds')
+        if type(elapsed) in (int, float) and math.isfinite(elapsed) and 0 <= elapsed <= 3600:
+            rows.append('  Elapsed: ' + str(round(elapsed, 3)) + ' s')
         rows.append('  Stage: ' + (value['stage'] if type(value.get('stage')) is str and value['stage'] in STAGES else 'provider_request'))
         labels = {'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
             if key == 'request_features':
+                if 'structured_output' in item:
+                    rows.append('  Structured mode: ' + item['structured_output'])
                 rows.append('  Request features:')
                 for feature, state in item.items(): rows.append('    ' + feature + ': ' + str(state).lower())
             else: rows.append('  ' + labels[key] + ': ' + str(item))

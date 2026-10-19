@@ -46,7 +46,7 @@ def serve():
                 def emit(value):
                     protocol.write(json.dumps({'startup_diagnostic': value}).encode() + b'\n')
                     protocol.flush()
-                profile = Profile(started + request['seconds'], emit, config.get('_deadline'))
+                profile = Profile(started + request['seconds'], emit, request.get('_deadline') or config.get('_deadline'))
                 with profile.phase('semantic_setup'):
                     # A pinned generation cannot change underneath the investigation.
                     if config.get('semantic_enabled'):

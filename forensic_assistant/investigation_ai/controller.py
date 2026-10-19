@@ -1,5 +1,7 @@
 """Model proposals never dispatch directly: validate, authorize, bound, then execute."""
 from dataclasses import asdict
+from contextlib import nullcontext
+from .timing import ExecutionClock, APPROVAL_SECONDS
 from datetime import datetime, timezone
 import hashlib
 import time
@@ -54,10 +56,10 @@ def _run(
         raise ValueError('Question must be 1..1000 UTF-8 bytes')
     budget = budget or Budget()
     started = config.get('_started', time.monotonic())
-    deadline = config.get('_deadline', started + budget.seconds)
+    clock = config.get('_execution_clock') or ExecutionClock(started, config.get('_deadline', started + budget.seconds))
     status = config.get('_status') or (lambda phase: None)
     status('preparing')
-    profile = Profile(deadline)
+    profile = Profile(lambda: clock.deadline)
     startup_complete = False
     state = State(budget)
     rules = [r.rule_id for r in available_rules()]
@@ -89,6 +91,7 @@ def _run(
     feedback = ''
     model_metadata = []
     tool_time = model_time = 0.0
+    timeout_cause = None
     prompt_sizes = []
     proposed_action = None
     call_number = 0
@@ -108,22 +111,29 @@ def _run(
             call_metadata['diagnostic'] = record
         return record
     def remaining():
-        return max(0, deadline - time.monotonic())
+        return clock.remaining()
     def call(name, args=None):
-        nonlocal fingerprint, tool_time, integrity
+        nonlocal fingerprint, tool_time, integrity, timeout_cause
         if remaining() <= 0:
             raise WorkerError('INVESTIGATION_TIMEOUT')
         try:
-            response = worker.call(
-                name,
-                args,
-                fingerprint=fingerprint,
-                known_ids=state.exposed,
-                # Full-case startup and completion hashes share the global deadline.
-                seconds=remaining() if name in ('initial', 'check') else min(budget.tool_seconds, remaining()),
-                question=question
-            )
+            if name == 'check':
+                status('final_fingerprint')
+            if isinstance(worker, ForensicWorker):
+                worker.deadline = clock.deadline
+            with profile.phase('final_fingerprint' if name == 'check' else 'initial_operation' if name == 'initial' else 'tool'):
+                response = worker.call(
+                    name,
+                    args,
+                    fingerprint=fingerprint,
+                    known_ids=state.exposed,
+                    # Full-case startup and completion hashes share the global deadline.
+                    seconds=remaining() if name in ('initial', 'check') else min(budget.tool_seconds, remaining()),
+                    question=question
+                )
         except WorkerError as exc:
+            if exc.timed_out or 'TIMEOUT' in str(exc):
+                timeout_cause = 'final_integrity_timeout' if name == 'check' else 'execution_budget_exhausted' if remaining() <= 0 else 'tool_timeout'
             if exc.integrity is not None:
                 integrity = exc.integrity
             raise
@@ -145,9 +155,8 @@ def _run(
         with profile.phase('worker_start'):
             if remaining() <= 0:
                 raise WorkerError('INVESTIGATION_TIMEOUT', stage='worker_start', timed_out=True)
-            worker = worker_factory({k: v for k, v in {**config, '_deadline': deadline}.items() if k != '_startup_complete'})
-        with profile.phase('initial_operation'):
-            initial = call('initial')
+            worker = worker_factory({k: v for k, v in {**config, '_deadline': clock.deadline}.items() if k not in ('_startup_complete', '_execution_clock', '_approval_clock_managed')})
+        initial = call('initial')
         transcript.manifest.update(
             schema=initial['schema'],
             evidence_fingerprint=fingerprint,
@@ -197,8 +206,14 @@ def _run(
                 status('model')
                 model_started = time.monotonic()
                 try:
-                    raw = client.complete(messages, grammar)
-                except (LLMError, OSError, ValueError):
+                    from forensic_assistant.ai.backend import model_operation
+                    with profile.phase('model_request'), model_operation('investigation'):
+                        raw = client.complete(messages, grammar)
+                except (LLMError, OSError, ValueError) as exc:
+                    if remaining() <= 0:
+                        timeout_cause = 'execution_budget_exhausted'
+                    elif getattr(exc, 'category', None) == 'timeout' or 'timed out' in str(exc).lower():
+                        timeout_cause = 'provider_request_timeout'
                     termination = 'MAX_SECONDS' if remaining() <= 0 else 'MODEL_FAILURE'
                     break
                 finally:
@@ -214,7 +229,8 @@ def _run(
                     call_metadata = None
                     decoded = None
                     validation_stage = 'proposal_parsing'
-                    decoded = contracts.loads(raw)
+                    with profile.phase('validation'):
+                        decoded = contracts.loads(raw)
                     if isinstance(decoded, dict) and decoded.get('action') == 'tool':
                         state.requested += 1
                         call_number += 1
@@ -225,10 +241,12 @@ def _run(
                         transcript._manifest()
                         audit('TOOL_PROPOSED', **{k: v for k, v in call_metadata.items() if k != 'status'})
                     validation_stage = 'proposal_validation'
-                    proposal = contracts.request(raw, names)
+                    with profile.phase('validation'):
+                        proposal = contracts.request(raw, names)
                     if proposal['action'] == 'final':
                         validation_stage = 'final_grounding'
-                        rendered = state.render(proposal['answer'])
+                        with profile.phase('validation'):
+                            rendered = state.render(proposal['answer'])
                         if dry_run:
                             proposed_action = proposal
                             transcript.append('dry_run_proposal', proposal)
@@ -249,7 +267,8 @@ def _run(
                     if args.get('artifact') == 'browser' and not state.browser_available:
                         raise ValueError('Browser evidence is unavailable in this case')
                     validation_stage = 'anchor_validation'
-                    validate_anchor(state, name, args, rules)
+                    with profile.phase('validation'):
+                        validate_anchor(state, name, args, rules)
                     normalized = contracts.normalized_call(name, args)
                     if normalized in state.calls:
                         rejection_record(decoded, 'loop_validation', 'Repeated normalized tool call')
@@ -272,7 +291,19 @@ def _run(
                         break
                     if approval is not None:
                         status('approval')
-                    if approval is not None and not approval(proposal, remaining()):
+                    if remaining() <= 0:
+                        termination = 'MAX_SECONDS'
+                        break
+                    approved = True
+                    if approval is not None:
+                        # In production the terminal-owning supervisor supplies the exact wait credit.
+                        pause = nullcontext() if config.get('_approval_clock_managed') else clock.approval_wait()
+                        with pause:
+                            try:
+                                approved = approval(proposal, APPROVAL_SECONDS)
+                            except (EOFError, TimeoutError):
+                                approved = False
+                    if not approved:
                         rejected_diagnostic = rejection_record(decoded, 'analyst_approval', 'Analyst rejected or approval timed out')
                         decision('rejected')
                         audit('TOOL_REJECTED', 'cancelled', tool_call_number=call_number, tool=name)
@@ -424,6 +455,7 @@ def _run(
     if final is None:
         final = state.partial()
     if remaining() <= 0:
+        timeout_cause = timeout_cause or 'execution_budget_exhausted'
         termination = 'MAX_SECONDS' if startup_complete else 'STARTUP_TIMEOUT'
     result = {
         'investigation_id': transcript.id,
@@ -435,7 +467,10 @@ def _run(
         'dry_run_proposal': proposed_action,
         'model_metadata': model_metadata,
         'metrics': {
-            'elapsed_seconds': time.monotonic() - started,
+            **clock.metrics(),
+            'timeout_cause': timeout_cause,
+            'validation_seconds': profile.totals.get('validation', 0.0),
+            'phase_seconds': {k: v for k, v in profile.totals.items() if k not in ('model_request', 'validation')},
             'tool_seconds': tool_time,
             'model_seconds': model_time,
             'prompt_bytes': prompt_sizes,
@@ -450,7 +485,10 @@ def _run(
     }
     LOG.debug('investigate-ai termination investigation=%s termination=%s steps=%d requested_calls=%d accepted_calls=%d rejected_requests=%d',
               transcript.id, termination, state.steps, state.requested, state.accepted, state.rejected)
-    transcript.finish(result)
-    audit('INVESTIGATION_TERMINATION', termination=termination)
+    with profile.phase('finalization'):
+        transcript.finish(result)
+        audit('INVESTIGATION_TERMINATION', termination=termination)
+    result['metrics'].update(clock.metrics())
+    result['metrics']['phase_seconds'] = {k: v for k, v in profile.totals.items() if k not in ('model_request', 'validation')}
     result['transcript_bytes'] = transcript.size
     return result

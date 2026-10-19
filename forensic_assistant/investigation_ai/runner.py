@@ -127,6 +127,7 @@ class ForensicWorker:
         return self._exchange(
             {
                 'operation': operation,
+                '_deadline': self.deadline if self.deadline != float('inf') else None,
                 'arguments': arguments or {},
                 'known_ids': list(known_ids),
                 'expected_fingerprint': fingerprint,
