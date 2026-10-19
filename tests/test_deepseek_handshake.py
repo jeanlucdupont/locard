@@ -24,7 +24,7 @@ def sdk_response(text='{"status":"ok"}'):
     return SimpleNamespace(choices=[SimpleNamespace(finish_reason='stop',message=SimpleNamespace(content=text))])
 
 
-def test_deepseek_handshake_only_selection():
+def test_deepseek_handshake_and_normal_selection():
     calls=[]
     def completion(**kw):
         calls.append(kw)
@@ -38,13 +38,10 @@ def test_deepseek_handshake_only_selection():
     assert calls[0]['model']=='deepseek/deepseek-flash'
     assert calls[0]['custom_llm_provider']=='deepseek'
     assert calls[0]['max_tokens']==64 and calls[0]['num_retries']==0 and calls[0]['drop_params'] is False
-    with pytest.raises(pd.ProviderFailure) as failure:cloud_worker.generate(request(False),sdk)
-    assert len(calls)==2  # No retry/fallback after the normal strict request fails.
-    assert failure.value.category=='structured_output_unsupported'
-    assert failure.value.metadata['rejected_parameter']=='response_format'
-    assert failure.value.metadata['request_features']['structured_output']=='json_schema'
-    assert calls[1]['response_format']['json_schema']['strict'] is True
-    assert calls[1]['response_format']['json_schema']['schema']==request(False)['schema']
+    assert cloud_worker.generate(request(False),sdk)['text']=='{"status":"ok"}'
+    assert len(calls)==2
+    assert calls[1]['response_format']=={'type':'json_object'}
+    assert json.dumps(request(False)['schema'], ensure_ascii=True) in calls[1]['messages'][0]['content']
     assert calls[1]['max_tokens']==1024
 
 
@@ -59,7 +56,7 @@ def test_other_provider_handshake_keeps_strict_mode():
 def test_features_values_and_raw_payloads_cannot_leak():
     kwargs=cloud_worker.request_kwargs(request(False))
     features=pd.request_features(kwargs)
-    assert features==dict(structured_output='json_schema',json_schema=True,tools=False,tool_choice=False,streaming=False,timeout=True,temperature=False,custom_endpoint=False,extra_headers=False,max_token_parameter='max_tokens',provider_route='deepseek',provider_prefix='deepseek')
+    assert features==dict(structured_output='json_object',json_schema=False,tools=False,tool_choice=False,streaming=False,timeout=True,temperature=False,custom_endpoint=False,extra_headers=False,max_token_parameter='max_tokens',provider_route='deepseek',provider_prefix='deepseek')
     pd.record('deepseek','deepseek-flash','provider_request','request_rejected',metadata={'request_features':{**features,'messages':'SECRET MESSAGE','schema':'SECRET SCHEMA','headers':'SECRET HEADERS'}})
     text=(settings.root()/'provider.log').read_text()
     assert 'SECRET' not in text and 'OTHER-KEY' not in text
@@ -87,21 +84,21 @@ def test_unknown_rejected_parameter_dropped(param):
     assert pd.classify(error)=='request_rejected'
 
 
-def test_readiness_success_does_not_claim_contract_compatibility(monkeypatch,capsys):
+def test_readiness_success_checks_contract_compatibility(monkeypatch,capsys):
     config={**settings.defaults(),'provider':'deepseek','model':'deepseek-flash','cloud_acknowledged':True}
     seen=[]
     def cloud(self,messages,schema,**kw):
         seen.append((messages,schema,kw))
-        return cloud_worker.generate(dict(provider='deepseek',model=self.model_name,messages=messages,schema=schema,timeout=15,handshake=kw['handshake']),SimpleNamespace(completion=lambda **args:sdk_response()))
+        return cloud_worker.generate(dict(provider='deepseek',model=self.model_name,messages=messages,schema=schema,timeout=15,handshake=kw['handshake']),SimpleNamespace(completion=lambda **args:sdk_response('{"status":"ok","message":"locard"}' if schema==readiness.COMPAT_SCHEMA else '{"status":"ok"}')))
     monkeypatch.setattr(ModelBackend,'_cloud',cloud)
     readiness.present(config,SimpleNamespace(no_color=True))
     result=readiness.status(config)
     assert result['connection_readiness']==result['model_readiness']=='ready'
-    assert result['locard_compatibility']=='not_verified'
-    assert len(seen)==1
+    assert result['locard_compatibility']=='ready'
+    assert len(seen)==2
     assert seen[0][0]==readiness.MESSAGES and 'SECRET' not in json.dumps(seen)
     output=capsys.readouterr().out
-    assert 'Locard compatibility: not verified' in output and 'AI ready.' not in output
+    assert 'Locard compatibility: OK' in output and 'AI ready.' not in output
 
 
 @pytest.mark.parametrize('text,category',[('LOCARD_OK','response_parse_failed'),('{"status":"ok","extra":1}','structured_validation_failed')])

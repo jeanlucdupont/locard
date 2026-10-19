@@ -7,6 +7,7 @@ from . import settings, diagnostics
 from forensic_assistant.llm.client import LLMError
 
 REASONS = {
+    'compatibility_failed': "AI provider is connected, but the selected model is not compatible with Locard's required response format",
     'ready': 'Synthetic response check passed',
     'missing_credential': 'Required API key is missing',
     'missing_dependency': 'Optional cloud dependencies are not installed; use pip install "locard-forensics[cloud]"',
@@ -70,7 +71,7 @@ FEATURE_FLAGS = ('json_schema', 'tools', 'tool_choice', 'streaming', 'timeout', 
 def safe_features(value):
     if type(value) is not dict: return {}
     result = {key:value[key] for key in FEATURE_FLAGS if type(value.get(key)) is bool}
-    for key, choices in (('structured_output', ('json_schema', 'json_object', 'text', 'unset')),
+    for key, choices in (('structured_output', ('json_schema', 'anthropic_schema', 'gemini_schema', 'json_object', 'text', 'unset')),
                          ('max_token_parameter', ('max_tokens', 'max_completion_tokens', 'unset')),
                          ('provider_route', tuple(settings.PROVIDERS)),
                          ('provider_prefix', tuple(settings.PROVIDERS))):
@@ -84,8 +85,9 @@ def request_features(kwargs):
     response = kwargs.get('response_format')
     response = response if type(response) is dict else {}
     model = kwargs.get('model', '')
-    return safe_features(dict(structured_output=response.get('type', 'unset'),
-        json_schema='json_schema' in response, tools=bool(kwargs.get('tools')),
+    mode = 'anthropic_schema' if 'output_config' in kwargs else 'gemini_schema' if 'response_json_schema' in kwargs else response.get('type', 'unset')
+    return safe_features(dict(structured_output=mode,
+        json_schema=mode in ('json_schema', 'anthropic_schema', 'gemini_schema'), tools=bool(kwargs.get('tools')),
         tool_choice='tool_choice' in kwargs, streaming=kwargs.get('stream') is True,
         timeout='timeout' in kwargs, temperature='temperature' in kwargs,
         custom_endpoint=any(key in kwargs for key in ('api_base', 'base_url')),

@@ -876,3 +876,49 @@ The synthetic reporting benchmarks in [V5](V5.md) cover only those generated
 workloads. No forensic certification, real-case performance guarantee, or complete
 attack-detection coverage is claimed. External dependency downloads were setup-only; application
 analysis uses loopback HTTP and local SQLite.
+
+
+## Cloud provider manual certification — Locard 6.69
+
+All combinations below remain **live untested for this patch**. Automated mocks
+exercise all five adapters. Offline checks of pinned LiteLLM 1.106.0 confirm Claude
+and Gemini retain native schema parameters without tool conversion. These are not
+claims that arbitrary models support every canonical Locard response schema.
+
+| Provider | Model to test | Selected mode | Handshake | Compatibility | Advisory | Bounded investigation | Failure diagnostic | Log privacy |
+|---|---|---|---|---|---|---|---|---|
+| DeepSeek | deepseek-flash | json_object | pending | pending | pending | pending | pending | pending |
+| OpenAI | analyst-selected exact ID | json_schema | pending | pending | pending | pending | pending | pending |
+| Anthropic Claude | analyst-selected exact ID | anthropic_schema | pending | pending | pending | pending | pending | pending |
+| Google Gemini | analyst-selected exact ID | gemini_schema | pending | pending | pending | pending | pending | pending |
+| xAI Grok | analyst-selected exact ID | json_schema | pending | pending | pending | pending | pending | pending |
+
+Record the date, exact model ID and results after each test. Do not record keys,
+case contents, prompt/response captures or identifying case paths here. Previous
+handshake-only DeepSeek observations do not certify this two-level compatibility path.
+
+Start with DeepSeek in an authorized case; cloud acknowledgement still applies:
+
+```text
+ai provider deepseek --model deepseek-flash
+```
+
+Restart Locard. Expect Connection: OK, Model: accepted, Locard compatibility: OK.
+Then run:
+
+```text
+! Summarize the available evidence categories in this case.
+! Did coreupdater.exe execute after loot.zip was downloaded?
+ai logs
+```
+
+Approve only the desired forensic lookups. A schema-valid unsupported conclusion
+must still be rejected. Confirm logs show json_object and contain no evidence or
+secrets. Do not regard a grounded limitation or incomplete investigation as proof
+of a provider defect. A normal json_schema 400 should no longer occur for DeepSeek.
+
+For each other provider, repeat with an explicitly selected model and appropriately
+authorized synthetic/test case. Include one deliberately invalid model configuration
+(or other controlled failure), verify safe failure diagnostics, and restore the intended
+configuration. No automatic fallback is expected. A successful synthetic compatibility
+probe is a prerequisite, not certification of larger contracts or forensic accuracy.

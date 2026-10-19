@@ -28,13 +28,13 @@ def test_fixed_payload_cache_and_configuration_change(monkeypatch):
     calls=[]
     def respond(self,messages,schema,**kwargs):
         calls.append((self.model_name,messages,schema,kwargs))
-        return {'text':'{"status":"ok"}','usage':{}}
+        return {'text':json.dumps({'status':'ok','message':'locard'} if schema==readiness.COMPAT_SCHEMA else {'status':'ok'}),'usage':{}}
     monkeypatch.setattr(ModelBackend,'_cloud',respond)
     value=config()
     assert readiness.check(value)['provider_readiness']=='ready'
     assert readiness.check(value)['provider_readiness']=='ready'
     assert cli.status(value)['provider_readiness']=='ready'
-    assert len(calls)==1
+    assert len(calls)==2
     assert calls[0][1]==[{'role':'user','content':'Return only this JSON object: {"status":"ok"}'}]
     assert calls[0][2]==readiness.SCHEMA
     assert calls[0][3]=={'timeout':15,'handshake':True}
@@ -42,11 +42,11 @@ def test_fixed_payload_cache_and_configuration_change(monkeypatch):
     args=build_parser().parse_args(['ai','configure','--model','another-explicit-id'])
     args._confirm=lambda prompt:'y'
     cli.dispatch(args)
-    assert len(calls)==2 and calls[-1][0]=='another-explicit-id'
+    assert len(calls)==4 and calls[-1][0]=='another-explicit-id'
     assert settings.load()['model']=='another-explicit-id'
     readiness.reset()
     readiness.check(settings.load())
-    assert len(calls)==3
+    assert len(calls)==6
 
 
 def test_missing_key_and_local_never_call_cloud():

@@ -65,8 +65,16 @@ def test_provider_adapter_contract(provider, monkeypatch):
         schema=schema, timeout=2), SimpleNamespace(completion=completion))
     call = calls[0]
     assert call['model'] == provider + '/synthetic'
-    assert call['messages'] is messages
-    assert call['response_format']['json_schema']['schema'] is schema
+    if provider == 'deepseek':
+        assert call['messages'][1:] == messages
+        assert call['response_format'] == {'type': 'json_object'}
+        assert json.dumps(schema) in call['messages'][0]['content']
+    elif provider == 'anthropic':
+        assert call['output_config']['format']['schema'] == schema
+    elif provider == 'gemini':
+        assert call['response_json_schema'] == schema
+    else:
+        assert call['response_format']['json_schema']['schema'] == schema
     assert call['num_retries'] == 0 and call['timeout'] == 2
     assert 'tools' not in call and 'fallbacks' not in call
     assert result == {'text':'{"answer":"bounded"}', 'usage':{'prompt_tokens':11,'completion_tokens':4,'total_tokens':15}}
@@ -129,6 +137,7 @@ def test_cloud_worker_boundary_secrets_and_cleanup(monkeypatch, failure):
     config={**settings.defaults(),'provider':'openai','model':'synthetic','cloud_acknowledged':True}
     client=ModelBackend(config=config,timeout=1)
     seen={}
+    monkeypatch.setattr(client, 'prepare', lambda *a: client)  # IPC-only test; readiness has its own coverage.
     class Process:
         pid=123456
         returncode=None
@@ -136,7 +145,7 @@ def test_cloud_worker_boundary_secrets_and_cleanup(monkeypatch, failure):
             seen['request']=json.loads(data)
             if failure=='timeout':raise subprocess.TimeoutExpired('synthetic',timeout)
             self.returncode=0
-            return json.dumps({'error':secret} if failure=='provider_error' else {'text':secret,'usage':{}}).encode(),None
+            return json.dumps({'error':secret} if failure=='provider_error' else {'text':json.dumps({'answer':secret}),'usage':{}}).encode(),None
         def poll(self):return self.returncode
         def kill(self):seen['killed']=True;self.returncode=1
         def wait(self,timeout):seen['waited']=True;return self.returncode
@@ -148,7 +157,7 @@ def test_cloud_worker_boundary_secrets_and_cleanup(monkeypatch, failure):
     monkeypatch.setattr(implementation,'WorkerJob',lambda pid:SimpleNamespace(close=lambda:seen.update(closed=True)))
     messages=[{'role':'user','content':'only disclosed synthetic context'}]
     if failure=='success':
-        assert client.complete(messages,{'type':'object'})=='[REDACTED]'
+        assert client.complete(messages,{'type':'object'})==json.dumps({'answer':'[REDACTED]'})
         assert client.last_metadata['provider']=='openai'
         assert secret not in json.dumps(client.last_metadata)
     else:
@@ -207,7 +216,8 @@ def test_cloud_controller_keeps_grounding_and_safe_transcript(tmp_path,monkeypat
         assert secret not in json.dumps(messages)
         assert str(tmp_path) not in json.dumps(messages)
         return {'text':json.dumps(final(messages)),'usage':{'total_tokens':5}}
-    monkeypatch.setattr(client,'_cloud',cloud)
+    monkeypatch.setattr(client,'_cloud_request',cloud)
+    monkeypatch.setattr(client,'prepare',lambda *a:client)
     worker=RecordingWorker({})
     result=controller.run({},'Inspect synthetic evidence',tmp_path/'runs',client=client,worker_factory=lambda _:worker)
     assert result['termination']=='ANSWER_SUPPORTED'

@@ -2114,14 +2114,19 @@ try { .\locard.ps1 } finally { $env:LOCALAPPDATA = $previousLocardAppData }
 The original configuration remains untouched. Test configuration persists only
 under that temporary directory; no model or executable is copied there.
 
-Cloud interactive startup performs one evidence-free readiness check after case
-selection. Changing provider/model in human configuration runs a new check. Local
-startup stays lazy. The fixed request asks only for `{"status":"ok"}` with a strict
-locally validated object contract, 64 output tokens and a 15-second timeout, with no tools, retries or
-fallback. It contains no case data. Failure does not prevent deterministic commands.
-Readiness is cached only in the current process for the selected provider/model/key;
-`ai status` does not send another request. A successful check confirms this synthetic
-response, not forensic accuracy or compatibility with every investigation response.
+Cloud interactive startup performs two evidence-free synthetic checks after case
+selection. Changing provider/model in human configuration runs them again. Local
+startup stays lazy. The first requests exactly `{"status":"ok"}`; the second requests
+`{"status":"ok","message":"locard"}`. Both use the selected provider mode and the
+same canonical JSON-schema validator as normal cloud responses. Each has a 64-token
+output limit; together they share a 15-second deadline (or the shorter caller budget).
+No case data, tools, retries or fallback are included. Failed compatibility blocks
+normal cloud requests before evidence is sent; deterministic commands remain usable.
+Readiness is cached only in the current process for provider/model/key/selected mode;
+`ai status` never contacts the provider. An isolated investigation process checks its
+own readiness before its first inference. Successful compatibility proves only that
+the tiny synthetic contract passed, not support for every larger schema or forensic
+accuracy. Normal request failures invalidate readiness and require fresh checks.
 
 For cloud providers, `ai logs` reads the bounded private
 `%LOCALAPPDATA%\Locard\ai\provider.log`. It records fixed diagnostic categories
@@ -2141,45 +2146,45 @@ model identifier is wrong. Model-specific classification requires structured met
 Model identifiers remain exactly as configured. Generic investigation
 termination is displayed as **AI model failure**; its JSON code remains unchanged.
 
-DeepSeek handshake/request-shape diagnostics (6.69 patch):
+Provider capabilities and canonical validation (6.69 pre-acceptance patch):
 
-All cloud calls use `ModelBackend` and the same isolated LiteLLM worker. The
-handshake calls `_cloud` with `handshake=True`; advisory calls `complete` with its
-existing schema; the bounded controller calls `complete` with its existing grammar.
-The worker supplies `model`, `custom_llm_provider`, `api_key`, `messages`,
-`response_format`, `stream=False`, `max_tokens`, `timeout`, `num_retries=0`, and
-`drop_params=False`. Locard supplies no temperature, tools, tool_choice, extra_headers,
-api_base/base_url or other provider-specific parameters. SDK transport transformations
-and its default endpoint are separate from these Locard-to-LiteLLM arguments.
+All cloud calls use `ModelBackend` and the same isolated LiteLLM worker. Capability
+selection is explicit, before evidence is sent; model IDs remain exactly as configured.
+There are no model-name guesses, automatic retries, cross-provider fallback, or
+runtime schema-to-JSON downgrades. Unsupported models fail the synthetic check.
 
-| Call | Response format | Output budget | Timeout |
+| Provider | Selected mode | Locard-to-LiteLLM schema parameter | Internal route |
 |---|---|---|---|
-| DeepSeek synthetic handshake | json_object; exact local validation | 64 | 15 seconds |
-| Other cloud synthetic handshake | strict json_schema; exact local validation | 64 | 15 seconds |
-| Advisory | existing strict json_schema | 1024 | existing remaining advisory deadline |
-| Bounded investigation | existing strict json_schema | 1024 | existing remaining investigation/tool deadline |
+| OpenAI | json_schema | response_format.json_schema, strict=true | openai/MODEL |
+| Anthropic Claude | anthropic_schema | output_config.format | anthropic/MODEL |
+| Google Gemini | gemini_schema | response_json_schema + response_mime_type | gemini/MODEL |
+| DeepSeek | json_object | response_format + exact schema instruction | deepseek/MODEL |
+| xAI Grok | json_schema | response_format.json_schema, strict=true | xai/MODEL |
 
-User configuration `deepseek-flash` remains unchanged; the worker qualifies it as
-`deepseek/deepseek-flash`, with `custom_llm_provider=deepseek`, following
-[LiteLLM routing](https://docs.litellm.ai/docs/providers/deepseek).
-The [DeepSeek Chat Completions reference](https://api-docs.deepseek.com/api/create-chat-completion/)
-lists text/json_object response formats, unlike its separate Responses API. The old
-handshake requested json_schema. This establishes a documented incompatibility,
-not proof of the cause of a particular historical 400 without its structured error.
+Anthropic and Gemini use explicit native parameters to avoid LiteLLM's tool/prompt
+fallback conversions. Provider/model schema subsets differ: no canonical schema
+keywords are removed to satisfy a provider. The configured model must accept the
+selected mechanism; failure does not trigger a weaker request. DeepSeek now uses
+JSON-object mode for **normal requests as well as readiness**, replacing the previous
+normal strict-json_schema request. It receives an explicit JSON instruction and the
+unchanged canonical schema. See [DeepSeek's API reference](https://api-docs.deepseek.com/api/create-chat-completion/)
+and [LiteLLM routing](https://docs.litellm.ai/docs/providers/deepseek).
 
-DeepSeek's handshake now selects JSON-object mode directly, never retrying a failed
-strict request. No plain-text fallback or second compatibility probe is performed.
-The returned JSON must still be exactly `{"status":"ok"}` with no duplicate keys or
-extra fields. Normal forensic requests remain strict and never silently downgrade.
-Handshake success reports connection/model readiness separately from
-`Locard compatibility: not_verified`; it does not prove the normal forensic contract
-is supported. A normal request may still fail and deterministic commands remain usable.
+Every cloud response is parsed locally, rejecting duplicate keys, nonfinite numbers,
+markdown wrappers and oversized text, and validated against the supplied canonical
+schema with `jsonschema` (cloud/test optional dependency, already transitive through
+LiteLLM). External schema resources cannot be fetched. Existing advisory, investigation
+and report validators still enforce their stricter content and grounding rules.
+Schema validity does not establish evidentiary support. Local runtime behavior,
+forensic tools, approvals, snapshots, audit and evidence schemas remain unchanged.
+Normal response budgets remain 1024 output tokens and the existing remaining caller
+deadline. No provider-native tools are enabled.
 
-Failed worker requests record allowlisted request-feature flags: response-format mode,
-schema presence, tools/tool-choice/streaming, timeout/temperature presence, token
-parameter name, endpoint/header override presence, and provider route/prefix.
-These describe arguments entering LiteLLM, not a captured HTTP request. No message,
-schema body, key, header value or model response is recorded. An allowlisted rejected
-parameter can be retained from structured exception metadata. Only an explicit
-unsupported-code/class plus a schema parameter is classified as
-`structured_output_unsupported`; a bare 400 remains generic.
+Safe failure diagnostics record the selected mode, schema presence, tools/streaming,
+timeout/token parameter presence and route/prefix. These describe arguments entering
+LiteLLM, not captured HTTP traffic. Logs contain no prompt, evidence, schema body,
+credential, arbitrary header value or response text. A failed synthetic check records
+one bounded diagnostic event; `ai logs` displays the selected mode there as well.
+
+Manual provider certification is tracked in [the certification matrix](VALIDATION.md#cloud-provider-manual-certification--locard-669).
+Mocked tests and offline SDK transformation checks are not live certification.

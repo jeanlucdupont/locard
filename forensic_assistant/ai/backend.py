@@ -79,7 +79,7 @@ class ModelBackend:
 
     def supports_structured_output(self):
         # Model support is checked by the provider on each call; never drop schema.
-        return 'required; provider/model must accept schema or request fails'
+        return 'canonical local validation required; selected cloud mode must pass compatibility probe'
 
     def prepare(self, phase=None):
         if self.provider_name == 'local' and not self.endpoint:
@@ -92,6 +92,13 @@ class ModelBackend:
                 from .provider_diagnostics import record
                 record(self.provider_name, self.model_name, 'configuration', 'missing_key')
                 raise
+            from . import readiness
+            from .provider_diagnostics import ProviderFailure
+            result = readiness.check(self.config, timeout=min(15, self.timeout))
+            if result['readiness_category'] == 'cancelled':
+                raise KeyboardInterrupt()
+            if result['locard_compatibility'] != 'ready':
+                raise ProviderFailure('compatibility_failed' if result['connection_readiness'] == 'ready' else result['readiness_category'], result['readiness_stage'])
         return self
 
     def descriptor(self):
@@ -147,13 +154,23 @@ class ModelBackend:
         from .provider_diagnostics import ProviderFailure, record
         started = time.monotonic()
         try:
-            return self._cloud_request(messages, schema, timeout=timeout, handshake=handshake)
+            from .response_contract import validator, validate
+            validator(schema)  # Validate the contract before any evidence leaves the process.
+            result = self._cloud_request(messages, schema, timeout=timeout, handshake=handshake)
+            validate(result['text'], schema)
+            return result
         except ProviderFailure as exc:
             if not handshake:
-                record(self.provider_name, self.model_name, exc.stage, exc.category, time.monotonic()-started, metadata=exc.metadata)
+                from . import readiness
+                readiness.invalidate(self.config)
+                from .capabilities import CAPABILITIES
+                metadata = {'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}, **exc.metadata}
+                record(self.provider_name, self.model_name, exc.stage, exc.category, time.monotonic()-started, metadata=metadata)
             raise
         except (OSError, ValueError):
             if not handshake:
+                from . import readiness
+                readiness.invalidate(self.config)
                 record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
             raise ProviderFailure('provider_failure') from None
 

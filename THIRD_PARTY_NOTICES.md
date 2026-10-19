@@ -68,3 +68,10 @@ The pin excludes the compromised March 2026 releases 1.82.7/1.82.8 documented at
 https://docs.litellm.ai/blog/security-update-march-2026. This review is not a guarantee
 against future supply-chain vulnerabilities. Model weights and cloud services
 have separate terms; Locard does not download or redistribute generative weights.
+
+The cloud adapter also declares jsonschema >=4.18,<5 explicitly (MIT), already a
+LiteLLM dependency, to validate canonical contracts locally without remote schema
+resolution. The test extra includes it for offline mocked-provider tests; core/local
+installations do not require it. Its referencing, jsonschema-specifications,
+attrs and rpds-py components retain their MIT notices. This is compatible with
+Locard's Apache-2.0 source license; retain all package license files on redistribution.

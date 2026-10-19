@@ -13,20 +13,14 @@ def request_kwargs(request):
     if provider not in PROVIDERS or provider == 'local':
         raise ValueError('Invalid cloud provider')
     # Explicit provider + model, no router, fallback or provider-native tools.
-    kwargs = dict(model=provider + '/' + request['model'],
-                  custom_llm_provider=provider, api_key=os.environ[PROVIDERS[provider][1]],
+    from .capabilities import CAPABILITIES, configure
+    route = CAPABILITIES[provider].route
+    kwargs = dict(model=route + '/' + request['model'],
+                  custom_llm_provider=route, api_key=os.environ[PROVIDERS[provider][1]],
                   messages=request['messages'], stream=False, max_tokens=64 if request.get('handshake') is True else 1024,
                   timeout=request['timeout'], num_retries=0, drop_params=False)
-    if request.get('handshake') is True and provider == 'deepseek':
-        # DeepSeek /chat/completions documents text/json_object, not json_schema.
-        # This selection is synthetic-handshake-only; never retry or downgrade inference.
-        kwargs['response_format'] = {'type': 'json_object'}
-    elif request.get('schema'):
-        kwargs['response_format'] = {'type': 'json_schema', 'json_schema': {
-            'name': 'forensic_analysis', 'strict': True, 'schema': request['schema']}}
-    else:
-        kwargs['response_format'] = {'type': 'json_object'}
-    return kwargs
+    return configure(kwargs, provider, request.get('schema'))
+
 
 
 def generate(request, sdk):
