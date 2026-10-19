@@ -149,14 +149,16 @@ class ModelBackend:
         try:
             return self._cloud_request(messages, schema, timeout=timeout, handshake=handshake)
         except ProviderFailure as exc:
-            record(self.provider_name, self.model_name, exc.stage, exc.category, time.monotonic()-started)
+            if not handshake:
+                record(self.provider_name, self.model_name, exc.stage, exc.category, time.monotonic()-started, metadata=exc.metadata)
             raise
         except (OSError, ValueError):
-            record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
+            if not handshake:
+                record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
             raise ProviderFailure('provider_failure') from None
 
     def _cloud_request(self, messages, schema, *, timeout=None, handshake=False):
-        from .provider_diagnostics import ProviderFailure, REASONS, STAGES
+        from .provider_diagnostics import ProviderFailure, STAGES
         timeout = self.timeout if timeout is None else timeout
         from importlib.util import find_spec
         if find_spec('litellm') is None:
@@ -180,9 +182,10 @@ class ModelBackend:
             if len(output) > 2 * 1024 * 1024:
                 raise ValueError()
             result = json.loads(output)
-            if type(result) is dict and set(result) == {'error', 'stage'}:
-                raise ProviderFailure(result['error'] if result['error'] in REASONS else 'provider_failure',
-                                      result['stage'] if result['stage'] in STAGES else 'provider_request')
+            if type(result) is dict and set(result) in ({'error', 'stage'}, {'error', 'stage', 'metadata'}):
+                raise ProviderFailure(result['error'],
+                                      result['stage'] if type(result['stage']) is str and result['stage'] in STAGES else 'provider_request',
+                                      metadata=result.get('metadata'))
             if set(result) != {'text', 'usage'}:
                 raise ValueError()
             return result

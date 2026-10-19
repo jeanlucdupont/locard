@@ -5,7 +5,7 @@ import os
 import sys
 
 from .settings import PROVIDERS
-from .provider_diagnostics import ProviderFailure, classify
+from .provider_diagnostics import ProviderFailure, classify, error_metadata
 
 
 def generate(request, sdk):
@@ -63,7 +63,7 @@ def main():
     except BaseException as exc:
         # Never include str(exc), response bodies, headers or request metadata.
         category = classify(exc)
-        output.write(json.dumps({'error': category,
+        output.write(json.dumps({'error': category, 'metadata': error_metadata(exc),
                                  'stage': exc.stage if isinstance(exc, ProviderFailure) else 'timeout' if category == 'timeout' else 'provider_request'}))
     finally:
         output.flush()

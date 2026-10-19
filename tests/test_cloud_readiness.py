@@ -58,11 +58,11 @@ def test_missing_key_and_local_never_call_cloud():
 
 
 @pytest.mark.parametrize('name,code,expected',[
-    ('AuthenticationError',401,'authentication'),('PermissionDeniedError',403,'permission'),
-    ('NotFoundError',404,'model_rejected'),('APIConnectionError',None,'network'),
-    ('Timeout',None,'timeout'),('RateLimitError',429,'rate_limit'),
-    ('UnsupportedParamsError',None,'unsupported_schema'),('BadRequestError',400,'request_rejected'),
-    ('UnexpectedError',500,'provider_failure')])
+    ('AuthenticationError',401,'authentication_failed'),('PermissionDeniedError',403,'authorization_failed'),
+    ('NotFoundError',404,'request_rejected'),('APIConnectionError',None,'network_error'),
+    ('Timeout',None,'timeout'),('RateLimitError',429,'rate_limited'),
+    ('UnsupportedParamsError',None,'unsupported_parameter'),('BadRequestError',400,'request_rejected'),
+    ('UnexpectedError',500,'provider_server_error')])
 def test_failure_categories_never_use_raw_exception(name,code,expected,monkeypatch):
     monkeypatch.setenv('DEEPSEEK_API_KEY','secret')
     error=type(name,(Exception,),{'status_code':code})('Authorization: secret EVIDENCE prompt response body')
@@ -113,7 +113,7 @@ def test_diagnostics_bound_and_validation_stages(monkeypatch):
     result=cli.dispatch(build_parser().parse_args(['ai','logs']))['logs']
     assert 'sensitive' not in path.read_text()
     for stage in ('response_parse','structured_validation','grounding'):assert stage in result
-    assert 'Authentication was not accepted' in result
+    assert 'Authentication failed' in result
     assert not list(settings.root().glob('.log-*'))
 
 
@@ -161,7 +161,7 @@ def test_worker_error_ipc_contains_category_only(monkeypatch,capsys):
         sys.stdout,sys.stderr=output,error
         logging.disable(disabled)
     captured=capsys.readouterr()
-    assert json.loads(captured.out)=={'error':'authentication','stage':'provider_request'}
+    assert json.loads(captured.out)=={'error':'authentication_failed','stage':'provider_request','metadata':{'exception_class':'AuthenticationError'}}
     assert secret not in captured.out+captured.err
 
 
@@ -183,4 +183,4 @@ def test_malformed_success_is_structured_failure(monkeypatch,result):
     monkeypatch.setenv('DEEPSEEK_API_KEY','synthetic-secret')
     with pytest.raises(ProviderFailure) as exc:
         cloud_worker.generate(dict(provider='deepseek',model='synthetic',messages=readiness.MESSAGES,schema=readiness.SCHEMA,timeout=15,handshake=True),SimpleNamespace(completion=lambda **k:result))
-    assert exc.value.category=='structured_validation'
+    assert exc.value.category=='structured_validation_failed'

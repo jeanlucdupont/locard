@@ -34,6 +34,7 @@ def check(config, *, force=False):
     if not force and key in _cache: return _cache[key]
     started = time.monotonic()
     category, stage = 'ready', 'handshake'
+    metadata = {}
     try:
         if not os.environ.get(settings.PROVIDERS[config['provider']][1], '').strip():
             raise ProviderFailure('missing_key', 'configuration')
@@ -55,13 +56,15 @@ def check(config, *, force=False):
             raise ProviderFailure('structured_validation', 'structured_validation')
     except ProviderFailure as exc:
         category, stage = exc.category, exc.stage
+        metadata = exc.metadata
     except KeyboardInterrupt:
         category = 'cancelled'
     except (OSError, ValueError):
-        category, stage = 'provider_failure', 'provider_request'
+        category, stage = 'unknown_provider_error', 'provider_request'
     result = dict(provider_readiness='ready' if category == 'ready' else 'unavailable',
-                  readiness_reason=REASONS[category], readiness_stage=stage)
-    record(config['provider'], config['model'], stage, category, time.monotonic()-started, operation="handshake")
+                  readiness_reason=REASONS[category], readiness_stage=stage, readiness_category=category)
+    if "http_status" in metadata: result["http_status"] = metadata["http_status"]
+    record(config['provider'], config['model'], stage, category, time.monotonic()-started, operation="handshake", metadata=metadata)
     _cache.clear()  # Current configuration only; no cross-session/key history.
     _cache[key] = result
     return result
@@ -86,6 +89,8 @@ def present(config, args=None, *, force=False):
     if ready:
         print('  Connection: OK\n  Model: accepted\n  Response check: OK')
     else:
-        print(palette('warning', '  ' + result['readiness_reason'] + '.'))
+        summary = {'model_rejected':'Model: rejected', 'authentication_failed':'Authentication: failed',
+                   'authorization_failed':'Access: denied'}.get(result['readiness_category'], result['readiness_reason'] + '.')
+        print(palette('warning', '  ' + summary))
         if missing: print('  Set ' + variable + ' and retry.')
     print(palette('success' if ready else 'warning', 'AI ready.' if ready else 'AI provider unavailable; deterministic commands remain available.'))

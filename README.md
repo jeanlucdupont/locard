@@ -2128,6 +2128,15 @@ For cloud providers, `ai logs` reads the bounded private
 for configuration, authentication, model/endpoint rejection, connection, timeout,
 provider failure, response parsing, structured validation and grounding. Logs contain
 only safe metadata, never raw exceptions, headers, prompts, evidence or responses.
-Model identifiers remain exactly as configured. A 404 indicates model/endpoint
-rejection without guessing which model name should replace it. Generic investigation
+Human `ai logs` renders readable diagnostic entries; `ai logs --json` retains the
+structured JSON-line log text. Each handshake emits one diagnostic event, including
+its actual failure stage. Safe metadata includes HTTP status, known exception class,
+strictly allowlisted provider code/type, and bounded numeric Retry-After seconds
+when available. Arbitrary error messages, headers and response bodies are never
+stored. Unknown code strings are omitted rather than copied speculatively.
+Authentication, authorization, model rejection, unsupported parameters/schema,
+rate limits, explicit quota/billing errors and provider service errors have separate
+categories. A bare 404 remains a generic request rejection: it does not prove the
+model identifier is wrong. Model-specific classification requires structured metadata.
+Model identifiers remain exactly as configured. Generic investigation
 termination is displayed as **AI model failure**; its JSON code remains unchanged.

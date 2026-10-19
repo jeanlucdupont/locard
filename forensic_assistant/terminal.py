@@ -16,6 +16,7 @@ STYLES = {
     'evidence_id': '1;36',
     'heading': '1',
     'secondary_text': '0',
+    'inactive': '2',
     'warning': '33',
     'error': '31',
     'success': '32',

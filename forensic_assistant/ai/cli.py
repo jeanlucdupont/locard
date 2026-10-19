@@ -119,7 +119,9 @@ def dispatch(args):
     elif operation == 'logs':
         from .diagnostics import tail
         if config['provider'] != 'local':
-            return {'logs': tail('provider.log')}
+            from .provider_diagnostics import render as render_provider_logs
+            text = tail('provider.log')
+            return {'logs': text if args.json else render_provider_logs(text)}
         current = runtime.status(config)
         return {'logs': ('Locard does not own or capture external runtime logs.'
                          if current.get('ownership') == 'external' else tail())}
@@ -226,13 +228,13 @@ def render(value, args=None):
     if 'logs' in value:
         return '\n'.join(safe_text(line) for line in value['logs'].splitlines())
     labels = {'provider':'Provider', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
-              'api_key':'API key', 'provider_readiness':'Provider readiness', 'readiness_reason':'Reason', 'readiness_stage':'Stage', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
+              'api_key':'API key', 'provider_readiness':'Provider readiness', 'readiness_reason':'Reason', 'readiness_stage':'Stage', 'http_status':'HTTP status', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
     lines = [palette('heading', 'AI provider')]
     for key, label in labels.items():
         if key in value:
             text = safe_text(str(value[key]).replace('_', ' ') if key == 'configuration' else str(value[key]))
             role = ('success' if value[key] in ('configured_ready', 'running', 'ready') else
-                    'secondary_text' if value[key] == 'stopped' else 'error')
+                    'inactive' if value[key] == 'stopped' else 'error')
             if key == 'provider': role = 'key'
             if key in ('provider', 'configuration', 'runtime', 'provider_readiness'): text = palette(role, text)
             lines.append('  ' + label + ': ' + text)

@@ -8,53 +8,153 @@ from forensic_assistant.llm.client import LLMError
 
 REASONS = {
     'ready': 'Synthetic response check passed',
-    'missing_key': 'Required API key is missing',
+    'missing_credential': 'Required API key is missing',
     'missing_dependency': 'Optional cloud dependencies are not installed; use pip install "locard-forensics[cloud]"',
-    'authentication': 'Authentication was not accepted by the provider',
-    'permission': 'Provider permission was denied',
-    'model_rejected': 'Model or requested endpoint was not accepted by the provider',
-    'network': 'Connection failed',
+    'authentication_failed': 'Authentication failed',
+    'authorization_failed': 'Provider denied access',
+    'model_rejected': 'The configured model was not accepted by the provider',
+    'invalid_request': 'Provider rejected an invalid request',
+    'network_error': 'Connection failed',
     'timeout': 'Provider request timed out',
-    'rate_limit': 'Provider rate limit reached',
-    'provider_failure': 'Provider request failed',
+    'rate_limited': 'Provider rate limit was reached',
+    'quota_or_billing': 'Provider quota or billing limit was reached',
+    'provider_unavailable': 'Provider is unavailable',
+    'provider_server_error': 'Provider service error',
+    'unknown_provider_error': 'Provider request failed; no specific safe metadata available',
     'request_rejected': 'Provider rejected the request',
     'unsupported_schema': 'Provider rejected structured-output parameters',
-    'response_parse': 'Expected JSON object was not returned',
-    'structured_validation': 'Response did not match the required structured contract',
+    'unsupported_parameter': 'Provider rejected unsupported request parameters',
+    'response_parse_failed': 'Expected JSON object was not returned',
+    'structured_validation_failed': 'Response did not match the required structured contract',
     'grounding': 'Locard evidence-grounding validation rejected the proposed conclusion',
     'cancelled': 'Readiness check cancelled',
 }
+# Accept older internal diagnostic names without changing caller validation behavior.
+ALIASES = dict(missing_key='missing_credential', authentication='authentication_failed',
+               permission='authorization_failed', network='network_error', rate_limit='rate_limited',
+               provider_failure='unknown_provider_error', response_parse='response_parse_failed',
+               structured_validation='structured_validation_failed')
 STAGES = {'configuration', 'handshake', 'provider_request', 'response_parse',
           'structured_validation', 'grounding', 'timeout'}
+CODES = {
+    'invalid_api_key': 'authentication_failed', 'authentication_error': 'authentication_failed',
+    'permission_denied': 'authorization_failed', 'permission_error': 'authorization_failed',
+    'access_denied': 'authorization_failed', 'model_not_found': 'model_rejected',
+    'invalid_model': 'model_rejected', 'model_not_available': 'model_rejected',
+    'model_access_denied': 'model_rejected', 'insufficient_quota': 'quota_or_billing',
+    'billing_hard_limit_reached': 'quota_or_billing', 'billing_not_active': 'quota_or_billing',
+    'insufficient_balance': 'quota_or_billing', 'quota_exceeded': 'quota_or_billing',
+    'rate_limit_exceeded': 'rate_limited', 'rate_limit_error': 'rate_limited',
+    'unsupported_response_format': 'unsupported_schema', 'invalid_json_schema': 'unsupported_schema',
+    'unsupported_parameter': 'unsupported_parameter', 'invalid_parameter': 'invalid_request',
+    'invalid_request_error': 'invalid_request', 'invalid_request': 'invalid_request',
+    'not_found_error': 'request_rejected', 'server_error': 'provider_server_error',
+    'api_error': 'provider_server_error', 'overloaded_error': 'provider_unavailable',
+    'service_unavailable': 'provider_unavailable',
+}
+CLASSES = frozenset(('AuthenticationError', 'PermissionDeniedError', 'NotFoundError',
+    'BadRequestError', 'UnprocessableEntityError', 'RateLimitError', 'APIConnectionError',
+    'ConnectionError', 'ConnectError', 'Timeout', 'TimeoutError', 'APITimeoutError',
+    'UnsupportedParamsError', 'InternalServerError', 'ServiceUnavailableError',
+    'APIError', 'APIStatusError', 'BudgetExceededError'))
+
+
+def category_name(value):
+    value = ALIASES.get(value, value) if type(value) is str else None
+    return value if value in REASONS else 'unknown_provider_error'
+
+
+def safe_metadata(value):
+    """Revalidate at worker IPC, storage and human-rendering boundaries."""
+    if type(value) is not dict: return {}
+    result = {}
+    code = value.get('http_status')
+    if type(code) is int and 100 <= code <= 599: result['http_status'] = code
+    for key in ('provider_code', 'provider_type'):
+        item = value.get(key)
+        if type(item) is str and len(item) <= 64 and item in CODES:
+            result[key] = item
+    name = value.get('exception_class')
+    if type(name) is str and name in CLASSES: result['exception_class'] = name
+    if value.get('retry_after_present') is True: result['retry_after_present'] = True
+    delay = value.get('retry_after_seconds')
+    if type(delay) is int and 0 <= delay <= 86400: result['retry_after_seconds'] = delay
+    # Even a known literal must not expose an environment credential value.
+    secrets = [os.environ.get(variable, '') for _, variable in settings.PROVIDERS.values() if variable]
+    return {key:item for key,item in result.items()
+            if not any(secret and secret in str(item) for secret in secrets)}
 
 
 class ProviderFailure(LLMError):
-    def __init__(self, category, stage='provider_request'):
-        self.category = category if category in REASONS else 'provider_failure'
+    def __init__(self, category, stage='provider_request', *, metadata=None):
+        self.category = category_name(category)
         self.stage = stage if stage in STAGES else 'provider_request'
+        self.metadata = safe_metadata(metadata)
         super().__init__(REASONS[self.category] + '. See ai logs.')
 
 
+def error_metadata(exc):
+    if isinstance(exc, ProviderFailure): return exc.metadata
+    response = getattr(exc, 'response', None)
+    status = getattr(exc, 'status_code', None)
+    if type(status) is not int: status = getattr(response, 'status_code', None)
+    value = {'http_status':status, 'exception_class':type(exc).__name__,
+             'provider_code':getattr(exc, 'code', None), 'provider_type':getattr(exc, 'type', None)}
+    body = getattr(exc, 'body', None)
+    if type(body) is not dict:
+        # Read only an already-buffered, bounded response. Never call network/read methods.
+        try:
+            raw = getattr(response, 'content', None)
+            body = json.loads(raw) if type(raw) is bytes and len(raw) <= 16384 else None
+        except (ValueError, UnicodeError, RecursionError, RuntimeError):
+            body = None
+    if type(body) is dict:
+        error = body.get('error', body)
+        if type(error) is dict:
+            for field in ('code', 'type'):
+                if value['provider_'+field] is None: value['provider_'+field] = error.get(field)
+    headers = getattr(response, 'headers', None)
+    if headers is not None:
+        try:
+            delay = headers.get('retry-after')
+            if delay is None: delay = headers.get('Retry-After')
+            if delay is not None:
+                value['retry_after_present'] = True
+                if type(delay) is str and re.fullmatch(r'[0-9]{1,5}', delay):
+                    value['retry_after_seconds'] = int(delay)
+        except (AttributeError, TypeError, ValueError): pass
+    return safe_metadata(value)
+
+
 def classify(exc):
-    if isinstance(exc, ProviderFailure):
-        return exc.category
-    name = type(exc).__name__
-    code = getattr(exc, 'status_code', None)
+    if isinstance(exc, ProviderFailure): return exc.category
+    info = error_metadata(exc)
+    status, name = info.get('http_status'), info.get('exception_class')
+    if status == 401 or name == 'AuthenticationError': return 'authentication_failed'
+    if status is not None and status >= 500: return 'provider_server_error'
+    specific = CODES.get(info.get('provider_code'))
+    if specific: return specific
+    if status == 403 or name == 'PermissionDeniedError': return 'authorization_failed'
+    specific = CODES.get(info.get('provider_type'))
+    if specific and specific not in ('invalid_request', 'request_rejected'): return specific
+    if status == 429 or name == 'RateLimitError': return 'rate_limited'
+    if specific: return specific
+    if name == 'BudgetExceededError': return 'quota_or_billing'
     if name in ('Timeout', 'TimeoutError', 'APITimeoutError') or isinstance(exc, TimeoutError): return 'timeout'
-    if name == 'AuthenticationError' or code == 401: return 'authentication'
-    if name == 'PermissionDeniedError' or code == 403: return 'permission'
-    if name == 'NotFoundError' or code == 404: return 'model_rejected'
-    if name == 'RateLimitError' or code == 429: return 'rate_limit'
-    if name in ('APIConnectionError', 'ConnectionError'): return 'network'
-    if name == 'UnsupportedParamsError': return 'unsupported_schema'
-    if code == 400: return 'request_rejected'
-    return 'provider_failure'
+    if name in ('APIConnectionError', 'ConnectionError', 'ConnectError'): return 'network_error'
+    if name == 'UnsupportedParamsError': return 'unsupported_parameter'
+    if name == 'ServiceUnavailableError': return 'provider_unavailable'
+    if name == 'InternalServerError': return 'provider_server_error'
+    # A bare 404/NotFoundError cannot distinguish a model from an endpoint.
+    if status is not None and 400 <= status < 500: return 'request_rejected'
+    if name in ('BadRequestError', 'NotFoundError', 'UnprocessableEntityError'): return 'request_rejected'
+    return 'unknown_provider_error'
 
 
-def record(provider, model, stage, category, elapsed=0, *, operation="request"):
+def record(provider, model, stage, category, elapsed=0, *, operation="request", metadata=None):
     if provider not in settings.PROVIDERS or provider == 'local': return
     stage = stage if stage in STAGES else 'provider_request'
-    category = category if category in REASONS else 'provider_failure'
+    category = category_name(category)
     model = model if type(model) is str and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,199}', model) else '[invalid model]'
     for _, variable in settings.PROVIDERS.values():
         secret = os.environ.get(variable, '') if variable else ''
@@ -64,6 +164,7 @@ def record(provider, model, stage, category, elapsed=0, *, operation="request"):
                  category=category, reason=REASONS[category], retries=0,
                  operation="handshake" if operation == "handshake" else "request",
                  elapsed_seconds=round(max(0, min(float(elapsed), 3600)), 3))
+    value.update(safe_metadata(metadata))
     try:
         diagnostics.append('provider.log', json.dumps(value, ensure_ascii=True) + '\n')
     except (OSError, ValueError):
@@ -73,3 +174,30 @@ def record(provider, model, stage, category, elapsed=0, *, operation="request"):
 
 def validation(client, stage):
     record(getattr(client, 'provider_name', None), getattr(client, 'model_name', ''), stage, stage)
+
+
+def render(text):
+    """Human projection of structured logs, including older category names."""
+    from .backend import redact
+    from forensic_assistant.retrieval.presentation import safe_text
+    rows = []
+    for line in text.splitlines():
+        try: value = json.loads(line)
+        except (ValueError, RecursionError): continue  # Rotation may cut the first line.
+        if type(value) is not dict: continue
+        category = category_name(value.get('category'))
+        stamp = value.get('utc', '')
+        if type(stamp) is not str or not re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC', stamp): stamp = 'Time unavailable'
+        provider = value.get('provider')
+        if provider not in [item[0] for item in settings.PROVIDERS.values()]: provider = 'Provider'
+        model = value.get('model')
+        if type(model) is not str or len(model) > 200: model = '[unavailable]'
+        rows.append(stamp + ' — ' + provider)
+        rows.append('  Model: ' + safe_text(redact(model)))
+        rows.append('  Operation: ' + ('handshake' if value.get('operation') == 'handshake' else 'request'))
+        rows.append('  Stage: ' + (value['stage'] if type(value.get('stage')) is str and value['stage'] in STAGES else 'provider_request'))
+        labels = {'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
+                  'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
+        for key, item in safe_metadata(value).items(): rows.append('  ' + labels[key] + ': ' + str(item))
+        rows.extend(('  Category: ' + category, '  Reason: ' + REASONS[category], ''))
+    return '\n'.join(rows).rstrip() if rows else 'No cloud provider diagnostics are available.'
