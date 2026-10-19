@@ -105,7 +105,7 @@ function Select-LocardPython {
             # A broken interpreter can be skipped; unconfirmed cleanup cannot.
             $probeFailure=$_.Exception
             while ($probeFailure) {
-                if ($probeFailure.GetType().FullName -in @('Locard.Setup.CleanupException','System.Management.Automation.PipelineStoppedException')) { throw }
+                if ($probeFailure.GetType().FullName -match '^Locard\.Setup\.(H[0-9A-F]{64}\.)?CleanupException$' -or $probeFailure.GetType().FullName -eq 'System.Management.Automation.PipelineStoppedException') { throw }
                 $probeFailure=$probeFailure.InnerException
             }
             Write-Host "Unusable Python candidate '$path': $($_.Exception.Message)"

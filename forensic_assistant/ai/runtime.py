@@ -26,11 +26,26 @@ from forensic_assistant.investigation_ai.lifecycle import WorkerJob, CleanupErro
 IDLE_SECONDS = 900
 
 
+def verify_independent():
+    """BREAKAWAY may leave an outer nested job intact; verify the actual result."""
+    if os.name != 'nt':
+        return
+    import ctypes
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.GetCurrentProcess.restype = w.HANDLE
+    kernel.IsProcessInJob.argtypes = [w.HANDLE, w.HANDLE, ctypes.POINTER(w.BOOL)]
+    inside = w.BOOL()
+    if not kernel.IsProcessInJob(kernel.GetCurrentProcess(), None, ctypes.byref(inside)) or inside.value:
+        raise ValueError('Persistent AI supervisor cannot escape the enclosing Windows job; use a launcher that permits breakaway.')
+
+
 def clean_environment():
     # No provider credentials, proxy overrides or SDK telemetry settings in daemon.
     keep = ('SYSTEMROOT', 'WINDIR', 'PATH', 'TEMP', 'TMP', 'LOCALAPPDATA', 'USERPROFILE',
             'APPDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'COMSPEC')
     return {k: v for k, v in os.environ.items() if k.upper() in keep}
+
 
 
 @contextmanager
@@ -60,6 +75,15 @@ def identity(config):
     config = settings.validate(config)
     return hashlib.sha256(json.dumps({k: config[k] for k in
         ('executable', 'model_path', 'context', 'gpu_layers', 'port', 'extra_options')}, sort_keys=True).encode()).hexdigest()
+
+
+def active_configuration(config, port):
+    config = settings.validate(config)
+    return dict(gpu_layers=config['gpu_layers'], context=config['context'],
+                extra_options=list(config['extra_options']), port=port,
+                executable_identity=hashlib.sha256(config['executable'].encode()).hexdigest(),
+                model_path_identity=hashlib.sha256(config['model_path'].encode()).hexdigest(),
+                config_identity=identity(config))
 
 
 def argv(config, port):
@@ -122,7 +146,7 @@ def external(config):
                 endpoint=f'http://127.0.0.1:{port}', runtime_reported_models=models,
                 configuration_differs=bool(config['model_path']) and Path(config['model_path']).name not in
                     [name.replace('\\', '/').split('/')[-1] for name in models],
-                configuration_detail='Restart the external llama-server manually to apply the configured settings.')
+                configuration_detail='Active performance options are unknown for this external runtime.')
 
 
 def status(config=None):
@@ -197,7 +221,7 @@ def ensure(config, phase=None):
                              subprocess.CREATE_BREAKAWAY_FROM_JOB) if os.name == 'nt' else 0
                     process = subprocess.Popen([sys.executable, '-B', '-m', 'forensic_assistant.ai.runtime'],
                         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        env=clean_environment(), creationflags=flags, start_new_session=os.name != 'nt',
+                        env=clean_environment(), creationflags=flags, close_fds=True, start_new_session=os.name != 'nt',
                         cwd=str(Path(__file__).resolve().parents[2]))
                     cancellation = root / ('cancel-' + secrets.token_hex(16))
                     ready = False
@@ -207,7 +231,7 @@ def ensure(config, phase=None):
                         if phase: phase('Waiting for local AI...')
                         while time.monotonic() < deadline:
                             if process.poll() is not None:
-                                raise ValueError('Local AI startup failed. Check executable/model settings and whether the configured port is occupied.')
+                                raise ValueError('Local AI startup failed. Check executable/model settings, port availability, and Windows job breakaway restrictions. See ai logs.')
                             latest = state()
                             if latest and latest != saved:
                                 try:
@@ -297,6 +321,7 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
                         endpoint=f'http://127.0.0.1:{port}', model=Path(config['model_path']).name,
                         idle_timeout_seconds=IDLE_SECONDS, config_identity=identity(config),
                         runtime_reported_models=reported_models)
+                    result['active_configuration'] = active_configuration(config, port)
                     if action == 'begin':
                         seconds = body.get('seconds')
                         if type(seconds) not in (int, float) or not 0 < seconds <= 600: raise ValueError()
@@ -344,7 +369,8 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
             if cancelled(): return
             reported_models = model_identity(port)
             settings.write(root / 'runtime.json', dict(format=1, token=token, instance=instance,
-                control_port=server.server_port, pid=child.pid, started=time.time()))
+                control_port=server.server_port, pid=child.pid, started=time.time(),
+                active_configuration=active_configuration(config, port)))
             published = True
             diagnostics.record('ready')
             last_use = time.monotonic()
@@ -377,6 +403,13 @@ if __name__ == '__main__':
         import re
         if not re.fullmatch(r'cancel-[0-9a-f]{32}', value['cancel']):
             raise ValueError('Invalid cancellation identifier')
+        sys.stdin.close()  # Bootstrap EOF is not a lifetime/control channel.
+        try:
+            verify_independent()
+        except ValueError:
+            from .diagnostics import record
+            record('job_rejected')
+            raise
         serve(settings.validate(value['config']), cancel=value['cancel'])
     except BaseException:
         sys.exit(1)

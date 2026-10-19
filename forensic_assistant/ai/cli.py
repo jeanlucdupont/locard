@@ -36,6 +36,7 @@ def status(config):
     provider = config['provider']
     result = dict(provider=settings.PROVIDERS[provider][0], mode='Local' if provider == 'local' else 'Cloud')
     if provider == 'local':
+        result['configured_options'] = {k: config.get(k, []) for k in ('gpu_layers', 'context', 'extra_options')}
         result.update(settings.local_configuration(config))
         current = runtime.status(config)
         # Runtime identity is diagnostic, not the configured model label.
@@ -44,6 +45,10 @@ def status(config):
         if current.get('ownership') == 'external':
             result['configuration_detail'] = current['configuration_detail']
             result['configuration_differs'] = current.get('configuration_differs', False)
+        elif current.get('owned') and type(current.get('active_configuration')) is dict:
+            result['active_options'] = {k: current['active_configuration'][k]
+                                       for k in ('gpu_layers', 'context', 'extra_options')
+                                       if k in current['active_configuration']}
         if config['model_path']:
             result.update(model=Path(config['model_path']).name, model_path=config['model_path'])
         if config['executable']:
@@ -219,10 +224,28 @@ def render(value, args=None):
     for key, label in labels.items():
         if key in value:
             text = safe_text(str(value[key]).replace('_', ' ') if key == 'configuration' else str(value[key]))
-            role = 'success' if value[key] in ('configured_ready', 'running') else 'warning'
+            role = ('success' if value[key] in ('configured_ready', 'running') else
+                    'secondary_text' if value[key] == 'stopped' else 'error')
             if key == 'provider': role = 'key'
             if key in ('provider', 'configuration', 'runtime'): text = palette(role, text)
             lines.append('  ' + label + ': ' + text)
+    configured = value.get('configured_options')
+    if configured is not None:
+        external = value.get('ownership') == 'external'
+        lines.append(palette('heading', '  Configured options' if external else '  Runtime options'))
+        active = value.get('active_options', {})
+        changed = value.get('restart_required', False)
+        for field, label in (('gpu_layers', 'GPU layers'), ('context', 'Context size'), ('extra_options', 'Extra options')):
+            def display(options):
+                raw = options.get(field)
+                return safe_text(' '.join(raw) if field == 'extra_options' and isinstance(raw, list) else str(raw))
+            if field == 'extra_options' and not configured.get(field) and not active.get(field):
+                continue
+            lines.append('    ' + ('Configured ' + label.lower() if changed else label) + ': ' +
+                         (display(configured) or '(none)'))
+            if changed:
+                lines.append('    Active ' + label.lower() + ': ' +
+                             ((display(active) or '(none)') if field in active else 'unavailable; restart to record settings'))
     if value.get('restart_required'):
         lines.append(palette('warning', '  Configuration changed: restart required'))
     if value.get('configuration_differs'):

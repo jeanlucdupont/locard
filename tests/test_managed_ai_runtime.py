@@ -27,11 +27,13 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),Handler).serve_forever()
     entry.write_text('''import sys,json
 from forensic_assistant.ai import runtime
 payload=json.loads(sys.stdin.read())
+sys.stdin.close()
 config=payload.get('config',payload)
 cancel=payload.get('cancel',sys.argv[3] or None)
 runtime.argv=lambda config,port:[sys.executable,sys.argv[1],str(port)]
 runtime.serve(config,idle_seconds=float(sys.argv[2]),cancel=cancel)
 ''')
+    entry.write_text("import sys; sys.path.insert(0, %r)\n" % str(Path(__file__).resolve().parents[1]) + entry.read_text())
     children=[]
     def start(idle=5, port=0, startup=5, model='synthetic.gguf', cancel=''):
         config={**settings.defaults(),'model_path':str(tmp_path/model),'port':port,'startup_seconds':startup}
@@ -159,7 +161,7 @@ def test_auto_start_survives_requesting_cli_exit_and_reuses(manager,tmp_path):
 from forensic_assistant.ai import runtime
 original=subprocess.Popen
 def spawn(command,**kwargs):
- return original([sys.executable,'-B',sys.argv[1],sys.argv[2],'15',''],**kwargs)
+ return original([command[0],'-B',sys.argv[1],sys.argv[2],'15',''],**kwargs)
 runtime.subprocess.Popen=spawn
 saved=runtime.ensure(json.loads(sys.argv[3]))
 print(saved['instance'])
@@ -196,7 +198,8 @@ def test_interrupted_startup_closes_config_pipe_and_waits(tmp_path,monkeypatch):
     assert process.waited and not list(settings.root().glob('cancel-*'))
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows launcher Job Object boundary')
-def test_supervisor_breaks_away_from_launcher_job(manager, tmp_path):
+@pytest.mark.parametrize('entry_launcher,cached_legacy', [(False,False),(True,False),(True,True)])
+def test_supervisor_breaks_away_from_launcher_job(manager, tmp_path, entry_launcher, cached_legacy):
     import base64
     import shutil
     shell = shutil.which('powershell')
@@ -209,16 +212,35 @@ def test_supervisor_breaks_away_from_launcher_job(manager, tmp_path):
 from forensic_assistant.ai import runtime
 original=subprocess.Popen
 def spawn(command,**kwargs):
+ assert kwargs['close_fds'] is True
  assert kwargs['creationflags'] & subprocess.CREATE_NO_WINDOW
  assert kwargs['creationflags'] & subprocess.CREATE_BREAKAWAY_FROM_JOB
- return original([sys.executable,'-B',sys.argv[1],sys.argv[2],'30',''],**kwargs)
+ return original([command[0],'-B',sys.argv[1],sys.argv[2],'30',''],**kwargs)
 runtime.subprocess.Popen=spawn
 saved=runtime.ensure(json.load(open(sys.argv[3])))
 print(saved['instance'])
 ''')
+    client.write_text("import sys; sys.path.insert(0, %r)\n" % str(Path(__file__).resolve().parents[1]) + client.read_text())
+    interpreter = os.environ.get("LOCARD_TEST_PYTHON", sys.executable)
+    executable = interpreter
+    arguments = ['-B',client,manager.entry,manager.fake,config_file]
+    if entry_launcher:
+        # Match pip's real console entry-point executable, including its job.
+        import io, zipfile
+        from pip._vendor import distlib
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, 'w') as bundle:
+            bundle.writestr('__main__.py', client.read_text())
+        executable = tmp_path/'locard-fixture.exe'
+        launcher = Path(distlib.__file__).parent/'t64.exe'
+        executable.write_bytes(launcher.read_bytes() + ('#!'+interpreter+'\n').encode() + archive.getvalue())
+        arguments = [manager.entry,manager.fake,config_file]
     def literal(value): return "'" + str(value).replace("'", "''") + "'"
     root = Path(__file__).resolve().parents[1]
-    code = '. '+literal(root/'scripts/windows-process.ps1')+'; $r=Invoke-LocardProcess -Interactive -Executable '+literal(sys.executable)+' -Arguments @('+','.join(map(literal, ['-B',client,manager.entry,manager.fake,config_file]))+'); exit $r.ExitCode'
+    code = '. '+literal(root/'scripts/windows-process.ps1')+'; $r=Invoke-LocardProcess -Interactive -Executable '+literal(executable)+' -Arguments @('+','.join(map(literal, arguments))+'); exit $r.ExitCode'
+    if cached_legacy:
+        old = (root/'scripts/windows-process.cs').read_text().replace('if(!cancelOnSignal) limits.basic.flags |= 0x800;', '')
+        code = 'Add-Type -TypeDefinition '+literal(old)+'; '+code
     encoded=base64.b64encode(code.encode('utf-16le')).decode()
     try:
         first=subprocess.run([shell,'-NoProfile','-NonInteractive','-EncodedCommand',encoded], capture_output=True,text=True,timeout=25)
@@ -229,6 +251,8 @@ print(saved['instance'])
         assert second.returncode == 0, second.stderr
         assert first.stdout.strip() == second.stdout.strip() == saved['instance']
         assert runtime.state()['instance'] == saved['instance']
+        assert runtime.request(saved,'status')['active_configuration'] == saved['active_configuration']
+        assert saved['active_configuration']['context'] == 4096
     finally:
         if runtime.state(): runtime.stop()
 

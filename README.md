@@ -2037,6 +2037,16 @@ request. `ai stop` requests owned shutdown and checks completion; active request
 prevent an explicit stop. Startup cancellation asks the owner to clean up, and
 unconfirmed cleanup is surfaced as `CLEANUP_LIMITATION`.
 
+PowerShell caches native `Add-Type` definitions for the life of its process. The
+launcher now keys its native helper namespace by the source hash, so updating the
+checkout cannot silently reuse older job-containment code in an already-open shell.
+Supervisor bootstrap explicitly restricts inherited handles and closes its input
+after reading configuration. Client disconnect and shell `quit` are not shutdown
+requests. Before starting a server, the Windows supervisor verifies that it is
+outside all Job Objects. A restrictive outer job can prevent complete breakaway even
+when process creation succeeds; startup then fails with an `ai logs` diagnostic.
+Use a PowerShell environment that permits breakaway rather than disabling cleanup.
+
 `ai status` shows `running` or `stopped`, and `Ownership: Locard-managed` or
 `Ownership: external` when running. Stale control-state details are DEBUG diagnostics,
 not a normal runtime status. External runtime settings are not controlled or attested
@@ -2065,6 +2075,15 @@ context, GPU layers, port and extra options. Changes show `restart required` in 
 The next human model request offers `Restart the managed AI runtime now? [Y/n]:`.
 Declining preserves the running server and cancels that request; unattended/JSON requests
 do not assume consent. Configuration and deterministic commands never restart it.
+
+`ai status` and configuration results show effective GPU layers, context size, and
+validated extra options. With a pending managed restart, configured and active values
+are shown separately. The supervisor persists its non-secret active configuration
+(including path identities, actual port, and fingerprint) alongside existing private
+control state and returns it through authenticated status. Normal output does not
+display fingerprints or control credentials. Older supervisors without this snapshot
+show active settings as unavailable rather than guessing. External servers show only
+Locard's **configured options**; their active GPU/context settings are unknown.
 
 `ai logs` shows recent private diagnostics from
 `%LOCALAPPDATA%\Locard\ai\llama-server.log` (bounded to 32 KiB). Server stdout/stderr

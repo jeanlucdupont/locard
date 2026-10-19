@@ -7,7 +7,8 @@ import time
 from . import settings
 from forensic_assistant.investigation_ai.storage import local_path
 
-MESSAGES = {'starting': 'Starting managed llama-server.',
+MESSAGES = {'job_rejected': 'Persistent supervisor refused: an enclosing Windows job still controls its lifetime. Use a launcher that permits breakaway.',
+            'starting': 'Starting managed llama-server.',
             'ready': 'Managed llama-server is ready.',
             'stopped': 'Managed llama-server stopped.',
             'error': 'llama-server reported an error; check model, executable and performance settings.',

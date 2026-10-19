@@ -388,7 +388,7 @@ def test_discovery_cleanup_failure_never_falls_back(shell):
     code = '. ' + literal(ROOT / 'scripts/windows-process.ps1') + ''';
 function Get-LocardCandidates { 'first','second' }
 function Get-LocardPython($path) {
- if($path -eq 'first') { throw [Locard.Setup.CleanupException]::new('Cannot confirm installer/launcher child-process cleanup') }
+ if($path -eq 'first') { throw [Activator]::CreateInstance(($script:LocardProcessNamespace + '.CleanupException' -as [type]), @('Cannot confirm installer/launcher child-process cleanup')) }
  Write-Host 'UNSAFE FALLBACK'; throw 'should not reach this'
 }
 Select-LocardPython '>=3.11' '''
@@ -402,3 +402,11 @@ def test_completed_probe_output_is_bounded(stub):
     result = policy(code)
     assert result.returncode != 0 and b'exceeded 1 MiB' in result.stderr
     assert len(result.stdout) < 1000
+
+
+def test_runtime_rejects_remaining_parent_job(tmp_path):
+    import sys
+    source = 'from forensic_assistant.ai.runtime import verify_independent; verify_independent()'
+    code = '. '+literal(ROOT/'scripts/windows-process.ps1')+'; $r=Invoke-LocardProcess -Executable '+literal(sys.executable)+' -Arguments @('+','.join(map(literal,['-B','-c',source]))+') -Capture; Write-Output $r.Output; exit $r.ExitCode'
+    result=command(POWERSHELL,code)
+    assert result.returncode != 0 and b'cannot escape the enclosing Windows job' in result.stdout

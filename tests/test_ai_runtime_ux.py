@@ -154,3 +154,38 @@ def test_restart_stops_indicator_before_prompt():
     with restart_confirmation(lambda prompt:order.append('prompt') or 'n', indicator):
         assert RESTART.get()() is False
     assert order==['stop','prompt']
+
+
+def test_status_configured_and_active_options(monkeypatch):
+    config={**settings.defaults(), 'gpu_layers':50, 'context':1024, 'extra_options':['--flash-attn','on']}
+    monkeypatch.setattr(runtime, 'status', lambda c: {'runtime':'stopped'})
+    stopped=cli.status(config)
+    text=cli.render(stopped)
+    assert 'GPU layers: 50' in text and 'Context size: 1024' in text and 'Extra options: --flash-attn on' in text
+    assert 'Active context' not in text and 'active_options' not in stopped
+    active=runtime.active_configuration({**config,'context':2048},8080)
+    active.update(token='SECRET', evidence='PRIVATE', instance='CONTROL')
+    monkeypatch.setattr(runtime, 'status', lambda c: dict(runtime='running', owned=True, ownership='Locard-managed', restart_required=True, active_configuration=active))
+    changed=cli.status(config);text=cli.render(changed)
+    assert 'Configured context size: 1024' in text and 'Active context size: 2048' in text and 'restart required' in text
+    assert not any(secret in json.dumps(changed)+text for secret in ('SECRET','PRIVATE','CONTROL','config_identity'))
+    monkeypatch.setattr(runtime, 'status', lambda c: dict(runtime='running', owned=True, ownership='Locard-managed', restart_required=False, active_configuration=runtime.active_configuration(config,8080)))
+    text=cli.render(cli.status(config))
+    assert 'Context size: 1024' in text and 'restart required' not in text
+
+
+def test_external_options_remain_configured_only(endpoint):
+    config={**settings.defaults(), 'port':endpoint.server_port, 'context':1024}
+    result=cli.status(config);text=cli.render(result)
+    assert 'Configured options' in text and 'Context size: 1024' in text
+    assert 'active_options' not in result and 'Active context' not in text
+    assert 'restart required' not in text and 'manually to apply' not in text
+
+
+def test_quit_does_not_stop_runtime(tmp_path, monkeypatch):
+    from test_interactive_shell import Input, case
+    from forensic_assistant.interactive.shell import Shell
+    from forensic_assistant.interactive.state import State
+    monkeypatch.setattr(runtime, 'stop', lambda: pytest.fail('quit must not stop AI'))
+    monkeypatch.setattr(runtime, 'external', lambda config: None)
+    assert Shell(State(None), Input(str(case(tmp_path)), 'quit'), no_color=True).run() == 0
