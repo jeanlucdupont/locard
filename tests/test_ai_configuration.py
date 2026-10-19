@@ -11,6 +11,7 @@ from test_interactive_shell import Input, case
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime, 'external', lambda config: None)
     monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'appdata'))
     for _, variable in settings.PROVIDERS.values():
         if variable: monkeypatch.delenv(variable, raising=False)
@@ -70,7 +71,7 @@ def test_local_wizard_default_minimal_normalized(tmp_path,capsys):
     result=cli.dispatch(args('configure',read=reader.read))
     assert result['configuration']=='configured_ready' and result['model']==model.name
     assert result['executable']==str(exe)
-    assert reader.prompts==['Provider [1]: ','Path to llama-server.exe: ','Path to GGUF model: ']
+    assert reader.prompts==['Provider [1]: ','Full file path to llama-server.exe: ','Full file path to GGUF model: ']
     assert 'Model: '+model.name in capsys.readouterr().out
 
 
@@ -117,7 +118,7 @@ def test_cloud_key_availability_without_persistence(monkeypatch,capsys):
 def test_status_filters_control_identity(tmp_path,monkeypatch):
     exe,model=files(tmp_path)
     config={**settings.defaults(),'executable':str(exe),'model_path':str(model)}
-    monkeypatch.setattr(runtime,'status',lambda:dict(runtime='running',model='different',token='SECRET',instance='SECRET',config_identity='SECRET',endpoint='http://127.0.0.1:8080',runtime_reported_models=['runtime-label']))
+    monkeypatch.setattr(runtime,'status',lambda config=None:dict(runtime='running',model='different',token='SECRET',instance='SECRET',config_identity='SECRET',endpoint='http://127.0.0.1:8080',runtime_reported_models=['runtime-label']))
     result=cli.status(config)
     assert result['model']==model.name and result['runtime_reported_models']==['runtime-label']
     assert result['runtime']=='running' and 'SECRET' not in json.dumps(result)
@@ -136,7 +137,7 @@ def test_shell_default_yes_then_valid_no_repeat(tmp_path):
     db=case(tmp_path);exe,model=files(tmp_path)
     reader=Input(str(db),'','',str(exe),str(model),'exit',ai_setup=True)
     assert Shell(State(None),reader,no_color=True).run()==0
-    assert 'Path to GGUF model: ' in reader.prompts
+    assert 'Full file path to GGUF model: ' in reader.prompts
     later=Input(str(db),'exit',ai_setup=True)
     assert Shell(State(None),later,no_color=True).run()==0
     assert not any('Configure AI now?' in p for p in later.prompts)

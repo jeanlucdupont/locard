@@ -193,16 +193,28 @@ def main(argv=None):
 
 
 def dispatch(args, *, existing_only=False):
+    from forensic_assistant.ai.backend import restart_confirmation
+    read = getattr(args, '_confirm', None)
+    if read is None and sys.stdin.isatty():
+        read = input
+    if getattr(args, 'json', False):
+        read = None
+    with restart_confirmation(read):
+        return _dispatch_command(args, existing_only=existing_only)
+
+
+def _dispatch_command(args, *, existing_only=False):
     if args.command == 'ai':
         from forensic_assistant.ai import cli as ai_cli
         if not hasattr(args, '_confirm') and sys.stdin.isatty():
             args._confirm = input
         try:
             value = ai_cli.dispatch(args)
-            print(json.dumps(value, ensure_ascii=True, indent=2) if getattr(args, 'json', False) else ai_cli.render(value))
+            print(json.dumps(value, ensure_ascii=True, indent=2) if getattr(args, 'json', False) else ai_cli.render(value, args))
             return 0
         except (ValueError, OSError) as exc:
-            print('Locard: ' + str(exc), file=sys.stderr)
+            from forensic_assistant.terminal import message
+            message('Locard: ' + human_error(exc), args)
             return 2
     if args.command == 'dump' and args.dump_type is None:
         from forensic_assistant.dump_cli import HELP

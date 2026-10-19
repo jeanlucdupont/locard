@@ -16,6 +16,8 @@ import socket
 import subprocess
 import sys
 import time
+import threading
+import logging
 
 from . import settings
 from forensic_assistant.investigation_ai.storage import local_path, DirectoryGuard
@@ -55,8 +57,9 @@ def lock(path):
 
 
 def identity(config):
+    config = settings.validate(config)
     return hashlib.sha256(json.dumps({k: config[k] for k in
-        ('executable', 'model_path', 'context', 'gpu_layers', 'port')}, sort_keys=True).encode()).hexdigest()
+        ('executable', 'model_path', 'context', 'gpu_layers', 'port', 'extra_options')}, sort_keys=True).encode()).hexdigest()
 
 
 def argv(config, port):
@@ -67,7 +70,7 @@ def argv(config, port):
     if os.name == 'nt' and executable.suffix.lower() != '.exe':
         raise ValueError('Local runtime executable must be an .exe file')
     return [str(executable), '-m', str(model), '-ngl', str(config['gpu_layers']),
-            '-c', str(config['context']), '--host', '127.0.0.1', '--port', str(port)]
+            '-c', str(config['context']), '--host', '127.0.0.1', '--port', str(port)] + settings.validate(config)['extra_options']
 
 
 def request(state, action, **fields):
@@ -96,15 +99,60 @@ def state():
     return settings.read(path) if path.exists() else None
 
 
-def status():
-    saved = state()
-    if not saved:
-        return {'runtime': 'stopped', 'idle_timeout_seconds': IDLE_SECONDS}
+def external(config):
+    """Read-only, numeric-loopback health/API probe. Never infer ownership."""
+    port = config['port']
+    if not port:
+        return None
+    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=.5)
     try:
-        result = request(saved, 'status')
-        return {k: v for k, v in result.items() if k != 'instance'}
-    except (OSError, ValueError, http.client.HTTPException):
-        return {'runtime': 'stale or unavailable', 'idle_timeout_seconds': IDLE_SECONDS}
+        connection.request('GET', '/health')
+        response = connection.getresponse()
+        raw = response.read(4097)
+        if response.status != 200 or len(raw) > 4096 or json.loads(raw).get('status') != 'ok':
+            return None
+    except (OSError, ValueError, AttributeError, RecursionError, http.client.HTTPException):
+        return None
+    finally:
+        connection.close()
+    models = model_identity(port)
+    if not models:
+        return None
+    return dict(runtime='running', owned=False, ownership='external',
+                endpoint=f'http://127.0.0.1:{port}', runtime_reported_models=models,
+                configuration_differs=bool(config['model_path']) and Path(config['model_path']).name not in
+                    [name.replace('\\', '/').split('/')[-1] for name in models],
+                configuration_detail='Restart the external llama-server manually to apply the configured settings.')
+
+
+def status(config=None):
+    config = settings.load() if config is None else config
+    try:
+        saved = state()
+    except (OSError, ValueError):
+        logging.getLogger(__name__).debug('Unreadable or invalid runtime metadata')
+        saved = None
+    if saved:
+        try:
+            result = request(saved, 'status')
+            return {**{k: v for k, v in result.items() if k != 'instance'},
+                    'ownership': 'Locard-managed',
+                    'restart_required': result.get('config_identity') != identity(config)}
+        except (OSError, ValueError, http.client.HTTPException):
+            logging.getLogger(__name__).debug('Stale or unavailable authenticated runtime state')
+    return external(config) or {'runtime': 'stopped', 'idle_timeout_seconds': IDLE_SECONDS}
+
+
+def acquire(config, phase=None, confirm=None):
+    current = status(config)
+    if current.get('ownership') == 'external':
+        return current['endpoint'], None
+    if current.get('restart_required'):
+        if confirm is None or not confirm():
+            raise ValueError('Configured changes are not active; the current managed runtime was left running.')
+        stop()
+    saved = ensure(config, phase)
+    return request(saved, 'status')['endpoint'], saved
 
 
 def stop():
@@ -125,7 +173,7 @@ def stop():
 
 
 def ensure(config, phase=None):
-    settings.validate(config)
+    config = settings.validate(config)
     deadline = time.monotonic() + config['startup_seconds']
     with settings.private_root() as root:
         while True:
@@ -143,7 +191,10 @@ def ensure(config, phase=None):
                             return saved
                     argv(config, config['port'])  # Validate before starting a supervisor.
                     if phase: phase('Starting local AI...')
-                    flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP) if os.name == 'nt' else 0
+                    # Explicit breakaway from the launcher's job; never silently
+                    # fall back to a supervisor whose lifetime belongs to a client.
+                    flags = (subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP |
+                             subprocess.CREATE_BREAKAWAY_FROM_JOB) if os.name == 'nt' else 0
                     process = subprocess.Popen([sys.executable, '-B', '-m', 'forensic_assistant.ai.runtime'],
                         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         env=clean_environment(), creationflags=flags, start_new_session=os.name != 'nt',
@@ -202,7 +253,7 @@ def model_identity(port):
             return []
         return [item['id'] for item in json.loads(raw).get('data', [])[:64]
                 if type(item) is dict and type(item.get('id')) is str and len(item['id']) <= 1024]
-    except (OSError, ValueError, TypeError, AttributeError, http.client.HTTPException):
+    except (OSError, ValueError, TypeError, AttributeError, RecursionError, http.client.HTTPException):
         return []
     finally:
         connection.close()
@@ -223,6 +274,7 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
             return cancellation is not None and cancellation.exists()
         token, instance = secrets.token_hex(32), secrets.token_hex(16)
         child = None
+        reader = None
         job = None
         published = False
         leases = {}
@@ -275,10 +327,14 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
         server.timeout = .25
         try:
             if cancelled(): return
-            child = subprocess.Popen(argv(config, port), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, env=clean_environment(),
+            from . import diagnostics
+            diagnostics.record('starting')
+            child = subprocess.Popen(argv(config, port), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, env=clean_environment(),
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             job = WorkerJob(child.pid) if os.name == 'nt' else None
+            reader = threading.Thread(target=diagnostics.drain, args=(child.stdout,), daemon=True)
+            reader.start()
             deadline = time.monotonic() + config['startup_seconds']
             while not model_ready(port, config['model_path']):
                 if cancelled(): return
@@ -290,6 +346,7 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
             settings.write(root / 'runtime.json', dict(format=1, token=token, instance=instance,
                 control_port=server.server_port, pid=child.pid, started=time.time()))
             published = True
+            diagnostics.record('ready')
             last_use = time.monotonic()
             while not stopping and child.poll() is None and not cancelled():
                 now = time.monotonic()
@@ -302,6 +359,14 @@ def serve(config, *, idle_seconds=IDLE_SECONDS, cancel=None):
             if child and child.poll() is None:
                 child.terminate()
             if child: child.wait(timeout=5)
+            if reader:
+                reader.join(timeout=5)
+                if reader.is_alive():
+                    raise CleanupError('CLEANUP_LIMITATION: runtime diagnostic reader did not stop')
+            elif child and child.stdout:
+                child.stdout.close()
+            from . import diagnostics
+            diagnostics.record('stopped' if published else 'failed')
             if published and (state() or {}).get('instance') == instance:
                 local_path(root / 'runtime.json').unlink()
 

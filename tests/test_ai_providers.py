@@ -11,6 +11,7 @@ from test_investigation_hardening import local_model
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime, 'external', lambda config: None)
     monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
     for _, key in settings.PROVIDERS.values():
         if key: monkeypatch.delenv(key, raising=False)

@@ -2021,13 +2021,56 @@ llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -ngl 99 -c 4096 --host 127.0.0.1
 ```
 
 Launch uses an argument list, without a shell. Nothing downloads llama.cpp or model
-weights. Port 8080 is preferred: an occupied configured port causes a clear startup
-failure, never termination of its occupant. `ai configure --port 0` requests a free
-loopback port. The persistent supervisor survives direct CLI exit. It shuts down
+weights. Port 8080 is preferred. Before starting a child, Locard checks the configured
+numeric-loopback endpoint for a successful `/health` response and a nonempty
+`/v1/models` list. A compatible endpoint is reused as **external**, without gaining
+process ownership. An incompatible occupied port fails safely; its occupant is never
+terminated. `ai configure --port 0` requests a free loopback port (no external discovery).
+The persistent supervisor survives direct CLI and interactive launcher exit. Windows
+launcher jobs allow explicit breakaway for this hidden supervisor only by launch flags;
+ordinary children remain contained, and installer jobs do not permit breakaway. The
+supervisor owns the server's separate cleanup job. Both processes use hidden-console
+creation flags. If the enclosing environment disallows breakaway, startup fails rather
+than silently creating a client-bound runtime. It shuts down
 its owned runtime after 15 minutes without successful inference and no active bounded
 request. `ai stop` requests owned shutdown and checks completion; active requests
 prevent an explicit stop. Startup cancellation asks the owner to clean up, and
 unconfirmed cleanup is surfaced as `CLEANUP_LIMITATION`.
+
+`ai status` shows `running` or `stopped`, and `Ownership: Locard-managed` or
+`Ownership: external` when running. Stale control-state details are DEBUG diagnostics,
+not a normal runtime status. External runtime settings are not controlled or attested
+by Locard: restart that server manually to apply changes. `ai stop` refuses to stop
+external processes, and Locard's idle timer never applies to them. Status polling does
+not reset the managed idle timer.
+
+Advanced local performance settings can be saved with:
+
+```text
+ai configure --extra-options "-ngl 99 -c 4096 --flash-attn on"
+```
+
+The supported options are `-ngl`/`--gpu-layers`, `-c`/`--ctx-size`,
+`-fa`/`--flash-attn` (`on`, `off`, `auto`), `-t`/`--threads`, `--threads-batch`,
+`-b`/`--batch-size`, and `-ub`/`--ubatch-size`. Quoted scalar values are accepted;
+shell syntax, paths, unknown flags, and duplicate aliases are rejected. Model, host,
+port, credential, template, and logging flags cannot be overridden here. `-ngl` and
+`-c` update the dedicated saved settings, replacing their defaults without duplicate
+argv entries. Supplying the same setting through both CLI forms is rejected. Other
+extra options replace the previously saved extra-options list; an empty string clears
+that list. These preferences remain outside the evidence database.
+
+The managed supervisor reports a non-secret configuration fingerprint covering paths,
+context, GPU layers, port and extra options. Changes show `restart required` in status.
+The next human model request offers `Restart the managed AI runtime now? [Y/n]:`.
+Declining preserves the running server and cancels that request; unattended/JSON requests
+do not assume consent. Configuration and deterministic commands never restart it.
+
+`ai logs` shows recent private diagnostics from
+`%LOCALAPPDATA%\Locard\ai\llama-server.log` (bounded to 32 KiB). Server stdout/stderr
+are drained, but raw lines are **not retained**: only fixed lifecycle and warning/error
+categories are recorded to avoid exposing forensic prompts, paths, or credentials.
+This intentionally limits diagnostic detail. External runtime logs are not captured.
 
 `!`, `investigate-ai`, `analyze-timeline`, hidden scripted `ask`, and optional report
 narrative assistance share the backend. An explicit `--endpoint` on supported

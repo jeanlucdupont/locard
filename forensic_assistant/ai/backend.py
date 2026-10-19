@@ -14,6 +14,21 @@ from forensic_assistant.investigation_ai.lifecycle import WorkerJob
 
 
 STATUS = ContextVar('ai_status', default=None)
+RESTART = ContextVar('ai_restart_confirmation', default=None)
+
+
+@contextmanager
+def restart_confirmation(read, indicator=None):
+    def confirm():
+        if indicator:
+            indicator.stop()
+        print('Local AI configuration changed.')
+        return read('Restart the managed AI runtime now? [Y/n]: ').strip().lower() in ('', 'y', 'yes')
+    token = RESTART.set(confirm if callable(read) else None)
+    try:
+        yield
+    finally:
+        RESTART.reset(token)
 
 @contextmanager
 def status_callback(callback):
@@ -68,10 +83,8 @@ class ModelBackend:
 
     def prepare(self, phase=None):
         if self.provider_name == 'local' and not self.endpoint:
-            settings.require_local(self.config)
             startup = {**self.config, 'startup_seconds': min(self.config['startup_seconds'], max(1, int(self.timeout)))}
-            self.managed = runtime.ensure(startup, phase)
-            self.endpoint = runtime.request(self.managed, 'status')['endpoint']
+            self.endpoint, self.managed = runtime.acquire(startup, phase, RESTART.get())
         elif self.provider_name != 'local':
             settings.key(self.provider_name)
         return self

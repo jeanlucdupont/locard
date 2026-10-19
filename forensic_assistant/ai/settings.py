@@ -69,10 +69,13 @@ def write(path, value):
 def defaults():
     return dict(format=1, provider='local', model='', cloud_acknowledged=False,
                 executable='', model_path='',
-                context=4096, gpu_layers=99, port=8080, startup_seconds=120)
+                context=4096, gpu_layers=99, port=8080, startup_seconds=120, extra_options=[])
 
 
 def validate(value):
+    from .options import validate as validate_options
+    if type(value) is dict and set(value) == set(defaults()) - {'extra_options'}:
+        value = {**value, 'extra_options': []}
     if type(value) is not dict or set(value) != set(defaults()):
         raise ValueError('Invalid AI configuration fields')
     if value['format'] != 1 or value['provider'] not in PROVIDERS or type(value['cloud_acknowledged']) is not bool:
@@ -87,6 +90,7 @@ def validate(value):
     for name in ('executable', 'model_path'):
         if type(value[name]) is not str or (value[name] and not Path(value[name]).is_absolute()):
             raise ValueError('AI runtime paths must be absolute')
+    validate_options(value['extra_options'])
     return value
 
 
@@ -118,6 +122,14 @@ def local_configuration(config):
                                      ('model_path', 'Model file', '.gguf')]:
         try:
             path = local_path(config[field])
+            if path.is_dir():
+                target = 'llama-server.exe file' if field == 'executable' else '.gguf model file'
+                return {'configuration': 'configured_invalid', 'configuration_detail':
+                        'The selected path must point to the ' + target + ', not a folder.'}
+            if not path.exists():
+                target = 'llama-server.exe' if field == 'executable' else 'GGUF model file'
+                return {'configuration': 'configured_invalid', 'configuration_detail':
+                        target + ' was not found at that location.'}
             if not path.is_file():
                 raise ValueError(label + ' not found or not a regular file.')
             if (field == 'model_path' or os.name == 'nt') and path.suffix.lower() != extension:

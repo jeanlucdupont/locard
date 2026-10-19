@@ -88,9 +88,9 @@ class Shell:
                     context = build_ai_case_context(self.active, self.case_label)
                 except (OSError, ValueError, sqlite3.Error):
                     raise AdvisoryError('AI case context unavailable. No action was taken.') from None
-                from forensic_assistant.ai.backend import status_callback, waiting_label
+                from forensic_assistant.ai.backend import status_callback, waiting_label, restart_confirmation
                 indicator.update(waiting_label())
-                with status_callback(indicator.update):
+                with status_callback(indicator.update), restart_confirmation(self.reader.read, indicator):
                     response = advise(context, request)
         except KeyboardInterrupt:
             self.audit.record('AI_ADVICE', 'cancelled', request_characters=len(request))
@@ -244,7 +244,7 @@ class Shell:
         if not self.startup():
             return 0
         from forensic_assistant.ai.cli import offer_setup
-        offer_setup(self.reader.read)
+        offer_setup(self.reader.read, self)
         try:
             while True:
                 try:

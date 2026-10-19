@@ -13,10 +13,10 @@ def configure(commands):
     parser = commands.add_parser('ai', help='Configure AI provider and local runtime',
         description='Local uses llama.cpp / llama-server with a compatible user-selected GGUF model. Status distinguishes configuration readiness from runtime state. Cloud use sends bounded model context to the selected provider.')
     subs = parser.add_subparsers(dest='ai_command')
-    for name in ('provider', 'status', 'configure', 'start', 'stop'):
+    for name in ('provider', 'status', 'configure', 'start', 'stop', 'logs'):
         child = subs.add_parser(name, help={'provider':'View or select provider', 'status':'Show provider and runtime status',
             'configure':'Configure provider/model or local paths', 'start':'Start the owned local runtime',
-            'stop':'Stop only the Locard-owned runtime'}[name])
+            'stop':'Stop only the Locard-owned runtime', 'logs':'Show private managed runtime diagnostics'}[name])
         child.add_argument('--json', action='store_true')
         if name in ('provider', 'configure'):
             child.add_argument('provider', nargs='?', choices=list(settings.PROVIDERS))
@@ -28,6 +28,7 @@ def configure(commands):
             child.add_argument('--context', type=int)
             child.add_argument('--gpu-layers', type=int)
             child.add_argument('--port', type=int, help='Preferred loopback port; 0 selects a free port')
+            child.add_argument('--extra-options', help='Validated performance options; -ngl/-c update dedicated settings, never duplicate defaults')
 
 
 def status(config):
@@ -36,10 +37,13 @@ def status(config):
     result = dict(provider=settings.PROVIDERS[provider][0], mode='Local' if provider == 'local' else 'Cloud')
     if provider == 'local':
         result.update(settings.local_configuration(config))
-        current = runtime.status()
+        current = runtime.status(config)
         # Runtime identity is diagnostic, not the configured model label.
         result.update({k: v for k, v in current.items() if k in
-                       ('runtime', 'endpoint', 'owned', 'idle_timeout_seconds', 'runtime_reported_models')})
+                       ('runtime', 'endpoint', 'owned', 'ownership', 'restart_required', 'idle_timeout_seconds', 'runtime_reported_models')})
+        if current.get('ownership') == 'external':
+            result['configuration_detail'] = current['configuration_detail']
+            result['configuration_differs'] = current.get('configuration_differs', False)
         if config['model_path']:
             result.update(model=Path(config['model_path']).name, model_path=config['model_path'])
         if config['executable']:
@@ -64,11 +68,13 @@ def answer(read, prompt):
     return value
 
 
-def local_setup(config, read):
-    print('Local AI setup (llama.cpp / llama-server). Type cancel to return.')
+def local_setup(config, read, args=None):
+    from forensic_assistant.terminal import Palette, enabled
+    palette = Palette(enabled(args))
+    print(palette('heading', 'Local AI setup (llama.cpp / llama-server). Type cancel to return.'))
     while True:
         candidate = dict(config)
-        for field, prompt in [('executable', 'Path to llama-server.exe: '), ('model_path', 'Path to GGUF model: ')]:
+        for field, prompt in [('executable', 'Full file path to llama-server.exe: '), ('model_path', 'Full file path to GGUF model: ')]:
             value = answer(read, prompt).strip('"')
             candidate[field] = os.path.abspath(value) if value else config[field]
         state = settings.local_configuration(candidate)
@@ -76,7 +82,7 @@ def local_setup(config, read):
             from forensic_assistant.retrieval.presentation import safe_text
             print('Model: ' + safe_text(Path(candidate['model_path']).name))
             return candidate
-        print(state['configuration_detail'])
+        print(palette('error', state['configuration_detail']))
         if answer(read, 'Retry local setup? [Y/n]: ').casefold() in ('n', 'no'):
             raise SetupCancelled()
 
@@ -93,11 +99,21 @@ def dispatch(args):
     if operation == 'start':
         if config['provider'] != 'local':
             raise ValueError('Select Local before starting its runtime')
-        settings.require_local(config)
+        from .backend import restart_confirmation, RESTART
         with ActivityIndicator('Starting local AI...', args=args) as indicator:
-            runtime.ensure(config, indicator.update)
+            read = getattr(args, '_confirm', None) if not args.json else None
+            with restart_confirmation(read, indicator):
+                runtime.acquire(config, indicator.update, RESTART.get())
     elif operation == 'stop':
+        current = runtime.status(config)
+        if current.get('ownership') == 'external':
+            return {**status(config), 'message': 'The active local AI runtime is externally managed.\nLocard will not stop it.'}
         runtime.stop()
+    elif operation == 'logs':
+        from .diagnostics import tail
+        current = runtime.status(config)
+        return {'logs': ('Locard does not own or capture external runtime logs.'
+                         if current.get('ownership') == 'external' else tail())}
     return status(config)
 
 
@@ -106,10 +122,11 @@ def configure_settings(args, config, operation):
     read = getattr(args, '_confirm', None)
     human = not args.json and callable(read)
     supplied = any(getattr(args, name, None) is not None for name in
-                   ('model', 'executable', 'model_path', 'context', 'gpu_layers', 'port'))
+                   ('model', 'executable', 'model_path', 'context', 'gpu_layers', 'port', 'extra_options'))
     guided = operation == 'configure' and human and not supplied
     if guided and not selected:
-        print('Choose AI provider')
+        from forensic_assistant.terminal import Palette, enabled
+        print(Palette(enabled(args))('heading', 'Choose AI provider'))
         for number, (name, (label, _)) in enumerate(settings.PROVIDERS.items(), 1):
             print(f'  {number}. {label}  ' + ('Recommended - evidence stays local' if name == 'local' else 'Cloud'))
         choice = answer(read, 'Provider [1]: ') or '1'
@@ -125,7 +142,7 @@ def configure_settings(args, config, operation):
             raise ValueError('--model is for cloud model identifiers; Local derives its name from --model-path.')
         updated['model'] = ''
         if guided:
-            updated = local_setup(updated, read)
+            updated = local_setup(updated, read, args)
     else:
         # Disclosure precedes asking for a cloud model identifier.
         if not updated['cloud_acknowledged']:
@@ -146,14 +163,27 @@ def configure_settings(args, config, operation):
         value = getattr(args, field, None)
         if value is not None:
             updated[field] = os.path.abspath(value) if field in ('executable', 'model_path') else value
+    extra = getattr(args, 'extra_options', None)
+    if extra is not None:
+        if updated['provider'] != 'local':
+            raise ValueError('--extra-options is only available for Local')
+        from .options import parse
+        fields, tokens = parse(extra)
+        if any(getattr(args, field, None) is not None for field in fields):
+            raise ValueError('Do not combine a dedicated setting with its extra-options alias')
+        updated.update(fields, extra_options=tokens)
     if updated['provider'] == 'local' and settings.local_configuration(updated)['configuration'] == 'configured_invalid':
         settings.require_local(updated)
     if updated != config:
         settings.save(updated)
-    return status(updated)
+    result = status(updated)
+    if updated != config:
+        result['message'] = ('Configuration changed. Restart the external llama-server manually for the new settings to take effect.'
+                             if result.get('ownership') == 'external' else 'AI configuration saved.')
+    return result
 
 
-def offer_setup(read):
+def offer_setup(read, args=None):
     """Once at shell entry, after case selection; never load or start a model."""
     from types import SimpleNamespace
     try:
@@ -167,7 +197,9 @@ def offer_setup(read):
         print('AI is not configured.' if state['configuration'] == 'not_configured' else 'AI configuration is invalid.')
         if answer(read, 'Configure AI now? [Y/n]: ').casefold() in ('n', 'no'):
             return
-        print(render(dispatch(SimpleNamespace(ai_command='configure', provider=None, json=False, _confirm=read))))
+        setup_args = SimpleNamespace(ai_command='configure', provider=None, json=False, _confirm=read,
+                                     no_color=getattr(args, 'no_color', False))
+        print(render(dispatch(setup_args), setup_args))
     except (SetupCancelled, EOFError, KeyboardInterrupt):
         print('AI setup skipped. Use ai configure later.')
     except (ValueError, OSError) as exc:
@@ -175,12 +207,28 @@ def offer_setup(read):
         print('AI configuration unavailable: ' + safe_text(str(exc)) + ' Use ai configure later.')
 
 
-def render(value):
+def render(value, args=None):
     from forensic_assistant.retrieval.presentation import safe_text
+    from forensic_assistant.terminal import Palette, enabled
+    palette = Palette(enabled(args))
+    if 'logs' in value:
+        return '\n'.join(safe_text(line) for line in value['logs'].splitlines())
     labels = {'provider':'Provider', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
-              'api_key':'API key', 'endpoint':'Endpoint', 'owned':'Locard-owned', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
-    lines = ['AI provider']
+              'api_key':'API key', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
+    lines = [palette('heading', 'AI provider')]
     for key, label in labels.items():
-        if key in value: lines.append('  ' + label + ': ' + safe_text(str(value[key]).replace('_', ' ') if key == 'configuration' else str(value[key])))
+        if key in value:
+            text = safe_text(str(value[key]).replace('_', ' ') if key == 'configuration' else str(value[key]))
+            role = 'success' if value[key] in ('configured_ready', 'running') else 'warning'
+            if key == 'provider': role = 'key'
+            if key in ('provider', 'configuration', 'runtime'): text = palette(role, text)
+            lines.append('  ' + label + ': ' + text)
+    if value.get('restart_required'):
+        lines.append(palette('warning', '  Configuration changed: restart required'))
+    if value.get('configuration_differs'):
+        lines.append(palette('warning', '  Configuration differs from running external runtime (reported model).'))
+    if value.get('message'):
+        lines.append(palette('success' if value['message'] == 'AI configuration saved.' else 'warning',
+                            '\n'.join(safe_text(line) for line in value['message'].splitlines())))
     if 'idle_timeout_seconds' in value: lines.append('  Idle timeout: 15 minutes')
     return '\n'.join(lines)

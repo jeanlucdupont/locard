@@ -105,8 +105,9 @@ def _dispatch(args):
         raise ValueError('Investigation requires an existing case database')
     from forensic_assistant.terminal_activity import ActivityIndicator
     from functools import partial
-    from forensic_assistant.ai.backend import status_callback, waiting_label
-    with ActivityIndicator('Preparing investigation...', args=args) as indicator, status_callback(indicator.update):
+    from forensic_assistant.ai.backend import status_callback, waiting_label, restart_confirmation
+    read = (getattr(args, '_confirm', input) if sys.stdin.isatty() and not getattr(args, 'json', False) else None)
+    with ActivityIndicator('Preparing investigation...', args=args) as indicator, status_callback(indicator.update), restart_confirmation(read, indicator):
         result = run(
             config,
             args.question,
