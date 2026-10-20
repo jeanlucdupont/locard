@@ -39,10 +39,35 @@ def test_error_metadata_redacted(field,monkeypatch):
 
 
 def test_unknown_message_not_guessed():
-    assert extract(NS(body={'error':{'message':'SECRET: arbitrary'}}))=={}
-    assert extract(NS(body='not JSON SECRET'))=={}
+    assert extract(NS(body={'error':{'message':'SECRET: arbitrary'}}))=={'anthropic_provider_detail':'unavailable'}
+    assert extract(NS(body='not JSON SECRET'))=={'anthropic_provider_detail':'unavailable'}
 
 
 def test_explicit_model_error_distinct():
     assert d.classify(NS(body={'error':{'code':'model_not_found'}}))=='model_rejected'
     assert d.classify(NS(status_code=400))=='request_rejected'
+
+
+@pytest.mark.parametrize('prefix',['litellm.BadRequestError: AnthropicException - ','litellm.BadRequestError: AnthropicError - '])
+def test_actual_litellm_message_wrapper(prefix,monkeypatch):
+    body={'type':'error','error':{'type':'invalid_request_error','code':'unsupported_parameter','param':'output_schema','message':'SECRET PROMPT EVIDENCE Authorization: KEY'}}
+    detail=extract(NS(body=None,response=NS(content=b''),message=prefix+json.dumps(body)))
+    assert detail=={'provider_type':'invalid_request_error','anthropic_error_code':'unsupported_parameter','anthropic_request_field':'output_schema'}
+    logs=[]
+    monkeypatch.setattr(d.diagnostics,'append',lambda path,text:logs.append(text))
+    d.record('anthropic','claude-sonnet-4-5','provider_request','request_rejected',metadata=detail)
+    assert all(word not in logs[0] for word in ('SECRET','PROMPT','EVIDENCE','Authorization','KEY'))
+    assert 'output_schema' in d.render(logs[0])
+
+@pytest.mark.parametrize('message,expected',[
+    ('Unsupported parameter: output_schema',{'anthropic_request_field':'output_schema','anthropic_error_category':'unsupported_parameter'}),
+    ('This model does not support structured outputs.',{'anthropic_error_category':'unsupported_model_feature'}),
+    ('Unknown parameter: PRIVATE',{'anthropic_provider_detail':'unavailable'}),
+    ('PRIVATE'*4000,{'anthropic_provider_detail':'unavailable'}),
+])
+def test_conservative_messages(message,expected):
+    assert extract(NS(message='litellm.BadRequestError: AnthropicException - '+message))==expected
+
+
+def test_unknown_fields_rejected_at_log_boundary():
+    assert d.safe_metadata({'anthropic_request_field':'SECRET','anthropic_error_code':'SECRET','anthropic_error_category':'SECRET'})=={}

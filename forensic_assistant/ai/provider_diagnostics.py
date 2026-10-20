@@ -114,7 +114,9 @@ def safe_metadata(value):
     """Revalidate at worker IPC, storage and human-rendering boundaries."""
     if type(value) is not dict: return {}
     result = {}
-    from .anthropic_diagnostics import FIELDS
+    from .anthropic_diagnostics import FIELDS, LABELS, CODES as ANTHROPIC_CODES
+    for key, allowed in (('anthropic_error_category', LABELS), ('anthropic_error_code', ANTHROPIC_CODES), ('anthropic_provider_detail', {'unavailable'})):
+        if type(value.get(key)) is str and value[key] in allowed: result[key] = value[key]
     field = value.get('anthropic_request_field')
     if type(field) is str and field in FIELDS: result['anthropic_request_field'] = field
     from .gemini_usage import safe as safe_usage
@@ -283,7 +285,7 @@ def render(text):
         if type(elapsed) in (int, float) and math.isfinite(elapsed) and 0 <= elapsed <= 3600:
             rows.append('  Elapsed: ' + str(round(elapsed, 3)) + ' s')
         rows.append('  Stage: ' + (value['stage'] if type(value.get('stage')) is str and value['stage'] in STAGES else 'provider_request'))
-        labels = {'anthropic_request_field':'Request field', 'max_output_tokens':'Max output tokens', 'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
+        labels = {'anthropic_error_category':'Provider error category', 'anthropic_error_code':'Provider error code', 'anthropic_provider_detail':'Provider detail', 'anthropic_request_field':'Request field', 'max_output_tokens':'Max output tokens', 'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'timeout_limit_seconds':'Timeout limit (seconds)', 'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
             if key == 'gemini_usage':

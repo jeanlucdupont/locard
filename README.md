@@ -2351,3 +2351,13 @@ request/schema bodies, headers and evidence are never logged. Unknown errors
 remain generic. Readiness now checks the actual advisory and investigation
 contracts separately after the handshake, with unchanged canonical validation.
 A passing handshake alone does not establish full Claude compatibility.
+
+
+Anthropic error-wrapper diagnostics: LiteLLM 1.106.0's Anthropic 400 mapping
+constructs BadRequestError with a prefixed message, model and llm_provider,
+without forwarding the original response/body. BadRequestError supplies a
+minimal response when none is supplied. Locard now recognizes those exact
+message prefixes and parses a bounded complete JSON error in memory. Only
+allowlisted types, codes, request fields and a few exact phrase classifications
+survive. Unknown detail is explicitly unavailable. No raw message, headers,
+request ID, schema, or evidence is retained; request behavior is unchanged.
