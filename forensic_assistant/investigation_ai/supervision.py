@@ -137,6 +137,10 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         return controlled({**config, '_status': status}, question, transcript_root, budget=budget, client=client,
                           dry_run=dry_run, approval=approval, **testing)
     budget = budget or Budget()
+    client = client or ModelBackend()
+    if isinstance(client, ModelBackend) and client.provider_name != 'local':
+        from forensic_assistant.ai.backend import STATUS
+        client.prepare(STATUS.get())  # Cloud certification precedes the forensic clock.
     started = time.monotonic()
     deadline = started + budget.seconds
     context = multiprocessing.get_context('spawn')

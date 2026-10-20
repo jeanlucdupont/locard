@@ -2124,10 +2124,11 @@ output limit. Startup connectivity allows 15 seconds; each structured probe allo
 No case data, tools, retries or fallback are included. Failed compatibility blocks
 normal cloud requests before evidence is sent; deterministic commands remain usable.
 Readiness is cached only in the current process for provider/model/key/selected mode;
-`ai status` never contacts the provider. An isolated investigation process checks its
-own readiness before its first inference. Successful compatibility proves only that
+`ai status` never contacts the provider. An isolated investigation process receives a configuration-bound readiness decision
+from its parent and never performs synthetic compatibility probes. Successful compatibility proves only that
 the tiny synthetic contract passed, not support for every larger schema or forensic
-accuracy. Normal request failures invalidate readiness and require fresh checks.
+accuracy. Capability/contract failures invalidate readiness; timeouts do not erase successful
+compatibility. No failure silently triggers a probe inside a running request.
 
 For cloud providers, `ai logs` reads the bounded private
 `%LOCALAPPDATA%\Locard\ai\provider.log`. It records fixed diagnostic categories
@@ -2232,3 +2233,24 @@ Diagnostics include the active probe's elapsed seconds and timeout limit without
 logging prompt/schema bodies. Normal request deadlines and the 300-second investigation
 execution budget are unchanged. A probe still timing out at 45 seconds needs review;
 Locard does not retry or increase the limit automatically.
+
+
+Cloud compatibility handoff (6.69 pre-acceptance patch): startup and `ai provider`/
+`ai configure` own certification. The session cache is keyed by provider, exact model,
+capability fields, installed application version, compatibility revision, and digests
+of canonical and adapted schemas. Credential changes are detected separately in
+private process memory; credentials and credential fingerprints are not handoff keys.
+No persistent readiness cache is created.
+
+The parent supplies a ready decision and its public configuration digest through the
+existing private investigation descriptor. A restored worker checks that digest against
+its actual configuration and refuses a missing/mismatched decision without probing.
+This descriptor is controller-owned IPC, not model output or a user-loadable certificate.
+Real responses still undergo wire, canonical, grounding and authorization checks.
+
+Direct cloud commands certify before their first inference; supervised cloud investigations
+certify before starting their forensic execution clock. Startup probes retain their own
+15/45-second limits, independent of the 300-second investigation budget. Local startup
+and timing are unchanged. `analyze-timeline` retains its existing local-client path.
+Successful continuation steps reuse readiness. DEBUG can show `compatibility_cache=hit`;
+default logs do not add a handshake for each worker or model step.

@@ -79,6 +79,9 @@ class ModelBackend:
         self.model_name = Path(self.config['model_path']).name if self.provider_name == 'local' else self.config['model']
         self.last_metadata = {}
         self.managed = None
+        self._worker = False
+        self._compatibility = None
+        self._request_started = False
 
     def identify(self):
         return dict(provider=self.provider_name, model=redact(self.model_name),
@@ -107,7 +110,17 @@ class ModelBackend:
                 raise
             from . import readiness
             from .provider_diagnostics import ProviderFailure
-            result = readiness.check(self.config, timeout=min(15, self.timeout))
+            if self._worker:
+                if not readiness.accept(self.config, self._compatibility):
+                    raise ProviderFailure('compatibility_failed', 'configuration')
+                return self
+            result = readiness.status(self.config)
+            if result.get('provider_readiness') == 'unchecked':
+                if self._request_started:
+                    raise ProviderFailure('compatibility_failed', 'configuration')
+                result = readiness.check(self.config, progress=phase)
+            import logging
+            logging.getLogger(__name__).debug('compatibility_cache=hit')
             if result['readiness_category'] == 'cancelled':
                 raise KeyboardInterrupt()
             ready = result.get(PREPARATION_FAMILY.get()+'_compatibility', result['locard_compatibility'])
@@ -116,8 +129,10 @@ class ModelBackend:
         return self
 
     def descriptor(self):
+        from . import readiness
+        decision = readiness.export(self.config) if self.provider_name != 'local' else None
         return dict(config=self.config, endpoint=self.endpoint, managed=self.managed,
-                    provider=self.provider_name)
+                    provider=self.provider_name, compatibility=decision)
 
     @classmethod
     def restore(cls, value):
@@ -125,6 +140,8 @@ class ModelBackend:
         result.provider_name = value['provider']
         result.endpoint = value['endpoint']
         result.managed = value['managed']
+        result._worker = True
+        result._compatibility = value.get('compatibility')
         return result
 
     def complete(self, messages, schema=None):
@@ -140,6 +157,9 @@ class ModelBackend:
             self.prepare(STATUS.get())
         finally:
             PREPARATION_FAMILY.reset(family_token)
+        if self.provider_name != 'local':
+            started = time.monotonic()  # Certification is outside the real request clock.
+            self._request_started = True
         remaining = self.timeout - (time.monotonic() - started)
         if remaining <= 0:
             raise LLMError('Model request timed out during startup')
@@ -189,7 +209,9 @@ class ModelBackend:
         except ProviderFailure as exc:
             if not handshake:
                 from . import readiness
-                readiness.invalidate(self.config)
+                if exc.category != 'timeout':
+                    readiness.invalidate(self.config)
+                    self._compatibility = None
                 from .capabilities import CAPABILITIES
                 metadata = {**shape, 'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}, **exc.metadata}
                 record(self.provider_name, self.model_name, exc.stage, exc.category, time.monotonic()-started, operation=OPERATION.get(), metadata=metadata)

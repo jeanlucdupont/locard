@@ -96,7 +96,7 @@ def test_failed_compatibility_blocks_evidence_and_cache(monkeypatch):
     assert readiness.status(client.config)['locard_compatibility']=='failed'
 
 
-def test_no_fallback_and_new_probe_required_after_real_failure(monkeypatch):
+def test_no_fallback_or_silent_reprobe_after_real_failure(monkeypatch):
     calls=[]
     mock_transport(monkeypatch,probe_responses('openai')+[
         ProviderFailure('structured_output_unsupported'),'{"status":"wrong"}'],calls)
@@ -105,7 +105,8 @@ def test_no_fallback_and_new_probe_required_after_real_failure(monkeypatch):
     with pytest.raises(ProviderFailure):client.complete([],readiness.COMPAT_SCHEMA)
     assert len(calls)==len(probe_responses(provider))+1
     with pytest.raises(ProviderFailure):client.complete([],readiness.COMPAT_SCHEMA)
-    assert len(calls)==len(probe_responses(provider))+2 and calls[-1][0]==readiness.MESSAGES
+    assert len(calls)==len(probe_responses(provider))+1
+    assert readiness.status(client.config)['provider_readiness']=='unchecked'
     assert all(c[2]['response_format']['type']=='json_schema' for c in calls)
 
 

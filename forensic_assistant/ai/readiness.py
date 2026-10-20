@@ -33,22 +33,49 @@ def openai_probes():
 
 
 _cache = {}
+_credentials = {}
+COMPATIBILITY_REVISION = 1
 
 
 def reset():
     _cache.clear()
+    _credentials.clear()
 
 
 def cache_key(config):
-    variable = settings.PROVIDERS[config['provider']][1]
-    key = os.environ.get(variable, '') if variable else ''
+    from dataclasses import asdict
+    from forensic_assistant import __version__
     from .capabilities import CAPABILITIES
-    return config['provider'], config['model'], CAPABILITIES[config['provider']].mode, hashlib.sha256(key.encode()).digest()
+    from .openai_schema import request_schema
+    contracts = [SCHEMA, COMPAT_SCHEMA] + [p[1] for p in openai_probes()]
+    shape = [request_schema(config['provider'], schema) for schema in contracts]
+    public = [config['provider'], config['model'], asdict(CAPABILITIES[config['provider']]),
+              __version__, COMPATIBILITY_REVISION, contracts, shape]
+    return hashlib.sha256(json.dumps(public,sort_keys=True).encode()).hexdigest()
+
+
+def credential_identity(config):
+    # Private process-local invalidation only; never serialized in a descriptor/key/log.
+    variable = settings.PROVIDERS[config['provider']][1]
+    return hashlib.sha256(os.environ.get(variable, '').encode()).digest()
+
+
+def export(config):
+    value = status(config)
+    if value.get('locard_compatibility') != 'ready': return None
+    return {'key': cache_key(config), 'ready': True}
+
+
+def accept(config, decision):
+    return (type(decision) is dict and set(decision) == {'key','ready'}
+            and decision['ready'] is True and decision['key'] == cache_key(config))
 
 
 def status(config):
     if config['provider'] == 'local': return {}
-    return _cache.get(cache_key(config), {'provider_readiness':'unchecked'})
+    key = cache_key(config)
+    if _credentials.get(key) != credential_identity(config): return {'provider_readiness':'unchecked'}
+    return _cache.get(key, {'provider_readiness':'unchecked'})
 
 
 def invalidate(config):
@@ -58,7 +85,7 @@ def invalidate(config):
 def check(config, *, force=False, timeout=None, progress=None):
     if config['provider'] == 'local': return {}
     key = cache_key(config)
-    if not force and key in _cache: return _cache[key]
+    if not force and status(config).get('provider_readiness') != 'unchecked': return _cache[key]
     started = time.monotonic()
     category, stage = 'ready', 'handshake'
     connection = model = 'unverified'
@@ -127,6 +154,8 @@ def check(config, *, force=False, timeout=None, progress=None):
     if "http_status" in metadata: result["http_status"] = metadata["http_status"]
     record(config['provider'], config['model'], stage, category, time.monotonic()-phase_started, operation="handshake", metadata=metadata)
     _cache.clear()  # Current configuration only; no cross-session/key history.
+    _credentials.clear()
+    _credentials[key] = credential_identity(config)
     _cache[key] = result
     return result
 
