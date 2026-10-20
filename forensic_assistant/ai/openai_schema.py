@@ -68,12 +68,30 @@ def response(provider,text,canonical):
     if wire is canonical:
         validate(text,canonical)
         return text
-    value=validate(text,wire)['proposal']
+    def failure(exc, **fields):
+        detail = {**exc.metadata.get('validation_diagnostics', {}), **fields}
+        return ProviderFailure(exc.category, exc.stage, metadata={**exc.metadata, 'validation_diagnostics': detail})
+    try:
+        value=validate(text,wire,diagnostic_phase='pre_translation')['proposal']
+    except ProviderFailure as exc:
+        raise failure(exc, phase='pre_translation', provider_structured_validation='failed',
+                      translation_status='not_attempted', canonical_validation='not_checked') from None
     matches=[v for v in canonical['oneOf'] if
              v['properties']['action']['enum']==[value.get('action')] and
              (value.get('action')=='final' or v['properties']['tool']['enum']==[value.get('tool')])]
     if len(matches)!=1:
-        raise ProviderFailure('structured_validation','structured_validation')
-    result=json.dumps(_decode(value,matches[0]),ensure_ascii=True)
-    validate(result,canonical)
+        raise ProviderFailure('structured_validation','structured_validation', metadata={'validation_diagnostics':{
+            'provider_structured_validation':'passed','translation_status':'failed',
+            'translation_rule':'canonical_tool_shape','canonical_validation':'not_checked'}})
+    try:
+        result=json.dumps(_decode(value,matches[0]),ensure_ascii=True)
+    except (KeyError,TypeError,ValueError,RecursionError):
+        raise ProviderFailure('structured_validation','structured_validation', metadata={'validation_diagnostics':{
+            'provider_structured_validation':'passed','translation_status':'failed',
+            'translation_rule':'translation_structure','canonical_validation':'not_checked'}}) from None
+    try:
+        validate(result,canonical,diagnostic_phase='post_translation')
+    except ProviderFailure as exc:
+        raise failure(exc, phase='post_translation', provider_structured_validation='passed',
+                      translation_status='success',canonical_validation='failed') from None
     return result

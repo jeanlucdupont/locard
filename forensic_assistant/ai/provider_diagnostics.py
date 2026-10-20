@@ -108,6 +108,9 @@ def safe_metadata(value):
     """Revalidate at worker IPC, storage and human-rendering boundaries."""
     if type(value) is not dict: return {}
     result = {}
+    from .validation_diagnostics import safe
+    detail = safe(value.get('validation_diagnostics'))
+    if detail: result['validation_diagnostics'] = detail
     code = value.get('http_status')
     if type(code) is int and 100 <= code <= 599: result['http_status'] = code
     for key in ('provider_code', 'provider_type'):
@@ -265,7 +268,13 @@ def render(text):
         labels = {'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'timeout_limit_seconds':'Timeout limit (seconds)', 'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
-            if key in ('schema_profile', 'provider_schema_profile'):
+            if key == 'validation_diagnostics':
+                rows.append('  Structural validation diagnostics:')
+                for field in ('provider_structured_validation','translation_status','translation_rule','canonical_validation','phase','error_count'):
+                    if field in item: rows.append('    ' + field.replace('_',' ').capitalize() + ': ' + str(item[field]))
+                for error in item.get('errors',[]):
+                    rows.append('    Rule: ' + error['validator_keyword'] + ' | Path: ' + error['canonical_path'])
+            elif key in ('schema_profile', 'provider_schema_profile'):
                 rows.append('  ' + ('Schema profile:' if key == 'schema_profile' else 'Provider schema profile:'))
                 for feature, state in item.items(): rows.append('    ' + feature + ': ' + str(state))
             elif key == 'request_features':

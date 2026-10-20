@@ -2286,3 +2286,27 @@ whether that live call failed host validation or timestamp selection: anchor_tim
 first. No real-case database or transcript was inspected for this patch, so the validity
 of that particular timestamp slot and exact historical exception remain unverified.
 Volume C: and related filenames do not establish shared host identity.
+
+Structural validation diagnostics (6.69 pre-acceptance, diagnostic only): OpenAI
+investigation responses are parsed locally (duplicate JSON keys and nonfinite values
+are rejected), checked against the adapted wire schema, deterministically translated,
+and checked against the complete canonical schema. The controller subsequently applies
+argument/anchor validation, approvals and grounding. A successful provider request alone
+does not establish that these checks passed.
+
+`ai logs` now distinguishes pre-translation wire failure, translation failure, and
+post-translation canonical failure. `provider_structured_validation: passed` means
+Locard's local wire-schema check passed; it is not an independent attestation of the
+provider's internal validation. Diagnostics contain phase, translation status, canonical
+status, total error count, and at most five keyword/structural-path entries. For a uniquely
+discriminated canonical proposal, the diagnostic error count concerns the selected
+branch, avoiding irrelevant errors from other tool branches. Acceptance still uses the
+original full schema. Array indices are retained; only known application schema property
+names are allowed. Unknown path components are redacted. Validator messages, schema
+bodies, prompts, response bodies and offending values are never included.
+
+The previous generic structured_validation_failed event cannot retrospectively identify
+the failed layer or rule. uniqueItems remains a possible cause, not a confirmed cause.
+No deduplication, retries, normalization or validation relaxation is introduced. Normal
+investigation human output is unchanged. Reproduce the failure and inspect the new
+rule/path diagnostic before changing any response behavior.

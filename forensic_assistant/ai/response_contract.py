@@ -20,7 +20,7 @@ def validator(schema):
         raise ProviderFailure("structured_validation", "structured_validation") from None
 
 
-def validate(text, schema):
+def validate(text, schema, *, diagnostic_phase="canonical"):
     contract = validator(schema)
     def pairs(items):
         result = {}
@@ -40,5 +40,9 @@ def validate(text, schema):
     try:
         contract.validate(value)
     except Exception:
-        raise ProviderFailure("structured_validation", "structured_validation") from None
+        from .validation_diagnostics import extract
+        try: detail = extract(contract,value,diagnostic_phase)
+        except Exception: detail = {'phase':diagnostic_phase}
+        raise ProviderFailure("structured_validation", "structured_validation",
+                              metadata={'validation_diagnostics':detail}) from None
     return value
