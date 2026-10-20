@@ -116,6 +116,9 @@ def safe_metadata(value):
             result[key] = item
     parameter = value.get('rejected_parameter')
     if type(parameter) is str and parameter in PARAMETERS: result['rejected_parameter'] = parameter
+    limit = value.get('timeout_limit_seconds')
+    if type(limit) in (int, float) and 0 <= limit <= 45:
+        result['timeout_limit_seconds'] = round(limit, 3)
     features = safe_features(value.get('request_features'))
     if features: result['request_features'] = features
     from .schema_diagnostics import safe_profile, RULES
@@ -260,7 +263,7 @@ def render(text):
             rows.append('  Elapsed: ' + str(round(elapsed, 3)) + ' s')
         rows.append('  Stage: ' + (value['stage'] if type(value.get('stage')) is str and value['stage'] in STAGES else 'provider_request'))
         labels = {'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
-                  'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
+                  'timeout_limit_seconds':'Timeout limit (seconds)', 'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
             if key in ('schema_profile', 'provider_schema_profile'):
                 rows.append('  ' + ('Schema profile:' if key == 'schema_profile' else 'Provider schema profile:'))

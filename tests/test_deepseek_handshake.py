@@ -98,7 +98,7 @@ def test_readiness_success_checks_contract_compatibility(monkeypatch,capsys):
     assert len(seen)==2
     assert seen[0][0]==readiness.MESSAGES and 'SECRET' not in json.dumps(seen)
     output=capsys.readouterr().out
-    assert 'Locard compatibility: OK' in output and 'AI ready.' not in output
+    assert 'Locard compatibility: ready' in output and 'AI ready.' not in output
 
 
 @pytest.mark.parametrize('text,category',[('LOCARD_OK','response_parse_failed'),('{"status":"ok","extra":1}','structured_validation_failed')])

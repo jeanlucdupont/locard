@@ -112,7 +112,7 @@ class ModelBackend:
                 raise KeyboardInterrupt()
             ready = result.get(PREPARATION_FAMILY.get()+'_compatibility', result['locard_compatibility'])
             if ready != 'ready':
-                raise ProviderFailure('compatibility_failed' if result['connection_readiness'] == 'ready' else result['readiness_category'], result['readiness_stage'])
+                raise ProviderFailure('compatibility_failed' if result['locard_compatibility'] == 'failed' else result['readiness_category'], result['readiness_stage'])
         return self
 
     def descriptor(self):

@@ -2114,12 +2114,13 @@ try { .\locard.ps1 } finally { $env:LOCALAPPDATA = $previousLocardAppData }
 The original configuration remains untouched. Test configuration persists only
 under that temporary directory; no model or executable is copied there.
 
-Cloud interactive startup performs two evidence-free synthetic checks after case
+Cloud interactive startup performs evidence-free synthetic checks after case
 selection. Changing provider/model in human configuration runs them again. Local
 startup stays lazy. The first requests exactly `{"status":"ok"}`; the second requests
 `{"status":"ok","message":"locard"}`. Both use the selected provider mode and the
 same canonical JSON-schema validator as normal cloud responses. Each has a 64-token
-output limit; together they share a 15-second deadline (or the shorter caller budget).
+output limit. Startup connectivity allows 15 seconds; each structured probe allows
+45 seconds. Lazy checks inside a model request retain the shorter caller budget.
 No case data, tools, retries or fallback are included. Failed compatibility blocks
 normal cloud requests before evidence is sent; deterministic commands remain usable.
 Readiness is cached only in the current process for provider/model/key/selected mode;
@@ -2213,11 +2214,21 @@ See [OpenAI's structured-output requirements](https://developers.openai.com/api/
 OpenAI readiness now checks the connection, actual advisory schema, and synthetic
 tool and final proposals using the full investigation schema. It reports advisory
 and investigation compatibility separately. Advisory readiness alone cannot authorize
-an investigation. These four evidence-free requests share the existing 15-second
-readiness deadline; investigation probes allow 256 output tokens. Other providers'
-two-probe behavior is unchanged. No fallback or retries are introduced. Passing a
+an investigation. These four evidence-free requests run sequentially: connectivity allows 15 seconds
+and each advisory/tool/final compatibility probe allows 45 seconds (up to 150 seconds
+in total, plus bounded worker cleanup). Investigation probes allow 256 output tokens.
+Other providers retain two probes with the same 15/45-second phase limits. No fallback or retries are introduced. Passing a
 synthetic probe establishes format compatibility, not forensic correctness.
 
 `ai logs` includes allowlisted numeric structural profiles for the canonical and
 provider schemas, and fixed schema-rule labels when recognized in provider errors.
 No schema bodies, property names, prompts, evidence, or raw error messages are logged.
+
+
+Compatibility timeouts are reported as **not confirmed**, never as incompatibility.
+Actual schema/contract rejection still fails compatibility. Startup activity displays
+provider, advisory and investigation phases; `ai status` reuses the session cache.
+Diagnostics include the active probe's elapsed seconds and timeout limit without
+logging prompt/schema bodies. Normal request deadlines and the 300-second investigation
+execution budget are unchanged. A probe still timing out at 45 seconds needs review;
+Locard does not retry or increase the limit automatically.

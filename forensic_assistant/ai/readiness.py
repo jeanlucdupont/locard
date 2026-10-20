@@ -7,6 +7,7 @@ from . import settings
 from .provider_diagnostics import ProviderFailure, REASONS, record
 
 TIMEOUT = 15
+STRUCTURED_TIMEOUT = 45
 MESSAGES = [{'role':'user', 'content':'Return only this JSON object: {"status":"ok"}'}]
 SCHEMA = {'type':'object', 'properties':{'status':{'type':'string', 'enum':['ok']}},
           'required':['status'], 'additionalProperties':False}
@@ -54,7 +55,7 @@ def invalidate(config):
     _cache.pop(cache_key(config), None)
 
 
-def check(config, *, force=False, timeout=TIMEOUT):
+def check(config, *, force=False, timeout=None, progress=None):
     if config['provider'] == 'local': return {}
     key = cache_key(config)
     if not force and key in _cache: return _cache[key]
@@ -65,28 +66,39 @@ def check(config, *, force=False, timeout=TIMEOUT):
     mode = CAPABILITIES[config['provider']].mode
     metadata = {'request_features': {'structured_output': mode}}
     compatibility = 'not_verified'
+    family = None
+    phase_started = started
     families = {'advisory_compatibility': 'not_verified', 'investigation_compatibility': 'not_verified'} if config['provider'] == 'openai' else {}
     try:
         if not os.environ.get(settings.PROVIDERS[config['provider']][1], '').strip():
             raise ProviderFailure('missing_key', 'configuration')
         from .backend import ModelBackend
         from .response_contract import validate
-        client = ModelBackend(config=config, timeout=timeout)
-        response = client._cloud(MESSAGES, SCHEMA, timeout=timeout, handshake=True)
+        client = ModelBackend(config=config, timeout=TIMEOUT)
+        limit = min(TIMEOUT, timeout) if timeout is not None else TIMEOUT
+        from .schema_diagnostics import profiles
+        metadata.update(profiles(config['provider'], SCHEMA))
+        metadata['timeout_limit_seconds'] = limit
+        if progress: progress('Checking AI provider...')
+        response = client._cloud(MESSAGES, SCHEMA, timeout=limit, handshake=True)
+        if time.monotonic()-phase_started > limit: raise ProviderFailure('timeout', 'timeout')
         connection = model = 'ready'
         validate(response['text'], SCHEMA)
         compatibility = 'failed'
         probes = openai_probes() if config['provider'] == 'openai' else [
             (None, COMPAT_SCHEMA, {'status': 'ok', 'message': 'locard'}, COMPAT_MESSAGES)]
-        from .schema_diagnostics import profiles
         for family, contract, expected, messages in probes:
             if family:
                 families[family+'_compatibility'] = 'unavailable'
-            remaining = timeout - (time.monotonic() - started)
+            remaining = min(STRUCTURED_TIMEOUT, timeout - (time.monotonic() - started)) if timeout is not None else STRUCTURED_TIMEOUT
+            phase_started = time.monotonic()
+            metadata.update(profiles(config['provider'], contract))
+            metadata['timeout_limit_seconds'] = max(0, remaining)
+            if progress: progress('Checking ' + (family or 'structured') + ' compatibility...')
             if remaining <= 0:
                 raise ProviderFailure('timeout', 'timeout')
-            metadata.update(profiles(config['provider'], contract))
             response = client._cloud(messages, contract, timeout=remaining, handshake=True)
+            if time.monotonic()-phase_started > remaining: raise ProviderFailure('timeout', 'timeout')
             value = validate(response['text'], contract)
             if value != expected:
                 raise ProviderFailure('structured_validation', 'structured_validation')
@@ -98,15 +110,22 @@ def check(config, *, force=False, timeout=TIMEOUT):
     except ProviderFailure as exc:
         category, stage = exc.category, exc.stage
         metadata.update(exc.metadata)
+        if category == 'timeout':
+            compatibility = 'not confirmed'
+            if family: families[family+'_compatibility'] = 'not confirmed'
+        elif category in ('invalid_request', 'structured_output_unsupported', 'structured_validation_failed', 'response_parse_failed'):
+            compatibility = 'failed'
+        else:
+            compatibility = 'not_verified'
     except KeyboardInterrupt:
         category = 'cancelled'
     except (OSError, ValueError):
         category, stage = 'unknown_provider_error', 'provider_request'
     result = dict(provider_readiness='ready' if category == 'ready' else 'unavailable',
-                  readiness_reason=REASONS[category], readiness_stage=stage, readiness_category=category, connection_readiness=connection, model_readiness=model,
+                  readiness_reason=('Compatibility check timed out' if category == 'timeout' else REASONS[category]), readiness_stage=stage, readiness_category=category, connection_readiness=connection, model_readiness=model,
                   locard_compatibility=compatibility, structured_mode=mode, **families)
     if "http_status" in metadata: result["http_status"] = metadata["http_status"]
-    record(config['provider'], config['model'], stage, category, time.monotonic()-started, operation="handshake", metadata=metadata)
+    record(config['provider'], config['model'], stage, category, time.monotonic()-phase_started, operation="handshake", metadata=metadata)
     _cache.clear()  # Current configuration only; no cross-session/key history.
     _cache[key] = result
     return result
@@ -120,8 +139,8 @@ def present(config, args=None, *, force=False):
     if config['provider'] == 'local': return
     palette = Palette(enabled(args))
     print(palette('heading', 'Checking AI provider...'))
-    with ActivityIndicator('Checking AI provider...', args=args):
-        result = check(config, force=force)
+    with ActivityIndicator('Checking AI provider...', args=args) as activity:
+        result = check(config, force=force, progress=activity.update)
     ready = result['provider_readiness'] == 'ready'
     print('  Provider: ' + settings.PROVIDERS[config['provider']][0])
     print('  Model: ' + safe_text(redact(config['model'])))
@@ -133,13 +152,14 @@ def present(config, args=None, *, force=False):
         print('  Investigation compatibility: ' + result['investigation_compatibility'])
     if ready:
         print('  Connection: OK\n  Model: accepted\n  Response check: OK')
-        print('  Locard compatibility: OK (synthetic contract checked)')
+        print('  Locard compatibility: ready (synthetic contract checked)')
     else:
         if result['connection_readiness'] == 'ready':
-            print('  Connection: OK\n  Model: accepted\n  Locard compatibility: failed')
-            print("  AI provider is connected, but the selected model is not compatible with Locard's required response format.")
+            print('  Connection: OK\n  Model: accepted\n  Locard compatibility: ' + result['locard_compatibility'])
+            if result['locard_compatibility'] == 'failed':
+                print("  AI provider is connected, but the selected model is not compatible with Locard's required response format.")
         summary = {'model_rejected':'Model: rejected', 'authentication_failed':'Authentication: failed',
                    'authorization_failed':'Access: denied'}.get(result['readiness_category'], result['readiness_reason'] + '.')
         print(palette('warning', '  ' + summary))
         if missing: print('  Set ' + variable + ' and retry.')
-    print(palette('success' if ready else 'warning', 'Synthetic readiness check passed.' if ready else ('AI compatibility check failed; deterministic commands remain available.' if result['connection_readiness'] == 'ready' else 'AI provider unavailable; deterministic commands remain available.')))
+    print(palette('success' if ready else 'warning', 'Synthetic readiness check passed.' if ready else ('AI compatibility was not fully confirmed. Deterministic commands remain available.' if result['readiness_category'] == 'timeout' else 'AI compatibility check failed; deterministic commands remain available.' if result['locard_compatibility'] == 'failed' else 'AI provider unavailable; deterministic commands remain available.')))
