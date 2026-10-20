@@ -3,7 +3,7 @@
 
 # THIS PAGE IS A HOT MESS!
 # THAT'S OK. LOCARD IS UNDER _HEAVY_ DEVELOPMENT
-# I'LL CLEAN UP THIS PAGE WHEN LOCARD IS IN A MORE STABLE PHASE
+# I'LL CLEAN IT UP WHEN LOCARD IS IN A MORE STABLE PHASE
 
 
 Long interactive operations use a shared delayed activity line (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`):
