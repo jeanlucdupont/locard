@@ -2333,3 +2333,21 @@ Investigation probe output is bounded to 256 tokens, like the existing OpenAI pr
 normal response token limits remain unchanged. A rejection stops readiness without
 relaxing schemas. The earlier generic live failure does not establish its exact cause:
 new live diagnostics are required before choosing a behavioral extraction/schema fix.
+
+
+Anthropic readiness diagnosis (6.69): Locard uses native `output_config.format`
+with `type: json_schema`, the unchanged canonical schema, and explicit
+`anthropic/<model>` routing. Inspection of LiteLLM 1.106.0 confirms support for
+that native field and the `claude-sonnet-4-5` alias. Its alternative
+`response_format` path selects native output or a synthetic tool according to
+model capabilities; Locard does not use that alternative. Handshake max_tokens
+remains 64 (positive integer); normal requests remain 1024.
+
+The reported HTTP 400 alone does not establish a specific rejected parameter.
+No speculative transport change has been made. Anthropic logs now show the native
+mechanism and fixed request-feature booleans, plus allowlisted error types and
+request fields when available in a buffered structured error. Raw error prose,
+request/schema bodies, headers and evidence are never logged. Unknown errors
+remain generic. Readiness now checks the actual advisory and investigation
+contracts separately after the handshake, with unchanged canonical validation.
+A passing handshake alone does not establish full Claude compatibility.

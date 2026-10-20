@@ -34,7 +34,11 @@ def generate(request, sdk):
         return complete(kwargs, sdk)
     except Exception as exc:
         from .schema_diagnostics import profiles
-        metadata = {**error_metadata(exc), **profiles(request['provider'], request.get('schema')), 'request_features': request_features(kwargs)}
+        anthropic_detail = {}
+        if request['provider'] == 'anthropic':
+            from .anthropic_diagnostics import extract
+            anthropic_detail = extract(exc)
+        metadata = {**error_metadata(exc), **anthropic_detail, **profiles(request['provider'], request.get('schema')), 'request_features': request_features(kwargs)}
         raise ProviderFailure(classify(exc), exc.stage if isinstance(exc, ProviderFailure) else
                               'timeout' if classify(exc) == 'timeout' else 'provider_request',
                               metadata=metadata) from None

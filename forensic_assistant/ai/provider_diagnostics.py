@@ -80,6 +80,10 @@ def safe_features(value):
                          ('provider_prefix', tuple(settings.PROVIDERS))):
         item = value.get(key)
         if type(item) is str and item in choices: result[key] = item
+    if value.get('structured_output_mechanism') == 'provider_native_schema':
+        result['structured_output_mechanism'] = 'provider_native_schema'
+        for key in ('response_format', 'output_schema'):
+            if type(value.get(key)) is bool: result[key] = value[key]
     return result
 
 
@@ -89,7 +93,8 @@ def request_features(kwargs):
     response = response if type(response) is dict else {}
     model = kwargs.get('model', '')
     mode = 'anthropic_schema' if 'output_config' in kwargs else 'gemini_schema' if 'response_json_schema' in kwargs else response.get('type', 'unset')
-    return safe_features(dict(structured_output=mode,
+    native = {'structured_output_mechanism':'provider_native_schema', 'response_format':'response_format' in kwargs, 'output_schema':'output_config' in kwargs} if kwargs.get('custom_llm_provider') == 'anthropic' else {}
+    return safe_features(dict(**native, structured_output=mode,
         json_schema=mode in ('json_schema', 'anthropic_schema', 'gemini_schema'), tools=bool(kwargs.get('tools')),
         tool_choice='tool_choice' in kwargs, streaming=kwargs.get('stream') is True,
         timeout='timeout' in kwargs, temperature='temperature' in kwargs,
@@ -109,6 +114,9 @@ def safe_metadata(value):
     """Revalidate at worker IPC, storage and human-rendering boundaries."""
     if type(value) is not dict: return {}
     result = {}
+    from .anthropic_diagnostics import FIELDS
+    field = value.get('anthropic_request_field')
+    if type(field) is str and field in FIELDS: result['anthropic_request_field'] = field
     from .gemini_usage import safe as safe_usage
     usage = safe_usage(value.get('gemini_usage'))
     if usage: result['gemini_usage'] = usage
@@ -275,7 +283,7 @@ def render(text):
         if type(elapsed) in (int, float) and math.isfinite(elapsed) and 0 <= elapsed <= 3600:
             rows.append('  Elapsed: ' + str(round(elapsed, 3)) + ' s')
         rows.append('  Stage: ' + (value['stage'] if type(value.get('stage')) is str and value['stage'] in STAGES else 'provider_request'))
-        labels = {'max_output_tokens':'Max output tokens', 'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
+        labels = {'anthropic_request_field':'Request field', 'max_output_tokens':'Max output tokens', 'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'timeout_limit_seconds':'Timeout limit (seconds)', 'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
             if key == 'gemini_usage':

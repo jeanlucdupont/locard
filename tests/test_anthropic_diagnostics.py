@@ -1,0 +1,48 @@
+import json
+from types import SimpleNamespace as NS
+import pytest
+from forensic_assistant.ai import cloud_worker, readiness, provider_diagnostics as d
+from forensic_assistant.ai.anthropic_diagnostics import extract
+
+
+def test_native_request(monkeypatch):
+    monkeypatch.setenv('ANTHROPIC_API_KEY','synthetic')
+    kw=cloud_worker.request_kwargs(dict(provider='anthropic',model='claude-sonnet-4-5',schema=readiness.SCHEMA,messages=readiness.MESSAGES,handshake=True,timeout=15))
+    assert kw['model']=='anthropic/claude-sonnet-4-5'
+    assert kw['custom_llm_provider']=='anthropic' and kw['max_tokens']==64
+    assert kw['output_config']=={'format':{'type':'json_schema','schema':readiness.SCHEMA}}
+    assert not any(k in kw for k in ('response_format','tools','tool_choice','extra_body','response_mime_type'))
+    f=d.request_features(kw)
+    assert f['structured_output_mechanism']=='provider_native_schema'
+    assert f['output_schema'] and not f['response_format'] and not f['tools'] and not f['tool_choice']
+
+
+@pytest.mark.parametrize('field',['output_config.format.schema','max_tokens','model'])
+def test_error_metadata_redacted(field,monkeypatch):
+    monkeypatch.setenv('ANTHROPIC_API_KEY','synthetic')
+    class BadRequestError(Exception):
+        status_code=400
+        body={'error':{'type':'invalid_request_error','message':field+': SECRET EVIDENCE KEY'}}
+    def reject(**kw):raise BadRequestError('SECRET')
+    with pytest.raises(d.ProviderFailure) as caught:
+        cloud_worker.generate(dict(provider='anthropic',model='claude-sonnet-4-5',schema=readiness.SCHEMA,messages=readiness.MESSAGES,handshake=True,timeout=15),NS(completion=reject))
+    exc=caught.value
+    assert exc.stage=='provider_request'
+    assert exc.category=='invalid_request'
+    assert exc.metadata['anthropic_request_field']==field
+    assert exc.metadata['provider_type']=='invalid_request_error'
+    logs=[]
+    monkeypatch.setattr(d.diagnostics,'append',lambda path,text:logs.append(text))
+    d.record('anthropic','claude-sonnet-4-5',exc.stage,exc.category,metadata=exc.metadata)
+    assert 'SECRET' not in logs[0] and 'SECRET' not in d.render(logs[0])
+    assert 'Request field: '+field in d.render(logs[0])
+
+
+def test_unknown_message_not_guessed():
+    assert extract(NS(body={'error':{'message':'SECRET: arbitrary'}}))=={}
+    assert extract(NS(body='not JSON SECRET'))=={}
+
+
+def test_explicit_model_error_distinct():
+    assert d.classify(NS(body={'error':{'code':'model_not_found'}}))=='model_rejected'
+    assert d.classify(NS(status_code=400))=='request_rejected'

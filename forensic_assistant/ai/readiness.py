@@ -95,7 +95,7 @@ def check(config, *, force=False, timeout=None, progress=None):
     compatibility = 'not_verified'
     family = None
     phase_started = started
-    families = {'advisory_compatibility': 'not_verified', 'investigation_compatibility': 'not_verified'} if config['provider'] in ('openai', 'gemini') else {}
+    families = {'advisory_compatibility': 'not_verified', 'investigation_compatibility': 'not_verified'} if config['provider'] in ('openai', 'gemini', 'anthropic') else {}
     try:
         if not os.environ.get(settings.PROVIDERS[config['provider']][1], '').strip():
             raise ProviderFailure('missing_key', 'configuration')
@@ -112,7 +112,7 @@ def check(config, *, force=False, timeout=None, progress=None):
         connection = model = 'ready'
         validate(response['text'], SCHEMA)
         compatibility = 'failed'
-        probes = openai_probes() if config['provider'] in ('openai', 'gemini') else [
+        probes = openai_probes() if config['provider'] in ('openai', 'gemini', 'anthropic') else [
             (None, COMPAT_SCHEMA, {'status': 'ok', 'message': 'locard'}, COMPAT_MESSAGES)]
         for family, contract, expected, messages in probes:
             if family:
@@ -176,7 +176,7 @@ def present(config, args=None, *, force=False):
     variable = settings.PROVIDERS[config['provider']][1]
     missing = not os.environ.get(variable, '').strip()
     print('  API key: ' + ('missing' if missing else 'available'))
-    if config['provider'] in ('openai', 'gemini'):
+    if config['provider'] in ('openai', 'gemini', 'anthropic'):
         print('  Advisory compatibility: ' + result['advisory_compatibility'])
         print('  Investigation compatibility: ' + result['investigation_compatibility'])
     if ready:
