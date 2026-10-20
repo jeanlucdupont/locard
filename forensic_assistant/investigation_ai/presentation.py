@@ -185,6 +185,9 @@ def render(result, palette=None, *, dry_run=False):
     completed = sum(p.get('operation') != 'initial' for p in state.get('investigation_path', []) if isinstance(p, dict))
     if completed and not dry_run:
         lines.extend(['', palette('heading', 'Forensic lookups'), '  Completed: ' + palette('number_value', str(completed))])
+    for entry in state.get('investigation_path', []):
+        if entry.get('outcome') == 'unresolved':
+            lines.append(palette('warning', '  Lookup unresolved: ' + safe(entry.get('operation', 'unknown'))))
     count = state.get('final_grounding_rejections', 0)
     if not supported and type(count) is int and 1 <= count <= 16:
         noun, verb = ('conclusion', 'was') if count == 1 else ('conclusions', 'were')
@@ -205,12 +208,19 @@ def render(result, palette=None, *, dry_run=False):
             label = 'Dry-run completed' if dry_run and termination == 'USER_SCOPE_REACHED' else termination_label(result)
             role = 'error' if termination in ('TOOL_FAILURE', 'MODEL_FAILURE', 'AUDIT_FAILURE', 'CLEANUP_LIMITATION') else 'warning'
             lines.extend(['', palette('heading', 'Termination'), '  ' + palette('success' if label == 'Dry-run completed' else role, label)])
+        metrics = result.get('metrics') or {}
+        if metrics.get('failed_lookup_tool'):
+            lines.extend(['  Tool: ' + safe(metrics['failed_lookup_tool']), '  Reason: ' + safe(metrics.get('failed_lookup_reason', 'Lookup execution failed'))])
         lines.append(palette('warning', '  No supported conclusion was produced.'))
     # Render one integrity warning; suppress only duplicate controller check details.
     if integrity_warning:
         text = ('The live case changed during the investigation. Findings were not accepted against the changed case state.'
                 if integrity.get('live_case_matches') is False else
                 'Locard could not confirm that the live case still matched the investigation snapshot.')
+        integrity_state = (result.get('metrics') or {}).get('integrity_status')
+        text = {'check_timed_out':'Final integrity verification timed out.',
+                'check_failed':'Locard could not complete final integrity verification.',
+                'not_checked':'Final integrity verification was not performed: ' + safe((result.get('metrics') or {}).get('integrity_reason', 'reason unavailable'))}.get(integrity_state, text)
         lines.extend(['', palette('warning', 'Warning'), '  ' + palette('warning', text)])
         caveats = [v for v in caveats if not str(v).startswith('Final state check failed: ')
                    and v != 'Live-case equality was not confirmed at completion; findings cover only the original private snapshot.'

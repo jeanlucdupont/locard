@@ -86,6 +86,10 @@ def _run(
     worker = None
     fingerprint = None
     integrity = {}
+    integrity_status = 'not_checked'
+    integrity_reason = 'No baseline fingerprint available'
+    integrity_elapsed = 0.0
+    failed_lookup = {}
     final = None
     termination = 'INSUFFICIENT_EVIDENCE'
     feedback = ''
@@ -101,6 +105,7 @@ def _run(
     def decision(status):
         if call_metadata is not None:
             call_metadata['status'] = status
+            LOG.debug('lookup=%s status=%s', call_metadata['tool'], status)
             transcript._manifest()
     def rejection_record(decoded, stage, error):
         record = diagnostic(transcript.id, state.steps,
@@ -113,9 +118,12 @@ def _run(
     def remaining():
         return clock.remaining()
     def call(name, args=None):
-        nonlocal fingerprint, tool_time, integrity, timeout_cause
+        nonlocal fingerprint, tool_time, integrity, timeout_cause, integrity_status, integrity_reason, integrity_elapsed
         if remaining() <= 0:
             raise WorkerError('INVESTIGATION_TIMEOUT')
+        checked_at = time.monotonic()
+        if name == 'check':
+            integrity_status, integrity_reason = 'check_failed', 'Final verification did not complete'
         try:
             if name == 'check':
                 status('final_fingerprint')
@@ -132,6 +140,10 @@ def _run(
                     question=question
                 )
         except WorkerError as exc:
+            if name == 'check':
+                integrity_elapsed += time.monotonic()-checked_at
+                integrity_status = 'changed' if 'EVIDENCE_STATE_CHANGED' in str(exc) else 'check_timed_out' if exc.timed_out or 'TIMEOUT' in str(exc) else 'check_failed'
+                integrity_reason = {'changed':'Live case fingerprint changed', 'check_timed_out':'Final verification exceeded its deadline', 'check_failed':'Final verification worker could not complete the check'}[integrity_status]
             if exc.timed_out or 'TIMEOUT' in str(exc):
                 timeout_cause = 'final_integrity_timeout' if name == 'check' else 'execution_budget_exhausted' if remaining() <= 0 else 'tool_timeout'
             if exc.integrity is not None:
@@ -148,6 +160,9 @@ def _run(
                 contracts.validate_output(response['result'])
             except ValueError as exc:
                 raise WorkerError(str(exc)) from exc
+        if name == 'check':
+            integrity_status, integrity_reason = 'matched', 'Live case fingerprint matched'
+            integrity_elapsed += time.monotonic()-checked_at
         fingerprint = response['fingerprint']
         tool_time += response['elapsed_seconds']
         return response
@@ -237,6 +252,7 @@ def _run(
                         call_metadata = dict(tool_call_number=call_number,
                                              tool=decoded.get('tool') if type(decoded.get('tool')) is str and decoded['tool'] in contracts.TOOLS else 'invalid',
                                              proposed_arguments_sha256=digest(decoded.get('arguments')), status='proposed')
+                        LOG.debug('lookup=%s status=proposed', call_metadata['tool'])
                         transcript.manifest.setdefault('tool_calls', []).append(call_metadata)
                         transcript._manifest()
                         audit('TOOL_PROPOSED', **{k: v for k, v in call_metadata.items() if k != 'status'})
@@ -325,13 +341,25 @@ def _run(
                         state.semantic += 1
                     transcript.append('accepted', {'step': state.steps, 'tool_call_number': call_number, 'proposal': proposal})
                     status('operation')
+                    lookup_started = time.monotonic()
+                    decision('started')
                     try:
                         response = call(name, args)
                     except WorkerError as exc:
-                        rejection_record(decoded, 'worker_execution', exc)
+                        failure_diagnostic = rejection_record(decoded, 'worker_execution', exc)
+                        category = 'timeout' if exc.timed_out or 'TIMEOUT' in str(exc) else 'failed'
+                        failed_lookup = dict(failed_lookup_tool=name, failed_lookup_category=category,
+                                             failed_lookup_reason='Lookup execution timed out' if category == 'timeout' else 'Forensic worker execution or result validation failed')
+                        call_metadata.update(outcome=category, failure_stage=exc.stage or 'worker_execution', elapsed_seconds=time.monotonic()-lookup_started, **failed_lookup)
+                        LOG.debug('lookup=%s status=%s category=%s stage=%s elapsed=%.6f', name, category, failure_diagnostic['category'], call_metadata['failure_stage'], call_metadata['elapsed_seconds'])
                         decision('failed')
                         audit('TOOL_FAILED', 'failure', tool_call_number=call_number, tool=name)
                         raise
+                    from .tools import AROUND_LIMITATIONS
+                    unresolved = name == 'around' and any(v in AROUND_LIMITATIONS for v in response['result']['limitations'])
+                    outcome = 'unresolved' if unresolved else 'completed' if response['result']['returned_count'] else 'completed_empty'
+                    call_metadata.update(outcome=outcome, elapsed_seconds=time.monotonic()-lookup_started, returned_count=response['result']['returned_count'])
+                    LOG.debug('lookup=%s status=%s elapsed=%.6f records=%d', name, outcome, call_metadata['elapsed_seconds'], call_metadata['returned_count'])
                     decision('executed')
                     audit('TOOL_EXECUTED', tool_call_number=call_number, tool=name,
                           arguments_sha256=digest(args),
@@ -350,9 +378,12 @@ def _run(
                     state.path.append({
                         'operation': name,
                         'new_records': new,
-                        'returned_records': response['result']['returned_count']
+                        'returned_records': response['result']['returned_count'],
+                        'outcome': outcome
                     })
                     feedback = str(new) + ' NEW EVIDENCE' if new else 'NO NEW EVIDENCE'
+                    if unresolved:
+                        feedback = 'Previous around lookup is unresolved: ' + '; '.join(response['result']['limitations']) + '. This is a limitation, not evidence. Do not repeat the identical lookup or broaden across hosts; choose another grounded allowed lookup or conclude unresolved.'
                     if state.no_new >= 3:
                         termination = 'NO_NEW_EVIDENCE'
                         break
@@ -438,8 +469,7 @@ def _run(
             # explicitly historical F0 findings, never an assertion about current state.
             if fingerprint is not None and final is None and remaining() > 0 and termination not in (
                 'EVIDENCE_STATE_CHANGED',
-                'SEMANTIC_STATE_CHANGED',
-                'TOOL_FAILURE'
+                'SEMANTIC_STATE_CHANGED'
             ):
                 try:
                     call('check')
@@ -450,6 +480,10 @@ def _run(
                     if 'STATE_CHANGED' in str(exc):
                         termination = str(exc)
             worker.close()
+    if integrity.get('live_case_matches') is False:
+        integrity_status, integrity_reason = 'changed', 'Live case fingerprint changed'
+    elif integrity_status == 'not_checked' and fingerprint is not None:
+        integrity_reason = 'Execution budget exhausted before final verification' if remaining() <= 0 else 'Final verification not attempted under termination policy'
     if integrity.get('strategy') == 'private_sqlite_snapshot' and integrity.get('live_case_matches') is not True:
         state.limit('Live-case equality was not confirmed at completion; findings cover only the original private snapshot.')
     if final is None:
@@ -474,7 +508,11 @@ def _run(
             'tool_seconds': tool_time,
             'model_seconds': model_time,
             'prompt_bytes': prompt_sizes,
-            'integrity': integrity
+            'integrity': integrity,
+            'integrity_status': integrity_status,
+            'integrity_reason': integrity_reason,
+            'integrity_elapsed_seconds': integrity_elapsed,
+            **failed_lookup
         },
         'limitations': [
             'Bounded investigation; absence of findings does not prove absence of activity.',

@@ -2260,3 +2260,29 @@ certify before starting their forensic execution clock. Startup probes retain th
 and timing are unchanged. `analyze-timeline` retains its existing local-client path.
 Successful continuation steps reuse readiness. DEBUG can show `compatibility_cache=hit`;
 default logs do not add a handshake for each worker or model step.
+
+Bounded lookup outcomes (6.69 pre-acceptance): `around` preserves strict same-host
+requirements. Missing/conflicting host context, multiple source occurrences, or
+missing/ambiguous timestamps return zero records with an explicit limitation. They
+never trigger cross-host fallback or create evidence. The bounded loop can continue
+with another allowed lookup; identical-call and novelty limits still apply.
+
+Tool-call transcript metadata records lifecycle status, result outcome (`completed`,
+`completed_empty`, `unresolved`, `failed`, or `timeout`), elapsed time and returned count.
+Human output identifies unresolved lookups and the tool responsible for an execution
+failure. DEBUG emits fixed lifecycle/category fields without evidence payloads.
+
+Final live-case verification is attempted after tool failure when the worker and
+remaining budget permit. Metrics distinguish `matched`, `changed`, `not_checked`,
+`check_failed`, and `check_timed_out`, with a deterministic reason and elapsed seconds.
+Successful verification stays quiet; incomplete verification has specific wording.
+A dead worker is not restarted and budgets are not increased to force verification.
+
+Diagnosis of the reported Standard2 sequence: the fourth approved proposal was
+`around`. The prior adapter raised missing-host errors as execution failures; the
+controller then explicitly skipped final checking for TOOL_FAILURE. This reproduces
+the reported combination synthetically. The supplied summary alone does not establish
+whether that live call failed host validation or timestamp selection: anchor_time runs
+first. No real-case database or transcript was inspected for this patch, so the validity
+of that particular timestamp slot and exact historical exception remain unverified.
+Volume C: and related filenames do not establish shared host identity.

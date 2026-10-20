@@ -13,6 +13,13 @@ from forensic_assistant.v2_cli import anchor_time
 from .contracts import arguments
 from .diagnostics import measure
 
+AROUND_LIMITATIONS = frozenset((
+    'Multiple source occurrences; cannot select an unambiguous source',
+    'Host context missing or conflicting; cannot select same-host temporal neighbors',
+    'Anchor has missing or multiple timestamps; select --timestamp-slot from show output',
+))
+
+
 def identity(prefix, value):
     return prefix + hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=True).encode()).hexdigest()[:24]
 
@@ -173,11 +180,13 @@ def execute(db, name, args, config, model=None):
         raw = {'records': [get_evidence(db, args['evidence_id'])]}
     elif name == 'around':
         anchor = get_evidence(db, args['evidence_id'])
-        stamp = anchor_time(anchor, args.get('timestamp_slot'))
         from forensic_assistant.retrieval.evidence import same_host_window
-        seconds = args['seconds']
-        direction = args['direction']
-        window = same_host_window(anchor, stamp, seconds, direction=direction)
+        try:
+            stamp = anchor_time(anchor, args.get('timestamp_slot'))
+            window = same_host_window(anchor, stamp, args['seconds'], direction=args['direction'])
+        except ValueError as exc:
+            if str(exc) not in AROUND_LIMITATIONS: raise
+            return envelope(db, name, {'records': [], 'limits': [str(exc)]}, limit)
         raw = q.search(
             **window,
             timeline=True,
