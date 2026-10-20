@@ -180,6 +180,7 @@ class ModelBackend:
                 result = self._cloud(messages, schema, timeout=remaining)
                 text, usage = result['text'], result['usage']
             self.last_metadata = {**self.identify(), 'usage': usage,
+                                  **({'anthropic_strategy':result['anthropic_strategy']} if self.provider_name == 'anthropic' and 'anthropic_strategy' in result else {}),
                                   'elapsed_seconds': round(time.monotonic() - started, 6)}
             success = True
             return redact(text)
@@ -199,7 +200,13 @@ class ModelBackend:
         try:
             from .response_contract import validator
             validator(schema)  # Validate the contract before any evidence leaves the process.
-            result = self._cloud_request(messages, schema, timeout=timeout, handshake=handshake)
+            from .capabilities import INVESTIGATION_STRATEGIES
+            from .openai_schema import investigation
+            if INVESTIGATION_STRATEGIES.get(self.provider_name) == 'two_stage_tool_schema' and investigation(schema):
+                from .anthropic_strategy import generate
+                result = generate(self,messages,schema,self.timeout if timeout is None else timeout,handshake)
+            else:
+                result = self._cloud_request(messages, schema, timeout=timeout, handshake=handshake)
             if self.provider_name == 'gemini':
                 from .gemini_adapter import validate_response
                 validate_response(result['text'],schema,result.get('gemini_response', {}))
@@ -211,11 +218,11 @@ class ModelBackend:
                 gemini_metadata = safe_metadata(result)
                 gemini_metadata['gemini_response'] = {**gemini_metadata.get('gemini_response', {}), 'json_parse':'success', 'wire_validation':'passed'}
                 gemini_metadata['gemini_canonical_validation'] = 'passed'
-            if not handshake or self.provider_name == 'gemini':
+            if not handshake or self.provider_name == 'gemini' or 'anthropic_strategy' in result:
                 from .capabilities import CAPABILITIES
                 record(self.provider_name, self.model_name, 'structured_validation', 'response_validated',
                        time.monotonic()-started, operation='handshake' if handshake else OPERATION.get(), usage=result.get('usage'),
-                       metadata={**shape, **gemini_metadata, 'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}})
+                       metadata={**shape, **gemini_metadata, **({'anthropic_strategy':result['anthropic_strategy'],'provider_schema_profile':result['provider_schema_profile']} if 'anthropic_strategy' in result else {}), 'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}})
             return result
         except ProviderFailure as exc:
             if not handshake:
@@ -261,7 +268,11 @@ class ModelBackend:
                 raise ValueError()
             result = json.loads(output)
             if type(result) is dict and 'raw_diagnostic' in result:
-                raw_diagnostics.capture(result.pop('raw_diagnostic'))
+                raw_entry=result.pop('raw_diagnostic')
+                if self.provider_name == 'anthropic' and type(raw_entry) is dict:
+                    from .anthropic_strategy import RAW_STAGE
+                    if RAW_STAGE.get() in ('stage1','stage2'):raw_entry={**raw_entry,'stage':RAW_STAGE.get()}
+                raw_diagnostics.capture(raw_entry)
             if type(result) is dict and set(result) in ({'error', 'stage'}, {'error', 'stage', 'metadata'}):
                 raise ProviderFailure(result['error'],
                                       result['stage'] if type(result['stage']) is str and result['stage'] in STAGES else 'provider_request',

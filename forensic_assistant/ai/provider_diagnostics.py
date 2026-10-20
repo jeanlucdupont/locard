@@ -114,6 +114,9 @@ def safe_metadata(value):
     """Revalidate at worker IPC, storage and human-rendering boundaries."""
     if type(value) is not dict: return {}
     result = {}
+    from .anthropic_strategy import safe as safe_strategy
+    strategy=safe_strategy(value.get('anthropic_strategy'))
+    if strategy:result['anthropic_strategy']=strategy
     from .anthropic_diagnostics import FIELDS, LABELS, CODES as ANTHROPIC_CODES
     for key, allowed in (('anthropic_error_category', LABELS), ('anthropic_error_code', ANTHROPIC_CODES), ('anthropic_provider_detail', {'unavailable'}), ('anthropic_feature', {'structured_outputs'})):
         if type(value.get(key)) is str and value[key] in allowed: result[key] = value[key]
@@ -288,7 +291,10 @@ def render(text):
         labels = {'anthropic_feature':'Provider feature', 'anthropic_error_category':'Provider error category', 'anthropic_error_code':'Provider error code', 'anthropic_provider_detail':'Provider detail', 'anthropic_request_field':'Request field', 'max_output_tokens':'Max output tokens', 'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'timeout_limit_seconds':'Timeout limit (seconds)', 'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
-            if key == 'gemini_usage':
+            if key == 'anthropic_strategy':
+                rows.append('  Anthropic strategy:')
+                for field,state in item.items():rows.append('    '+field+': '+str(state))
+            elif key == 'gemini_usage':
                 rows.append('  Token usage:')
                 for field, count in item.items(): rows.append('    ' + field.replace('_',' ').capitalize() + ': ' + str(count))
             elif key == 'gemini_canonical_validation':

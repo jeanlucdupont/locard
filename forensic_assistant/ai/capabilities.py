@@ -50,3 +50,7 @@ def configure(kwargs, provider, schema):
     else:
         raise ValueError("Unsupported structured mode")
     return kwargs
+
+
+# Explicit strategy selection; generic controller and other providers stay unchanged.
+INVESTIGATION_STRATEGIES = {'anthropic': 'two_stage_tool_schema'}

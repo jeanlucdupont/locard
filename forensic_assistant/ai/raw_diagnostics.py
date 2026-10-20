@@ -43,6 +43,7 @@ def capture(value):
     if not enabled or type(value) is not dict:return
     item=entry(value.get('kind'),value.get('text'))
     if item:
+        if value.get('stage') in ('stage1','stage2'):item['stage']=value['stage']
         item['truncated'] |= value.get('truncated') is True
         if sink is not None: sink(item)
         else: _entries.append(item)
@@ -59,6 +60,6 @@ def display():
     if not _entries:rows.append('No buffered output is available.')
     while _entries:
         item=_entries.popleft()
-        rows.extend((item['kind'],sanitize(item['text'])))
+        rows.extend(((('anthropic_'+item['stage']+'_') if 'stage' in item else '')+item['kind'],sanitize(item['text'])))
         if item['truncated']:rows.append('[TRUNCATED]')
     return '\n'.join(rows)

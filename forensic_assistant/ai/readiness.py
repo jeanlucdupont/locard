@@ -51,6 +51,10 @@ def cache_key(config):
     shape = [request_schema(config['provider'], schema) for schema in contracts]
     public = [config['provider'], config['model'], asdict(CAPABILITIES[config['provider']]),
               __version__, COMPATIBILITY_REVISION, contracts, shape]
+    if config['provider'] == 'anthropic':
+        from .anthropic_strategy import VERSION, wire_schemas
+        from .openai_schema import investigation
+        public.append([VERSION,[wire_schemas(s) for s in contracts if investigation(s)]])
     return hashlib.sha256(json.dumps(public,sort_keys=True).encode()).hexdigest()
 
 

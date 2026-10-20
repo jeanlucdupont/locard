@@ -28,7 +28,11 @@ def probe_responses(provider):
     replies = ['{"status":"ok"}']
     if provider in ('openai', 'gemini', 'anthropic'):
         for family, _, expected, _ in readiness.openai_probes():
-            replies.append(json.dumps({'proposal': expected} if provider == 'openai' and family == 'investigation' else expected))
+            if provider == 'anthropic' and family == 'investigation':
+                replies.append(json.dumps({'selection':expected.get('tool','final')}))
+                replies.append(json.dumps({k:v for k,v in expected.items() if k not in ('action','tool')}))
+            else:
+                replies.append(json.dumps({'proposal': expected} if provider == 'openai' and family == 'investigation' else expected))
     else:
         replies.append('{"status":"ok","message":"locard"}')
     return replies
@@ -160,15 +164,16 @@ def test_schema_valid_ungrounded_conclusion_still_rejected(provider,tmp_path,mon
     from test_investigation_assessment import RecordingWorker
     from test_investigation_grounding_ux import unsupported
     calls=[]
-    mock_transport(monkeypatch,probe_responses(provider)+[
-        json.dumps({'proposal': unsupported()} if provider == 'openai' else unsupported())],calls)
+    reply = ([json.dumps({'selection':'final'}), json.dumps({'answer':unsupported()['answer']})] if provider == 'anthropic' else
+             [json.dumps({'proposal': unsupported()} if provider == 'openai' else unsupported())])
+    mock_transport(monkeypatch,probe_responses(provider)+reply,calls)
     client=ModelBackend(config=config(provider))
     result=controller.run({},'Inspect synthetic evidence',tmp_path/'runs',
         client=client,budget=Budget(steps=1),worker_factory=RecordingWorker)
     assert result['state']['final_grounding_rejections']==1
     assert result['state']['final_grounding_reasons']==['unexposed_field']
     assert result['termination']!='ANSWER_SUPPORTED'
-    assert len(calls)==len(probe_responses(provider))+1
+    assert len(calls)==len(probe_responses(provider))+len(reply)
 
 
 def test_cancelled_probe_preserves_cancellation(monkeypatch):

@@ -2393,3 +2393,21 @@ not announce a new interactive enable. Without the environment opt-in, the comma
 still enables future capture and explains that earlier startup calls were missed.
 CLI teardown clears the buffer. Remove the variable for subsequent processes with
 `Remove-Item Env:LOCARD_AI_RAW_DEBUG`. The 10-entry/16-KiB limits are unchanged.
+
+
+Anthropic bounded investigations use two structured transport requests per logical
+proposal. A small closed selector chooses one tool from the current canonical
+allowlist (including show_evidence when allowed), or final. The second request
+contains only that tool's arguments and required reason, or the final answer
+schema. Locard assembles action/tool fields deterministically and validates the
+unchanged canonical contract. No stage executes a forensic tool; the controller
+still performs grounding, loop checks and approval on the assembled proposal.
+Both calls share the existing request deadline, with no retry or added budget.
+Handshake/advisory remain single-call. Investigation readiness exercises both
+stages for a synthetic tool and final response. Adapter version and stage schemas
+participate only in Anthropic's compatibility cache fingerprint.
+Safe diagnostics record stage status, schema shapes, selected tool, elapsed times
+and available numeric usage. Raw session diagnostics label stage1/stage2 entries.
+This strategy increases Anthropic request count without changing logical-step
+accounting. Live acceptance is still required; new provider constraints fail
+closed without automatic schema redesign.
