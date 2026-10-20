@@ -2381,3 +2381,15 @@ with explicit truncation. Investigation workers relay diagnostics separately fro
 results. Raw JSON export is unsupported. Known credential formats, secret-bearing
 environment values and credential headers are redacted; case content may remain.
 Raw model/provider output is NOT EVIDENCE. Do not share it without reviewing it.
+
+
+To capture startup/readiness diagnostics before the prompt is available, launch
+from PowerShell with `$env:LOCARD_AI_RAW_DEBUG = "1"`, then `./locard.ps1`.
+Values `1`, `true`, `yes`, and `on` enable capture (case-insensitive); other values
+and an unset variable disable it. This is read at CLI entry before case selection
+and is not saved in configuration. After startup, `ai logs --raw` displays the
+buffer with the existing warning and redaction. Environment-enabled capture does
+not announce a new interactive enable. Without the environment opt-in, the command
+still enables future capture and explains that earlier startup calls were missed.
+CLI teardown clears the buffer. Remove the variable for subsequent processes with
+`Remove-Item Env:LOCARD_AI_RAW_DEBUG`. The 10-entry/16-KiB limits are unchanged.

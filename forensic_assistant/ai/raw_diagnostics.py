@@ -7,13 +7,22 @@ WARNING = 'Raw AI diagnostics may contain case evidence, filenames, host/user id
 LIMIT = 16384
 _entries = deque(maxlen=10)
 enabled = False
+source = 'disabled'
 sink = None
 
 def clear():
-    global enabled, sink
+    global enabled, sink, source
     sink = None
     _entries.clear()
     enabled = False
+    source = 'disabled'
+
+def initialize():
+    """Called at CLI entry before case selection or any provider readiness."""
+    global enabled, source
+    clear()
+    enabled = os.environ.get('LOCARD_AI_RAW_DEBUG', '').casefold() in ('1','true','yes','on')
+    source = 'environment' if enabled else 'disabled'
 
 def sanitize(text):
     # Redact secret-bearing environment values and known credential formats.
@@ -39,10 +48,15 @@ def capture(value):
         else: _entries.append(item)
 
 def display():
-    global enabled
-    enabled=True
+    global enabled, source
+    newly_enabled = not enabled
+    if newly_enabled:
+        enabled=True
+        source='interactive'
     rows=[WARNING,'RAW AI DIAGNOSTIC OUTPUT — NOT EVIDENCE']
-    if not _entries:rows.append('Capture enabled for subsequent cloud requests in this process. No buffered output is available.')
+    if newly_enabled:
+        rows.extend(('Raw capture enabled for subsequent cloud requests.', 'Earlier startup requests were not captured.'))
+    if not _entries:rows.append('No buffered output is available.')
     while _entries:
         item=_entries.popleft()
         rows.extend((item['kind'],sanitize(item['text'])))

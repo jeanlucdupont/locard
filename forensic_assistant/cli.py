@@ -177,11 +177,15 @@ def build_parser(*, interactive=False):
 
 
 def main(argv=None):
-    from forensic_assistant.ai import runtime
+    from forensic_assistant.ai import runtime, raw_diagnostics
+    raw_diagnostics.initialize()
     try:
         return _main(argv)
     finally:
-        runtime.close()
+        try:
+            runtime.close()
+        finally:
+            raw_diagnostics.clear()
 
 
 def _main(argv=None):
