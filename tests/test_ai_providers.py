@@ -70,13 +70,18 @@ def test_provider_adapter_contract(provider, monkeypatch):
         assert call['response_format'] == {'type': 'json_object'}
         assert json.dumps(schema) in call['messages'][0]['content']
     elif provider == 'anthropic':
-        assert call['output_config']['format']['schema'] == schema
+        assert call['response_format']['json_schema']['schema'] == schema
+        assert 'output_config' not in call and 'extra_body' not in call
     elif provider == 'gemini':
         assert call['response_json_schema'] == schema
     else:
         assert call['response_format']['json_schema']['schema'] == schema
     assert call['num_retries'] == 0 and call['timeout'] == 2
     assert 'tools' not in call and 'fallbacks' not in call
+    if provider == 'gemini':
+        assert result.pop('max_output_tokens') == 1024
+        assert result.pop('gemini_usage') == {'prompt_tokens':11,'completion_tokens':4,'total_tokens':15}
+        assert result.pop('gemini_response') == {'container_type':'provider_object','phase':'extraction','json_parse':'not_attempted','wire_validation':'not_attempted','content_type':'string','finish_reason':'stop'}
     assert result == {'text':'{"answer":"bounded"}', 'usage':{'prompt_tokens':11,'completion_tokens':4,'total_tokens':15}}
     assert secret not in redact(secret)
 

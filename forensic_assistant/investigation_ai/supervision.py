@@ -38,6 +38,8 @@ def _child(connection, gate, request):
     request['config']['_approval_clock_managed'] = True
     request['config']['_startup_complete'] = lambda: connection.send_bytes(b'{"kind":"startup_complete"}')
     request['config']['_status'] = lambda phase: connection.send_bytes(json.dumps({'kind': 'status', 'phase': phase}).encode())
+    from forensic_assistant.ai import raw_diagnostics
+    raw_diagnostics.sink = lambda item: connection.send_bytes(json.dumps({'kind':'raw_diagnostic','entry':item}).encode())
     session = activity.Session(request['config']['case_path'])
     session.id = request['session_id']
     def approve(proposal, seconds):
@@ -58,6 +60,7 @@ def _child(connection, gate, request):
         # No raw exception text/evidence is sent to the audit channel.
         connection.send_bytes(json.dumps({'kind': 'error', 'type': type(exc).__name__}).encode())
     finally:
+        raw_diagnostics.clear()
         connection.close()
 
 
@@ -201,6 +204,10 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
             except queue.Empty:
                 if not process.is_alive():
                     break
+                continue
+            if message['kind'] == 'raw_diagnostic':
+                from forensic_assistant.ai import raw_diagnostics
+                raw_diagnostics.capture(message.get('entry'))
                 continue
             if message['kind'] == 'status':
                 phase = message.get('phase')

@@ -129,10 +129,10 @@ class ModelBackend:
         return self
 
     def descriptor(self):
-        from . import readiness
+        from . import readiness, raw_diagnostics
         decision = readiness.export(self.config) if self.provider_name != 'local' else None
         return dict(config=self.config, endpoint=self.endpoint, managed=self.managed,
-                    provider=self.provider_name, compatibility=decision)
+                    provider=self.provider_name, compatibility=decision, raw_diagnostics=raw_diagnostics.enabled)
 
     @classmethod
     def restore(cls, value):
@@ -142,6 +142,8 @@ class ModelBackend:
         result.managed = value['managed']
         result._worker = True
         result._compatibility = value.get('compatibility')
+        from . import raw_diagnostics
+        raw_diagnostics.enabled = value.get('raw_diagnostics') is True
         return result
 
     def complete(self, messages, schema=None):
@@ -242,8 +244,9 @@ class ModelBackend:
         env = runtime.clean_environment()
         env[variable] = settings.key(self.provider_name)
         env.update(LITELLM_LOCAL_MODEL_COST_MAP='True', LITELLM_TELEMETRY='False', DO_NOT_TRACK='1')
+        from . import raw_diagnostics
         request = dict(provider=self.provider_name, model=self.model_name, messages=messages,
-                       schema=schema, timeout=timeout, handshake=handshake)
+                       schema=schema, timeout=timeout, handshake=handshake, raw_diagnostics=raw_diagnostics.enabled)
         process = subprocess.Popen([sys.executable, '-B', '-m', 'forensic_assistant.ai.cloud_worker'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
             cwd=str(Path(__file__).resolve().parents[2]),
@@ -257,6 +260,8 @@ class ModelBackend:
             if len(output) > 2 * 1024 * 1024:
                 raise ValueError()
             result = json.loads(output)
+            if type(result) is dict and 'raw_diagnostic' in result:
+                raw_diagnostics.capture(result.pop('raw_diagnostic'))
             if type(result) is dict and set(result) in ({'error', 'stage'}, {'error', 'stage', 'metadata'}):
                 raise ProviderFailure(result['error'],
                                       result['stage'] if type(result['stage']) is str and result['stage'] in STAGES else 'provider_request',

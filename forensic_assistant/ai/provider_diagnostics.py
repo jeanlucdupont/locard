@@ -80,8 +80,8 @@ def safe_features(value):
                          ('provider_prefix', tuple(settings.PROVIDERS))):
         item = value.get(key)
         if type(item) is str and item in choices: result[key] = item
-    if value.get('structured_output_mechanism') == 'provider_native_schema':
-        result['structured_output_mechanism'] = 'provider_native_schema'
+    if value.get('structured_output_mechanism') in ('provider_native_schema','litellm_response_format'):
+        result['structured_output_mechanism'] = value['structured_output_mechanism']
         for key in ('response_format', 'output_schema'):
             if type(value.get(key)) is bool: result[key] = value[key]
     return result
@@ -92,8 +92,8 @@ def request_features(kwargs):
     response = kwargs.get('response_format')
     response = response if type(response) is dict else {}
     model = kwargs.get('model', '')
-    mode = 'anthropic_schema' if 'output_config' in kwargs else 'gemini_schema' if 'response_json_schema' in kwargs else response.get('type', 'unset')
-    native = {'structured_output_mechanism':'provider_native_schema', 'response_format':'response_format' in kwargs, 'output_schema':'output_config' in kwargs} if kwargs.get('custom_llm_provider') == 'anthropic' else {}
+    mode = 'anthropic_schema' if kwargs.get('custom_llm_provider') == 'anthropic' else 'gemini_schema' if 'response_json_schema' in kwargs else response.get('type', 'unset')
+    native = {'structured_output_mechanism':'litellm_response_format' if 'response_format' in kwargs else 'provider_native_schema', 'response_format':'response_format' in kwargs, 'output_schema':'output_config' in kwargs} if kwargs.get('custom_llm_provider') == 'anthropic' else {}
     return safe_features(dict(**native, structured_output=mode,
         json_schema=mode in ('json_schema', 'anthropic_schema', 'gemini_schema'), tools=bool(kwargs.get('tools')),
         tool_choice='tool_choice' in kwargs, streaming=kwargs.get('stream') is True,

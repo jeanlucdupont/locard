@@ -34,8 +34,8 @@ def configure(kwargs, provider, schema):
         kwargs["response_format"] = {"type": "json_schema", "json_schema": {
             "name": "investigation_proposal" if adapted else "forensic_analysis", "strict": True, "schema": schema}}
     elif capability.mode == "anthropic_schema":
-        # Avoid LiteLLM's response_format -> synthetic tool fallback.
-        kwargs["output_config"] = {"format": {"type": "json_schema", "schema": schema}}
+        # Use the independently validated LiteLLM Anthropic JSON-schema route.
+        kwargs["response_format"] = {"type": "json_schema", "json_schema": {"name": "forensic_analysis", "strict": True, "schema": schema}}
     elif capability.mode == "gemini_schema":
         # Direct JSON Schema native parameter avoids the legacy OpenAPI converter.
         kwargs["response_mime_type"] = "application/json"

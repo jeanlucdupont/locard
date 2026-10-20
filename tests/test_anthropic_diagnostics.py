@@ -10,11 +10,11 @@ def test_native_request(monkeypatch):
     kw=cloud_worker.request_kwargs(dict(provider='anthropic',model='claude-sonnet-4-5',schema=readiness.SCHEMA,messages=readiness.MESSAGES,handshake=True,timeout=15))
     assert kw['model']=='anthropic/claude-sonnet-4-5'
     assert kw['custom_llm_provider']=='anthropic' and kw['max_tokens']==64
-    assert kw['output_config']=={'format':{'type':'json_schema','schema':readiness.SCHEMA}}
-    assert not any(k in kw for k in ('response_format','tools','tool_choice','extra_body','response_mime_type'))
+    assert kw['response_format']=={'type':'json_schema','json_schema':{'name':'forensic_analysis','strict':True,'schema':readiness.SCHEMA}}
+    assert not any(k in kw for k in ('output_config','tools','tool_choice','extra_body','response_mime_type'))
     f=d.request_features(kw)
-    assert f['structured_output_mechanism']=='provider_native_schema'
-    assert f['output_schema'] and not f['response_format'] and not f['tools'] and not f['tool_choice']
+    assert f['structured_output_mechanism']=='litellm_response_format'
+    assert not f['output_schema'] and f['response_format'] and not f['tools'] and not f['tool_choice']
 
 
 @pytest.mark.parametrize('field',['output_config.format.schema','max_tokens','model'])

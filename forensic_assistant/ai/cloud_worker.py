@@ -30,8 +30,26 @@ def request_kwargs(request):
 
 def generate(request, sdk):
     kwargs = request_kwargs(request)
+    raw = None
+    if request.get('raw_diagnostics') is True:
+        from .raw_diagnostics import entry
+        original = sdk
+        class Capture:
+            def completion(self, **kw):
+                nonlocal raw
+                try:
+                    result = original.completion(**kw)
+                except Exception as error:
+                    raw = entry('raw_provider_error', getattr(error, 'message', ''))
+                    raise
+                try: raw = entry('raw_model_output', result.choices[0].message.content)
+                except (AttributeError, IndexError, TypeError): pass
+                return result
+        sdk = Capture()
     try:
-        return complete(kwargs, sdk)
+        result = complete(kwargs, sdk)
+        if raw: result['raw_diagnostic'] = raw
+        return result
     except Exception as exc:
         from .schema_diagnostics import profiles
         anthropic_detail = {}
@@ -39,9 +57,11 @@ def generate(request, sdk):
             from .anthropic_diagnostics import extract
             anthropic_detail = extract(exc)
         metadata = {**error_metadata(exc), **anthropic_detail, **profiles(request['provider'], request.get('schema')), 'request_features': request_features(kwargs)}
-        raise ProviderFailure(classify(exc), exc.stage if isinstance(exc, ProviderFailure) else
+        failure = ProviderFailure(classify(exc), exc.stage if isinstance(exc, ProviderFailure) else
                               'timeout' if classify(exc) == 'timeout' else 'provider_request',
-                              metadata=metadata) from None
+                              metadata=metadata)
+        if raw: failure.raw_diagnostic = raw
+        raise failure from None
 
 
 def complete(kwargs, sdk):
@@ -100,7 +120,7 @@ def main():
     except BaseException as exc:
         # Never include str(exc), response bodies, headers or request metadata.
         category = classify(exc)
-        output.write(json.dumps({'error': category, 'metadata': error_metadata(exc),
+        output.write(json.dumps({**({'raw_diagnostic': exc.raw_diagnostic} if hasattr(exc, 'raw_diagnostic') else {}), 'error': category, 'metadata': error_metadata(exc),
                                  'stage': exc.stage if isinstance(exc, ProviderFailure) else 'timeout' if category == 'timeout' else 'provider_request'}))
     finally:
         output.flush()

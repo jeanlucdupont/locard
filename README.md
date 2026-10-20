@@ -2361,3 +2361,23 @@ message prefixes and parses a bounded complete JSON error in memory. Only
 allowlisted types, codes, request fields and a few exact phrase classifications
 survive. Unknown detail is explicitly unavailable. No raw message, headers,
 request ID, schema, or evidence is retained; request behavior is unchanged.
+
+
+Anthropic 6.69 adapter correction: structured output now uses LiteLLM
+`response_format={"type":"json_schema","json_schema":{"name":"forensic_analysis",
+"strict":true,"schema":...}}`, without `output_config` or `extra_body`.
+Select `claude-sonnet-4-5-20250929` to reproduce the independently successful
+configuration. Model names are still explicitly selected; routing adds `anthropic/`.
+Canonical validation remains mandatory and readiness checks all three stages.
+This supersedes the earlier native-route diagnostic notes above.
+
+`ai logs` remains sanitized. `ai logs --raw` warns, displays and consumes buffered
+raw diagnostics, and enables capture for subsequent cloud requests in the current
+session. It cannot recover an earlier startup error: enable it first, then reselect
+the provider to repeat readiness, or reproduce the request. Capture is off at
+process start, discarded at shell exit, and never written to provider logs or
+investigation transcripts. The ring holds at most 10 entries of 16 KiB each,
+with explicit truncation. Investigation workers relay diagnostics separately from
+results. Raw JSON export is unsupported. Known credential formats, secret-bearing
+environment values and credential headers are redacted; case content may remain.
+Raw model/provider output is NOT EVIDENCE. Do not share it without reviewing it.

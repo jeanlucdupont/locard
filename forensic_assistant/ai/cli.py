@@ -18,6 +18,7 @@ def configure(commands):
             'configure':'Configure provider/model or local paths', 'start':'Start the owned local runtime',
             'stop':'Stop only the Locard-owned runtime', 'logs':'Show private runtime or cloud provider diagnostics'}[name])
         child.add_argument('--json', action='store_true')
+        if name == 'logs': child.add_argument('--raw', action='store_true', help='Enable session capture and display buffered cloud output; may contain case data')
         if name in ('provider', 'configure'):
             child.add_argument('provider', nargs='?', choices=list(settings.PROVIDERS))
             child.add_argument('--model', help='Explicit cloud model name, without provider prefix')
@@ -117,6 +118,10 @@ def dispatch(args):
             return {**status(config), 'message': 'The active local AI runtime is externally managed.\nLocard will not stop it.'}
         runtime.stop()
     elif operation == 'logs':
+        if getattr(args, 'raw', False):
+            if args.json: raise ValueError('Raw diagnostics do not support --json')
+            from . import raw_diagnostics
+            return {'logs':raw_diagnostics.display()}
         from .diagnostics import tail
         if config['provider'] != 'local':
             from .provider_diagnostics import render as render_provider_logs

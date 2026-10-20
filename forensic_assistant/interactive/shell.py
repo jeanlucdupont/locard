@@ -433,6 +433,8 @@ class Shell:
                 runtime.close()
             finally:
                 self.reader.clear()
+                from forensic_assistant.ai import raw_diagnostics
+                raw_diagnostics.clear()
 
 
 def run(*, no_color=False):
