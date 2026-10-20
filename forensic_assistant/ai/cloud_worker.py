@@ -19,7 +19,7 @@ def request_kwargs(request):
     probe_tokens = 256 if provider in ('openai', 'gemini') and investigation(request.get('schema')) else 64
     if provider == 'gemini':
         from .readiness import SCHEMA
-        probe_tokens = 256 if request.get('schema') == SCHEMA else 1024 if investigation(request.get('schema')) else 512
+        probe_tokens = 512 if request.get('schema') == SCHEMA else 1024 if investigation(request.get('schema')) else 512
     kwargs = dict(model=route + '/' + request['model'],
                   custom_llm_provider=route, api_key=os.environ[PROVIDERS[provider][1]],
                   messages=request['messages'], stream=False, max_tokens=probe_tokens if request.get('handshake') is True else 1024,
@@ -43,7 +43,10 @@ def generate(request, sdk):
 def complete(kwargs, sdk):
     result = sdk.completion(**kwargs)
     gemini_detail = None
+    gemini_metadata = {}
     if kwargs.get('custom_llm_provider') == 'gemini':
+        from .gemini_usage import extract as usage_counts
+        gemini_metadata = {'gemini_usage': usage_counts(result), 'max_output_tokens': kwargs['max_tokens']}
         from .gemini_adapter import extract
         try:
             _, gemini_detail = extract(result)
@@ -51,8 +54,8 @@ def complete(kwargs, sdk):
             detail = exc.metadata.get('gemini_response', {})
             if detail.get('finish_reason') == 'length':
                 raise ProviderFailure('output_truncated', 'provider_generation', metadata={
-                    'gemini_response': detail, 'max_output_tokens': kwargs['max_tokens']}) from None
-            raise
+                    'gemini_response': detail, **gemini_metadata}) from None
+            raise ProviderFailure(exc.category, exc.stage, metadata={**exc.metadata, **gemini_metadata}) from None
     try:
         choice = result.choices[0]
         if choice.finish_reason not in ('stop', 'end_turn') or getattr(choice.message, 'tool_calls', None) or getattr(choice.message, 'function_call', None):
@@ -61,7 +64,7 @@ def complete(kwargs, sdk):
         if not isinstance(text, str) or not text.strip() or len(text.encode()) > 1024 * 1024:
             raise ProviderFailure('structured_validation', 'structured_validation')
         usage = getattr(result, 'usage', None)
-        return {'text': text, **({'gemini_response':gemini_detail} if gemini_detail else {}), 'usage': {name: getattr(usage, name) for name in
+        return {'text': text, **({'gemini_response':gemini_detail, **gemini_metadata} if gemini_detail else {}), 'usage': {name: getattr(usage, name) for name in
                 ('prompt_tokens', 'completion_tokens', 'total_tokens')
                 if type(getattr(usage, name, None)) is int and 0 <= getattr(usage, name) <= 10000000}}
     except (AttributeError, IndexError, TypeError, UnicodeError):

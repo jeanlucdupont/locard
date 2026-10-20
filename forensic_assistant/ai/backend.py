@@ -203,11 +203,17 @@ class ModelBackend:
                 validate_response(result['text'],schema,result.get('gemini_response', {}))
             from .openai_schema import response
             result = {**result, 'text': response(self.provider_name, result['text'], schema)}
-            if not handshake:
+            gemini_metadata = {}
+            if self.provider_name == 'gemini':
+                from .provider_diagnostics import safe_metadata
+                gemini_metadata = safe_metadata(result)
+                gemini_metadata['gemini_response'] = {**gemini_metadata.get('gemini_response', {}), 'json_parse':'success', 'wire_validation':'passed'}
+                gemini_metadata['gemini_canonical_validation'] = 'passed'
+            if not handshake or self.provider_name == 'gemini':
                 from .capabilities import CAPABILITIES
                 record(self.provider_name, self.model_name, 'structured_validation', 'response_validated',
-                       time.monotonic()-started, operation=OPERATION.get(), usage=result.get('usage'),
-                       metadata={**shape, 'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}})
+                       time.monotonic()-started, operation='handshake' if handshake else OPERATION.get(), usage=result.get('usage'),
+                       metadata={**shape, **gemini_metadata, 'request_features': {'structured_output': CAPABILITIES[self.provider_name].mode}})
             return result
         except ProviderFailure as exc:
             if not handshake:
@@ -255,7 +261,8 @@ class ModelBackend:
                 raise ProviderFailure(result['error'],
                                       result['stage'] if type(result['stage']) is str and result['stage'] in STAGES else 'provider_request',
                                       metadata=result.get('metadata'))
-            if set(result) != {'text', 'usage'}:
+            allowed = ({'text', 'usage'}, {'text', 'usage', 'gemini_response', 'gemini_usage', 'max_output_tokens'}) if self.provider_name == 'gemini' else ({'text', 'usage'},)
+            if set(result) not in allowed:
                 raise ValueError()
             return result
         except subprocess.TimeoutExpired:

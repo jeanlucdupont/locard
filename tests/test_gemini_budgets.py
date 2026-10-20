@@ -4,7 +4,7 @@ import pytest
 from forensic_assistant.ai import cloud_worker, readiness, provider_diagnostics as d
 from forensic_assistant.ai.settings import PROVIDERS, defaults
 
-@pytest.mark.parametrize('provider,expected', [('gemini',[256,512,1024,1024]),('openai',[64,64,256,256]),('deepseek',[64,64,64,64])])
+@pytest.mark.parametrize('provider,expected', [('gemini',[512,512,1024,1024]),('openai',[64,64,256,256]),('deepseek',[64,64,64,64])])
 def test_stage_budgets_and_normal_requests(monkeypatch,provider,expected):
     monkeypatch.setenv(PROVIDERS[provider][1],'synthetic-key')
     schemas=[readiness.SCHEMA]+[p[1] for p in readiness.openai_probes()]
@@ -42,7 +42,7 @@ def test_generate_retains_truncation_metadata(monkeypatch):
     with pytest.raises(d.ProviderFailure) as error:
         cloud_worker.generate(dict(provider='gemini',model='synthetic',messages=readiness.MESSAGES,schema=readiness.SCHEMA,timeout=15,handshake=True),sdk)
     assert error.value.category=='output_truncated'
-    assert error.value.metadata['max_output_tokens']==256
+    assert error.value.metadata['max_output_tokens']==512
 
 
 def test_quota_separate():
