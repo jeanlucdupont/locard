@@ -2310,3 +2310,26 @@ the failed layer or rule. uniqueItems remains a possible cause, not a confirmed 
 No deduplication, retries, normalization or validation relaxation is introduced. Normal
 investigation human output is unchanged. Reproduce the failure and inspect the new
 rule/path diagnostic before changing any response behavior.
+
+Gemini diagnosis (6.69 pre-acceptance): the inspected installed LiteLLM distribution
+is 1.106.0. Its Gemini request transformation places accepted native parameters in
+`generationConfig`, including `response_mime_type=application/json` and
+`response_json_schema`; Locard already supplies these. LiteLLM normalizes Gemini text
+parts to `choices[0].message.content`, with reasoning separate. Locard requires a
+completed non-tool response containing a nonempty JSON string. No alternate parsed
+field or dict-content conversion is justified by that inspected route.
+
+Gemini-only diagnostics now distinguish extraction, JSON parsing and local wire-schema
+validation. They report allowlisted container/content/parsed types, finish reason,
+parse/validation status and selected fixed top-level key names, never values or raw
+provider material. The wire and canonical schemas remain identical; the shared canonical
+validator still runs after the Gemini diagnostic check. Fenced JSON, object/list content,
+missing content and provider tool calls remain rejected. No scraping or free-form fallback
+is added. Native request parameters and dependency versions remain unchanged.
+
+After the trivial handshake, Gemini readiness now checks the actual advisory and
+investigation tool/final contracts sequentially and reports family compatibility.
+Investigation probe output is bounded to 256 tokens, like the existing OpenAI probe;
+normal response token limits remain unchanged. A rejection stops readiness without
+relaxing schemas. The earlier generic live failure does not establish its exact cause:
+new live diagnostics are required before choosing a behavioral extraction/schema fix.

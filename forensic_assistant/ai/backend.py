@@ -198,6 +198,9 @@ class ModelBackend:
             from .response_contract import validator
             validator(schema)  # Validate the contract before any evidence leaves the process.
             result = self._cloud_request(messages, schema, timeout=timeout, handshake=handshake)
+            if self.provider_name == 'gemini':
+                from .gemini_adapter import validate_response
+                validate_response(result['text'],schema,result.get('gemini_response', {}))
             from .openai_schema import response
             result = {**result, 'text': response(self.provider_name, result['text'], schema)}
             if not handshake:

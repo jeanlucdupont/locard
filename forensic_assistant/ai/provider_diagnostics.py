@@ -108,6 +108,9 @@ def safe_metadata(value):
     """Revalidate at worker IPC, storage and human-rendering boundaries."""
     if type(value) is not dict: return {}
     result = {}
+    from .gemini_adapter import safe as gemini_safe
+    gemini = gemini_safe(value.get('gemini_response'))
+    if gemini: result['gemini_response'] = gemini
     from .validation_diagnostics import safe
     detail = safe(value.get('validation_diagnostics'))
     if detail: result['validation_diagnostics'] = detail
@@ -268,7 +271,10 @@ def render(text):
         labels = {'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'timeout_limit_seconds':'Timeout limit (seconds)', 'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
-            if key == 'validation_diagnostics':
+            if key == 'gemini_response':
+                rows.append('  Gemini response diagnostics:')
+                for field, state in item.items(): rows.append('    ' + field.replace('_',' ').capitalize() + ': ' + str(state))
+            elif key == 'validation_diagnostics':
                 rows.append('  Structural validation diagnostics:')
                 for field in ('provider_structured_validation','translation_status','translation_rule','canonical_validation','phase','error_count'):
                     if field in item: rows.append('    ' + field.replace('_',' ').capitalize() + ': ' + str(item[field]))

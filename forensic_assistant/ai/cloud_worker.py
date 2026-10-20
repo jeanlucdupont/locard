@@ -16,7 +16,7 @@ def request_kwargs(request):
     from .capabilities import CAPABILITIES, configure
     route = CAPABILITIES[provider].route
     from .openai_schema import investigation
-    probe_tokens = 256 if provider == 'openai' and investigation(request.get('schema')) else 64
+    probe_tokens = 256 if provider in ('openai', 'gemini') and investigation(request.get('schema')) else 64
     kwargs = dict(model=route + '/' + request['model'],
                   custom_llm_provider=route, api_key=os.environ[PROVIDERS[provider][1]],
                   messages=request['messages'], stream=False, max_tokens=probe_tokens if request.get('handshake') is True else 1024,
@@ -39,6 +39,10 @@ def generate(request, sdk):
 
 def complete(kwargs, sdk):
     result = sdk.completion(**kwargs)
+    gemini_detail = None
+    if kwargs.get('custom_llm_provider') == 'gemini':
+        from .gemini_adapter import extract
+        _, gemini_detail = extract(result)
     try:
         choice = result.choices[0]
         if choice.finish_reason not in ('stop', 'end_turn') or getattr(choice.message, 'tool_calls', None) or getattr(choice.message, 'function_call', None):
@@ -47,7 +51,7 @@ def complete(kwargs, sdk):
         if not isinstance(text, str) or not text.strip() or len(text.encode()) > 1024 * 1024:
             raise ProviderFailure('structured_validation', 'structured_validation')
         usage = getattr(result, 'usage', None)
-        return {'text': text, 'usage': {name: getattr(usage, name) for name in
+        return {'text': text, **({'gemini_response':gemini_detail} if gemini_detail else {}), 'usage': {name: getattr(usage, name) for name in
                 ('prompt_tokens', 'completion_tokens', 'total_tokens')
                 if type(getattr(usage, name, None)) is int and 0 <= getattr(usage, name) <= 10000000}}
     except (AttributeError, IndexError, TypeError, UnicodeError):

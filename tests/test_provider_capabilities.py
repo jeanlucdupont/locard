@@ -26,9 +26,9 @@ def config(provider):
 
 def probe_responses(provider):
     replies = ['{"status":"ok"}']
-    if provider == 'openai':
+    if provider in ('openai', 'gemini'):
         for family, _, expected, _ in readiness.openai_probes():
-            replies.append(json.dumps({'proposal': expected} if family == 'investigation' else expected))
+            replies.append(json.dumps({'proposal': expected} if provider == 'openai' and family == 'investigation' else expected))
     else:
         replies.append('{"status":"ok","message":"locard"}')
     return replies
