@@ -52,7 +52,7 @@ def test_explicit_model_error_distinct():
 def test_actual_litellm_message_wrapper(prefix,monkeypatch):
     body={'type':'error','error':{'type':'invalid_request_error','code':'unsupported_parameter','param':'output_schema','message':'SECRET PROMPT EVIDENCE Authorization: KEY'}}
     detail=extract(NS(body=None,response=NS(content=b''),message=prefix+json.dumps(body)))
-    assert detail=={'provider_type':'invalid_request_error','anthropic_error_code':'unsupported_parameter','anthropic_request_field':'output_schema'}
+    assert detail=={'provider_type':'invalid_request_error','anthropic_error_code':'unsupported_parameter','anthropic_request_field':'output_schema','anthropic_error_category':'unsupported_parameter'}
     logs=[]
     monkeypatch.setattr(d.diagnostics,'append',lambda path,text:logs.append(text))
     d.record('anthropic','claude-sonnet-4-5','provider_request','request_rejected',metadata=detail)
@@ -71,3 +71,26 @@ def test_conservative_messages(message,expected):
 
 def test_unknown_fields_rejected_at_log_boundary():
     assert d.safe_metadata({'anthropic_request_field':'SECRET','anthropic_error_code':'SECRET','anthropic_error_category':'SECRET'})=={}
+
+
+@pytest.mark.parametrize('code,label',[('unsupported_feature','unsupported_feature'),('missing_beta_requirement','missing_beta_requirement'),('model_not_found','invalid_model')])
+def test_nested_error_codes(code,label):
+    detail=extract(NS(error={'type':'invalid_request_error','code':code,'param':'output_schema','message':'SECRET'}))
+    assert detail['anthropic_error_category']==label
+    assert detail['anthropic_request_field']=='output_schema'
+    assert 'SECRET' not in json.dumps(detail)
+
+
+def test_beta_phrase_and_feature():
+    detail=extract(NS(body={'error':{'message':'Structured outputs require the structured-outputs-2025-11-13 beta header.'}}))
+    assert detail=={'anthropic_error_category':'missing_beta_requirement','anthropic_feature':'structured_outputs'}
+
+
+def test_type_alone_explicitly_unavailable(monkeypatch):
+    detail=extract(NS(body={'error':{'type':'invalid_request_error','message':'PRIVATE UNKNOWN'}},request_id='PRIVATE'))
+    assert detail=={'provider_type':'invalid_request_error','anthropic_provider_detail':'unavailable'}
+    logs=[]
+    monkeypatch.setattr(d.diagnostics,'append',lambda path,text:logs.append(text))
+    d.record('anthropic','claude-sonnet-4-5','provider_request','request_rejected',metadata=detail)
+    assert 'No safe field-level metadata available' in d.render(logs[0])
+    assert 'PRIVATE' not in logs[0]

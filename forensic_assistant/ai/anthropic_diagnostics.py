@@ -3,7 +3,7 @@ import json
 FIELDS = frozenset(('output_config','output_config.format','output_config.format.schema','output_format','output_format.schema','response_format','max_tokens','model','tools','tool_choice','messages','temperature','output_schema','system'))
 TYPES = frozenset(('invalid_request_error','authentication_error','permission_error','not_found_error','rate_limit_error','api_error','overloaded_error'))
 
-LABELS = frozenset(('unsupported_parameter','unknown_parameter','invalid_parameter','invalid_model','unsupported_model_feature','unsupported_schema','invalid_schema','missing_beta_requirement','malformed_request'))
+LABELS = frozenset(('unsupported_parameter','unknown_parameter','invalid_parameter','invalid_model','unsupported_model_feature','unsupported_schema','invalid_schema','missing_beta_requirement','malformed_request','unsupported_feature'))
 CODES = LABELS | frozenset(('invalid_request_error','model_not_found','invalid_model','unsupported_parameter'))
 
 def decode(value):
@@ -35,10 +35,15 @@ def classify_message(message):
             result.update(anthropic_request_field=message[len(prefix):],anthropic_error_category=label)
     if message == 'This model does not support structured outputs.':
         result['anthropic_error_category']='unsupported_model_feature'
+    if message == 'Structured outputs require the structured-outputs-2025-11-13 beta header.':
+        result.update(anthropic_error_category='missing_beta_requirement', anthropic_feature='structured_outputs')
     return result
 
 def extract(exc):
     body=decode(getattr(exc,'body',None))
+    if body is None:
+        nested=getattr(exc,'error',None)
+        if type(nested) is dict:body={'error':nested}
     if body is None:
         try:body=decode(getattr(getattr(exc,'response',None),'content',None))
         except (RuntimeError,ValueError):body=None
@@ -59,6 +64,11 @@ def extract(exc):
     for key in ('param','parameter'):
         value=error.get(key,getattr(exc,key,None))
         if type(value) is str and value in FIELDS:result['anthropic_request_field']=value
-    result.update(classify_message(error.get('message',message)))
-    if not result:result['anthropic_provider_detail']='unavailable'
+    code=result.get('anthropic_error_code')
+    if code in LABELS:result['anthropic_error_category']=code
+    elif code == 'model_not_found':result['anthropic_error_category']='invalid_model'
+    for key,value in classify_message(error.get('message',message)).items():
+        result.setdefault(key,value)
+    if not any(k in result for k in ('anthropic_error_code','anthropic_request_field','anthropic_error_category')):
+        result['anthropic_provider_detail']='unavailable'
     return result

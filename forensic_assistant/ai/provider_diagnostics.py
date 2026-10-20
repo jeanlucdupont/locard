@@ -115,7 +115,7 @@ def safe_metadata(value):
     if type(value) is not dict: return {}
     result = {}
     from .anthropic_diagnostics import FIELDS, LABELS, CODES as ANTHROPIC_CODES
-    for key, allowed in (('anthropic_error_category', LABELS), ('anthropic_error_code', ANTHROPIC_CODES), ('anthropic_provider_detail', {'unavailable'})):
+    for key, allowed in (('anthropic_error_category', LABELS), ('anthropic_error_code', ANTHROPIC_CODES), ('anthropic_provider_detail', {'unavailable'}), ('anthropic_feature', {'structured_outputs'})):
         if type(value.get(key)) is str and value[key] in allowed: result[key] = value[key]
     field = value.get('anthropic_request_field')
     if type(field) is str and field in FIELDS: result['anthropic_request_field'] = field
@@ -285,7 +285,7 @@ def render(text):
         if type(elapsed) in (int, float) and math.isfinite(elapsed) and 0 <= elapsed <= 3600:
             rows.append('  Elapsed: ' + str(round(elapsed, 3)) + ' s')
         rows.append('  Stage: ' + (value['stage'] if type(value.get('stage')) is str and value['stage'] in STAGES else 'provider_request'))
-        labels = {'anthropic_error_category':'Provider error category', 'anthropic_error_code':'Provider error code', 'anthropic_provider_detail':'Provider detail', 'anthropic_request_field':'Request field', 'max_output_tokens':'Max output tokens', 'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
+        labels = {'anthropic_feature':'Provider feature', 'anthropic_error_category':'Provider error category', 'anthropic_error_code':'Provider error code', 'anthropic_provider_detail':'Provider detail', 'anthropic_request_field':'Request field', 'max_output_tokens':'Max output tokens', 'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'timeout_limit_seconds':'Timeout limit (seconds)', 'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
             if key == 'gemini_usage':
@@ -310,6 +310,8 @@ def render(text):
                     rows.append('  Structured mode: ' + item['structured_output'])
                 rows.append('  Request features:')
                 for feature, state in item.items(): rows.append('    ' + feature + ': ' + str(state).lower())
+            elif key == 'anthropic_provider_detail':
+                rows.append('  No safe field-level metadata available from LiteLLM/Anthropic response.')
             else: rows.append('  ' + labels[key] + ': ' + str(item))
         rows.extend(('  Category: ' + category, '  Reason: ' + REASONS[category], ''))
     return '\n'.join(rows).rstrip() if rows else 'No cloud provider diagnostics are available.'
