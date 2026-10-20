@@ -17,6 +17,9 @@ def request_kwargs(request):
     route = CAPABILITIES[provider].route
     from .openai_schema import investigation
     probe_tokens = 256 if provider in ('openai', 'gemini') and investigation(request.get('schema')) else 64
+    if provider == 'gemini':
+        from .readiness import SCHEMA
+        probe_tokens = 256 if request.get('schema') == SCHEMA else 1024 if investigation(request.get('schema')) else 512
     kwargs = dict(model=route + '/' + request['model'],
                   custom_llm_provider=route, api_key=os.environ[PROVIDERS[provider][1]],
                   messages=request['messages'], stream=False, max_tokens=probe_tokens if request.get('handshake') is True else 1024,
@@ -42,7 +45,14 @@ def complete(kwargs, sdk):
     gemini_detail = None
     if kwargs.get('custom_llm_provider') == 'gemini':
         from .gemini_adapter import extract
-        _, gemini_detail = extract(result)
+        try:
+            _, gemini_detail = extract(result)
+        except ProviderFailure as exc:
+            detail = exc.metadata.get('gemini_response', {})
+            if detail.get('finish_reason') == 'length':
+                raise ProviderFailure('output_truncated', 'provider_generation', metadata={
+                    'gemini_response': detail, 'max_output_tokens': kwargs['max_tokens']}) from None
+            raise
     try:
         choice = result.choices[0]
         if choice.finish_reason not in ('stop', 'end_turn') or getattr(choice.message, 'tool_calls', None) or getattr(choice.message, 'function_call', None):

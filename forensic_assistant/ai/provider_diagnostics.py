@@ -8,6 +8,7 @@ from . import settings, diagnostics
 from forensic_assistant.llm.client import LLMError
 
 REASONS = {
+    'output_truncated': 'Model output was truncated before a complete structured response was produced',
     'response_validated': 'Provider response passed canonical structural validation; grounding is checked separately',
     'compatibility_failed': "AI provider is connected, but the selected model is not compatible with Locard's required response format",
     'ready': 'Synthetic response check passed',
@@ -38,7 +39,7 @@ ALIASES = dict(missing_key='missing_credential', authentication='authentication_
                permission='authorization_failed', network='network_error', rate_limit='rate_limited',
                provider_failure='unknown_provider_error', response_parse='response_parse_failed',
                structured_validation='structured_validation_failed')
-STAGES = {'configuration', 'handshake', 'provider_request', 'response_parse',
+STAGES = {'provider_generation', 'configuration', 'handshake', 'provider_request', 'response_parse',
           'structured_validation', 'grounding', 'timeout'}
 CODES = {
     'invalid_api_key': 'authentication_failed', 'authentication_error': 'authentication_failed',
@@ -114,6 +115,8 @@ def safe_metadata(value):
     from .validation_diagnostics import safe
     detail = safe(value.get('validation_diagnostics'))
     if detail: result['validation_diagnostics'] = detail
+    tokens = value.get('max_output_tokens')
+    if type(tokens) is int and 1 <= tokens <= 1024: result['max_output_tokens'] = tokens
     code = value.get('http_status')
     if type(code) is int and 100 <= code <= 599: result['http_status'] = code
     for key in ('provider_code', 'provider_type'):
@@ -268,7 +271,7 @@ def render(text):
         if type(elapsed) in (int, float) and math.isfinite(elapsed) and 0 <= elapsed <= 3600:
             rows.append('  Elapsed: ' + str(round(elapsed, 3)) + ' s')
         rows.append('  Stage: ' + (value['stage'] if type(value.get('stage')) is str and value['stage'] in STAGES else 'provider_request'))
-        labels = {'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
+        labels = {'max_output_tokens':'Max output tokens', 'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'timeout_limit_seconds':'Timeout limit (seconds)', 'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
             if key == 'gemini_response':
