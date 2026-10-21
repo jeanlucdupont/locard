@@ -150,7 +150,7 @@ def test_failed_call_counts_and_is_terminal(tmp_path):
     result = controller.run({}, 'Inspect', tmp_path, client=client, worker_factory=lambda _: worker)
     assert result['termination'] == 'TOOL_FAILURE'
     assert result['state']['accepted_calls'] == 1 and len(client.calls) == 1
-    assert worker.calls == ['initial', 'show_evidence'] and worker.closed
+    assert worker.calls == ['initial', 'show_evidence', 'check'] and worker.closed
     assert 'Traceback' not in json.dumps(result)
 
 

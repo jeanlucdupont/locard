@@ -181,3 +181,11 @@ def test_invalid_startup_can_be_skipped_and_cloud_ready_does_not_prompt(tmp_path
     settings.save({**config,'provider':'openai','model':'synthetic','cloud_acknowledged':True})
     monkeypatch.setenv('OPENAI_API_KEY','synthetic-secret')
     cli.offer_setup(lambda p:pytest.fail('ready configuration prompted'))
+
+
+def test_fresh_defaults_and_explicit_context_preserved():
+    fresh = settings.load()
+    assert fresh['context'] == 4096
+    assert fresh['gpu_layers'] == 99
+    settings.save({**fresh, 'context': 2048})
+    assert settings.load()['context'] == 2048

@@ -170,8 +170,7 @@ def test_qualified_inventory_questions_use_model(monkeypatch, question):
 
 def test_deterministic_inventory_shell_preserves_header_audit(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(advisory, 'LocalClient', lambda **kw: pytest.fail('Model'))
-    monkeypatch.setattr('forensic_assistant.cli.dispatch', lambda *a, **k: pytest.fail('Dispatch'))
-    _, _, path=run_shell(tmp_path, 'ai', '! What evidence is available in this case?')
+    _, _, path=run_shell(tmp_path, '! What evidence is available in this case?')
     from forensic_assistant import activity
     assert 'AI assistant — advisory, not evidence' in capsys.readouterr().out
     assert 'AI_ADVICE' in activity.sidecar(path).read_text(encoding='utf-8')

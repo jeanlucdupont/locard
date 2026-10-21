@@ -139,7 +139,7 @@ def test_browser_prefetch_registry_keep_cross_source_attribution(mixed_case, tmp
     assert state.limits
 
 
-def test_ambiguous_anchor_refused_not_first_source_selected(mixed_case):
+def test_ambiguous_anchor_refused_not_first_source_selected(mixed_case, monkeypatch):
     from forensic_assistant.database import sources
     db, pfid, uaid, sids = mixed_case
     with db:
@@ -148,8 +148,10 @@ def test_ambiguous_anchor_refused_not_first_source_selected(mixed_case):
         # Reuse the public retrospective assignment path via existing fixture behavior.
         from forensic_assistant.database.sources import assign
         assign(db, other, [sha], reason='synthetic test')
-    with pytest.raises(ValueError, match='Multiple source'):
-        tools.execute(db, 'around', {'evidence_id': pfid, 'timestamp_slot': 'run:0'}, {'known_ids': [pfid]})
+    monkeypatch.setattr(EvidenceQueries, 'search', lambda *a, **k: pytest.fail('Ambiguous anchor must not search neighbors'))
+    result = tools.execute(db, 'around', {'evidence_id': pfid, 'timestamp_slot': 'run:0'}, {'known_ids': [pfid]})
+    assert result['records'] == []
+    assert 'Multiple source occurrences; cannot select an unambiguous source' in result['limitations']
 
 
 @pytest.mark.parametrize('path', ['../outside', r'\\server\share\runs', 'runs/../outside'])

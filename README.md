@@ -2164,13 +2164,13 @@ runtime schema-to-JSON downgrades. Unsupported models fail the synthetic check.
 | Provider | Selected mode | Locard-to-LiteLLM schema parameter | Internal route |
 |---|---|---|---|
 | OpenAI | json_schema | response_format.json_schema, strict=true | openai/MODEL |
-| Anthropic Claude | anthropic_schema | output_config.format | anthropic/MODEL |
+| Anthropic Claude | anthropic_schema | response_format.json_schema, strict=true | anthropic/MODEL |
 | Google Gemini | gemini_schema | response_json_schema + response_mime_type | gemini/MODEL |
 | DeepSeek | json_object | response_format + exact schema instruction | deepseek/MODEL |
 | xAI Grok | json_schema | response_format.json_schema, strict=true | xai/MODEL |
 
-Anthropic and Gemini use explicit native parameters to avoid LiteLLM's tool/prompt
-fallback conversions. Provider/model schema subsets differ: no canonical schema
+Anthropic uses the structured response-format path; Gemini uses native schema
+parameters. Provider/model schema subsets differ: no canonical schema
 keywords are removed from local validation to satisfy a provider. OpenAI investigation
 requests use the deterministic wire adapter described below. The configured model must accept the
 selected mechanism; failure does not trigger a weaker request. DeepSeek now uses
@@ -2335,24 +2335,6 @@ relaxing schemas. The earlier generic live failure does not establish its exact 
 new live diagnostics are required before choosing a behavioral extraction/schema fix.
 
 
-Anthropic readiness diagnosis (6.69): Locard uses native `output_config.format`
-with `type: json_schema`, the unchanged canonical schema, and explicit
-`anthropic/<model>` routing. Inspection of LiteLLM 1.106.0 confirms support for
-that native field and the `claude-sonnet-4-5` alias. Its alternative
-`response_format` path selects native output or a synthetic tool according to
-model capabilities; Locard does not use that alternative. Handshake max_tokens
-remains 64 (positive integer); normal requests remain 1024.
-
-The reported HTTP 400 alone does not establish a specific rejected parameter.
-No speculative transport change has been made. Anthropic logs now show the native
-mechanism and fixed request-feature booleans, plus allowlisted error types and
-request fields when available in a buffered structured error. Raw error prose,
-request/schema bodies, headers and evidence are never logged. Unknown errors
-remain generic. Readiness now checks the actual advisory and investigation
-contracts separately after the handshake, with unchanged canonical validation.
-A passing handshake alone does not establish full Claude compatibility.
-
-
 Anthropic error-wrapper diagnostics: LiteLLM 1.106.0's Anthropic 400 mapping
 constructs BadRequestError with a prefixed message, model and llm_provider,
 without forwarding the original response/body. BadRequestError supplies a
@@ -2369,13 +2351,12 @@ Anthropic 6.69 adapter correction: structured output now uses LiteLLM
 Select `claude-sonnet-4-5-20250929` to reproduce the independently successful
 configuration. Model names are still explicitly selected; routing adds `anthropic/`.
 Canonical validation remains mandatory and readiness checks all three stages.
-This supersedes the earlier native-route diagnostic notes above.
+
 
 `ai logs` remains sanitized. `ai logs --raw` warns, displays and consumes buffered
 raw diagnostics, and enables capture for subsequent cloud requests in the current
 session. It cannot recover an earlier startup error: enable it first, then reselect
-the provider to repeat readiness, or reproduce the request. Capture is off at
-process start, discarded at shell exit, and never written to provider logs or
+the provider to repeat readiness, or reproduce the request. Capture defaults to off unless enabled by the environment, is discarded at shell exit, and never written to provider logs or
 investigation transcripts. The ring holds at most 10 entries of 16 KiB each,
 with explicit truncation. Investigation workers relay diagnostics separately from
 results. Raw JSON export is unsupported. Known credential formats, secret-bearing
@@ -2409,5 +2390,60 @@ participate only in Anthropic's compatibility cache fingerprint.
 Safe diagnostics record stage status, schema shapes, selected tool, elapsed times
 and available numeric usage. Raw session diagnostics label stage1/stage2 entries.
 This strategy increases Anthropic request count without changing logical-step
-accounting. Live acceptance is still required; new provider constraints fail
-closed without automatic schema redesign.
+accounting. Claude Sonnet 4.5 passed manual release acceptance; new provider
+constraints fail closed without automatic schema redesign.
+
+
+Local/Qwen diagnostics (6.69): the direct loopback client requests 1024 output
+tokens, sends the supplied JSON schema through response_format/json_schema,
+and sets chat_template_kwargs.enable_thinking=false. This requests template
+behavior; it does not prove the running server honored it. Local request logs
+now retain fixed failure categories, HTTP status, finish reason, numeric usage,
+and safe structural-validator rule/path metadata. prompt_plus_output_budget is
+reported prompt_tokens + 1024, not a tokenizer estimate of schema overhead or a
+measurement of the configured context capacity. No context/GPU/output settings
+are changed automatically. Existing callers retain rejection and grounding.
+
+Opt-in raw diagnostics now capture local response content and bounded HTTP error
+bodies, with existing redaction and no persistent raw log. Server stderr is not
+copied into raw diagnostics because it may include prompts and cannot reliably be
+attributed to one request. Only anchored error/warning log prefixes produce fixed
+runtime notices; an error-level line alone does not establish runtime failure.
+Startup/ownership/lifecycle failure reporting is otherwise unchanged.
+
+
+### 6.69 release acceptance
+
+Provider-specific structured-output adapters normalize model proposals into the
+same Locard canonical contract before validation, grounding and approval.
+
+| Provider | Release status |
+| --- | --- |
+| Local llama.cpp | Supported; recommended local-first path. Qwen3-4B tested; compatible user-selected GGUF models can be configured. |
+| OpenAI | Supported; strict structured-output adapter, manually accepted. |
+| DeepSeek | Supported; JSON-object mode with Locard canonical validation, manually accepted. |
+| Anthropic Claude | Supported; Sonnet 4.5 tested with the two-stage investigation adapter. |
+| Google Gemini | Implemented but not release-certified in 6.69 due to provider availability instability (HTTP 503). |
+| xAI Grok | Configuration/adapter present; not release-tested, intentionally deferred. |
+
+Fresh Local configurations default to context 4096 and GPU layers 99. The first-run
+configuration flow uses those defaults. Existing explicit settings are preserved;
+there is no silent context migration. Standard2 exhausted context 2048 (2172 prompt
+tokens); context 4096 passed manual acceptance on the tested GTX 1650 Ti 4 GB system.
+This is not a resource guarantee for other models or cases. Use
+`ai configure local --context 4096` to explicitly change an existing configuration.
+Context exhaustion diagnostics include `context_exhausted`, `n_prompt_tokens`,
+`n_ctx`, requested output tokens and HTTP status. Unsupported conclusions remain
+rejected even when the provider works correctly.
+
+Evidence supplied to cloud AI may leave this computer and be processed by the
+selected provider. Only bounded context is sent, not the entire case database.
+Keys remain environment-based; Locard validation and authorization remain local.
+
+6.69 release highlights: unified `!` interaction; Local and cloud providers;
+OpenAI, DeepSeek and Claude structured-output support; Claude two-stage proposals;
+managed llama.cpp lifecycle; Local context diagnostics; sanitized and opt-in raw
+AI diagnostics; bounded investigation hardening and unresolved lookup semantics;
+integrity verification improvements; and command/help cleanup. Gemini remains
+uncertified and Grok has not been validated. Unsupported model conclusions are
+not promoted into evidence or forensic findings.

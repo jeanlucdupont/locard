@@ -36,6 +36,9 @@ class LocalClient:
     def complete(self, messages, schema=None):
         connection = http.client.HTTPConnection(self.host, self.port, timeout=self.timeout)
         self.last_metadata = {}
+        from forensic_assistant.ai import local_diagnostics as diagnostic
+        detail={'requested_output_tokens':1024}
+        category='server_request_failed'
         transport = []
         def expire():
             # A peer sending bytes slowly must not extend the total call indefinitely.
@@ -77,14 +80,35 @@ class LocalClient:
             # still owns a file object. Keep it reachable for the wall-clock limit.
             transport.append(getattr(connection, 'sock', None))
             response = connection.getresponse()
+            detail['http_status']=response.status
             if response.status != 200:
+                error_body=response.read(16384).decode('utf-8',errors='replace')
+                diagnostic.raw('raw_provider_error',error_body)
+                try:
+                    error=json.loads(error_body).get('error',{})
+                    if type(error) is dict and error.get('type') == 'exceed_context_size_error':
+                        category='context_exhausted'
+                        for field in ('n_prompt_tokens','n_ctx'):
+                            value=error.get(field)
+                            if type(value) is int and 0<=value<=10000000:detail[field]=value
+                except (ValueError,TypeError,AttributeError):pass
                 raise LLMError(f"Local llama.cpp returned HTTP {response.status}; redirects are never followed. Check server/model/context settings")
             raw = response.read(1024 * 1024 + 1)
             if len(raw) > 1024 * 1024:
                 raise LLMError("Local server response exceeds the size limit")
             decoded = json.loads(raw)
             choice = decoded["choices"][0]
+            finish=choice.get('finish_reason')
+            detail['finish_reason']=finish if finish in ('stop','length','tool_calls') else 'other'
+            content=choice.get('message',{}).get('content')
+            detail['content_type']={str:'string',dict:'object',list:'array',type(None):'null'}.get(type(content),'other')
+            if type(content) is str:diagnostic.raw('raw_model_output',content)
+            usage=decoded.get('usage',{})
+            if type(usage) is dict:
+                detail.update({k:v for k,v in usage.items() if k in ('prompt_tokens','completion_tokens','total_tokens') and type(v) is int and 0<=v<=10000000})
+            if 'prompt_tokens' in detail:detail['prompt_plus_output_budget']=detail['prompt_tokens']+1024
             if choice.get("finish_reason") == "length":
+                category='output_truncated'
                 raise LLMError("Model answer exceeded its output budget; narrow the question")
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
@@ -105,11 +129,24 @@ class LocalClient:
                         'total_tokens'
                     ) and type(v) is int and 0 <= v <= 10000000
                 }
+            category='response_received'
+            if schema:
+                from forensic_assistant.ai.response_contract import validate
+                from forensic_assistant.ai.provider_diagnostics import ProviderFailure
+                try:
+                    validate(text,schema)
+                    category='structured_validation_passed'
+                except ProviderFailure as exc:
+                    category=exc.category
+                    detail.update(exc.metadata)
+                    # Diagnostics only: existing caller still owns rejection/grounding.
             return text
         except (OSError, http.client.HTTPException) as exc:
             raise LLMError("Cannot reach local llama.cpp. Start llama-server and check the loopback endpoint. Deterministic searches remain available") from exc
         except (ValueError, KeyError, IndexError, TypeError) as exc:
+            category='invalid_chat_response'
             raise LLMError("Local llama.cpp returned an invalid chat-completion response") from exc
         finally:
+            diagnostic.record(category,detail)
             watchdog.cancel()
             connection.close()

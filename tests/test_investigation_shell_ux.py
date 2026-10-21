@@ -50,6 +50,10 @@ def test_bang_reuses_engine_and_every_approval(tmp_path, monkeypatch, capsys, an
         def __enter__(self): return self
         def __exit__(self, *a): phases.append('cleared')
         def phase(self, phase): phases.append(phase)
+        def update(self, text): self.text = text
+        def start(self, text=None):
+            if text is not None: self.update(text)
+            return self
     monkeypatch.setattr('forensic_assistant.terminal_activity.ActivityIndicator', Indicator)
     client = Scripted([tool('show_evidence', {'evidence_id':EID}), tool('process_tree', {'evidence_id':EID}), final])
     answers = iter(answers)

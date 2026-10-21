@@ -10,7 +10,7 @@ from forensic_assistant.investigation_ai.storage import local_path
 MESSAGES = {'starting': 'Starting managed llama-server.',
             'ready': 'Managed llama-server is ready.',
             'stopped': 'Managed llama-server stopped.',
-            'error': 'llama-server reported an error; check model, executable and performance settings.',
+            'error': 'llama-server emitted error-level text; this alone does not establish runtime failure. See request diagnostics and ai status.',
             'warning': 'llama-server reported a warning; raw output omitted for privacy.',
             'failed': 'Managed runtime startup or operation failed.'}
 
@@ -53,7 +53,7 @@ def drain(stream):
                 break
             lower = chunk.lower()
             for category in ('error', 'warning'):
-                if category not in seen and category.encode() in lower:
+                if category not in seen and (lower.lstrip().startswith((category.encode()+b':', category.encode()+b' ')) or lower.lstrip().startswith(b'['+category.encode()+b']')):
                     seen.add(category)
                     record(category)
     except (OSError, ValueError):

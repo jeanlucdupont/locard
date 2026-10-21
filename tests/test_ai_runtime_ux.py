@@ -95,7 +95,7 @@ def test_safe_bounded_logs(tmp_path):
     diagnostics.drain(io.BytesIO(b'error SECRET evidence prompt\nwarning PRIVATE credential\n'*1000))
     result = diagnostics.tail()
     assert 'SECRET' not in result and 'PRIVATE' not in result
-    assert result.count('reported an error') == 1
+    assert result.count('emitted error-level text') == 1
     assert (settings.root()/'llama-server.log').stat().st_size < 32768
 
 
