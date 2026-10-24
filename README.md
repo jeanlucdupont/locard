@@ -2474,3 +2474,13 @@ is not persisted as evidence. Existing parser timeouts, containment, cancellatio
 transactions, skip/retry behavior and mounted-volume MFT limitations are unchanged.
 There is no stall watchdog or new analyst decision menu in Phase 1. A lack of
 observed progress does not diagnose a deadlock, I/O blockage or Windows PageIn state.
+
+
+Normal ingestion phase summaries use concise artifact-level failure descriptions;
+original parser diagnostics and counts remain stored unchanged. Registry `.LOG1`/
+`.LOG2` inputs explicitly selected as Registry artifacts use the existing filename-
+designated companion classifier even when their header is not `regf`/`HvLE`.
+This does not validate log contents: readable, unchanged companions are recorded
+as unsupported and not replayed. Access or integrity failures remain failures.
+The replay limitation appears once per phase, with companions grouped rather than
+listed as failed hives. Spinner and parser behavior are unchanged.

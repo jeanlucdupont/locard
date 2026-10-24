@@ -19,11 +19,11 @@ def category_line(kind, progress, palette):
             palette('success' if progress.records else 'error' if status == 'failed' else 'secondary_text',
                     f'{progress.records:,} records') + ' | ' +
             palette('warning' if progress.duplicates else 'success', f'{progress.duplicates:,} duplicates') + ' | ' +
-            palette('error' if progress.errors else 'success', f'{progress.errors:,} errors'))
+            palette('error' if progress.errors else 'success', f'{progress.errors:,} error' + ('' if progress.errors == 1 else 's')))
 
 
-def file_outcomes(statuses, palette):
-    return 'File outcomes: ' + ', '.join(palette(role(status), f'{count:,} {status}')
+def file_outcomes(statuses, palette, kind=None):
+    return 'File outcomes: ' + ', '.join(palette(role(status), f'{count:,} {status}' + (' companions' if kind == 'registry' and status == 'unsupported' else ''))
                                         for status, count in statuses.items() if count)
 
 
@@ -175,8 +175,14 @@ def print_diagnostics(db, palette, *, run_ids=None):
         print(palette('key', 'Other ingestion limitations and errors'))
     from forensic_assistant.artifacts.registry_logs import LIMITATION
     for group in other:
-        print('- ' + palette('forensic_note' if group['message'] == LIMITATION else 'error',
-                             human_limitation(group['message'], count=group['count'])))
+        count = group['count']
+        if group['message'] == LIMITATION:
+            text = human_limitation(LIMITATION, count=count)
+        else:
+            category = {'parse': 'Parsing', 'normalize': 'Normalization',
+                        'integrity': 'Source integrity', 'file': 'File ingestion'}.get(group['stage'], 'Ingestion')
+            text = f'{category}: {count:,} recorded error' + ('' if count == 1 else 's') + '; detailed diagnostics retained.'
+        print('- ' + palette('forensic_note' if group['message'] == LIMITATION else 'error', text))
 
 
 def completion_line(message, palette):
@@ -235,18 +241,40 @@ def simple_success(progress):
             and not progress.duplicates and not progress.errors and not progress.limitations)
 
 
+def failure_description(kind, status):
+    """Application-owned descriptions; original diagnostics remain untouched."""
+    if status in ('Source signature does not match requested artifact type',
+                  'Unsupported or invalid artifact signature'):
+        return {'registry': 'invalid Registry hive', 'prefetch': 'invalid Prefetch file',
+                'evtx': 'invalid EVTX file', 'browser': 'invalid browser database',
+                'mft': 'invalid MFT file'}.get(kind, 'invalid artifact')
+    if status == 'changed':
+        return 'source changed during ingestion; staged records rejected'
+    if status == 'unsupported':
+        return 'unsupported artifact'
+    if status == 'partial':
+        return 'incomplete ingestion; inspect recorded limitations'
+    if status in ('cancelled', 'interrupted'):
+        return 'ingestion interrupted'
+    return 'ingestion failed; inspect recorded diagnostics'
+
+
 def print_file_exceptions(kind, rows, palette):
     """Presentation aggregation only; run records and parser counts are untouched."""
     from forensic_assistant.artifacts.registry_logs import is_log
     companions = [r for r in rows if kind == 'registry' and r['status'] == 'unsupported' and is_log(r['path'])]
     if companions:
-        print(palette('forensic_note', f'  {len(companions)} Registry companion transaction files detected, not replayed. '
-                      'Recent uncommitted Registry changes may be missing.'))
+        noun = 'companion was' if len(companions) == 1 else 'companions were'
+        print(palette('forensic_note', f'  {len(companions)} Registry transaction-log {noun} not replayed.'))
+        print(palette('forensic_note', '  Recent uncommitted Registry changes may be missing.'))
     for row in rows:
         if row in companions:
             continue
         retained = row.get('inserted', 0) + row.get('duplicates', 0)
         status = str(row['status'])
-        description = status + (f'; {retained:,} records retained/previously present' if retained else '; no records retained by this attempt')
-        print(palette('warning', '  Affected file: ') + safe(row['path']))
-        print('    ' + safe(description))
+        label = 'Partial' if status == 'partial' else 'Unsupported' if status == 'unsupported' else 'Failed'
+        description = 'file could not be read' if row.get('unreadable') else failure_description(kind, status)
+        if status == 'partial' or not retained:
+            description += (f'; {retained:,} records retained/previously present' if retained else '; no records retained')
+        print(palette('warning', '  ' + label + ': ') + safe(row['path']) + ' — ' + description)
+    return len(companions)

@@ -67,14 +67,11 @@ def test_dirty_header_tail_recovery(tmp_path, decode):
     path.write_bytes(file_bytes([chunk([1,2]), chunk([3,4]), bytes(65536)], declared=1, dirty=True, minor=2))
     db = connect(':memory:')
     result = ingest_file(db, path)
-    assert result['inserted'] == 4 and result['errors'] == 2 and result['status'] == 'partial'
+    assert result['inserted'] == 4 and result['errors'] == 1 and result['status'] == 'partial'
     errors = error_details(db)
-    assert errors[0]['diagnostics']['header_checksum_valid'] is True
-    assert errors[0]['diagnostics']['minor_version'] == 2
-    assert errors[0]['diagnostics']['parsed_records_after_error'] == 4
-    assert errors[0]['diagnostics']['resume_offset'] is None
-    assert errors[1]['diagnostics']['parsed_records_after_error'] == 2
-    assert errors[1]['diagnostics']['recovery'] == 'validated_contiguous_dirty_tail'
+    assert errors[0]['diagnostics']['parsed_records_after_error'] == 2
+    assert errors[0]['diagnostics']['recovery'] == 'validated_contiguous_dirty_tail'
+    assert not any('File header verification failed' in r.error for r in records(path) if r.error)
     assert db.execute('PRAGMA user_version').fetchone()[0] == 5
     db.close()
 

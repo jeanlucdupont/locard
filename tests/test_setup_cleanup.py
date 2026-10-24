@@ -211,7 +211,7 @@ def test_semantic_tokens(status, records, duplicates, errors):
     assert palette(setup_display.role(status), status) in text
     assert palette('success' if records else 'error', f'{records} records') in text
     assert palette('warning' if duplicates else 'success', f'{duplicates} duplicates') in text
-    assert palette('error' if errors else 'success', f'{errors} errors') in text
+    assert palette('error' if errors else 'success', f'{errors} error' + ('' if errors == 1 else 's')) in text
     outcomes = setup_display.file_outcomes(Counter(complete=2, failed=1, unsupported=3, partial=4), palette)
     for count, state in ((2, 'complete'), (1, 'failed'), (3, 'unsupported'), (4, 'partial')):
         assert palette(setup_display.role(state), f'{count} {state}') in outcomes

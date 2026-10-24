@@ -436,17 +436,18 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
                     if totals is not None:
                         totals.statuses['failed'] += 1
                         totals.errors += 1
-                    exceptions.append(dict(path=str(item.path), status=human_error(exc), inserted=0, duplicates=0))
+                    exceptions.append(dict(path=str(item.path), status=human_error(exc), inserted=0, duplicates=0,
+                                           unreadable=isinstance(exc, OSError)))
                     session.record('SETUP_FILE', 'failure', path=str(item.path), **activity.error_data(exc))
                 meter.update(processed, progress.records)
         finally:
             # No background reader or progress worker survives cancellation.
             meter.close()
-        setup_display.print_file_exceptions(kind, exceptions, palette)
         outcomes[kind] = progress.outcome
         print('  ' + setup_display.category_line(kind, progress, palette))
         if not setup_display.simple_success(progress):
-            print('    ' + setup_display.file_outcomes(progress.statuses, palette))
+            print('    ' + setup_display.file_outcomes(progress.statuses, palette, kind))
+        companion_count = setup_display.print_file_exceptions(kind, exceptions, palette)
         if kind == 'evtx':
             print('    Files retaining partial records: ' + palette('warning', str(progress.retained_partial)) +
                   ' | Unsuccessful files (including zero-record partials): ' +
@@ -458,6 +459,11 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
             print('    Verification limitations: ' + palette('forensic_note', str(limitations)) +
                   ' | Other recorded errors: ' + palette('error' if other else 'success', str(other)))
         for limitation, count in progress.limitations.items():
+            from forensic_assistant.artifacts.registry_logs import LIMITATION
+            if any(row['status'] == limitation for row in exceptions):
+                continue
+            if companion_count and limitation == LIMITATION:
+                continue
             print('    ' + palette('forensic_note', setup_display.human_limitation(limitation, kind, count)))
     return outcomes
 

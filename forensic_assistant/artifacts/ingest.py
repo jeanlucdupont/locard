@@ -328,6 +328,9 @@ def discover(path, kind=None, *, include_browser=False):
     def classify(candidate):
         # Explicit EVTX ingestion also records attempts for damaged .evtx files.
         # Keep signature recognition for renamed files and the traversal guards below.
+        from .registry_logs import is_log
+        if kind == 'registry' and is_log(candidate):
+            return 'registry'  # Existing filename-designated companion classifier; no replay.
         if kind == 'evtx' and candidate.suffix.casefold() == '.evtx':
             return 'evtx'
         return identify(candidate, include_browser=include_browser)

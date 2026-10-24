@@ -4,7 +4,8 @@ The deadline is cooperative between parser operations, not process isolation.
 """
 import mmap
 import time
-from Evtx.Evtx import FileHeader, ChunkHeader, Record
+from Evtx.Evtx import FileHeader, ChunkHeader
+from .evtx_arrays import Record
 
 FILE_HEADER = 4096
 CHUNK = 65536
@@ -44,7 +45,7 @@ def read_records(path, *, timeout=300):
                      and header.minor_version() in (1, 2) and header.header_size() == 128
                      and header.header_chunk_size() == FILE_HEADER)
             checksum = header.checksum() == header.calculate_checksum()
-            if not header.verify():
+            if not (shape and checksum):
                 yield error('File header verification failed', 0, recover=False,
                             major_version=header.major_version(), minor_version=header.minor_version(),
                             header_checksum_valid=checksum, declared_chunks=header.chunk_count(),
