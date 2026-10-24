@@ -40,6 +40,15 @@ def file_bytes(chunks, *, declared=None, dirty=False, minor=1):
     return header + b''.join(chunks)
 
 
+@pytest.fixture(autouse=True)
+def local_decoder_for_unit_tests(monkeypatch):
+    # These framing tests inject XML decoding in-process. Real worker tests live
+    # in test_evtx_worker; do not attempt to propagate monkeypatches to a child.
+    from forensic_assistant.ingest import evtx_worker
+    monkeypatch.setattr(evtx_worker, 'records',
+                        lambda path, **options: recovery.read_records(path))
+
+
 @pytest.fixture
 def decode(monkeypatch):
     monkeypatch.setattr(recovery.Record, 'xml', lambda r: xml(record_id=r.record_num()))
@@ -131,12 +140,12 @@ def test_no_retry_on_repeated_invalid_chunks(tmp_path, monkeypatch, decode):
     assert not any(r.xml for r in found) and len(found)==10
 
 
-def test_deadline_stops_recovery_without_retry(tmp_path,monkeypatch,decode):
-    ticks=iter([0,0,2])
-    monkeypatch.setattr(recovery.time,'monotonic',lambda: next(ticks))
+def test_progress_reports_forward_parser_positions(tmp_path, decode):
     path=tmp_path/'synthetic.evtx';path.write_bytes(file_bytes([chunk([1,2])]))
-    found=list(records(path,timeout=1))
-    assert len(found)==1 and 'deadline' in found[0].error
+    positions=[]
+    found=list(recovery.read_records(path, progress=positions.append))
+    assert [r.record_id for r in found] == [1,2]
+    assert positions == [4096, 4608, 4640, 4640, 4672]
 
 
 def test_clean_unused_capacity_is_not_error(tmp_path,decode):
@@ -188,3 +197,12 @@ def test_recovered_timeline_uses_evidence_time_not_recovery_order(tmp_path,monke
     db=connect(':memory:');ingest_file(db,path)
     assert [r['record_id'] for r in EvidenceQueries(db).search(timeline=True).records]==[3,1]
     db.close()
+
+
+def test_decoder_timeout_exception_still_stops_recovery(tmp_path,monkeypatch):
+    path=tmp_path/'generated.evtx';path.write_bytes(file_bytes([chunk([1,2])]))
+    def decode(record):raise TimeoutError('underlying decoder timeout')
+    monkeypatch.setattr(recovery.Record,'xml',decode)
+    found=list(recovery.read_records(path))
+    assert len(found)==1 and found[0].error=='underlying decoder timeout'
+    assert not found[0].xml

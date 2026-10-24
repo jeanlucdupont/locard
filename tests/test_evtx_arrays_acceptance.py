@@ -77,3 +77,14 @@ def test_windows_empty_arrays_retain_elements():
         expected = [n.text or '' for n in windows.findall('.//{*}Data') if n.get('Name') == field]
         actual = [n.text or '' for n in locard.findall('.//{*}Data') if n.get('Name') == field]
         assert expected == actual == ['']
+
+
+def test_supervised_control_matches_direct():
+    from dataclasses import asdict
+    from forensic_assistant.ingest.evtx import records
+    from forensic_assistant.ingest.evtx_recovery import read_records
+    path=Path(ROOT)/'Microsoft-Windows-WMI-Activity%4Operational.evtx'
+    direct=[asdict(r) for r in read_records(path)]
+    supervised=[asdict(r) for r in records(path)]
+    assert len(direct)==1451
+    assert supervised==direct

@@ -19,7 +19,11 @@ def configure(commands):
         p.add_argument('--hostname')
         p.add_argument('--user')
         p.add_argument('--volume-root')
-        p.add_argument('--parser-timeout', type=int, default=300)
+        p.add_argument('--parser-timeout', type=int, default=300,
+                       help='EVTX: seconds without parser advancement; other artifacts: wall-clock limit')
+        if name in ('ingest-evtx', 'ingest-all'):
+            p.add_argument('--evtx-hard-timeout', type=int, default=21600,
+                           help='EVTX emergency absolute ceiling in seconds (default: 21600)')
         p.add_argument('--record-size', type=int)
         p.add_argument('--json', action='store_true')
     for name in ('search', 'timeline'):
@@ -110,7 +114,8 @@ def _ingest_sources(db, args, progress=None):
             with activity.mutation('INGEST', source_id=source_id, batch_id=batch_id,
                                    source_file=str(path), artifact_type=kind) as audit_result:
                 if kind == 'evtx':
-                    result = ingest_file(db, path, batch_id=batch_id, timeout=getattr(args, 'parser_timeout', 300))
+                    result = ingest_file(db, path, batch_id=batch_id, timeout=getattr(args, 'parser_timeout', 300),
+                                         hard_timeout=getattr(args, 'evtx_hard_timeout', 21600))
                 else:
                     result = ingest_artifact(
                         db,

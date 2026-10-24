@@ -1,9 +1,8 @@
 """Aligned EVTX recovery; never carve records from arbitrary bytes.
 
-The deadline is cooperative between parser operations, not process isolation.
+Untrusted parsing runs under the EVTX worker supervisor in normal ingestion.
 """
 import mmap
-import time
 from Evtx.Evtx import FileHeader, ChunkHeader
 from .evtx_arrays import Record
 
@@ -11,19 +10,12 @@ FILE_HEADER = 4096
 CHUNK = 65536
 
 
-def read_records(path, *, timeout=300):
+def read_records(path, *, progress=None):
     from .evtx import ParsedRecord
-    if not 1 <= timeout <= 3600:
-        raise ValueError('Parser timeout must be 1..3600 seconds')
-    deadline = time.monotonic() + timeout
     parsed = 0
     last_number = None
     errors = []
     pending = []
-
-    def check_time():
-        if time.monotonic() >= deadline:
-            raise TimeoutError('EVTX parser deadline exceeded')
 
     def error(message, offset, chunk_number=None, record_id=None, *, recover=True, **details):
         diagnostic = dict(format='evtx', file_offset=offset, chunk_number=chunk_number,
@@ -33,7 +25,9 @@ def read_records(path, *, timeout=300):
         errors.append((diagnostic, parsed))
         if recover:
             pending.append(diagnostic)
-        return ParsedRecord(offset, record_id, error=message, diagnostics=diagnostic)
+        record = ParsedRecord(offset, record_id, error=message, diagnostics=diagnostic)
+        record._recoverable = recover  # IPC-only; never part of evidence metadata.
+        return record
 
     try:
         with open(path, 'rb') as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as buf:
@@ -58,8 +52,9 @@ def read_records(path, *, timeout=300):
             previous = None
             tail_started = False
             for index in range(physical):
-                check_time()
                 offset = FILE_HEADER + index * CHUNK
+                if progress:
+                    progress(offset)
                 tail = index >= declared
                 # Zero-filled allocated capacity is not evidence or corruption.
                 if tail and not any(buf[offset:offset + CHUNK]):
@@ -92,7 +87,6 @@ def read_records(path, *, timeout=300):
                     final_start = None
                     chunk_last = None
                     while position < end:
-                        check_time()
                         # Record boundaries are obtained only from validated sizes;
                         # after a bad boundary, abandon this chunk, never byte-scan.
                         record = Record(buf, position, chunk)
@@ -105,9 +99,10 @@ def read_records(path, *, timeout=300):
                             raise ValueError('Record numbers do not advance within chunk')
                         chunk_last = number
                         final_start = position
+                        if progress:
+                            progress(position)
                         try:
                             xml = record.xml()
-                            check_time()
                         except TimeoutError:
                             raise
                         except Exception as exc:
@@ -120,6 +115,8 @@ def read_records(path, *, timeout=300):
                             last_number = number
                             yield ParsedRecord(position, number, xml)
                         position += size
+                        if progress:
+                            progress(position)
                     if position != end or (final_start is not None and final_start != offset + chunk.last_record_offset()):
                         raise ValueError('Record chain does not match declared chunk end')
                     # Binary header numbers remain separate from XML EventRecordID.

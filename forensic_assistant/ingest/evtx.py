@@ -8,6 +8,7 @@ from forensic_assistant.ingest.validation import identifier_note, LABEL
 import os
 import tempfile
 from .observation import emit
+from forensic_assistant.investigation_ai.lifecycle import CleanupError
 from forensic_assistant.database.db import connect, insert_events, register_source, now
 from forensic_assistant.ingest.normalize import normalize
 from forensic_assistant.model import NormalizedEvent
@@ -34,12 +35,12 @@ def digest(path):
     return sha.hexdigest()
 
 
-def records(path, *, timeout=300):
-    from forensic_assistant.ingest.evtx_recovery import read_records
-    yield from read_records(path, timeout=timeout)
+def records(path, *, timeout=300, hard_timeout=21600):
+    from forensic_assistant.ingest.evtx_worker import records as supervised_records
+    yield from supervised_records(path, timeout=timeout, hard_timeout=hard_timeout)
 
 
-def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batch_id=None, timeout=300):
+def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batch_id=None, timeout=300, hard_timeout=21600):
     if batch_size < 1:
         raise ValueError("Batch size must be positive")
     path = Path(path).resolve()
@@ -87,7 +88,7 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
                 try:
                     emit(parser_stage="parsing", parser="python-evtx", records_emitted=0)
                     emitted = 0
-                    for record in (records(path, timeout=timeout) if reader is records else reader(path)):
+                    for record in (records(path, timeout=timeout, hard_timeout=hard_timeout) if reader is records else reader(path)):
                         emitted += 1
                         emit(records_emitted=emitted)
                         if record.error:
@@ -115,6 +116,8 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
                                 batch.clear()
                         except Exception as exc:
                             report("normalize", f"{type(exc).__name__}: {exc}", record.offset, record.record_id)
+                except CleanupError:
+                    raise
                 except Exception as exc:
                     report("parse", f"File iteration stopped: {type(exc).__name__}: {exc}")
                 with db:
@@ -141,7 +144,7 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
                 "UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?",
                 (now(), status, inserted, duplicates, errors, run_id)
             )
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, CleanupError):
         from forensic_assistant.ingest.interruption import record_interruption
         record_interruption(db, run_id, inserted, duplicates)
         raise

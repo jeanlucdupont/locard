@@ -1472,10 +1472,15 @@ Counts are per anomaly and may overlap; do not sum them. A header warning that
 does not interrupt parsing has no resume offset. Header/XML EventRecordID
 differences remain non-fatal validation notes.
 
-EVTX recovery has forward-only bounds and cooperative deadline checks using the
-parser-timeout setting. These checks run between parser operations; EVTX parsing
-is not subprocess-isolated and an individual third-party XML decoding call cannot
-be forcibly interrupted by this deadline. Other artifact worker timeouts are unchanged.
+EVTX recovery retains forward-only bounds and now runs in a supervised worker.
+For EVTX, `--parser-timeout` means seconds without forward parser-position progress
+(default 300), rather than total runtime. `--evtx-hard-timeout` on `ingest-evtx`
+and `ingest-all` sets the independent emergency ceiling (default 21600 seconds,
+six hours). A hang inside XML decoding can be terminated; liveness and spinner
+refreshes do not reset the stall timer. Complete records already spooled before
+termination are processed through existing normalization and publication, with an
+explicit error marking the file incomplete. Other artifact timeouts are unchanged.
+See `docs/v6.md` for containment, temporary-spool limits and cancellation semantics.
 
 Service Control Manager Event 7045 in the System channel is normalized as `service`
 and rendered as a service-installation observation. Its preserved EventData provides
