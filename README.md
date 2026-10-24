@@ -2461,6 +2461,9 @@ Staging bytes are observational activity, not committed evidence or proof of par
 completeness. A live worker alone never resets the last-observed-progress timer.
 
 Normal ingestion uses only compact category progress, regardless of artifact duration.
+Interactive terminals prefix that line with an in-place spinner while the phase is
+active (ASCII fallback when Unicode cannot be encoded). Redirected/non-interactive
+output does not animate. The spinner is stopped and cleared before phase summaries.
 Discovery telemetry is also silent in normal operation. Elapsed time does not enable
 diagnostic output. Internal telemetry remains collected and can be rendered by explicit
 diagnostic callers; this refinement adds no new CLI mode. Phase summaries identify

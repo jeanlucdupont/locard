@@ -2,9 +2,10 @@
 import json
 import sys
 import time
+import threading
 
 from forensic_assistant.retrieval.presentation import safe_text as safe
-from forensic_assistant.terminal import Palette, capable, replace_progress_line
+from forensic_assistant.terminal import Palette, capable, replace_progress_line, supports_unicode
 
 
 def role(status):
@@ -27,7 +28,7 @@ def file_outcomes(statuses, palette):
 
 
 class FileProgress:
-    """No background worker/reader and no mid-file estimates; use completed files."""
+    """Completed-file counters with a display-only spinner during active ingestion."""
     def __init__(self, kind, total, palette, *, stream=None, clock=time.monotonic):
         self.kind, self.total, self.palette = kind, total, palette
         self.stream = sys.stdout if stream is None else stream
@@ -35,23 +36,67 @@ class FileProgress:
         self.started = clock()
         self.last = None
         self.inplace = capable(self.stream)
+        self.animated = self.inplace and self.stream.isatty() and sys.stdin.isatty()
+        frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+        self.frames = frames if supports_unicode(frames, self.stream) else '|/-' + chr(92)
+        self.index = 0
+        self.processed = self.records = 0
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.thread = None
+        self.closed = False
+
+    def _text(self):
+        elapsed = max(0, int(self.clock() - self.started))
+        percent = (100 * self.processed // self.total) if self.total else 0
+        text = (f'{self.kind}  {self.processed} / {self.total} files  {percent}%  '
+                f'{elapsed // 60:02d}:{elapsed % 60:02d} elapsed  {self.records:,} records stored')
+        return (self.frames[self.index % len(self.frames)] + ' ' if self.animated else '') + text
+
+    def _frame(self):
+        # Caller holds the display lock. Never print fallback lines from animation.
+        if not replace_progress_line(self.palette('key', self._text()), self.stream):
+            self.stop.set()
+        self.index += 1
+
+    def _animate(self):
+        while not self.stop.wait(.1):
+            with self.lock:
+                try:
+                    self._frame()
+                except (OSError, ValueError):
+                    self.stop.set()
 
     def update(self, processed, records):
-        current = self.clock()
-        interval = .1 if self.inplace else 5
-        if self.last is not None and processed < self.total and current - self.last < interval:
-            return
-        self.last = current
-        elapsed = max(0, int(current - self.started))
-        percent = (100 * processed // self.total) if self.total else 0
-        text = (f'{self.kind}  {processed} / {self.total} files  {percent}%  '
-                f'{elapsed // 60:02d}:{elapsed % 60:02d} elapsed  {records:,} records stored')
-        if not self.inplace or not replace_progress_line(self.palette('key', text), self.stream):
-            print(self.palette('key', text), file=self.stream, flush=True)
+        with self.lock:
+            if self.closed:
+                return
+            self.processed, self.records = processed, records
+            current = self.clock()
+            if self.animated:
+                if self.thread is None:
+                    self._frame()
+                    self.thread = threading.Thread(target=self._animate, daemon=True, name='Locard ingestion spinner')
+                    self.thread.start()
+                return
+            interval = .1 if self.inplace else 5
+            if self.last is not None and processed < self.total and current - self.last < interval:
+                return
+            self.last = current
+            text = self.palette('key', self._text())
+            if not self.inplace or not replace_progress_line(text, self.stream):
+                print(text, file=self.stream, flush=True)
 
     def close(self):
-        if self.inplace:
-            replace_progress_line('', self.stream)
+        self.stop.set()
+        if self.thread is not None:
+            self.thread.join()
+        with self.lock:
+            if self.closed:
+                return
+            self.closed = True
+            if self.inplace:
+                replace_progress_line('', self.stream)
 
 
 def diagnostic_groups(db, run_ids=None):

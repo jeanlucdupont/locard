@@ -52,19 +52,20 @@ def test_fast_inventory_has_no_model_wait_flicker(tmp_path, monkeypatch, termina
 def test_discovery_activity_stops_before_next_prompt(tmp_path, monkeypatch, terminal, cancel):
     root = tree(tmp_path / 'evidence')
     target = tmp_path / 'cases/Synthetic_case/case.db'
-    base = ui.ActivityIndicator
-    monkeypatch.setattr(setup, 'ActivityIndicator', lambda *a, **kw: base(*a, **kw, delay=0))
+    from forensic_assistant.ingest.observation import CURRENT
     original = discovery.windows_roots
     def discover(*a):
-        wait_for(lambda: 'Discovering evidence...' in terminal.getvalue())
+        assert CURRENT.get() is not None
+        assert CURRENT.get().thread is None
+        assert not terminal.getvalue()
         if cancel:
             raise KeyboardInterrupt()
         return original(*a)
     monkeypatch.setattr(discovery, 'windows_roots', discover)
     class Reader(Input):
         def read(self, *a, **kw):
-            if 'Discovering evidence...' in terminal.getvalue():
-                assert terminal.getvalue().endswith('\r\x1b[K')
+            assert CURRENT.get() is None
+            assert not terminal.getvalue()
             return super().read(*a, **kw)
     shell = Shell(State(None), Reader(*prefix(target), '1', str(root), 'cancel'))
     if cancel:
@@ -73,7 +74,8 @@ def test_discovery_activity_stops_before_next_prompt(tmp_path, monkeypatch, term
     else:
         with pytest.raises(EOFError):
             setup.collect(shell)
-    assert terminal.getvalue().endswith('\r\x1b[K')
+    assert CURRENT.get() is None
+    assert not terminal.getvalue()
 
 
 def test_real_dump_preserves_csv_and_updates_only_artifacts(mixed, monkeypatch, terminal):
