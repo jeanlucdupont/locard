@@ -15,14 +15,16 @@ ROOT = os.environ.get('LOCARD_EVTX_ACCEPTANCE_DIR')
 pytestmark = pytest.mark.skipif(not ROOT or os.name != 'nt', reason='Requires authorized Windows EVTX copies')
 
 
-@pytest.mark.parametrize('name,number,offset,type_,size,field,remaining_error', [
-    ('Intel-Gfx-Display-External%4GfxDisplayExEventViewer.evtx', 101611, 4608, 0x84, 4, 'BDF', None),
-    ('Microsoft-Windows-Ntfs%4Operational.evtx', 31646, 135680, 0x88, 4, 'CachedRunsAlignment', 134),
-    ('Microsoft-Windows-Ntfs%4Operational.evtx', 31606, 20768, 0x8a, 128, 'ExtentsCountArray', None),
-    ('System.evtx', 74233, 28816, 0x94, 16, 'Reg', None),
-    ('Microsoft-Windows-Hyper-V-Hypervisor-Admin.evtx', 2, 6368, 0x95, 16, 'ProcessorFeatures', None),
+@pytest.mark.parametrize('name,number,offset,type_,size,field', [
+    ('Intel-Gfx-Display-External%4GfxDisplayExEventViewer.evtx', 101611, 4608, 0x84, 4, 'BDF'),
+    ('Microsoft-Windows-Ntfs%4Operational.evtx', 31646, 135680, 0x88, 4, 'CachedRunsAlignment'),
+    ('Microsoft-Windows-Ntfs%4Operational.evtx', 31606, 20768, 0x8a, 128, 'ExtentsCountArray'),
+    ('Microsoft-Windows-Ntfs%4Operational.evtx', 31646, 135680, 0x86, 2, 'RunsInCachedRuns'),
+    ('Microsoft-Windows-Ntfs%4Operational.evtx', 31646, 135680, 0x86, 2, 'MostPopulatedBinCountInCachedRuns'),
+    ('System.evtx', 74233, 28816, 0x94, 16, 'Reg'),
+    ('Microsoft-Windows-Hyper-V-Hypervisor-Admin.evtx', 2, 6368, 0x95, 16, 'ProcessorFeatures'),
 ])
-def test_windows_array_equivalence(monkeypatch, name, number, offset, type_, size, field, remaining_error):
+def test_windows_array_equivalence(monkeypatch, name, number, offset, type_, size, field):
     path = Path(ROOT) / name
     raw = subprocess.run(['wevtutil', 'qe', str(path), '/lf:true',
                           '/q:*[System[EventRecordID=' + str(number) + ']]',
@@ -43,18 +45,12 @@ def test_windows_array_equivalence(monkeypatch, name, number, offset, type_, siz
         chunk = next(c for c in evtx.chunks() if c.offset() <= offset < c.offset() + 65536)
         record = compat.Record(chunk._buf, offset, chunk)
         assert record.record_num() == number and record.verify() and chunk.verify()
-        if remaining_error:
-            # New, independent type exposed after decoding 0x88; do not hide it.
-            with pytest.raises(KeyError) as error:
-                record.xml()
-            assert error.value.args == (remaining_error,)
-        else:
-            locard = ET.fromstring(record.xml())
-            actual = [n.text or '' for n in locard.findall('.//{*}Data') if n.get('Name') == field]
-            assert actual == expected
-            assert locard.find('.//{*}EventRecordID').text == windows.find('.//{*}EventRecordID').text
-            assert locard.find('.//{*}EventID').text == windows.find('.//{*}EventID').text
-            assert locard.find('.//{*}Provider').attrib == windows.find('.//{*}Provider').attrib
+        locard = ET.fromstring(record.xml())
+        actual = [n.text or '' for n in locard.findall('.//{*}Data') if n.get('Name') == field]
+        assert actual == expected
+        assert locard.find('.//{*}EventRecordID').text == windows.find('.//{*}EventRecordID').text
+        assert locard.find('.//{*}EventID').text == windows.find('.//{*}EventID').text
+        assert locard.find('.//{*}Provider').attrib == windows.find('.//{*}Provider').attrib
     assert (size, expected) in captured
 
 

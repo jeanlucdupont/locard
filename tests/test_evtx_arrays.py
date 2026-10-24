@@ -13,6 +13,7 @@ from test_evtx_recovery import file_bytes, chunk, decode
 
 
 @pytest.mark.parametrize('type_,fmt,values,expected', [
+    (0x86, 'H', [0, 1, 256, 65535], ['0', '1', '256', '65535']),
     (0x84, 'B', [0, 2, 0, 255], ['0', '2', '0', '255']),
     (0x88, 'I', [4420, 0xffffffff], ['4420', '4294967295']),
     (0x8a, 'Q', [0, 75, 10920, 21694, 143, 2**64-1],
@@ -30,7 +31,7 @@ def test_array_values(type_, fmt, values, expected):
         node.string()  # Never silently stringify arrays in unsupported positions.
 
 
-@pytest.mark.parametrize('type_', [0x84, 0x88, 0x8a, 0x94, 0x95])
+@pytest.mark.parametrize('type_', [0x84, 0x86, 0x88, 0x8a, 0x94, 0x95])
 def test_array_bounds(type_):
     for offset, length, lower, upper in [(0, -1, 0, 16), (0, None, 0, 16),
                                         (-1, 8, 0, 16), (0, 8, 1, 16),
@@ -44,7 +45,8 @@ def test_array_bounds(type_):
     assert NumericArray(b'', 0, 0, type_, 0, 0).values == ()
 
 
-def test_repeat_containing_element_not_joined_text():
+@pytest.mark.parametrize('type_,fmt', [(0x84, 'B'), (0x86, 'H')])
+def test_repeat_containing_element_not_joined_text(type_, fmt):
     sub = Mock(spec=Nodes.NormalSubstitutionNode)
     sub.index = Mock(return_value=0)
     close = Mock(spec=Nodes.CloseElementNode)
@@ -53,10 +55,11 @@ def test_repeat_containing_element_not_joined_text():
     element.children.return_value = [sub, close]
     root = Mock()
     root.template.return_value.children.return_value = [element]
-    array = NumericArray(bytes([0, 2, 0]), 0, 3, 0x84, 0, 3)
+    data = struct.pack('<' + fmt * 3, 0, 2, 0)
+    array = NumericArray(data, 0, len(data), type_, 0, len(data))
     assert render_root_node_with_subs(root, [array]) == '<Data>0</Data>\n<Data>2</Data>\n<Data>0</Data>\n'
     assert render_root_node_with_subs(root, [ScalarText('unchanged')]) == '<Data>unchanged</Data>\n'
-    assert render_root_node_with_subs(root, [NumericArray(b'', 0, 0, 0x84, 0, 0)]) == '<Data></Data>\n'
+    assert render_root_node_with_subs(root, [NumericArray(b'', 0, 0, type_, 0, 0)]) == '<Data></Data>\n'
     element.children.return_value = [sub, sub, close]
     with pytest.raises(ParseException, match='structure'):
         render_root_node_with_subs(root, [array])
@@ -92,7 +95,8 @@ def test_checksum_failure_not_hidden(tmp_path, decode):
     assert sum(bool(r.xml) for r in records) == 1  # Existing conservative recovery.
 
 
-def test_nested_array_cannot_escape_record_or_binxml_payload():
+@pytest.mark.parametrize('type_', [0x86, 0x88])
+def test_nested_array_cannot_escape_record_or_binxml_payload(type_):
     from types import SimpleNamespace
     from Evtx.Evtx import Record
     from forensic_assistant.ingest.evtx_arrays import array_bounds
@@ -108,7 +112,7 @@ def test_nested_array_cannot_escape_record_or_binxml_payload():
     root = SimpleNamespace(_chunk=chunk, _parent=nested)
     assert array_bounds(root) == (560, 592)
     with pytest.raises(ParseException):
-        NumericArray(bytes(1000), 588, 8, 0x88, *array_bounds(root))
+        NumericArray(bytes(1000), 588, 8, type_, *array_bounds(root))
     root._parent = record
     assert array_bounds(root) == (536, 636)
 

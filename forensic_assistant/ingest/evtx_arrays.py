@@ -18,7 +18,7 @@
 """Minimal python-evtx 0.8.1 extension; no site-packages or global mutation.
 
 The renderer/substitution traversal is adapted from upstream Views.py/Nodes.py
-(Apache-2.0). Locard additions decode five numeric arrays and repeat their
+(Apache-2.0). Locard additions decode six numeric arrays and repeat their
 containing element, as validated against Windows. Other variants delegate to
 upstream unchanged. Unknown array shapes fail closed.
 """
@@ -29,7 +29,7 @@ from Evtx.BinaryParser import ParseException
 from Evtx.Evtx import Record as UpstreamRecord
 from Evtx.Views import escape_value, validate_name, UnexpectedElementException
 
-ARRAY_TYPES = {0x84: (1, "B", False), 0x88: (4, "I", False),
+ARRAY_TYPES = {0x84: (1, "B", False), 0x86: (2, "H", False), 0x88: (4, "I", False),
                0x8A: (8, "Q", False), 0x94: (4, "I", True),
                0x95: (8, "Q", True)}
 
@@ -76,7 +76,7 @@ def array_bounds(root):
 
 
 def substitutions(root):
-    # Mirrors RootNode.substitutions; only the five new types take a new path.
+    # Mirrors RootNode.substitutions; only the six supported arrays take a new path.
     ofs = root.tag_and_children_length()
     count = root.unpack_dword(ofs)
     ofs += 4
