@@ -18,7 +18,7 @@ def test_scope_cleanup_and_path():
     with Observation('Discovery', stream=output) as observer:
         emit(current_path=r'E:\Users\Example\NTUSER.DAT', entries_examined=3)
     assert CURRENT.get() is None
-    assert not observer.thread.is_alive()
+    assert observer.thread is None
     assert output.getvalue() == ''
     assert r'E:\Users\Example\NTUSER.DAT' in observer.render()
     assert '%' not in output.getvalue()
@@ -47,7 +47,7 @@ def test_discovery_candidates_unchanged(tmp_path):
 def test_slow_display_threshold_and_snapshot_throttle(monkeypatch):
     now = [0]
     output = io.StringIO()
-    observer = Observation('Discovery', stream=output, clock=lambda: now[0], slow_after=5)
+    observer = Observation('Discovery', stream=output, clock=lambda: now[0], slow_after=5, diagnostics=True)
     observer.update(current_path='example', entries_examined=12)
     now[0] = 4
     observer.refresh()
@@ -64,17 +64,18 @@ def test_slow_display_threshold_and_snapshot_throttle(monkeypatch):
     assert len(output.getvalue()) > len(first)
 
 
-def test_ingestion_threshold_preserves_telemetry():
+def test_normal_ingestion_never_escalates_and_preserves_telemetry():
     now = [0]
     output = io.StringIO()
     observer = Observation('Ingest', stream=output, clock=lambda: now[0])
     observer.update(worker_pid=123, stage_bytes=456)
-    now[0] = 9
-    observer.refresh()
-    assert output.getvalue() == ''
-    now[0] = 10
-    observer.refresh()
-    assert '123' in output.getvalue() and '456' in output.getvalue()
+    for elapsed in (0, 1, 10, 30, 60, 300, 3600, 86400):
+        now[0] = elapsed
+        observer.refresh()
+        assert output.getvalue() == ''
+    assert observer.fields['worker_pid'] == 123
+    assert observer.fields['stage_bytes'] == 456
+    assert '123' in observer.render() and '456' in observer.render()
 
 
 def test_exception_grouping_preserves_input(capsys):
@@ -100,7 +101,7 @@ def test_tty_refresh_and_cleanup(monkeypatch):
     updates = []
     monkeypatch.setattr(module, 'capable', lambda stream: True)
     monkeypatch.setattr(module, 'replace_progress_line', lambda text, stream: updates.append(text))
-    with Observation('Ingest', stream=output, clock=lambda: now[0]) as observer:
+    with Observation('Ingest', stream=output, clock=lambda: now[0], diagnostics=True) as observer:
         observer.update(current_path='slow.pf', worker_pid=123)
         now[0] = 10
         observer.refresh()
@@ -122,3 +123,19 @@ def test_exception_files_across_families(capsys):
         text = capsys.readouterr().out
         assert kind + '.bad' in text and kind + '.partial' in text
         assert 'no records retained' in text and '5 records' in text
+
+
+def test_normal_discovery_and_ingestion_never_write_terminal(monkeypatch):
+    import forensic_assistant.ingest.observation as module
+    monkeypatch.setattr(module, 'replace_progress_line', lambda *a: (_ for _ in ()).throw(AssertionError('Unexpected terminal write')))
+    for label in ('Discovering evidence', 'Ingesting artifact'):
+        now = [0]
+        output = io.StringIO()
+        with Observation(label, stream=output, clock=lambda: now[0]) as observer:
+            emit(current_path='private/path', records_emitted=5, parser_stage='parsing')
+            now[0] = 3600
+            observer.refresh()
+            assert observer.thread is None
+        assert output.getvalue() == ''
+        assert observer.fields['records_emitted'] == 5
+        assert CURRENT.get() is None

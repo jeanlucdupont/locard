@@ -16,7 +16,8 @@ def emit(**fields):
 
 
 class Observation:
-    def __init__(self, label, *, stream=None, clock=time.monotonic, interval=3, slow_after=10):
+    def __init__(self, label, *, stream=None, clock=time.monotonic, interval=3, slow_after=10, diagnostics=False):
+        self.diagnostics = diagnostics
         self.label = label
         self.stream = sys.stdout if stream is None else stream
         self.clock = clock
@@ -50,7 +51,9 @@ class Observation:
         return '\n'.join(lines)
 
     def refresh(self):
-        """Display escalation only; telemetry collection is always active."""
+        """Explicit diagnostic display only; elapsed time never enables it."""
+        if not self.diagnostics:
+            return
         now = self.clock()
         if now - self.started < self.slow_after:
             return
@@ -70,13 +73,15 @@ class Observation:
 
     def __enter__(self):
         self.token = CURRENT.set(self)
-        self.thread = threading.Thread(target=self._display, daemon=True, name='Locard observation')
-        self.thread.start()
+        if self.diagnostics:
+            self.thread = threading.Thread(target=self._display, daemon=True, name='Locard observation')
+            self.thread.start()
         return self
 
     def __exit__(self, *exc):
         self.stop.set()
-        self.thread.join()
+        if self.thread is not None:
+            self.thread.join()
         CURRENT.reset(self.token)
         if self.visible:
             try:

@@ -2460,12 +2460,12 @@ artifact workers currently expose staging-file growth, not a live record count.
 Staging bytes are observational activity, not committed evidence or proof of parser
 completeness. A live worker alone never resets the last-observed-progress timer.
 
-Healthy ingestion uses compact category progress; fast discovery is quiet. Detailed
-discovery starts after about five seconds, and per-artifact diagnostics after about
-ten seconds. Slow-operation TTY status refreshes every three seconds, with full
-snapshots every 30 seconds. Completion returns to compact progress. Phase summaries
-identify affected files; expected Registry companion logs are grouped with the
-not-replayed limitation. Telemetry collection remains active even when hidden.
+Normal ingestion uses only compact category progress, regardless of artifact duration.
+Discovery telemetry is also silent in normal operation. Elapsed time does not enable
+diagnostic output. Internal telemetry remains collected and can be rendered by explicit
+diagnostic callers; this refinement adds no new CLI mode. Phase summaries identify
+affected files; expected Registry companion logs are grouped with the not-replayed
+limitation. No per-file diagnostic display thread is started in normal operation.
 Paths are terminal-sanitized. Status is transient and
 is not persisted as evidence. Existing parser timeouts, containment, cancellation,
 transactions, skip/retry behavior and mounted-volume MFT limitations are unchanged.

@@ -220,7 +220,7 @@ def collect(shell, *, adding=False):
                 supplied = discovery.input_path(path('Mounted/extracted root or parent folder: '))
                 outside_evidence(target, [supplied])
                 access_guidance(read, palette)
-                with Observation('Discovering evidence', slow_after=5):
+                with Observation('Discovering evidence'):
                     candidates, notes = discovery.windows_roots(supplied)
                 if not candidates:
                     print(palette('warning', 'No accessible Windows root found within two directory levels; select a narrower root or use manual selection.'))
@@ -232,7 +232,7 @@ def collect(shell, *, adding=False):
                         print(f'  {n}. ' + safe(candidate))
                     root = candidates[int(choice(read, 'Windows root number: ', tuple(str(i) for i in range(1, len(candidates) + 1)))) - 1]
                 print('Windows root: ' + safe(root))
-                with Observation('Discovering evidence', slow_after=5):
+                with Observation('Discovering evidence'):
                     inventory = discovery.scan(root)
                 plan.browser_scanned = True
                 inventory.notes[:0] = notes
@@ -244,7 +244,7 @@ def collect(shell, *, adding=False):
                         break
                     source = discovery.input_path(path('Evidence file or folder: '))
                     outside_evidence(target, [source])
-                    with Observation('Discovering evidence', slow_after=5):
+                    with Observation('Discovering evidence'):
                         found = discovery.manual(source, kind)
                     plan.browser_scanned = plan.browser_scanned or kind == 'browser'
                     for item in found.candidates:
