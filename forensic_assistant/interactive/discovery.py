@@ -28,6 +28,8 @@ class Candidate:
     owner: str | None = None
     profile: str | None = None
     access: str = 'candidate'
+    native_volume: str | None = None
+    access_reason: str = ''
 
 
 @dataclass
@@ -121,6 +123,10 @@ def mft_access(path):
 
 
 def input_path(value):
+    from forensic_assistant.artifacts.ntfs_acquisition import mounted_volume
+    volume = mounted_volume(value)
+    if volume:
+        value = volume + '\\'
     path = safe_path(Path(value).absolute())
     if path.suffix.casefold() in IMAGE_SUFFIXES and not path.is_dir():
         raise ValueError(IMAGE_MESSAGE)
@@ -128,6 +134,14 @@ def input_path(value):
     if not path.is_dir() and not path.is_file():
         raise ValueError('Evidence must be a regular file or directory')
     return path
+
+
+def candidate_path(item):
+    """Native candidates validate the mounted root, not normal $MFT access."""
+    if item.native_volume:
+        input_path(item.native_volume + '\\')
+        return item.native_volume
+    return input_path(item.path)
 
 
 def plausible(root):
@@ -164,8 +178,18 @@ def scan(root):
     root = input_path(root)
     inventory = Inventory()
     mft = root / '$MFT'
-    inventory.add(mft, 'mft')
-    if inventory.candidates:
+    from forensic_assistant.artifacts.ntfs_acquisition import mounted_volume, probe, failure_reason
+    volume = mounted_volume(root)
+    if volume:
+        try:
+            probe(volume)
+            inventory.candidates.append(Candidate(mft, 'mft', access='native read-only NTFS', native_volume=volume))
+        except (OSError, ValueError) as exc:
+            category, reason = failure_reason(exc)
+            inventory.candidates.append(Candidate(mft, 'mft', access='requires extraction', access_reason=reason))
+    else:
+        inventory.add(mft, 'mft')
+    if inventory.candidates and not volume:
         from dataclasses import replace
         inventory.candidates[0] = replace(inventory.candidates[0], access=mft_access(mft))
 

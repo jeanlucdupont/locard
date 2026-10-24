@@ -59,6 +59,9 @@ def inventory_text(inventory, *, details=False, palette=None, manual=False):
         lines.extend('    ' + label + ': ' + str(count) for label, count in groups.items())
         if details:
             lines.extend('    ' + safe(i.path) for i in items)
+        for item in items:
+            if item.native_volume:
+                lines.extend(['    Found: ' + safe(item.path), '    Acquisition: native read-only NTFS'])
     if inventory.profiles_scanned or inventory.access_limits.get('User profiles') or inventory.redirected.get('User profiles'):
         lines.append(palette('key', 'User profile discovery'))
         if inventory.profiles_scanned:
@@ -329,7 +332,9 @@ def collect(shell, *, adding=False):
     for item in plan.deferred:
         print(palette('key', 'MFT') + '\n  Found: ' + safe(item.path))
         print(palette('error', '  Direct ingestion: unavailable'))
-        if item.access == 'requires extraction':
+        if item.access_reason:
+            print(palette('warning', '  ' + safe(item.access_reason) + '\n  Supply an accessible extracted $MFT.'))
+        elif item.access == 'requires extraction':
             print(palette('warning', '  Direct access is not possible on this mounted NTFS volume.\n'
                           '  Use a third-party tool to extract $MFT as a standard file, then ingest the extracted file with Locard.'))
         else:
@@ -395,7 +400,7 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
         exceptions = []
         def record(path, kind, result):
             progress(path, kind, result)
-            if result['status'] != 'complete' or result.get('errors') or result.get('limitation'):
+            if result['status'] != 'complete' or result.get('errors') or (result.get('limitation') and not result.get('acquisition')):
                 exceptions.append(dict(path=str(path), **{k: result.get(k, 0) for k in ('status', 'inserted', 'duplicates', 'errors')}))
             if totals is not None:
                 totals(path, kind, result)
@@ -405,7 +410,7 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
             for processed, item in enumerate(selected, 1):
                 try:
                     outside_evidence(plan.target, plan.roots)
-                    source = discovery.input_path(item.path)
+                    source = discovery.candidate_path(item)
                     args = SimpleNamespace(command='ingest-' + kind, path=source, source=source_id,
                                            hostname=None, user=None, volume_root=None, parser_timeout=300, record_size=None)
                     if kind == 'browser':
@@ -485,7 +490,7 @@ def create(shell):
         outside_evidence(plan.target, plan.roots)
         # Recheck all redirects before creating the case or its audit sidecar.
         for item in plan.items:
-            discovery.input_path(item.path)
+            discovery.candidate_path(item)
         workspace.initialize(plan.target, on_publish=mark_published)
         session = activity.Session(plan.target)
         with activity.bind(session):
@@ -575,7 +580,7 @@ def add_evidence(shell):
             raise ValueError('The active case changed during evidence selection')
         outside_evidence(plan.target, plan.roots)
         for item in plan.items:
-            discovery.input_path(item.path)
+            discovery.candidate_path(item)
         if not plan.items:
             print(palette('warning', 'No evidence was added. No ingestable files were selected.'))
             ingestion_summary(plan, {i.kind: i.access for i in plan.deferred}, palette, incremental=True)

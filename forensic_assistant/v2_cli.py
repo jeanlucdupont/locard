@@ -53,6 +53,11 @@ def configure(commands):
 
 def ingest_sources(db, args, progress=None):
     from forensic_assistant import activity
+    from forensic_assistant.artifacts.ntfs_acquisition import mounted_volume
+    native_volume = mounted_volume(args.path) if args.command in ('ingest-all', 'ingest-mft') else None
+    if native_volume:
+        from forensic_assistant.artifacts.native_mft import check_storage
+        check_storage(db, native_volume)
     with activity.mutation('INGEST_BATCH', command=args.command, path=str(args.path),
                            source_id=getattr(args, 'source', None)) as audit_result:
         results = _ingest_sources(db, args, progress)
@@ -76,6 +81,7 @@ def _ingest_sources(db, args, progress=None):
         if not Path(args.path).is_file():
             raise ValueError('Browser ingestion requires a single History file')
     results = []
+    from forensic_assistant.artifacts.ntfs_acquisition import mounted_volume
     source_id = getattr(args, 'source', None)
     supplied = {k: getattr(args, k, None) for k in ('hostname', 'user', 'volume_root')}
     # Existing-source metadata is changed only by an explicit source update action.
@@ -113,7 +119,11 @@ def _ingest_sources(db, args, progress=None):
         for path, kind in files:
             with activity.mutation('INGEST', source_id=source_id, batch_id=batch_id,
                                    source_file=str(path), artifact_type=kind) as audit_result:
-                if kind == 'evtx':
+                if kind == 'mft' and mounted_volume(path):
+                    from forensic_assistant.artifacts.native_mft import ingest as ingest_native_mft
+                    result = ingest_native_mft(db, mounted_volume(path), batch_id=batch_id,
+                                               timeout=args.parser_timeout, record_size=args.record_size)
+                elif kind == 'evtx':
                     result = ingest_file(db, path, batch_id=batch_id, timeout=getattr(args, 'parser_timeout', 300),
                                          hard_timeout=getattr(args, 'evtx_hard_timeout', 21600))
                 else:
@@ -297,6 +307,22 @@ def anchor_time(anchor, slot=None, *, require_slot=False):
     if len(times) != 1 or (require_slot and len(candidates) != 1):
         raise ValueError('Anchor has missing or multiple timestamps; select --timestamp-slot from show output')
     return next(iter(times))
+
+
+def render_native_ingestion(result, palette):
+    """Native acquisition details stay in explicit JSON/provenance output."""
+    lines = []
+    for row in result['results']:
+        state = row['status']
+        role = 'success' if state == 'complete' else 'warning' if state == 'partial' else 'error'
+        line = (safe(row.get('source_type', 'evtx')) + ': ' + palette(role, safe(state)) +
+                f" | {row['inserted']} records | {row['errors']} errors")
+        if row['duplicates']:
+            line += f" | {row['duplicates']} duplicates"
+        lines.append(line)
+        if row.get('limitation'):
+            lines.append('  ' + palette('forensic_note', safe(row['limitation'])))
+    return '\n'.join(lines)
 
 
 def render(result, *, methodology=True, palette=None):

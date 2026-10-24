@@ -59,6 +59,23 @@ def get_evidence(db, eid, raw=False):
     result['hostname'] = result.get('hostname') or record['hostname'] or ctx['hostname']
     result['username'] = record['username'] or ctx['username']
     if kind == 'mft':
+        acquisitions = []
+        batch = 'r.batch_id' if db.execute('PRAGMA user_version').fetchone()[0] >= 4 else 'NULL AS batch_id'
+        for run in db.execute(f'''SELECT r.id, {batch}, r.status, a.parameters_json
+                                FROM ingestion_runs r JOIN artifact_runs a ON a.run_id=r.id
+                                WHERE r.file_sha256=? AND a.source_type='mft'
+                                AND json_type(a.parameters_json,'$.acquisition')='object'
+                                ORDER BY r.id LIMIT 101''',
+                              (record['file_sha256'],)):
+            acquisition = json.loads(run['parameters_json']).get('acquisition')
+            if acquisition:
+                acquisitions.append(dict(run_id=run['id'], batch_id=run['batch_id'],
+                                         status=run['status'], metadata=acquisition))
+        if acquisitions:
+            from forensic_assistant.artifacts.ntfs_acquisition import LIVE_LIMITATION
+            result['source']['acquisitions'] = acquisitions[:100]
+            result['source']['acquisitions_truncated'] = len(acquisitions) > 100
+            result['warnings'].append(LIVE_LIMITATION)
         cols = '*' if raw else 'evidence_id,record_number,sequence_number,allocated,directory,file_size,base_record,base_sequence,record_size,attributes_json'
         detail = dict(db.execute('SELECT ' + cols + ' FROM mft_records WHERE evidence_id=?', (eid,)).fetchone())
         detail['names'] = [dict(r) for r in db.execute(

@@ -142,7 +142,9 @@ def ingest_artifact(
     runner=worker,
     batch_id=None,
     browser_product=None,
-    profile=None
+    profile=None,
+    acquisition=None,
+    source_label=None
 ):
     if kind == 'browser':
         from forensic_assistant.database.browser import require5
@@ -156,6 +158,9 @@ def ingest_artifact(
     if not 1 <= timeout <= 3600:
         raise ValueError('Parser timeout must be 1..3600 seconds')
     path = str(Path(path).resolve())
+    source_file = source_label or path
+    if acquisition is not None and (kind != 'mft' or source_label is None):
+        raise ValueError('Acquisition provenance requires native MFT source context')
     from .registry_logs import is_log, describe, CLASSIFIER
     companion = kind == 'registry' and is_log(path)
     parser = CLASSIFIER if companion else PARSERS[kind]
@@ -166,6 +171,9 @@ def ingest_artifact(
         if not re.fullmatch(r'[A-Za-z]:\\?', volume_root):
             raise ValueError('Volume root must be an explicit drive letter such as C:')
     options = {'record_size': record_size} if kind == 'mft' else {}
+    if source_label is not None:
+        options['_source_path'] = source_file
+    parameters = {**options, 'acquisition': acquisition} if acquisition is not None else options
     run_id = None
     inserted = duplicates = errors = 0
     status = 'failed'
@@ -183,16 +191,18 @@ def ingest_artifact(
         with db:
             run_id = db.execute(
                 'INSERT INTO ingestion_runs(source_file,started_utc,status) VALUES (?,?,?)',
-                (path, now(), 'running')
+                (source_file, now(), 'running')
             ).lastrowid
             if batch_id is not None:
                 db.execute('UPDATE ingestion_runs SET batch_id=? WHERE id=?', (batch_id, run_id))
             db.execute(
                 'INSERT INTO artifact_runs VALUES (?,?,?,?,?,?,?)',
-                (run_id, kind, parser, version, '1', None, dump(options))
+                (run_id, kind, parser, version, '1', None, dump(parameters))
             )
         sha = digest(path)
         size = Path(path).stat().st_size
+        if acquisition is not None and (sha != acquisition['sha256'] or size != acquisition['bytes_written']):
+            raise ValueError('Acquired MFT changed before parsing; rejected')
         with db:
             db.execute('UPDATE artifact_runs SET source_sha256=? WHERE run_id=?', (sha, run_id))
         if companion:
@@ -235,7 +245,7 @@ def ingest_artifact(
                 attached = True
                 try:
                     with db:
-                        register_source(db, sha, size, path)
+                        register_source(db, sha, size, source_file)
                         for row in db.execute('SELECT e.*,a.locator_json FROM artifact_stage.ingestion_errors e LEFT JOIN artifact_stage.artifact_errors a ON a.error_id=e.id'):
                             report(row['message'], row['stage'], json.loads(row['locator_json'] or '{}'))
                         for table in TABLES:
@@ -250,7 +260,7 @@ def ingest_artifact(
                             db.execute('INSERT INTO browser_record_occurrences SELECT evidence_id,?,? FROM artifact_stage.evidence_records',
                                        (options['context_id'], run_id))
                         else:
-                            bind_context(db, sha, path, hostname, username, volume_root)
+                            bind_context(db, sha, source_file, hostname, username, volume_root)
                         db.execute('UPDATE ingestion_runs SET file_sha256=? WHERE id=?', (sha, run_id))
                 finally:
                     db.rollback()
@@ -288,7 +298,7 @@ def ingest_artifact(
             )
     return dict(
         run_id=run_id,
-        source_file=path,
+        source_file=source_file,
         source_type=kind,
         status=status,
         inserted=inserted,
@@ -325,6 +335,12 @@ def identify(path, *, include_browser=False):
 
 
 def discover(path, kind=None, *, include_browser=False):
+    from .ntfs_acquisition import mounted_volume
+    volume = mounted_volume(path)
+    if volume and kind in (None, 'mft'):
+        yield volume, 'mft'
+        if kind == 'mft':
+            return
     def classify(candidate):
         # Explicit EVTX ingestion also records attempts for damaged .evtx files.
         # Keep signature recognition for renamed files and the traversal guards below.
@@ -334,7 +350,7 @@ def discover(path, kind=None, *, include_browser=False):
         if kind == 'evtx' and candidate.suffix.casefold() == '.evtx':
             return 'evtx'
         return identify(candidate, include_browser=include_browser)
-    root = Path(path)
+    root = Path(volume + '\\') if volume else Path(path)
     if not root.exists():
         raise ValueError('Evidence path does not exist')
     if root.is_file():
@@ -351,6 +367,8 @@ def discover(path, kind=None, *, include_browser=False):
         dirs[:] = sorted(d for d in dirs if not (Path(parent) / d).is_symlink())
         for name in sorted(files):
             p = Path(parent) / name
+            if volume and p.parent == root and name.casefold() == '$mft':
+                continue  # The native candidate replaces inaccessible filesystem access.
             if p.is_symlink():
                 continue
             found = classify(p)

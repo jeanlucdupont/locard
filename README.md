@@ -282,9 +282,24 @@ snapshot-companion handling is unchanged.
 
 The numbered artifact menu offers all categories, selected categories, path review,
 or cancellation. Manual selection uses shared discovery/ingestion, bounded to eight
-folder levels. Candidates still require parser validation. An inaccessible mounted
-`$MFT` is marked **requires extraction** and excluded from ingestion: Locard requires
-an extracted MFT and does not implement raw NTFS access. Other artifacts may proceed.
+folder levels. Candidates still require parser validation. On a mounted Windows
+NTFS drive root, setup probes native read-only `$MFT` acquisition and offers it
+automatically when supported. `ingest mft E:` and `ingest all E:` use the same
+acquisition path. Extracted directories and explicitly selected MFT files retain
+the existing file workflow. If access or NTFS metadata prevents native acquisition,
+setup gives the reason and offers the extracted-file fallback; other artifacts may proceed.
+
+Native acquisition requests `GENERIC_READ` only and normally requires an elevated
+Windows process. It never locks/dismounts, repairs, changes ACLs or requests source
+write access. A temporary acquired file outside the source volume is hashed and
+passed to the existing contained MFT parser, then cleaned up. Case/staging storage
+on the source volume is rejected. Existing MFT parser limits are unchanged.
+Acquisition does not freeze a live volume: metadata may change while reading.
+Boot/base-record rechecks detect some changes, not whole-stream consistency.
+This limitation and acquisition timestamps, hashes, geometry and run metadata are
+retained in `artifact_runs.parameters_json`; `show <id> --json` exposes native
+acquisition provenance. Unsupported attribute lists, extra extents and compressed/
+encrypted data fail explicitly rather than producing a partial acquired file.
 
 Final confirmation precedes workspace, database and activity-sidecar creation. Output
 must be outside every selected evidence directory. Discovery rejects symlinks/reparse

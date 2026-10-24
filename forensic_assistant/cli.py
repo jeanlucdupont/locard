@@ -239,6 +239,18 @@ def _dispatch_command(args, *, existing_only=False):
     if args.command == 'ingest-wizard':
         print('ingest wizard requires the interactive shell.', file=sys.stderr)
         return 2
+    if args.command in ('ingest-mft', 'ingest-all'):
+        from forensic_assistant.artifacts.ntfs_acquisition import mounted_volume
+        volume = mounted_volume(args.path)
+        if volume:
+            from forensic_assistant.artifacts.native_mft import check_case_path
+            try:
+                check_case_path(args.db, volume)
+            except (OSError, ValueError) as exc:
+                from forensic_assistant.terminal import message
+                from forensic_assistant.artifacts.ntfs_acquisition import failure_reason
+                message(human_error(failure_reason(exc)[1]), args)
+                return 2
     from forensic_assistant.output import Output
     from forensic_assistant import activity
     output = None
@@ -378,6 +390,9 @@ def _dispatch(args, output, *, existing_only=False):
                 elif args.command == 'around' and args.text and not args.raw:
                     from forensic_assistant.retrieval.around_display import render
                     output.write(render(result, presentation['anchor'], presentation['stamp'], args, output.palette))
+                elif args.command.startswith('ingest-') and not args.json and any(
+                        r.get('acquisition') or r.get('acquisition_error') for r in result.get('results', [])):
+                    output.write(v2_cli.render_native_ingestion(result, output.palette))
                 elif getattr(args, 'text', False):
                     output.write(v2_cli.render(result, methodology=args.raw, palette=output.palette))
                 else:

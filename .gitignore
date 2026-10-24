@@ -185,3 +185,10 @@ report-bundles/
 !/scripts/windows-process.cs
 !/scripts/protected_manifest.py
 .locard-install.lock
+
+# Standalone acquisition POC sources only; acquired bytes/metadata stay ignored.
+!/poc/
+/poc/*
+!/poc/mft_acquire.py
+!/poc/test_mft_acquire.py
+!/poc/README.md
