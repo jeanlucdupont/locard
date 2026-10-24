@@ -2,10 +2,27 @@
 import hashlib
 from contextlib import contextmanager
 
-VERSION = '2'
+VERSION = '3'
+FINGERPRINT_VERSION = 'logical-primary-key-v1'
 MAX_FIELD = 16384
 MAX_CHUNKS = 16
 MAX_CHARS = 65536
+
+
+def _quoted(name):
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _primary_key(db, table):
+    columns = db.execute('PRAGMA table_info(' + _quoted(table) + ')').fetchall()
+    keys = [r[1] for r in sorted(columns, key=lambda r: r[5]) if r[5]]
+    if not keys:
+        raise ValueError('Authoritative table has no declared logical key: ' + table)
+    return keys
+
+
+def _key_order(keys):
+    return ','.join(_quoted(k) + ' COLLATE BINARY' for k in keys)
 
 
 @contextmanager
@@ -23,7 +40,8 @@ def fingerprint(db):
     """Hash every authoritative table/cell in bounded pieces, including raw bytes.
 
     Deliberately conservative: run/provenance-only changes also invalidate an index.
-    Physical row ordering changes may invalidate it even with equivalent content.
+    Rows are canonicalized by declared primary key, independent of insertion order.
+    Schema and every cell remain significant. Legacy fingerprints must be rebuilt.
     Caller holds a consistent SQLite snapshot. No file-stat/WAL assumptions.
     """
     h = hashlib.sha256()
@@ -40,29 +58,35 @@ def fingerprint(db):
         value = value if isinstance(value, bytes) else str(value).encode('utf-8')
         h.update(len(value).to_bytes(8, 'little'))
         h.update(value)
-    def quoted(name):
-        return '"' + name.replace('"', '""') + '"'
+    quoted = _quoted
+    feed(FINGERPRINT_VERSION)
     feed(db.execute('PRAGMA user_version').fetchone()[0])
     tables = db.execute("SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()
     for name, ddl in tables:
         feed(name)
         feed(ddl)
         cols = [r[1] for r in db.execute('PRAGMA table_info(' + quoted(name) + ')')]
+        keys = _primary_key(db, name)
+        key_select = ','.join(quoted(k) for k in keys)
+        key_where = ' AND '.join(quoted(k) + ' COLLATE BINARY=?' for k in keys)
         expressions = []
         for col in cols:
             col = quoted(col)
             expressions += [f'typeof({col})', f'length(CAST({col} AS BLOB))', f'substr(CAST({col} AS BLOB),1,65536)']
-        cursor = db.execute('SELECT rowid,' + ','.join(expressions) + ' FROM ' + quoted(name) + ' ORDER BY rowid')
+        cursor = db.execute('SELECT ' + key_select + ',' + ','.join(expressions) + ' FROM ' + quoted(name) + ' ORDER BY ' + _key_order(keys))
         cursor.row_factory = None
         for row in cursor:
+            key_values = row[:len(keys)]
+            if any(value is None for value in key_values):
+                raise ValueError('NULL authoritative primary key: ' + name)
             feed('row')
             for i, col in enumerate(cols):
-                kind, size, value = row[1 + i * 3:4 + i * 3]
+                kind, size, value = row[len(keys) + i * 3:len(keys) + i * 3 + 3]
                 h.update(header(kind, size) + (value or b''))
                 for offset in range(65536, size or 0, 65536):
                     value = db.execute(
-                        'SELECT substr(CAST(' + quoted(col) + ' AS BLOB),?,65536) FROM ' + quoted(name) + ' WHERE rowid=?',
-                        (offset + 1, row[0])
+                        'SELECT substr(CAST(' + quoted(col) + ' AS BLOB),?,65536) FROM ' + quoted(name) + ' WHERE ' + key_where,
+                        (offset + 1, *key_values)
                     ).fetchone()[0]
                     feed(value)
     return h.hexdigest()
@@ -72,7 +96,7 @@ def _fields(db, table, key, eid, columns, limit=1):
     # Identifiers are code-owned constants. Bounds apply before Python hydration.
     expr = ','.join('substr(CAST(' + c + ' AS TEXT),1,?) AS ' + c for c in columns)
     rows = db.execute(
-        'SELECT ' + expr + ' FROM ' + table + ' WHERE ' + key + '=? ORDER BY rowid LIMIT ?',
+        'SELECT ' + expr + ' FROM ' + table + ' WHERE ' + key + '=? ORDER BY ' + _key_order(_primary_key(db, table)) + ' LIMIT ?',
         [MAX_FIELD + 1] * len(columns) + [eid, limit + 1]
     ).fetchall()
     result = []

@@ -94,6 +94,7 @@ def test_registry_review_without_host(tmp_path):
 def test_worker_failures_reject_output(tmp_path, monkeypatch, mode):
     import forensic_assistant.artifacts.ingest as module
     class FakeProcess:
+        pid = 999_999_999  # Real Popen exposes this to progress reporting.
         returncode = 1 if mode == 'crash' else None
         killed = False
         def __init__(self, args, stdout, stderr, **kwargs):

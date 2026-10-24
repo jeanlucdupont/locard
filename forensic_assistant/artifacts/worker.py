@@ -23,7 +23,7 @@ def run(kind, path, sha, stage_path, options, reader=None):
     version = sqlite3.sqlite_version if kind == 'browser' else importlib.metadata.version(PARSERS[kind])
     options = dict(options)
     source_path = options.pop('_source_path', path)
-    db = connect(stage_path)
+    db = connect(stage_path, _mft_stage=True) if kind == 'mft' else connect(stage_path)
     inserted = errors = 0
     try:
         with db:

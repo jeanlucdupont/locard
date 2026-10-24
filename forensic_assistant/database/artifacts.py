@@ -3,6 +3,12 @@ import json
 from forensic_assistant.database.context import host_key
 
 VERSION = "1"
+# Private MFT staging inserts rows and reconstructs paths through primary keys.
+# These non-unique indexes accelerate case queries, not worker operations.
+MFT_STAGE_QUERY_INDEXES = frozenset({
+    'artifact_time', 'evidence_source', 'evidence_type',
+    'mft_parent', 'object_path', 'object_basename',
+})
 DDL = (
     """CREATE TABLE evidence_records (
       evidence_id TEXT PRIMARY KEY, source_type TEXT NOT NULL, artifact_type TEXT NOT NULL,

@@ -10,16 +10,21 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def initialize_tables(db):
+def initialize_tables(db, *, _mft_stage=False):
     """Create derived and provenance tables for a new, empty case only."""
     from forensic_assistant.database import context, artifacts, sources, browser
+    omitted = artifacts.MFT_STAGE_QUERY_INDEXES if _mft_stage else ()
     for statements in (context.DDL, artifacts.DDL, sources.DDL, browser.DDL):
         for statement in statements:
+            if any(statement.startswith(f'CREATE INDEX {name} ') for name in omitted):
+                continue
             db.execute(statement)
     db.execute('PRAGMA user_version=5')
 
 
-def connect(path, *, existing_only=False):
+def connect(path, *, existing_only=False, _mft_stage=False):
+    if _mft_stage and existing_only:
+        raise ValueError('Private MFT staging requires a new database')
     if existing_only:
         from forensic_assistant.interactive.case import open_existing
         return open_existing(path)
@@ -29,6 +34,8 @@ def connect(path, *, existing_only=False):
     try:
         db.row_factory = sqlite3.Row
         version = db.execute("PRAGMA user_version").fetchone()[0]
+        if _mft_stage and version != 0:
+            raise ValueError('Private MFT staging requires a new database')
         if version in (1, 2):
             db.close()
             raise ValueError("Unsupported legacy database schema; supported existing schemas are 3, 4 and 5")
@@ -42,7 +49,10 @@ def connect(path, *, existing_only=False):
                 raise ValueError("Unversioned nonempty database; refusing to modify it")
             db.executescript(Path(__file__).with_name("schema.sql").read_text())
             with db:
-                initialize_tables(db)
+                if _mft_stage:
+                    initialize_tables(db, _mft_stage=True)
+                else:
+                    initialize_tables(db)
         return db
     except BaseException:
         db.close()

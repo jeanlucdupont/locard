@@ -122,7 +122,7 @@ def get_evidence(db, eid, raw=False):
                 (detail['key_id'],)
             ).fetchone()[0]
             result['timestamps'] += [{**dict(r), 'inherited_from_key': True} for r in db.execute(
-                'SELECT * FROM evidence_timestamps WHERE evidence_id=?',
+                'SELECT * FROM evidence_timestamps WHERE evidence_id=? ORDER BY slot COLLATE BINARY',
                 (detail['key_id'],)
             )]
             result['supporting_evidence_ids'] = [detail['key_id']]
