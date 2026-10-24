@@ -7,6 +7,7 @@ import sqlite3
 from time import monotonic
 
 from forensic_assistant.terminal_activity import ActivityIndicator
+from forensic_assistant.ingest.observation import Observation, emit
 from forensic_assistant import activity, v2_cli
 from forensic_assistant.database import sources
 from forensic_assistant.interactive import creation, discovery, workspace, setup_display
@@ -219,7 +220,7 @@ def collect(shell, *, adding=False):
                 supplied = discovery.input_path(path('Mounted/extracted root or parent folder: '))
                 outside_evidence(target, [supplied])
                 access_guidance(read, palette)
-                with ActivityIndicator('Discovering evidence...', args=shell):
+                with Observation('Discovering evidence'):
                     candidates, notes = discovery.windows_roots(supplied)
                 if not candidates:
                     print(palette('warning', 'No accessible Windows root found within two directory levels; select a narrower root or use manual selection.'))
@@ -231,7 +232,7 @@ def collect(shell, *, adding=False):
                         print(f'  {n}. ' + safe(candidate))
                     root = candidates[int(choice(read, 'Windows root number: ', tuple(str(i) for i in range(1, len(candidates) + 1)))) - 1]
                 print('Windows root: ' + safe(root))
-                with ActivityIndicator('Discovering evidence...', args=shell):
+                with Observation('Discovering evidence'):
                     inventory = discovery.scan(root)
                 plan.browser_scanned = True
                 inventory.notes[:0] = notes
@@ -243,7 +244,7 @@ def collect(shell, *, adding=False):
                         break
                     source = discovery.input_path(path('Evidence file or folder: '))
                     outside_evidence(target, [source])
-                    with ActivityIndicator('Discovering evidence...', args=shell):
+                    with Observation('Discovering evidence'):
                         found = discovery.manual(source, kind)
                     plan.browser_scanned = plan.browser_scanned or kind == 'browser'
                     for item in found.candidates:
@@ -407,7 +408,12 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
                     if kind == 'browser':
                         args.browser, args.profile = browser_options[item.path]
                     with closing(creation.open_existing(plan.target)) as db:
-                        results = v2_cli.ingest_sources(db, args, record)
+                        print('Current artifact: ' + safe(item.path))
+                        with Observation('Ingesting artifact') as observed:
+                            observed.update(current_path=str(item.path), artifact_type=kind,
+                                            file_index=processed, total_files=len(selected),
+                                            total_records_stored=progress.records, parser_stage='starting')
+                            results = v2_cli.ingest_sources(db, args, record)
                     if not results:
                         progress.statuses['failed'] += 1
                         progress.errors += 1

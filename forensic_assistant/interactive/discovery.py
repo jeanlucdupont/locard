@@ -4,6 +4,7 @@ from pathlib import Path
 from collections import defaultdict
 import os
 import stat
+from forensic_assistant.ingest.observation import emit
 
 from forensic_assistant.artifacts.ingest import discover
 from forensic_assistant.artifacts.registry_logs import is_log
@@ -46,6 +47,7 @@ class Inventory:
         note = 'Directory or file could not be inspected: ' + str(path) + ' (' + reason + ')'
         self.notes.append(note)
         self.access_notes.add(note)
+        emit(recoverable_errors=len(self.access_notes))
         self.access_limits[category].add(str(path))
 
     def redirected_path(self, path, category):
@@ -53,10 +55,12 @@ class Inventory:
         self.notes.append(note)
         self.access_notes.add(note)
         self.redirected[category].add(str(path))
+        emit(redirected_entries=sum(len(v) for v in self.redirected.values()))
 
     def children(self, directory, category='User profiles'):
         """Never follow redirected directories, including Windows junctions."""
         result = []
+        emit(current_path=str(directory), phase=category)
         try:
             try:
                 safe_path(directory)
@@ -67,6 +71,7 @@ class Inventory:
                 return result
             for path in directory.iterdir():
                 self.entries += 1
+                emit(current_path=str(path), entries_examined=self.entries)
                 if self.entries > MAX_ENTRIES:
                     raise ValueError('Discovery entry limit reached; select a narrower evidence folder')
                 try:
@@ -90,6 +95,7 @@ class Inventory:
                 if candidate not in self._seen:
                     self._seen.add(candidate)
                     self.candidates.append(candidate)
+                    emit(**{kind + "_candidates": sum(c.kind == kind for c in self.candidates)})
         except FileNotFoundError:
             pass
         except ValueError:
@@ -181,6 +187,7 @@ def scan(root):
         if not user.is_dir():
             continue
         inventory.profiles_found += 1
+        emit(user_profiles=inventory.profiles_found)
         hives(user, {'ntuser.dat'}, 'user hive')
         hives(user / 'AppData/Local/Microsoft/Windows', {'usrclass.dat'}, 'user hive')
         for product, relative in (

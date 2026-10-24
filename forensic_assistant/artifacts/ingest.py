@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from forensic_assistant.ingest.observation import emit
 from forensic_assistant.ingest.evtx import digest
 from forensic_assistant.database.db import now, register_source
 from forensic_assistant.database.artifacts import dump
@@ -58,8 +59,14 @@ def worker(kind, path, sha, stage, options, timeout):
         permitted = False
         ready = Path(str(stage) + '.ready')
         started = time.monotonic()
+        emit(parser_stage="worker starting", parser=PARSERS.get(kind, kind), worker_pid=proc.pid)
         try:
             while True:
+                emit(worker_alive=proc.poll() is None, worker_exit_code=proc.returncode)
+                try:
+                    emit(stage_bytes=stage.stat().st_size)
+                except OSError:
+                    pass  # Diagnostic availability never determines parser outcome.
                 if time.monotonic() - started > timeout:
                     raise ValueError('Parser worker timed out; staged output rejected')
                 if stage.exists() and stage.stat().st_size > 8 * 1024 ** 3:
@@ -73,6 +80,7 @@ def worker(kind, path, sha, stage, options, timeout):
                     message = json.loads(raw)
                     if set(message) != {'worker_pid'} or type(message['worker_pid']) is not int or message['worker_pid'] <= 0:
                         raise ValueError('Invalid parser worker handshake')
+                    emit(worker_pid=message['worker_pid'], parser_stage="parsing")
                     job = WorkerJob(message['worker_pid'])
                     proc.stdin.write(b'go\n')
                     proc.stdin.flush()

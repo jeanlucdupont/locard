@@ -2447,3 +2447,22 @@ AI diagnostics; bounded investigation hardening and unresolved lookup semantics;
 integrity verification improvements; and command/help cleanup. Gemini remains
 uncertified and Grok has not been validated. Unsupported model conclusions are
 not promoted into evidence or forensic findings.
+
+
+### 6.70 Phase 1: ingestion visibility
+
+Guided discovery now reports its current path, examined entries, candidate counts,
+user profiles, redirected entries and recoverable access errors. Discovery has no
+estimated percentage. Guided ingestion identifies each current artifact, its file
+index, elapsed time, prior committed category-record total, hashing bytes and worker
+PID/liveness where applicable. EVTX reports emitted parser records in-process;
+artifact workers currently expose staging-file growth, not a live record count.
+Staging bytes are observational activity, not committed evidence or proof of parser
+completeness. A live worker alone never resets the last-observed-progress timer.
+
+TTY status refreshes every three seconds; full diagnostic snapshots appear every
+30 seconds and at completion. Paths are terminal-sanitized. Status is transient and
+is not persisted as evidence. Existing parser timeouts, containment, cancellation,
+transactions, skip/retry behavior and mounted-volume MFT limitations are unchanged.
+There is no stall watchdog or new analyst decision menu in Phase 1. A lack of
+observed progress does not diagnose a deadlock, I/O blockage or Windows PageIn state.

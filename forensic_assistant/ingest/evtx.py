@@ -7,6 +7,7 @@ import json
 from forensic_assistant.ingest.validation import identifier_note, LABEL
 import os
 import tempfile
+from .observation import emit
 from forensic_assistant.database.db import connect, insert_events, register_source, now
 from forensic_assistant.ingest.normalize import normalize
 from forensic_assistant.model import NormalizedEvent
@@ -23,9 +24,13 @@ class ParsedRecord:
 
 def digest(path):
     sha = hashlib.sha256()
+    count = 0
+    emit(parser_stage="hashing", current_path=str(path), bytes_read=0)
     with open(path, "rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             sha.update(block)
+            count += len(block)
+            emit(bytes_read=count)
     return sha.hexdigest()
 
 
@@ -80,7 +85,11 @@ def ingest_file(db, path, batch_size=500, reader=records, reporter=None, *, batc
                     register_source(stage, before, size, str(path))
                 batch = []
                 try:
+                    emit(parser_stage="parsing", parser="python-evtx", records_emitted=0)
+                    emitted = 0
                     for record in (records(path, timeout=timeout) if reader is records else reader(path)):
+                        emitted += 1
+                        emit(records_emitted=emitted)
                         if record.error:
                             report("parse", record.error, record.offset, record.record_id, record.diagnostics)
                             continue
