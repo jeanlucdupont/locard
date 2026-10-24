@@ -16,11 +16,14 @@ def emit(**fields):
 
 
 class Observation:
-    def __init__(self, label, *, stream=None, clock=time.monotonic, interval=3):
+    def __init__(self, label, *, stream=None, clock=time.monotonic, interval=3, slow_after=10):
         self.label = label
         self.stream = sys.stdout if stream is None else stream
         self.clock = clock
         self.interval = interval
+        self.slow_after = slow_after
+        self.visible = False
+        self.last_snapshot = None
         self.started = self.last_progress = clock()
         self.fields = {}
         self.lock = threading.Lock()
@@ -46,25 +49,27 @@ class Observation:
             lines.append('  ' + key.replace('_', ' ') + ': ' + safe_text(str(value)))
         return '\n'.join(lines)
 
+    def refresh(self):
+        """Display escalation only; telemetry collection is always active."""
+        now = self.clock()
+        if now - self.started < self.slow_after:
+            return
+        try:
+            if not self.visible or now - self.last_snapshot >= 30:
+                print("\n" + self.render(), file=self.stream, flush=True)
+                self.last_snapshot = now
+            elif capable(self.stream):
+                replace_progress_line(self.render().replace('\n', ' | '), self.stream)
+            self.visible = True
+        except (OSError, ValueError):
+            pass
+
     def _display(self):
-        # Periodic snapshots retain full paths and cannot overwrite other output.
-        # Only the display thread touches the terminal; it never reads stdin/DB.
-        last_snapshot = self.clock()
         while not self.stop.wait(self.interval):
-            try:
-                if capable(self.stream):
-                    with self.lock:
-                        path = self.fields.get("current_path", "")
-                    replace_progress_line(safe_text(f"{self.label}: {int(self.clock()-self.started)}s | {path}"), self.stream)
-                if self.clock() - last_snapshot >= 30:
-                    print("\n" + self.render(), file=self.stream, flush=True)
-                    last_snapshot = self.clock()
-            except (OSError, ValueError):
-                return
+            self.refresh()
 
     def __enter__(self):
         self.token = CURRENT.set(self)
-        print(self.render(), file=self.stream, flush=True)
         self.thread = threading.Thread(target=self._display, daemon=True, name='Locard observation')
         self.thread.start()
         return self
@@ -73,4 +78,10 @@ class Observation:
         self.stop.set()
         self.thread.join()
         CURRENT.reset(self.token)
-        print(self.render(), file=self.stream, flush=True)
+        if self.visible:
+            try:
+                if capable(self.stream):
+                    replace_progress_line("", self.stream)
+                print(file=self.stream, flush=True)
+            except (OSError, ValueError):
+                pass

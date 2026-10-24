@@ -19,7 +19,8 @@ def test_scope_cleanup_and_path():
         emit(current_path=r'E:\Users\Example\NTUSER.DAT', entries_examined=3)
     assert CURRENT.get() is None
     assert not observer.thread.is_alive()
-    assert r'E:\Users\Example\NTUSER.DAT' in output.getvalue()
+    assert output.getvalue() == ''
+    assert r'E:\Users\Example\NTUSER.DAT' in observer.render()
     assert '%' not in output.getvalue()
 
 
@@ -41,3 +42,83 @@ def test_discovery_candidates_unchanged(tmp_path):
     assert len(inventory.candidates) == 1
     assert observer.fields['registry_candidates'] == 1
     assert observer.fields['entries_examined'] == 1
+
+
+def test_slow_display_threshold_and_snapshot_throttle(monkeypatch):
+    now = [0]
+    output = io.StringIO()
+    observer = Observation('Discovery', stream=output, clock=lambda: now[0], slow_after=5)
+    observer.update(current_path='example', entries_examined=12)
+    now[0] = 4
+    observer.refresh()
+    assert output.getvalue() == ''
+    now[0] = 5
+    observer.refresh()
+    first = output.getvalue()
+    assert 'example' in first and '12' in first
+    now[0] = 8
+    observer.refresh()
+    assert output.getvalue() == first
+    now[0] = 35
+    observer.refresh()
+    assert len(output.getvalue()) > len(first)
+
+
+def test_ingestion_threshold_preserves_telemetry():
+    now = [0]
+    output = io.StringIO()
+    observer = Observation('Ingest', stream=output, clock=lambda: now[0])
+    observer.update(worker_pid=123, stage_bytes=456)
+    now[0] = 9
+    observer.refresh()
+    assert output.getvalue() == ''
+    now[0] = 10
+    observer.refresh()
+    assert '123' in output.getvalue() and '456' in output.getvalue()
+
+
+def test_exception_grouping_preserves_input(capsys):
+    import copy
+    from forensic_assistant.interactive.setup_display import print_file_exceptions
+    from forensic_assistant.terminal import Palette
+    rows = [dict(path='NTUSER.DAT.LOG1', status='unsupported'),
+            dict(path='bad.hive', status='failed', inserted=0),
+            dict(path='partial.hive', status='partial', inserted=3)]
+    before = copy.deepcopy(rows)
+    print_file_exceptions('registry', rows, Palette())
+    text = capsys.readouterr().out
+    assert 'not replayed' in text and 'NTUSER.DAT.LOG1' not in text
+    assert 'bad.hive' in text and 'partial.hive' in text
+    assert 'no records retained' in text and '3 records' in text
+    assert rows == before
+
+
+def test_tty_refresh_and_cleanup(monkeypatch):
+    import forensic_assistant.ingest.observation as module
+    now = [0]
+    output = io.StringIO()
+    updates = []
+    monkeypatch.setattr(module, 'capable', lambda stream: True)
+    monkeypatch.setattr(module, 'replace_progress_line', lambda text, stream: updates.append(text))
+    with Observation('Ingest', stream=output, clock=lambda: now[0]) as observer:
+        observer.update(current_path='slow.pf', worker_pid=123)
+        now[0] = 10
+        observer.refresh()
+        first = output.getvalue()
+        now[0] = 13
+        observer.refresh()
+        assert output.getvalue() == first
+        assert 'slow.pf' in updates[-1] and '123' in updates[-1]
+    assert updates[-1] == ''
+    assert not observer.thread.is_alive()
+
+
+def test_exception_files_across_families(capsys):
+    from forensic_assistant.interactive.setup_display import print_file_exceptions
+    from forensic_assistant.terminal import Palette
+    for kind in ('evtx', 'prefetch', 'browser', 'mft'):
+        print_file_exceptions(kind, [dict(path=kind + '.bad', status='failed'),
+                                   dict(path=kind + '.partial', status='partial', inserted=5)], Palette())
+        text = capsys.readouterr().out
+        assert kind + '.bad' in text and kind + '.partial' in text
+        assert 'no records retained' in text and '5 records' in text

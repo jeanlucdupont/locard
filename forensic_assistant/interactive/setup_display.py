@@ -188,3 +188,20 @@ def simple_success(progress):
     """Only suppress detail when a single complete result has no exceptions."""
     return (progress.statuses == {'complete': 1} and progress.records > 0
             and not progress.duplicates and not progress.errors and not progress.limitations)
+
+
+def print_file_exceptions(kind, rows, palette):
+    """Presentation aggregation only; run records and parser counts are untouched."""
+    from forensic_assistant.artifacts.registry_logs import is_log
+    companions = [r for r in rows if kind == 'registry' and r['status'] == 'unsupported' and is_log(r['path'])]
+    if companions:
+        print(palette('forensic_note', f'  {len(companions)} Registry companion transaction files detected, not replayed. '
+                      'Recent uncommitted Registry changes may be missing.'))
+    for row in rows:
+        if row in companions:
+            continue
+        retained = row.get('inserted', 0) + row.get('duplicates', 0)
+        status = str(row['status'])
+        description = status + (f'; {retained:,} records retained/previously present' if retained else '; no records retained by this attempt')
+        print(palette('warning', '  Affected file: ') + safe(row['path']))
+        print('    ' + safe(description))

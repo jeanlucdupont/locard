@@ -220,7 +220,7 @@ def collect(shell, *, adding=False):
                 supplied = discovery.input_path(path('Mounted/extracted root or parent folder: '))
                 outside_evidence(target, [supplied])
                 access_guidance(read, palette)
-                with Observation('Discovering evidence'):
+                with Observation('Discovering evidence', slow_after=5):
                     candidates, notes = discovery.windows_roots(supplied)
                 if not candidates:
                     print(palette('warning', 'No accessible Windows root found within two directory levels; select a narrower root or use manual selection.'))
@@ -232,7 +232,7 @@ def collect(shell, *, adding=False):
                         print(f'  {n}. ' + safe(candidate))
                     root = candidates[int(choice(read, 'Windows root number: ', tuple(str(i) for i in range(1, len(candidates) + 1)))) - 1]
                 print('Windows root: ' + safe(root))
-                with Observation('Discovering evidence'):
+                with Observation('Discovering evidence', slow_after=5):
                     inventory = discovery.scan(root)
                 plan.browser_scanned = True
                 inventory.notes[:0] = notes
@@ -244,7 +244,7 @@ def collect(shell, *, adding=False):
                         break
                     source = discovery.input_path(path('Evidence file or folder: '))
                     outside_evidence(target, [source])
-                    with Observation('Discovering evidence'):
+                    with Observation('Discovering evidence', slow_after=5):
                         found = discovery.manual(source, kind)
                     plan.browser_scanned = plan.browser_scanned or kind == 'browser'
                     for item in found.candidates:
@@ -392,8 +392,11 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
         if not selected:
             continue
         progress = Progress()
+        exceptions = []
         def record(path, kind, result):
             progress(path, kind, result)
+            if result['status'] != 'complete' or result.get('errors') or result.get('limitation'):
+                exceptions.append(dict(path=str(path), **{k: result.get(k, 0) for k in ('status', 'inserted', 'duplicates', 'errors')}))
             if totals is not None:
                 totals(path, kind, result)
         meter = setup_display.FileProgress(kind, len(selected), palette)
@@ -408,13 +411,13 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
                     if kind == 'browser':
                         args.browser, args.profile = browser_options[item.path]
                     with closing(creation.open_existing(plan.target)) as db:
-                        print('Current artifact: ' + safe(item.path))
                         with Observation('Ingesting artifact') as observed:
                             observed.update(current_path=str(item.path), artifact_type=kind,
                                             file_index=processed, total_files=len(selected),
                                             total_records_stored=progress.records, parser_stage='starting')
                             results = v2_cli.ingest_sources(db, args, record)
                     if not results:
+                        exceptions.append(dict(path=str(item.path), status='failed: no ingestion result', inserted=0, duplicates=0))
                         progress.statuses['failed'] += 1
                         progress.errors += 1
                         progress.unsuccessful += 1
@@ -433,11 +436,13 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
                     if totals is not None:
                         totals.statuses['failed'] += 1
                         totals.errors += 1
+                    exceptions.append(dict(path=str(item.path), status=human_error(exc), inserted=0, duplicates=0))
                     session.record('SETUP_FILE', 'failure', path=str(item.path), **activity.error_data(exc))
                 meter.update(processed, progress.records)
         finally:
             # No background reader or progress worker survives cancellation.
             meter.close()
+        setup_display.print_file_exceptions(kind, exceptions, palette)
         outcomes[kind] = progress.outcome
         print('  ' + setup_display.category_line(kind, progress, palette))
         if not setup_display.simple_success(progress):

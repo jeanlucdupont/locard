@@ -2460,8 +2460,13 @@ artifact workers currently expose staging-file growth, not a live record count.
 Staging bytes are observational activity, not committed evidence or proof of parser
 completeness. A live worker alone never resets the last-observed-progress timer.
 
-TTY status refreshes every three seconds; full diagnostic snapshots appear every
-30 seconds and at completion. Paths are terminal-sanitized. Status is transient and
+Healthy ingestion uses compact category progress; fast discovery is quiet. Detailed
+discovery starts after about five seconds, and per-artifact diagnostics after about
+ten seconds. Slow-operation TTY status refreshes every three seconds, with full
+snapshots every 30 seconds. Completion returns to compact progress. Phase summaries
+identify affected files; expected Registry companion logs are grouped with the
+not-replayed limitation. Telemetry collection remains active even when hidden.
+Paths are terminal-sanitized. Status is transient and
 is not persisted as evidence. Existing parser timeouts, containment, cancellation,
 transactions, skip/retry behavior and mounted-volume MFT limitations are unchanged.
 There is no stall watchdog or new analyst decision menu in Phase 1. A lack of
