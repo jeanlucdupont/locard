@@ -28,9 +28,14 @@ def test_only_reviewed_secondary_indexes_omitted(tmp_path):
         'artifact_time', 'evidence_source', 'evidence_type',
         'mft_parent', 'object_path', 'object_basename',
     }
-    assert indexes(stage) == {n: sql for n, sql in indexes(normal).items() if n not in MFT_STAGE_QUERY_INDEXES}
-    assert list(normal.execute("SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name")) == list(
-        stage.execute("SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name"))
+    omitted = MFT_STAGE_QUERY_INDEXES | {'sqlite_autoindex_evidence_timestamps_1'}
+    assert indexes(stage) == {n: sql for n, sql in indexes(normal).items() if n not in omitted}
+    normal_tables = dict(normal.execute("SELECT name,sql FROM sqlite_master WHERE type='table'"))
+    stage_tables = dict(stage.execute("SELECT name,sql FROM sqlite_master WHERE type='table'"))
+    normal_tables['evidence_timestamps'] += ' WITHOUT ROWID'
+    assert stage_tables == normal_tables
+    assert list(normal.execute('PRAGMA table_info(evidence_timestamps)')) == list(stage.execute('PRAGMA table_info(evidence_timestamps)'))
+    assert list(normal.execute('PRAGMA foreign_key_list(evidence_timestamps)')) == list(stage.execute('PRAGMA foreign_key_list(evidence_timestamps)'))
     assert stage.execute('PRAGMA foreign_keys').fetchone()[0] == 1
     assert stage.execute('PRAGMA user_version').fetchone()[0] == normal.execute('PRAGMA user_version').fetchone()[0]
     for name in MFT_STAGE_QUERY_INDEXES:
@@ -140,3 +145,34 @@ def test_other_worker_families_keep_normal_schema(tmp_path, kind):
     assert indexes(db) == indexes(normal)
     db.close()
     normal.close()
+
+
+@pytest.mark.parametrize('private', [False, True])
+def test_timestamp_layout_preserves_observations_and_conflicts(tmp_path, private):
+    db = database.connect(tmp_path / 'timestamps.db', _mft_stage=private)
+    # A real parsed synthetic record supplies the referenced identity.
+    from forensic_assistant.database.artifacts import register
+    db.execute("INSERT INTO evidence_files VALUES ('hash',1,'fixed')")
+    register(db, dict(evidence_id='mft',source_type='mft',artifact_type='mft_record',
+                     file_sha256='hash',source_file='synthetic',locator_json='{}',
+                     warnings_json='[]',original_json='{}'))
+    rows = [
+        ('mft','attribute:56:Created','2020-01-01Z','same','FILETIME','SI','created',100,'valid'),
+        ('mft','attribute:56:Modified','2020-01-01Z','same','FILETIME','SI','modified',100,'valid'),
+        ('mft','attribute:168:Created','2020-01-01Z','same','FILETIME','FN','created',100,'valid'),
+        ('mft','attribute:280:Created',None,'0','FILETIME','FN','created',100,'zero'),
+    ]
+    db.executemany('INSERT INTO evidence_timestamps VALUES (?,?,?,?,?,?,?,?,?)', rows)
+    for row in rows:
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute('INSERT INTO evidence_timestamps VALUES (?,?,?,?,?,?,?,?,?)', row)
+        assert db.execute('INSERT INTO evidence_timestamps VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING', row).rowcount == 0
+    assert db.execute('SELECT count(*) FROM evidence_timestamps').fetchone()[0] == 4
+    assert sorted(tuple(r) for r in db.execute('SELECT * FROM evidence_timestamps')) == sorted(rows)
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute('INSERT INTO evidence_timestamps VALUES (?,?,?,?,?,?,?,?,?)', ('missing', *rows[0][1:]))
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute('INSERT INTO evidence_timestamps VALUES (?,?,?,?,?,?,?,?,?)', ('mft', None, *rows[0][2:]))
+    plan = ' '.join(r[3] for r in db.execute('EXPLAIN QUERY PLAN SELECT * FROM evidence_timestamps WHERE evidence_id=? ORDER BY slot', ('mft',)))
+    assert 'SEARCH' in plan and 'TEMP B-TREE' not in plan
+    db.close()

@@ -18,6 +18,8 @@ def initialize_tables(db, *, _mft_stage=False):
         for statement in statements:
             if any(statement.startswith(f'CREATE INDEX {name} ') for name in omitted):
                 continue
+            if _mft_stage and statement.startswith('CREATE TABLE evidence_timestamps '):
+                statement += ' WITHOUT ROWID'
             db.execute(statement)
     db.execute('PRAGMA user_version=5')
 

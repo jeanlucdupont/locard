@@ -128,7 +128,12 @@ def test_real_parser_publication_order_does_not_change_semantics(tmp_path, monke
     for reverse in (False, True):
         case = connect(':memory:')
         def runner(kind, path, sha, stage, options, timeout):
-            result = worker.run(kind, path, sha, stage, options)
+            with monkeypatch.context() as patch:
+                if not reverse:
+                    # Compare the old rowid stage to the private WITHOUT ROWID
+                    # layout as well as reversing physical publication order.
+                    patch.setattr(worker, 'connect', lambda path, **kw: database.connect(path))
+                result = worker.run(kind, path, sha, stage, options)
             if reverse:
                 c = sqlite3.connect(stage)
                 rows = c.execute('SELECT * FROM evidence_timestamps').fetchall()
