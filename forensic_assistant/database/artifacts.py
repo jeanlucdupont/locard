@@ -80,6 +80,12 @@ def dump(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True)
 
 
+def artifact_counts(db):
+    """Count retained evidence by source type without calculating case status."""
+    return {r[0]: r[1] for r in db.execute(
+        'SELECT source_type,count(*) FROM evidence_records GROUP BY source_type')}
+
+
 def register(db, record):
     names = (
         'evidence_id',

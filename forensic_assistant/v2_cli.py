@@ -3,6 +3,7 @@ from forensic_assistant.command_catalog import COMMANDS
 from forensic_assistant.artifacts.ingest import ingest_artifact, discover
 from forensic_assistant.artifacts.context import bind_context
 from forensic_assistant.database.db import now
+from forensic_assistant.database.artifacts import artifact_counts
 from forensic_assistant.ingest.evtx import ingest_file, digest
 from forensic_assistant.retrieval.evidence import EvidenceQueries, get_evidence
 from forensic_assistant.retrieval.queries import Queries
@@ -191,7 +192,7 @@ def dispatch(db, args, *, presentation=None):
             schema_version=db.execute('PRAGMA user_version').fetchone()[0],
             source_coverage=coverage(db),
             browser_counts={r[0]: r[1] for r in db.execute("SELECT artifact_type,count(*) FROM evidence_records WHERE source_type='browser' GROUP BY artifact_type")},
-            artifact_counts={r[0]: r[1] for r in db.execute('SELECT source_type,count(*) FROM evidence_records GROUP BY source_type')},
+            artifact_counts=artifact_counts(db),
             timeline_observations=db.execute(timeline_cte(db) + 'SELECT count(*) FROM locard_times WHERE timestamp_utc IS NOT NULL').fetchone()[0]
         )
         if presentation is not None and not getattr(args, 'raw', False) and not args.json:

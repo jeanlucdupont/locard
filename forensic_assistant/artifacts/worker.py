@@ -24,6 +24,11 @@ def run(kind, path, sha, stage_path, options, reader=None):
     options = dict(options)
     source_path = options.pop('_source_path', path)
     db = connect(stage_path, _mft_stage=True) if kind == 'mft' else connect(stage_path)
+    if kind == 'mft':
+        from .mft_stage import MftStage, TRANSACTION_ENTRIES
+        writer = MftStage(db)
+    else:
+        writer = db
     inserted = errors = 0
     try:
         with db:
@@ -47,22 +52,34 @@ def run(kind, path, sha, stage_path, options, reader=None):
                     raise ValueError('Parser record limit reached')
                 if 'error' in pack:
                     error(pack['error'], pack.get('locator', {}))
+                    if kind == 'mft' and (index + 1) % TRANSACTION_ENTRIES == 0:
+                        writer.commit()
                     continue
                 if len(dump(pack).encode()) > MAX_RECORD_BYTES:
                     raise ValueError('Parsed record exceeds size limit')
-                inserted += store(db, pack, sha, source_path, PARSERS[kind], version)
-                if index % 500 == 0:
+                inserted += store(writer, pack, sha, source_path, PARSERS[kind], version)
+                if kind == 'mft':
+                    # Count completed parser outcomes, including errors and
+                    # duplicates, so error-heavy input cannot bypass commits.
+                    if (index + 1) % TRANSACTION_ENTRIES == 0:
+                        writer.commit()
+                elif index % 500 == 0:
                     db.commit()
         except Exception as exc:
+            if kind == 'mft' and writer.failed:
+                raise
             error(f'Iteration stopped: {type(exc).__name__}: {exc}', {})
         if kind == 'mft':
-            module.reconstruct_paths(db, sha)
+            writer.flush()
+            module.reconstruct_paths(writer, sha)
         if kind == 'registry':
             from forensic_assistant.artifacts.registry_extractors import extract_all
             extract_all(db)
-        db.commit()
+        writer.commit()
         return {'records': inserted, 'errors': errors, 'parser_version': version}
     finally:
+        if kind == 'mft':
+            writer.discard()
         db.close()
 
 

@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 
 from forensic_assistant.database.db import connect
+from forensic_assistant.database.artifacts import artifact_counts
 from forensic_assistant.interactive.case import validate, open_existing
 from forensic_assistant.retrieval.presentation import safe_text as safe
 from forensic_assistant.reporting.transcripts import safe_path
@@ -157,7 +158,7 @@ class IngestionProgress:
 def summarize(target, palette=None, *, wizard=False):
     palette = palette or Palette()
     with closing(open_existing(target)) as db:
-        counts = v2_cli.dispatch(db, SimpleNamespace(command='status'))[0]['artifact_counts']
+        counts = artifact_counts(db)
         runs = {r[0]: r[1] for r in db.execute('SELECT status,count(*) FROM ingestion_runs GROUP BY status')}
         totals = db.execute('SELECT coalesce(sum(inserted_count),0),coalesce(sum(duplicate_count),0),coalesce(sum(error_count),0) FROM ingestion_runs').fetchone()
         evidence_count = sum(counts.values())
