@@ -4,6 +4,7 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 import sqlite3
+import os
 from time import monotonic
 
 from forensic_assistant.terminal_activity import ActivityIndicator
@@ -382,6 +383,11 @@ class Progress:
 
 def execute(plan, session, palette, *, totals=None, basis="guided case setup", incremental=False):
     """Only selected individual files are dispatched; never rescan a whole root."""
+    # Temporary manual-acceptance override, consumed by this confirmed run only.
+    override = os.environ.pop('LOCARD_GUIDED_MFT_PARSER_TIMEOUT', None)
+    if override not in (None, '3600'):
+        raise ValueError('LOCARD_GUIDED_MFT_PARSER_TIMEOUT must be 3600 or unset')
+    mft_timeout = 3600 if override is not None else 300
     browser_options = {path: (product, profile) for path, product, profile in plan.browsers}
     with closing(creation.open_existing(plan.target)) as db:
         with activity.mutation('SOURCE_CREATE', basis=basis) as event, db:
@@ -412,7 +418,8 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
                     outside_evidence(plan.target, plan.roots)
                     source = discovery.candidate_path(item)
                     args = SimpleNamespace(command='ingest-' + kind, path=source, source=source_id,
-                                           hostname=None, user=None, volume_root=None, parser_timeout=300, record_size=None)
+                                           hostname=None, user=None, volume_root=None,
+                                           parser_timeout=mft_timeout if kind == 'mft' else 300, record_size=None)
                     if kind == 'browser':
                         args.browser, args.profile = browser_options[item.path]
                     with closing(creation.open_existing(plan.target)) as db:
