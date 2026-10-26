@@ -1862,12 +1862,15 @@ publication. No checkpoint or database repair is performed.
 
 ### Bounded-investigation consistency and grounding
 
-`investigate-ai` uses a private, SQLite-consistent temporary case snapshot for all
-read-only tools, then compares the live case's full content fingerprint at completion.
-Allow temporary disk space approximately equal to the case size. A changed live
-case stops final acceptance; an unconfirmed comparison explicitly limits results
-to the original snapshot. Copies are removed after worker cleanup; uncertain cleanup
-surfaces `CLEANUP_LIMITATION`. See [the consistency design and measurements](docs/v4.md#snapshot-validation-gate-and-chosen-consistency-model).
+`investigate-ai` holds one worker-owned read-only SQLite transaction for all tools.
+An initial read pins the evidence view; a separate connection compares the live
+case's full logical fingerprint at completion. No full database copy is created.
+Both full fingerprints remain potentially expensive on large cases. A changed
+live case stops final acceptance; an unconfirmed comparison limits results to the
+original read view. WAL writers can commit but checkpoints may retain pages;
+rollback-journal writers may be blocked until cleanup. Avoid concurrent ingestion.
+Unconfirmed worker cleanup records `CLEANUP_LIMITATION` separately from the
+primary termination and exits the session. See [the consistency design and measurements](docs/v4.md#snapshot-validation-gate-and-chosen-consistency-model).
 
 Missing or truncated fields must be retrieved through allowed tools before they
 can support factual findings. Grounding validation remains strict. When unsupported

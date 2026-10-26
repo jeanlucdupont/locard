@@ -221,7 +221,7 @@ def execute(db, name, args, config, model=None):
         if kwargs.get('hostname'):
             kwargs['strict_host'] = True
         found = search(db, config['index_root'], model, question,
-                       _snapshot_proof=config.get('_snapshot_proof'), **kwargs)
+                       _read_view_proof=config.get('_read_view_proof'), **kwargs)
         raw = {
             'records': [get_evidence(db, r['evidence_id']) for r in found['results']],
             'semantic_candidates': found['results'],
@@ -251,10 +251,10 @@ def initial(db, question, config, model=None):
     from forensic_assistant.semantic.hybrid import retrieve
     profile = config.get('_profile')
     searcher = None
-    if config.get('_snapshot_proof') is not None:
+    if config.get('_read_view_proof') is not None:
         from functools import partial
         from forensic_assistant.semantic.index import search
-        searcher = partial(search, _snapshot_proof=config['_snapshot_proof'])
+        searcher = partial(search, _read_view_proof=config['_read_view_proof'])
     with measure(profile, 'initial_retrieval'):
         plan, context = retrieve(
             Queries(db),

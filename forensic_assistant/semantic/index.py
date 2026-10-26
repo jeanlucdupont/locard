@@ -250,7 +250,7 @@ def eligible_ids(db, filters):
     return {r[0] for r in db.execute(sql, params)}
 
 
-def search(db, root, model, question, *, limit=20, _snapshot_proof=None, **filters):
+def search(db, root, model, question, *, limit=20, _snapshot_proof=None, _read_view_proof=None, **filters):
     import numpy as np
     try:
         import faiss
@@ -267,7 +267,12 @@ def search(db, root, model, question, *, limit=20, _snapshot_proof=None, **filte
     with snapshot(db):
         if db.execute('SELECT count(*) FROM evidence_records').fetchone()[0] != m['eligible']:
             raise ValueError('Semantic index is stale; rebuild explicitly')
-        if _snapshot_proof is not None:
+        if _read_view_proof is not None:
+            from forensic_assistant.investigation_ai.case import ReadViewFingerprint
+            if type(_read_view_proof) is not ReadViewFingerprint or _snapshot_proof is not None:
+                raise ValueError('Invalid investigation read view proof')
+            current_fingerprint = _read_view_proof.value(db)
+        elif _snapshot_proof is not None:
             from forensic_assistant.investigation_ai.snapshot import SnapshotFingerprint
             if type(_snapshot_proof) is not SnapshotFingerprint:
                 raise ValueError('Invalid private snapshot proof')

@@ -178,9 +178,14 @@ def build_parser(*, interactive=False):
 
 def main(argv=None):
     from forensic_assistant.ai import runtime, raw_diagnostics
+    from forensic_assistant.investigation_ai.lifecycle import CleanupError, cleanup_message
     raw_diagnostics.initialize()
     try:
-        return _main(argv)
+        try:
+            return _main(argv)
+        except CleanupError as exc:
+            print(cleanup_message(exc), file=sys.stderr)
+            return 1
     finally:
         try:
             runtime.close()

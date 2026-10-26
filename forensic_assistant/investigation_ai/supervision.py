@@ -58,7 +58,11 @@ def _child(connection, gate, request):
         connection.send_bytes(json.dumps({'kind': 'result', 'result': result}).encode())
     except BaseException as exc:
         # No raw exception text/evidence is sent to the audit channel.
-        connection.send_bytes(json.dumps({'kind': 'error', 'type': type(exc).__name__}).encode())
+        from .lifecycle import CleanupError
+        if isinstance(exc, CleanupError) and hasattr(exc, 'result'):
+            connection.send_bytes(json.dumps({'kind': 'cleanup_failure', 'result': exc.result}).encode())
+        else:
+            connection.send_bytes(json.dumps({'kind': 'error', 'type': type(exc).__name__}).encode())
     finally:
         raw_diagnostics.clear()
         connection.close()
@@ -119,7 +123,7 @@ def _recover(request, result):
 
 def _stop(process, job, deadline):
     if job:
-        job.close()
+        job.close_confirmed(seconds=max(0, deadline - time.monotonic()))
     elif process.is_alive():
         if os.name != 'nt':
             import signal
@@ -173,10 +177,10 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     process = context.Process(target=_child, args=(child, gate, request))
     messages = queue.Queue(maxsize=4)
     job = None
-    snapshot = None
     result = None
     reason = 'WORKER_START_FAILURE'
     startup_complete = False
+    child_cleanup_failed = False
     current_phase = 'preparing'
     request['config']['_debug_startup'] = LOG.isEnabledFor(logging.DEBUG)
     def receive():
@@ -187,9 +191,6 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         except (EOFError, OSError, ValueError, queue.Full):
             pass
     try:
-        from .snapshot import SnapshotDirectory
-        snapshot = SnapshotDirectory()
-        request['config']['_snapshot_dir'] = str(snapshot.path)
         spawn_started = time.perf_counter()
         process.start()
         LOG.debug("investigate-ai startup stage=supervisor_start elapsed=%.6fs", time.perf_counter()-spawn_started)
@@ -235,10 +236,16 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                 if clock.remaining() <= 0:
                     break
                 parent.send_bytes(json.dumps({'approved': bool(approved), 'wait_seconds': clock.analyst_wait-prior_wait}).encode())
+            elif message['kind'] == 'cleanup_failure':
+                result = message['result']
+                child_cleanup_failed = True
+                break
             elif message['kind'] == 'result':
                 result = message['result']
                 break
             else:
+                if message.get('type') == 'CleanupError':
+                    child_cleanup_failed = True
                 reason = ('AUDIT_FAILURE' if message.get('type') == 'AuditError' else
                           'TRANSCRIPT_FAILURE' if message.get('type') in ('OSError', 'PermissionError', 'FileExistsError') else 'WORKER_FAILURE')
                 break
@@ -263,11 +270,6 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                     process.join(timeout=max(0, min(cleanup_deadline - time.monotonic(), 1)))
         parent.close()
         child.close()
-        if snapshot is not None:
-            try:
-                snapshot.close()
-            except Exception:
-                cleaned = False
     if result is None:
         result = dict(investigation_id=identity, termination=reason, derived_data=True,
                       findings={}, evidence_fingerprint=None,
@@ -296,10 +298,11 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                         cleaned = cleaned and not recovery.is_alive()
                     except (OSError, RuntimeError):
                         cleaned = False
-    if not cleaned:
+    if not cleaned or child_cleanup_failed:
         from .lifecycle import CleanupError
-        error = CleanupError('CLEANUP_LIMITATION: cannot confirm investigation worker or private snapshot cleanup; exit the shell')
-        result['termination'] = 'CLEANUP_LIMITATION'
+        error = CleanupError('CLEANUP_LIMITATION: cannot confirm investigation worker cleanup; exit the shell')
+        result.setdefault('cleanup', {'status': 'CLEANUP_LIMITATION', 'stage': 'supervisor'})
+        LOG.error('investigate-ai cleanup=CLEANUP_LIMITATION stage=supervisor')
         error.result = result
         raise error
     result['metrics'].update(clock.metrics())

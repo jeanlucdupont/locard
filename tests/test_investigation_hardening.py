@@ -293,7 +293,8 @@ def test_cleanup_failure_cannot_return_to_shell(tmp_path, local_model, monkeypat
     with pytest.raises(CleanupError) as error:
         supervision.run(config(path), 'PowerShell', tmp_path / 'runs', dry_run=True,
                         client=LocalClient(f'http://127.0.0.1:{local_model.server_port}'))
-    assert error.value.result['termination'] == 'CLEANUP_LIMITATION'
+    assert error.value.result['termination'] == 'USER_SCOPE_REACHED'
+    assert error.value.result['cleanup']['status'] == 'CLEANUP_LIMITATION'
 
 
 def test_normalized_arguments_match_audited_hash(tmp_path):

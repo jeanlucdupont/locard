@@ -12,6 +12,7 @@ from . import contracts
 from .diagnostics import Profile, LOG
 from .rejection import diagnostic
 from .runner import ForensicWorker, WorkerError
+from .lifecycle import CleanupError
 from .state import State, Budget, encoded
 from .transcript import Transcript, digest
 from forensic_assistant import activity
@@ -32,13 +33,7 @@ def validate_anchor(state, name, args, rules):
         raise ValueError('Successful logon anchor required')
 
 def run(config, question, transcript_root, **kwargs):
-    # Production supervision supplies its own parent-owned directory so a killed
-    # controller cannot strand the copy. Direct callers own it for this call.
-    if config.get('_snapshot_dir'):
-        return _run(config, question, transcript_root, **kwargs)
-    from .snapshot import SnapshotDirectory
-    with SnapshotDirectory() as snapshot:
-        return _run({**config, '_snapshot_dir': str(snapshot.path)}, question, transcript_root, **kwargs)
+    return _run({**config, '_transaction_view': True}, question, transcript_root, **kwargs)
 
 
 def _run(
@@ -83,6 +78,7 @@ def _run(
             },
             investigation_id=investigation_id
         )
+    pending_cleanup = None
     worker = None
     fingerprint = None
     integrity = {}
@@ -459,33 +455,43 @@ def _run(
     except ValueError as exc:
         termination = 'BUDGET_EXHAUSTED' if 'BUDGET' in str(exc) or 'budget' in str(exc) else 'INSUFFICIENT_EVIDENCE'
         state.limit(str(exc))
+    except CleanupError as exc:
+        pending_cleanup = exc
+        termination = ('STARTUP_TIMEOUT' if not startup_complete and getattr(exc, 'primary', None) == 'TOOL_TIMEOUT' else
+                       'BUDGET_EXHAUSTED' if getattr(exc, 'primary', None) in ('TOOL_TIMEOUT', 'WAL_PRESSURE') else 'TOOL_FAILURE')
     except KeyboardInterrupt:
         termination = 'USER_SCOPE_REACHED'
         state.limit('Investigator interrupted the run')
     finally:
+        cleanup_failure = pending_cleanup
         status('finalizing')
         if worker is not None:
             # Even partial results are checked when time remains. A timeout leaves
             # explicitly historical F0 findings, never an assertion about current state.
-            if fingerprint is not None and final is None and remaining() > 0 and termination not in (
+            if fingerprint is not None and cleanup_failure is None and final is None and remaining() > 0 and termination not in (
                 'EVIDENCE_STATE_CHANGED',
                 'SEMANTIC_STATE_CHANGED'
             ):
                 try:
                     call('check')
+                except CleanupError as exc:
+                    cleanup_failure = exc
                 except WorkerError as exc:
                     state.limit('Final state check failed: ' + str(exc))
                     if 'EVIDENCE_STATE_CHANGED' in str(exc):
                         integrity['live_case_matches'] = False
                     if 'STATE_CHANGED' in str(exc):
                         termination = str(exc)
-            worker.close()
+            try:
+                worker.close()
+            except (OSError, RuntimeError):
+                cleanup_failure = CleanupError('CLEANUP_LIMITATION: worker cleanup unconfirmed')
     if integrity.get('live_case_matches') is False:
         integrity_status, integrity_reason = 'changed', 'Live case fingerprint changed'
     elif integrity_status == 'not_checked' and fingerprint is not None:
         integrity_reason = 'Execution budget exhausted before final verification' if remaining() <= 0 else 'Final verification not attempted under termination policy'
-    if integrity.get('strategy') == 'private_sqlite_snapshot' and integrity.get('live_case_matches') is not True:
-        state.limit('Live-case equality was not confirmed at completion; findings cover only the original private snapshot.')
+    if integrity.get('strategy') in ('private_sqlite_snapshot', 'read_only_transaction') and integrity.get('live_case_matches') is not True:
+        state.limit('Live-case equality was not confirmed at completion; findings cover only the original consistent read view.')
     if final is None:
         final = state.partial()
     if remaining() <= 0:
@@ -521,11 +527,18 @@ def _run(
             'Hypotheses and model-proposed unknowns are unverified.'
         ] + state.limits
     }
+    if cleanup_failure is not None:
+        result['cleanup'] = {'status': 'CLEANUP_LIMITATION', 'stage': 'forensic_worker'}
+        cleanup_failure.result = result
     LOG.debug('investigate-ai termination investigation=%s termination=%s steps=%d requested_calls=%d accepted_calls=%d rejected_requests=%d',
               transcript.id, termination, state.steps, state.requested, state.accepted, state.rejected)
-    with profile.phase('finalization'):
-        transcript.finish(result)
-        audit('INVESTIGATION_TERMINATION', termination=termination)
+    try:
+        with profile.phase('finalization'):
+            transcript.finish(result)
+            audit('INVESTIGATION_TERMINATION', termination=termination)
+    finally:
+        if cleanup_failure is not None:
+            raise cleanup_failure from None
     result['metrics'].update(clock.metrics())
     result['metrics']['phase_seconds'] = {k: v for k, v in profile.totals.items() if k not in ('model_request', 'validation')}
     result['transcript_bytes'] = transcript.size

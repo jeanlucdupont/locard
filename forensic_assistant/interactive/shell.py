@@ -227,7 +227,12 @@ class Shell:
                 return False
 
     def run(self):
-        result = self._run_session()
+        from forensic_assistant.investigation_ai.lifecycle import CleanupError, cleanup_message
+        try:
+            result = self._run_session()
+        except CleanupError as exc:
+            print(cleanup_message(exc))
+            return 1
         if self.audit:
             self.audit.end()
         # Render only after normal return and command cleanup, never on a fatal error.

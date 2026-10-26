@@ -106,11 +106,15 @@ def test_fingerprint_changes_during_model_wait_stop_completion(tmp_path):
         db = sqlite3.connect(path)
         db.execute("UPDATE events SET command_line='changed while model waits'")
         db.commit()
-        assert db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone() == (0, 0, 0)
+        # The investigation pins its original read view until cleanup.
+        db.execute('PRAGMA busy_timeout=50')
+        assert db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()[0] == 1
         db.close()
         return final(messages)
     result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted([change]))
     assert result['termination'] == 'EVIDENCE_STATE_CHANGED'
+    with sqlite3.connect(path) as db:
+        assert db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone() == (0, 0, 0)
 
 def test_retrieved_or_selected_is_not_exposed_and_fields_cannot_be_invented():
     state = State(Budget())

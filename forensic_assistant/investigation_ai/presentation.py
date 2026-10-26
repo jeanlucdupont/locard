@@ -200,7 +200,7 @@ def render(result, palette=None, *, dry_run=False):
                       '', palette('secondary_text', 'No operation was executed.')])
     termination = result.get('termination')
     integrity = (result.get('metrics') or {}).get('integrity') or {}
-    integrity_warning = (integrity.get('strategy') == 'private_sqlite_snapshot'
+    integrity_warning = (integrity.get('strategy') in ('private_sqlite_snapshot', 'read_only_transaction')
                          and integrity.get('live_case_matches') is not True)
     integrity_termination = termination in ('EVIDENCE_STATE_CHANGED', 'INTEGRITY_FAILURE', 'INTEGRITY_UNCONFIRMED')
     if not supported:
@@ -223,6 +223,7 @@ def render(result, palette=None, *, dry_run=False):
                 'not_checked':'Final integrity verification was not performed: ' + safe((result.get('metrics') or {}).get('integrity_reason', 'reason unavailable'))}.get(integrity_state, text)
         lines.extend(['', palette('warning', 'Warning'), '  ' + palette('warning', text)])
         caveats = [v for v in caveats if not str(v).startswith('Final state check failed: ')
+                   and v != 'Live-case equality was not confirmed at completion; findings cover only the original consistent read view.'
                    and v != 'Live-case equality was not confirmed at completion; findings cover only the original private snapshot.'
                    and v != 'EVIDENCE_STATE_CHANGED']
     caveats = [v for v in caveats if str(v).rstrip('.') != 'No supported conclusion was produced']

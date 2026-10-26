@@ -68,8 +68,8 @@ def test_exact_fingerprint_and_reduced_count(tmp_path, dry_run, count):
     assert result['evidence_fingerprint'] == expected
     metrics = result['metrics']['integrity']
     assert metrics['fingerprint_count'] == count
-    assert metrics['live_case_matches'] is True and metrics['snapshot_bytes'] > 0
-    assert metrics['snapshot_seconds'] > 0 and metrics['fingerprint_seconds'] > 0
+    assert metrics['live_case_matches'] is True and metrics['strategy'] == 'read_only_transaction'
+    assert metrics['transaction_seconds'] > 0 and metrics['fingerprint_seconds'] > 0
     assert result['state']['accepted_calls'] == int(not dry_run)
     manifest, _ = load(tmp_path / 'runs', result['investigation_id'])
     assert manifest['evidence_fingerprint'] == expected
@@ -92,7 +92,7 @@ def test_mutation_uses_original_snapshot_then_fails_closed(tmp_path):
     _, events = load(tmp_path / 'runs', result['investigation_id'])
     records = next(e['data']['response']['result']['records'] for e in events if e['kind'] == 'result')
     assert records[0]['process_name'] == 'powershell.exe'
-    assert any('only the original private snapshot' in s for s in result['limitations'])
+    assert any('only the original consistent read view' in s for s in result['limitations'])
     assert not any(e['kind'] == 'validated_final' for e in events)
 
 
@@ -160,7 +160,7 @@ def test_timeout_and_collision_cleanup(tmp_path):
 
 def blocked_snapshot_child(connection, gate, request):
     gate.wait()
-    (Path(request['config']['_snapshot_dir']) / 'snapshot.db').write_bytes(b'synthetic interrupted copy')
+    assert '_snapshot_dir' not in request['config']
     time.sleep(30)
 
 
@@ -184,7 +184,7 @@ def test_failure_and_cancel_delete_copy(tmp_path, monkeypatch, failure):
     monkeypatch.setattr(snapshot.tempfile, 'gettempdir', lambda: str(tmp_path))
     class Client:
         def complete(self, *args):
-            assert list(tmp_path.glob('locard-investigation-*/snapshot.db'))
+            assert not list(tmp_path.glob('locard-investigation-*/snapshot.db'))
             raise failure
     result = controller.run(config(path), 'PowerShell', tmp_path / 'runs', client=Client())
     assert result['termination'] in ('USER_SCOPE_REACHED', 'MODEL_FAILURE')
@@ -194,11 +194,12 @@ def test_failure_and_cancel_delete_copy(tmp_path, monkeypatch, failure):
 def test_cleanup_failure_surfaces(tmp_path, monkeypatch):
     path = tmp_path / 'case.db'
     make_case(path)
-    original = snapshot.SnapshotDirectory.close
+    from forensic_assistant.investigation_ai.runner import ForensicWorker
+    original = ForensicWorker.close
     def failed(self):
         original(self)
         raise CleanupError('CLEANUP_LIMITATION: synthetic cleanup uncertainty')
-    monkeypatch.setattr(snapshot.SnapshotDirectory, 'close', failed)
+    monkeypatch.setattr(ForensicWorker, 'close', failed)
     with pytest.raises(CleanupError, match='CLEANUP_LIMITATION'):
         controller.run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted([final]), dry_run=True)
 

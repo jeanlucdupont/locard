@@ -5,6 +5,11 @@
 /*
 !/.gitignore
 !/README.md
+!/docs/
+/docs/*
+!/docs/USER_GUIDE.md
+!/docs/PYTHON_FILE_MAP.md
+!/docs/LLM_HANDOVER.md
 !/VALIDATION.md
 !/LICENSE
 !/THIRD_PARTY_NOTICES.md

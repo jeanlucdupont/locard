@@ -1,4 +1,4 @@
-"""Parent-side bounded worker lifecycle; no persistent SQLite read locks."""
+"""Parent-side bounded worker lifecycle; worker-owned consistent read view."""
 from collections import deque
 import json
 import os
@@ -28,8 +28,10 @@ class ForensicWorker:
             if config.get(key):
                 config[key] = str(Path(config[key]).resolve())
         self.case_path = Path(config['case_path']).resolve(strict=True)
+        self._wal_baseline = self._wal_size() if config.get('_transaction_view') else None
         self.process = None
         self.messages = queue.Queue(maxsize=2)
+        self._reader_stop = threading.Event()
         self.diagnostics = deque(maxlen=4)
         self.job = None
         self.worker_pid = None
@@ -47,28 +49,42 @@ class ForensicWorker:
             stderr=subprocess.PIPE,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         )
+        def deliver(value):
+            while not self._reader_stop.is_set():
+                try:
+                    self.messages.put(value, timeout=.05)
+                    return True
+                except queue.Full:
+                    pass
+            return False
         def output():
             try:
                 while line := self.process.stdout.readline(512 * 1024 + 2):
                     if len(line) > 512 * 1024 + 1:
-                        self.messages.put({'error': 'Worker output size violation'})
+                        deliver({'error': 'Worker output size violation'})
                         return
-                    self.messages.put(json.loads(line))
+                    if not deliver(json.loads(line)):
+                        return
             except Exception:
-                self.messages.put({'error': 'Malformed worker output'})
+                deliver({'error': 'Malformed worker output'})
         def diagnostic():
             while chunk := self.process.stderr.read(1024):
                 self.diagnostics.append(chunk)
-        threading.Thread(target=output, daemon=True).start()
-        threading.Thread(target=diagnostic, daemon=True).start()
+        self._readers = [threading.Thread(target=target, daemon=True) for target in (output, diagnostic)]
+        for reader in self._readers:
+            reader.start()
         try:
             ready = self._exchange({'config': {**config, 'case_path': str(self.case_path)}},
                                    max(0, self.deadline - time.monotonic()) if self.deadline != float('inf') else 10)
             self.worker_pid = ready['worker_pid']
             from .lifecycle import WorkerJob
             self.job = WorkerJob(self.worker_pid)
-        except BaseException:
-            self.close()
+        except BaseException as primary:
+            try:
+                self.close()
+            except RuntimeError as cleanup:
+                cleanup.primary = 'TOOL_TIMEOUT' if isinstance(primary, WorkerError) and primary.timed_out else 'WORKER_START_FAILURE'
+                raise
             raise
 
     def _wal_size(self):
@@ -83,7 +99,7 @@ class ForensicWorker:
         raw = json.dumps(message, ensure_ascii=True).encode() + b'\n'
         if len(raw) > 512 * 1024:
             raise WorkerError('Worker input size violation')
-        baseline = self._wal_size()
+        baseline = self._wal_size() if self._wal_baseline is None else self._wal_baseline
         deadline = min(self.deadline, time.monotonic() + seconds)
         try:
             self.process.stdin.write(raw)
@@ -116,11 +132,19 @@ class ForensicWorker:
                                       integrity=result.get('integrity'))
                 return result
         except (BrokenPipeError, OSError) as exc:
-            self.close()
+            try:
+                self.close()
+            except RuntimeError as cleanup:
+                cleanup.primary = 'TOOL_FAILURE'
+                raise
             raise WorkerError('Worker communication failed') from exc
         except WorkerError as exc:
             if str(exc) in ('TOOL_TIMEOUT', 'WAL_PRESSURE'):
-                self.close()
+                try:
+                    self.close()
+                except RuntimeError as cleanup:
+                    cleanup.primary = 'TOOL_TIMEOUT' if exc.timed_out else 'WAL_PRESSURE'
+                    raise
             raise
 
     def call(self, operation, arguments=None, *, fingerprint=None, known_ids=(), seconds=45, question=None):
@@ -138,19 +162,40 @@ class ForensicWorker:
         )
 
     def close(self):
+        from .lifecycle import CleanupError
+        failed = False
+        if self.process and self.process.poll() is None:
+            try:
+                # EOF ends the serve loop and closes the pinned transaction.
+                self.process.stdin.close()
+                self.process.wait(timeout=.25)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         if self.job:
-            self.job.close()
-            self.job = None
+            job, self.job = self.job, None
+            try:
+                job.close_confirmed(seconds=1)
+            except (OSError, RuntimeError):
+                failed = True
         if self.process:
-            if self.process.poll() is None:
-                self.process.kill()
-            self.process.wait(timeout=5)
+            try:
+                if self.process.poll() is None:
+                    self.process.kill()
+                self.process.wait(timeout=1)
+            except (OSError, subprocess.TimeoutExpired):
+                failed = True
+            self._reader_stop.set()
             for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
                 if stream:
                     try:
                         stream.close()
                     except OSError:
                         pass
+        for reader in self._readers:
+            reader.join(timeout=.2)
+            failed = failed or reader.is_alive()
+        if failed:
+            raise CleanupError('CLEANUP_LIMITATION: investigation worker cleanup unconfirmed')
 
     def __enter__(self):
         return self

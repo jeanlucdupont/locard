@@ -81,3 +81,44 @@ class WorkerJob:
             closed = self.kernel.CloseHandle(handle)
             if not terminated or not closed:
                 raise CleanupError('Cannot confirm worker job cleanup')
+
+
+    def close_confirmed(self, seconds=1.0):
+        """Investigation-only bounded wait for every Windows job member to exit."""
+        if not self.handle:
+            return
+        import ctypes
+        import time
+        from ctypes import wintypes as w
+        class Accounting(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_int64) for name in ('user', 'kernel', 'period_user', 'period_kernel')] + [
+                (name, w.DWORD) for name in ('faults', 'total', 'active', 'terminated')]
+        self.kernel.QueryInformationJobObject.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD, w.LPVOID]
+        handle, self.handle = self.handle, None
+        confirmed = False
+        try:
+            if self.kernel.TerminateJobObject(handle, 1):
+                deadline = time.monotonic() + max(0, seconds)
+                while True:
+                    info = Accounting()
+                    if not self.kernel.QueryInformationJobObject(handle, 1, ctypes.byref(info), ctypes.sizeof(info), None):
+                        break
+                    if info.active == 0:
+                        confirmed = True
+                        break
+                    if time.monotonic() >= deadline:
+                        break
+                    time.sleep(.01)
+        finally:
+            closed = self.kernel.CloseHandle(handle)
+        if not confirmed or not closed:
+            raise CleanupError('Cannot confirm investigation job cleanup')
+
+
+def cleanup_message(error):
+    """No arbitrary exception text at the terminal boundary."""
+    from .presentation import LABELS
+    reason = getattr(error, 'result', {}).get('termination')
+    primary = LABELS.get(reason, 'Investigation stopped')
+    return (primary + '\nCLEANUP_LIMITATION: worker cleanup could not be confirmed. '
+            'Locard is exiting; no further commands will run.')
