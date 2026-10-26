@@ -25,8 +25,7 @@ def serve():
     model = None
     index_identity = None
     view = None
-    baseline = None
-    integrity = dict(strategy='read_only_transaction', fingerprint_count=0,
+    integrity = dict(strategy='sqlite_read_view_v1', fingerprint_count=0,
                      fingerprint_seconds=0.0, transaction_seconds=0.0,
                      live_case_matches=None)
     try:
@@ -86,26 +85,19 @@ def serve():
                         raise ValueError('Investigation read view not initialized')
                     if view is not None:
                         view.check_identity()
-                    pinned = view is not None and op != 'check'
+                    pinned = view is not None
                     db = view.db if pinned else open_readonly(config['case_path'], profile.deadline, profile)
                     if pinned:
                         view.deadline(profile.deadline)
+                        view.profile = profile
                     try:
                         with (contextlib.nullcontext(db) if pinned else read_transaction(db)):
-                            if view is None or op in ('initial', 'check'):
+                            if view is None:
+                                # Legacy replay still verifies exact content on every operation.
                                 with profile.phase('fingerprint'):
-                                    hashed_at = time.perf_counter()
                                     observed = fingerprint(db)
-                                    integrity['fingerprint_count'] += 1
-                                    integrity['fingerprint_seconds'] += time.perf_counter() - hashed_at
-                                if op == 'initial':
-                                    baseline = observed
-                                    if view is not None:
-                                        view.fingerprint = observed
-                                if view is not None and op == 'check':
-                                    integrity['live_case_matches'] = observed == baseline
                             else:
-                                observed = baseline
+                                observed = None  # Never put a session token in a digest field.
                             if request.get('expected_fingerprint') not in (None, observed):
                                 raise ValueError('EVIDENCE_STATE_CHANGED')
                             tool_config = config
@@ -127,9 +119,12 @@ def serve():
                                     )
                             if view is not None:
                                 view.check_identity()
+                                integrity.update(fingerprint_count=view.fingerprint_count,
+                                                 fingerprint_seconds=view.fingerprint_seconds)
                             response = {
                                 'result': result,
                                 'fingerprint': observed,
+                                **({'evidence_state': view.state} if view is not None else {}),
                                 'schema': db.execute('PRAGMA user_version').fetchone()[0],
                                 'semantic_identity': index_identity,
                                 'model_identity': model.identity if model else None,

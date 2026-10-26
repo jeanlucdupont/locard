@@ -9,6 +9,8 @@ import time
 
 def replay(config, root, investigation_id):
     manifest, events = load(root, investigation_id)
+    if manifest.get('evidence_state') is not None:
+        raise ValueError('Exact-state replay requires a fingerprint-backed transcript; this read-view transcript can only be inspected.')
     current = implementation()
     if manifest.get('schema') not in (3, 4, 5) or any(manifest.get(k) != v for k, v in current.items() if k != 'schema'):
         raise ValueError('Transcript implementation/policy/schema is incompatible; inspect without replay')

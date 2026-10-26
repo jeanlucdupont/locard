@@ -2,7 +2,7 @@ import json
 import sqlite3
 import pytest
 from forensic_assistant.cli import main
-from forensic_assistant.investigation_ai.controller import run
+from legacy_investigation import run
 from forensic_assistant.investigation_ai.replay import replay
 from forensic_assistant.investigation_ai.transcript import load
 from test_v4_controller import Scripted, tool, final
@@ -42,9 +42,10 @@ def test_cli_never_uses_write_opener(tmp_path, monkeypatch, capsys):
     assert result['termination'] == 'ANSWER_SUPPORTED'
     assert main(['--db', str(path), 'ai-history', 'show', result['investigation_id'], '--explain']) == 0
     reviewed = json.loads(capsys.readouterr().out)
-    assert reviewed['events'] and reviewed['current_case_status']['matches_recorded_fingerprint'] is True
-    assert main(['--db', str(path), 'ai-history', 'replay', result['investigation_id'], '--no-semantic']) == 0
-    assert json.loads(capsys.readouterr().out)['termination'] == 'REPLAY_MATCH'
+    assert reviewed['events'] and reviewed['current_case_status']['matches_recorded_fingerprint'] is None
+    assert 'no whole-case digest' in reviewed['current_case_status']['reason']
+    assert main(['--db', str(path), 'ai-history', 'replay', result['investigation_id'], '--no-semantic']) == 2
+    assert 'fingerprint-backed transcript' in capsys.readouterr().err
 
 def test_missing_database_never_created_and_noninteractive_approval_rejected(tmp_path, capsys):
     path = tmp_path / 'absent.db'

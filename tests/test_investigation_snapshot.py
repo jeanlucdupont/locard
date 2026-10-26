@@ -53,8 +53,8 @@ def test_wal_copy_is_one_transaction_and_releases_reader(tmp_path):
         writer.close()
 
 
-@pytest.mark.parametrize('dry_run,count', [(True, 2), (False, 2)])
-def test_exact_fingerprint_and_reduced_count(tmp_path, dry_run, count):
+@pytest.mark.parametrize('dry_run,count', [(True, 0), (False, 0)])
+def test_transaction_identity_without_content_digest(tmp_path, dry_run, count):
     path = tmp_path / 'case.db'
     event = make_case(path)
     db = open_readonly(path)
@@ -65,17 +65,19 @@ def test_exact_fingerprint_and_reduced_count(tmp_path, dry_run, count):
     result = controller.run(config(path), 'PowerShell', tmp_path / 'runs',
         client=Scripted([tool('show_evidence', {'evidence_id': event['id']})]),
         budget=Budget(steps=1), dry_run=dry_run, approval=lambda *_: True)
-    assert result['evidence_fingerprint'] == expected
+    assert result['evidence_fingerprint'] is None
+    assert result['evidence_state']['contract'] == 'sqlite-read-view-v1'
     metrics = result['metrics']['integrity']
     assert metrics['fingerprint_count'] == count
-    assert metrics['live_case_matches'] is True and metrics['strategy'] == 'read_only_transaction'
-    assert metrics['transaction_seconds'] > 0 and metrics['fingerprint_seconds'] > 0
+    assert metrics['live_case_matches'] is None and metrics['strategy'] == 'sqlite_read_view_v1'
+    assert metrics['transaction_seconds'] > 0 and metrics['fingerprint_seconds'] == 0
     assert result['state']['accepted_calls'] == int(not dry_run)
     manifest, _ = load(tmp_path / 'runs', result['investigation_id'])
-    assert manifest['evidence_fingerprint'] == expected
+    assert manifest['evidence_fingerprint'] is None
+    assert manifest['evidence_state'] == result['evidence_state']
 
 
-def test_mutation_uses_original_snapshot_then_fails_closed(tmp_path):
+def test_mutation_stays_in_original_view_without_claiming_live_equality(tmp_path):
     path = tmp_path / 'case.db'
     event = make_case(path)
     def mutate(messages):
@@ -86,13 +88,13 @@ def test_mutation_uses_original_snapshot_then_fails_closed(tmp_path):
         return tool('show_evidence', {'evidence_id': event['id']})
     result = controller.run(config(path), 'PowerShell', tmp_path / 'runs',
         client=Scripted([mutate]), budget=Budget(steps=1), approval=lambda *_: True)
-    assert result['termination'] == 'EVIDENCE_STATE_CHANGED'
-    assert result['metrics']['integrity']['live_case_matches'] is False
-    assert result['metrics']['integrity']['fingerprint_count'] == 2
+    assert result['termination'] == 'BUDGET_EXHAUSTED'
+    assert result['metrics']['integrity']['live_case_matches'] is None
+    assert result['metrics']['integrity']['fingerprint_count'] == 0
     _, events = load(tmp_path / 'runs', result['investigation_id'])
     records = next(e['data']['response']['result']['records'] for e in events if e['kind'] == 'result')
     assert records[0]['process_name'] == 'powershell.exe'
-    assert any('only the original consistent read view' in s for s in result['limitations'])
+    assert any('only the pinned investigation read view' in s for s in result['limitations'])
     assert not any(e['kind'] == 'validated_final' for e in events)
 
 
@@ -107,8 +109,8 @@ def test_no_cross_investigation_or_case_cache(tmp_path):
         db.commit(); db.close()
         result = controller.run(config(path), 'PowerShell', tmp_path / 'runs',
             client=Scripted([final]), dry_run=True)
-        values.append(result['evidence_fingerprint'])
-        assert result['metrics']['integrity']['fingerprint_count'] == 2
+        values.append(result['evidence_state']['view_id'])
+        assert result['metrics']['integrity']['fingerprint_count'] == 0
     assert len(set(values)) == 3
 
 

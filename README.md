@@ -1863,14 +1863,21 @@ publication. No checkpoint or database repair is performed.
 ### Bounded-investigation consistency and grounding
 
 `investigate-ai` holds one worker-owned read-only SQLite transaction for all tools.
-An initial read pins the evidence view; a separate connection compares the live
-case's full logical fingerprint at completion. No full database copy is created.
-Both full fingerprints remain potentially expensive on large cases. A changed
-live case stops final acceptance; an unconfirmed comparison limits results to the
-original read view. WAL writers can commit but checkpoints may retain pages;
-rollback-journal writers may be blocked until cleanup. Avoid concurrent ingestion.
-Unconfirmed worker cleanup records `CLEANUP_LIMITATION` separately from the
-primary termination and exits the session. See [the consistency design and measurements](docs/v4.md#snapshot-validation-gate-and-chosen-consistency-model).
+An initial read pins the evidence view; completion checks the transaction and case
+file identity. Normal deterministic investigation no longer hashes the whole case
+at startup or completion. This guarantees a consistent view, **not cryptographic
+equality with the live case**. Later committed changes are outside that view.
+Semantic retrieval, when used, still requires exact full-case index-freshness
+verification and may remain expensive. WAL can retain pages; rollback-journal
+writers may be blocked until cleanup. Avoid concurrent ingestion.
+
+New `sqlite-read-view-v1` transcripts retain their hash chain and grounded evidence,
+but have no whole-case digest. They can be inspected with `ai-history show`; exact
+state replay and fingerprint-backed report import reject them explicitly. Existing
+fingerprint-backed reports/transcripts retain their original validation contracts.
+Use explicit evidence selection for a newly grounded report; this does not certify
+the previous investigation's whole-case state. Cleanup uncertainty remains fatal
+and separate from the primary termination. See [identity and compatibility details](docs/investigation_read_view_contract.md).
 
 Missing or truncated fields must be retrieved through allowed tools before they
 can support factual findings. Grounding validation remains strict. When unsupported

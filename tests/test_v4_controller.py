@@ -99,7 +99,7 @@ def test_dry_run_has_one_model_request_no_iterative_execution(tmp_path):
     assert result['termination'] == 'USER_SCOPE_REACHED' and result['state']['accepted_calls'] == 0
     assert len(client.calls) == 1
 
-def test_fingerprint_changes_during_model_wait_stop_completion(tmp_path):
+def test_concurrent_changes_do_not_change_disclosed_view(tmp_path):
     path = tmp_path / 'case.db'
     make_case(path)
     def change(messages):
@@ -112,7 +112,10 @@ def test_fingerprint_changes_during_model_wait_stop_completion(tmp_path):
         db.close()
         return final(messages)
     result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted([change]))
-    assert result['termination'] == 'EVIDENCE_STATE_CHANGED'
+    assert result['termination'] == 'ANSWER_SUPPORTED'
+    assert result['evidence_fingerprint'] is None
+    assert result['metrics']['integrity']['live_case_matches'] is None
+    assert any('live-case content equality was not verified' in s for s in result['limitations'])
     with sqlite3.connect(path) as db:
         assert db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone() == (0, 0, 0)
 

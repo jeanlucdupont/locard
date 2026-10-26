@@ -7,7 +7,7 @@ from forensic_assistant.reporting.bundle import generate, inspect, validate
 from forensic_assistant.reporting.collect import build, ReportWorker
 from forensic_assistant.reporting.model import canonical, digest, claim, graph
 from forensic_assistant.reporting.render import render, markdown
-from forensic_assistant.investigation_ai.controller import run
+from legacy_investigation import run
 from test_v4_worker import make_case, config
 from test_v4_controller import Scripted, final, tool
 

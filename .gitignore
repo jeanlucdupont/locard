@@ -197,3 +197,6 @@ report-bundles/
 !/poc/mft_acquire.py
 !/poc/test_mft_acquire.py
 !/poc/README.md
+
+# Implementation contract documentation; never case data.
+!/docs/investigation_read_view_contract.md

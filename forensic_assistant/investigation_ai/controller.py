@@ -14,7 +14,7 @@ from .rejection import diagnostic
 from .runner import ForensicWorker, WorkerError
 from .lifecycle import CleanupError
 from .state import State, Budget, encoded
-from .transcript import Transcript, digest
+from .transcript import Transcript, digest, validate_evidence_state
 from forensic_assistant import activity
 
 def validate_anchor(state, name, args, rules):
@@ -81,9 +81,10 @@ def _run(
     pending_cleanup = None
     worker = None
     fingerprint = None
+    evidence_state = None
     integrity = {}
     integrity_status = 'not_checked'
-    integrity_reason = 'No baseline fingerprint available'
+    integrity_reason = 'No investigation baseline available'
     integrity_elapsed = 0.0
     failed_lookup = {}
     final = None
@@ -114,7 +115,7 @@ def _run(
     def remaining():
         return clock.remaining()
     def call(name, args=None):
-        nonlocal fingerprint, tool_time, integrity, timeout_cause, integrity_status, integrity_reason, integrity_elapsed
+        nonlocal fingerprint, evidence_state, tool_time, integrity, timeout_cause, integrity_status, integrity_reason, integrity_elapsed
         if remaining() <= 0:
             raise WorkerError('INVESTIGATION_TIMEOUT')
         checked_at = time.monotonic()
@@ -122,16 +123,16 @@ def _run(
             integrity_status, integrity_reason = 'check_failed', 'Final verification did not complete'
         try:
             if name == 'check':
-                status('final_fingerprint')
+                status('view_validation' if evidence_state is not None else 'final_fingerprint')
             if isinstance(worker, ForensicWorker):
                 worker.deadline = clock.deadline
-            with profile.phase('final_fingerprint' if name == 'check' else 'initial_operation' if name == 'initial' else 'tool'):
+            with profile.phase(('view_validation' if evidence_state is not None else 'final_fingerprint') if name == 'check' else 'initial_operation' if name == 'initial' else 'tool'):
                 response = worker.call(
                     name,
                     args,
                     fingerprint=fingerprint,
                     known_ids=state.exposed,
-                    # Full-case startup and completion hashes share the global deadline.
+                    # Startup and completion checks share the global deadline.
                     seconds=remaining() if name in ('initial', 'check') else min(budget.tool_seconds, remaining()),
                     question=question
                 )
@@ -139,7 +140,7 @@ def _run(
             if name == 'check':
                 integrity_elapsed += time.monotonic()-checked_at
                 integrity_status = 'changed' if 'EVIDENCE_STATE_CHANGED' in str(exc) else 'check_timed_out' if exc.timed_out or 'TIMEOUT' in str(exc) else 'check_failed'
-                integrity_reason = {'changed':'Live case fingerprint changed', 'check_timed_out':'Final verification exceeded its deadline', 'check_failed':'Final verification worker could not complete the check'}[integrity_status]
+                integrity_reason = {'changed':'Case identity or content validation failed', 'check_timed_out':'Final verification exceeded its deadline', 'check_failed':'Final verification worker could not complete the check'}[integrity_status]
             if exc.timed_out or 'TIMEOUT' in str(exc):
                 timeout_cause = 'final_integrity_timeout' if name == 'check' else 'execution_budget_exhausted' if remaining() <= 0 else 'tool_timeout'
             if exc.integrity is not None:
@@ -149,6 +150,14 @@ def _run(
             integrity = response['integrity']
         if response.get('database_changes') != 0 or response.get('schema') not in (3, 4, 5):
             raise WorkerError('Evidence read-only/schema validation failed')
+        observed_state = response.get('evidence_state')
+        if observed_state is not None:
+            validate_evidence_state(observed_state)
+            if response.get('fingerprint') is not None or (evidence_state is not None and observed_state != evidence_state):
+                raise WorkerError('EVIDENCE_STATE_CHANGED')
+            evidence_state = observed_state
+        elif evidence_state is not None or isinstance(worker, ForensicWorker):
+            raise WorkerError('Investigation read-view identity missing')
         if fingerprint is not None and response['fingerprint'] != fingerprint:
             raise WorkerError('EVIDENCE_STATE_CHANGED')
         if name != 'check':
@@ -157,7 +166,8 @@ def _run(
             except ValueError as exc:
                 raise WorkerError(str(exc)) from exc
         if name == 'check':
-            integrity_status, integrity_reason = 'matched', 'Live case fingerprint matched'
+            integrity_status, integrity_reason = (('view_validated', 'Pinned read view and file identity checked; live content equality not verified')
+                                                   if evidence_state is not None else ('matched', 'Live case fingerprint matched'))
             integrity_elapsed += time.monotonic()-checked_at
         fingerprint = response['fingerprint']
         tool_time += response['elapsed_seconds']
@@ -171,6 +181,7 @@ def _run(
         transcript.manifest.update(
             schema=initial['schema'],
             evidence_fingerprint=fingerprint,
+            **({'evidence_state': evidence_state} if evidence_state is not None else {}),
             semantic_identity=initial.get('semantic_identity'),
             embedding_identity=initial.get('model_identity')
         )
@@ -441,13 +452,13 @@ def _run(
     except WorkerError as exc:
         reason = str(exc)
         if 'EVIDENCE_STATE_CHANGED' in reason:
-            integrity['live_case_matches'] = False
+            integrity['identity_matches' if evidence_state is not None else 'live_case_matches'] = False
         termination = ('EVIDENCE_STATE_CHANGED' if 'EVIDENCE_STATE_CHANGED' in reason else
                        'SEMANTIC_STATE_CHANGED' if 'SEMANTIC_STATE_CHANGED' in reason else
                        'BUDGET_EXHAUSTED' if any(s in reason for s in ('TIMEOUT', 'WAL_PRESSURE', 'byte budget')) else 'TOOL_FAILURE')
         if not startup_complete:
             termination = ('STARTUP_TIMEOUT' if getattr(exc, 'timed_out', False) or remaining() <= 0 else
-                           'FINGERPRINT_FAILURE' if getattr(exc, 'stage', None) == 'fingerprint' else
+                           'FINGERPRINT_FAILURE' if getattr(exc, 'stage', None) in ('fingerprint', 'semantic_fingerprint') else
                            'WORKER_START_FAILURE' if worker is None else 'INITIAL_RETRIEVAL_FAILURE')
             profile.send(getattr(exc, 'stage', None) or profile.current,
                          'timeout' if termination == 'STARTUP_TIMEOUT' else 'failure', time.perf_counter()-profile.started)
@@ -467,8 +478,8 @@ def _run(
         status('finalizing')
         if worker is not None:
             # Even partial results are checked when time remains. A timeout leaves
-            # explicitly historical F0 findings, never an assertion about current state.
-            if fingerprint is not None and cleanup_failure is None and final is None and remaining() > 0 and termination not in (
+            # explicitly historical findings, never an assertion about current state.
+            if (fingerprint is not None or evidence_state is not None) and cleanup_failure is None and final is None and remaining() > 0 and termination not in (
                 'EVIDENCE_STATE_CHANGED',
                 'SEMANTIC_STATE_CHANGED'
             ):
@@ -479,16 +490,18 @@ def _run(
                 except WorkerError as exc:
                     state.limit('Final state check failed: ' + str(exc))
                     if 'EVIDENCE_STATE_CHANGED' in str(exc):
-                        integrity['live_case_matches'] = False
+                        integrity['identity_matches' if evidence_state is not None else 'live_case_matches'] = False
                     if 'STATE_CHANGED' in str(exc):
                         termination = str(exc)
             try:
                 worker.close()
             except (OSError, RuntimeError):
                 cleanup_failure = CleanupError('CLEANUP_LIMITATION: worker cleanup unconfirmed')
-    if integrity.get('live_case_matches') is False:
+    if integrity.get('identity_matches') is False:
+        integrity_status, integrity_reason = 'identity_changed', 'Case file identity or read view changed'
+    elif integrity.get('live_case_matches') is False:
         integrity_status, integrity_reason = 'changed', 'Live case fingerprint changed'
-    elif integrity_status == 'not_checked' and fingerprint is not None:
+    elif integrity_status == 'not_checked' and (fingerprint is not None or evidence_state is not None):
         integrity_reason = 'Execution budget exhausted before final verification' if remaining() <= 0 else 'Final verification not attempted under termination policy'
     if integrity.get('strategy') in ('private_sqlite_snapshot', 'read_only_transaction') and integrity.get('live_case_matches') is not True:
         state.limit('Live-case equality was not confirmed at completion; findings cover only the original consistent read view.')
@@ -502,6 +515,7 @@ def _run(
         'termination': termination,
         'findings': final,
         'evidence_fingerprint': fingerprint,
+        **({'evidence_state': evidence_state} if evidence_state is not None else {}),
         'derived_data': True,
         'state': state.summary(),
         'dry_run_proposal': proposed_action,
@@ -522,7 +536,8 @@ def _run(
         },
         'limitations': [
             'Bounded investigation; absence of findings does not prove absence of activity.',
-            'Findings refer only to the recorded original evidence fingerprint; later case states are not covered.',
+            ('Findings cover only the pinned investigation read view; live-case content equality was not verified.'
+             if evidence_state is not None else 'Findings refer only to the recorded original evidence fingerprint; later case states are not covered.'),
             'ANSWER_SUPPORTED means validated disclosed structure, not scientific proof or model accuracy.',
             'Hypotheses and model-proposed unknowns are unverified.'
         ] + state.limits

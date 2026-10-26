@@ -95,9 +95,10 @@ def test_real_startup_diagnostics_are_content_free(tmp_path, caplog):
     with caplog.at_level(logging.DEBUG, logger='forensic_assistant.investigation_ai'):
         result = controller.run(config(path), 'PowerShell confidential question', tmp_path / 'runs',
                                 client=Scripted([final]), dry_run=True)
-    assert result['evidence_fingerprint'] and result['state']['accepted_calls'] == 0
+    assert result['evidence_fingerprint'] is None and result['state']['accepted_calls'] == 0
+    assert result['evidence_state']['contract'] == 'sqlite-read-view-v1'
     for phase in ('audit_init','transcript_init','worker_start','database_open','schema_validation',
-                  'fingerprint','initial_retrieval','inventory','source_hydration','exposure','pre_model'):
+                  'read_transaction','initial_retrieval','inventory','source_hydration','exposure','pre_model'):
         assert 'stage='+phase in caplog.text
     for secret in ('private-case', 'confidential question', 'powershell.exe', 'EVTX:'):
         assert secret not in caplog.text

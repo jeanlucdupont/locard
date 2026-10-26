@@ -79,12 +79,16 @@ def _dispatch(args):
         }
         result['implementation_matches'] = all(manifest.get(k) == v for k, v in implementation().items())
         from .runner import ForensicWorker
-        try:
-            with ForensicWorker({'case_path': args.db, 'semantic_enabled': False}) as worker:
-                current = worker.call('check', seconds=45)
-            result['current_case_status'] = {'matches_recorded_fingerprint': current['fingerprint'] == manifest.get('evidence_fingerprint')}
-        except (OSError, ValueError) as exc:
-            result['current_case_status'] = {'unavailable': str(exc)[:300]}
+        if manifest.get('evidence_state') is not None:
+            result['current_case_status'] = {'matches_recorded_fingerprint': None,
+                'reason': 'Read-view transcript has no whole-case digest; current content equality cannot be checked.'}
+        else:
+            try:
+                with ForensicWorker({'case_path': args.db, 'semantic_enabled': False}) as worker:
+                    current = worker.call('check', seconds=45)
+                result['current_case_status'] = {'matches_recorded_fingerprint': current['fingerprint'] == manifest.get('evidence_fingerprint')}
+            except (OSError, ValueError) as exc:
+                result['current_case_status'] = {'unavailable': str(exc)[:300]}
         if args.explain:
             result['events'] = events
         return result

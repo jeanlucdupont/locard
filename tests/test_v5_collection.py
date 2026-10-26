@@ -2,7 +2,7 @@ import sqlite3
 import pytest
 from forensic_assistant.reporting.collect import build, ReportWorker
 from forensic_assistant.reporting.model import Limits
-from forensic_assistant.investigation_ai.controller import run
+from legacy_investigation import run
 from test_v4_worker import make_case, config
 from test_v4_controller import Scripted, final
 

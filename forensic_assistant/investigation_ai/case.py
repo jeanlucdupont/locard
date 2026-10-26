@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 import time
+import uuid
 from .diagnostics import measure
 
 
@@ -75,6 +76,11 @@ class ReadView:
         self.db = None
         self.active = False
         self.fingerprint = None
+        self.profile = profile
+        self.fingerprint_count = 0
+        self.fingerprint_seconds = 0.0
+        self.state = {'contract': 'sqlite-read-view-v1', 'view_id': uuid.uuid4().hex,
+                      'file_identity': {'device': info.st_dev, 'inode': info.st_ino}}
         try:
             self.db = open_readonly(self.path, deadline, profile, _transaction_guard=self.guard)
             with measure(profile, 'read_transaction'):
@@ -89,6 +95,8 @@ class ReadView:
             raise
 
     def check_identity(self):
+        if not self.active or self.db is None or not self.db.in_transaction or not self.guard['locked']:
+            raise ValueError('EVIDENCE_STATE_CHANGED: read transaction unavailable')
         try:
             info = self.path.stat()
         except OSError:
@@ -112,10 +120,10 @@ class ReadView:
 
 
 class ReadViewFingerprint:
-    """Full logical hash valid only in this locked transaction/connection lifetime."""
+    """Lazy semantic freshness hash, valid only in this locked transaction lifetime."""
     def __init__(self, view):
         self.view = view
-        if not view.active or not view.db.in_transaction or view.fingerprint is None:
+        if not view.active or not view.db.in_transaction:
             raise ValueError('Read view fingerprint is unavailable')
 
     def value(self, db):
@@ -123,4 +131,11 @@ class ReadViewFingerprint:
         if not view.active or db is not view.db or not db.in_transaction or not view.guard['locked']:
             raise ValueError('Read view fingerprint is outside its transaction')
         view.check_identity()
+        if view.fingerprint is None:
+            from forensic_assistant.semantic.documents import fingerprint
+            started = time.perf_counter()
+            with measure(view.profile, 'semantic_fingerprint'):
+                view.fingerprint = fingerprint(db)
+            view.fingerprint_seconds += time.perf_counter() - started
+            view.fingerprint_count += 1
         return view.fingerprint

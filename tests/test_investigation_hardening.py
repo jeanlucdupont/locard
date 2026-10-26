@@ -204,6 +204,7 @@ def local_model():
             pass
         def do_POST(self):
             request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            self.server.requests += 1
             messages = request['messages']
             if self.server.delay:
                 time.sleep(self.server.delay)
@@ -222,6 +223,7 @@ def local_model():
                 pass
     server = Server(('127.0.0.1', 0), Handler)
     server.delay = 0
+    server.requests = 0
     server.propose = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -254,12 +256,16 @@ def test_production_supervisor_approval_roundtrip(tmp_path, local_model, approve
 def test_supervisor_model_deadline_and_bounded_cleanup(tmp_path, local_model):
     path = tmp_path / 'case.db'
     make_case(path)
-    local_model.delay = 5
+    # Allow Windows process startup, then prove the delayed model is actually reached.
+    # This is a test budget, not a production-default change.
+    local_model.delay = 10
+    seconds = 5
     started = time.monotonic()
     result = supervision.run(config(path), 'PowerShell', tmp_path / 'runs',
-                             budget=Budget(seconds=1), client=LocalClient(f'http://127.0.0.1:{local_model.server_port}'))
+                             budget=Budget(seconds=seconds), client=LocalClient(f'http://127.0.0.1:{local_model.server_port}'))
+    assert local_model.requests == 1
     assert result['termination'] == 'MAX_SECONDS', result
-    assert time.monotonic() - started < 1 + supervision.CLEANUP_SECONDS + 1
+    assert time.monotonic() - started < seconds + supervision.CLEANUP_SECONDS + 1
 
 
 def blocked_transcript_child(connection, gate, request):

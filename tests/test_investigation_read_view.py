@@ -233,4 +233,5 @@ def test_transaction_does_not_invoke_backup(tmp_path, monkeypatch):
     monkeypatch.setattr(snapshot, 'SnapshotDirectory', lambda: pytest.fail('physical copy directory'))
     monkeypatch.setattr(snapshot, 'create', lambda *a, **kw: pytest.fail('physical copy'))
     result = controller.run(config(path), 'PowerShell', tmp_path/'runs', client=Scripted([final]), dry_run=True)
-    assert result['metrics']['integrity']['live_case_matches'] is True
+    assert result['metrics']['integrity']['live_case_matches'] is None
+    assert result['metrics']['integrity_status'] == 'view_validated'

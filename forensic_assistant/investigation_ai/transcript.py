@@ -16,6 +16,21 @@ ID = re.compile(r'[a-f0-9]{32}\Z')
 def digest(value):
     return hashlib.sha256(encoded(value).encode()).hexdigest()
 
+READ_VIEW_CONTRACT = 'sqlite-read-view-v1'
+
+
+def validate_evidence_state(value):
+    """Run-local identity, explicitly NOT a digest or cross-run compatibility proof."""
+    if (type(value) is not dict or set(value) != {'contract', 'view_id', 'file_identity'}
+            or value['contract'] != READ_VIEW_CONTRACT
+            or type(value['view_id']) is not str or not ID.fullmatch(value['view_id'])
+            or type(value['file_identity']) is not dict
+            or set(value['file_identity']) != {'device', 'inode'}
+            or any(type(v) is not int or v < 0 for v in value['file_identity'].values())):
+        raise ValueError('Invalid investigation evidence-state contract')
+    return value
+
+
 def implementation():
     root = Path(__file__).resolve().parents[1]
     h = hashlib.sha256()
@@ -151,6 +166,16 @@ def load(root, investigation_id):
             raise ValueError('Invalid transcript manifest')
         if manifest.get('event_count') != len(events) or manifest.get('chain') != chain:
             raise ValueError('Transcript incomplete or modified')
+        if manifest.get('evidence_state') is not None:
+            state = validate_evidence_state(manifest['evidence_state'])
+            if manifest.get('evidence_fingerprint') is not None:
+                raise ValueError('Read-view transcript must not claim a case fingerprint')
+            for event in events:
+                data = event['data']
+                response = data if event['kind'] in ('initial', 'terminal') else data.get('response') if event['kind'] == 'result' else None
+                if response is not None and (response.get('evidence_state') != state or
+                        response.get('evidence_fingerprint' if event['kind']=='terminal' else 'fingerprint') is not None):
+                    raise ValueError('Transcript read-view identity mismatch')
         if (path / 'termination.json').exists():
             marker = json.loads(read('termination.json', 4096))
             if (not isinstance(marker, dict) or marker.get('investigation_id') != investigation_id
@@ -158,5 +183,5 @@ def load(root, investigation_id):
                 raise ValueError('Invalid interruption marker')
             manifest['interruption'] = marker
         return manifest, events
-    except (TypeError, KeyError, RecursionError, json.JSONDecodeError) as exc:
+    except (TypeError, KeyError, AttributeError, RecursionError, json.JSONDecodeError) as exc:
         raise ValueError('Malformed untrusted transcript') from exc

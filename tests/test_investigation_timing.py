@@ -151,7 +151,8 @@ def test_supervisor_wait_credit_reaches_worker_and_final_integrity(tmp_path,loca
     assert result['metrics']['elapsed_seconds']>11
     assert result['metrics']['execution_seconds']<10
     assert result['metrics']['analyst_wait_seconds']>=11
-    assert result['metrics']['integrity']['live_case_matches'] is True
+    assert result['metrics']['integrity']['live_case_matches'] is None
+    assert result['metrics']['integrity_status'] == 'view_validated'
     assert path.read_bytes()==original
     _,events=load(tmp_path/'runs',result['investigation_id'])
     terminal=next(event['data'] for event in events if event['kind']=='terminal')
