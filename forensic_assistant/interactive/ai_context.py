@@ -67,6 +67,7 @@ def _failure(exc, stage, deadline):
 def build_ai_case_context(path, case_name):
     """At most two independent snapshots; only recognized transient reads retry."""
     for attempt in (1, 2):
+        _LOG.debug('AI context attempt=%s budget_seconds=%s', attempt, BUILD_SECONDS)
         try:
             context = _build_ai_case_context(path, case_name, time.monotonic() + BUILD_SECONDS)
         except ContextBuildError as exc:
@@ -85,12 +86,16 @@ def build_ai_case_context(path, case_name):
 def _build_ai_case_context(path, case_name, deadline):
     stage = 'catalog'
     started = phase_started = time.perf_counter()
+    cpu_started = time.process_time()
 
     def phase(next_stage):
         nonlocal stage, phase_started
         now = time.perf_counter()
         _LOG.debug('AI context timing stage=%s seconds=%.6f', stage, now - phase_started)
         stage, phase_started = next_stage, now
+        remaining = deadline - time.monotonic()
+        _LOG.debug('AI context phase_start stage=%s remaining_seconds=%.6f deadline_exceeded=%s',
+                   stage, max(0.0, remaining), remaining <= 0)
 
     try:
         # Use the actual search parser's supported categories, including absent ones.
@@ -165,3 +170,5 @@ def _build_ai_case_context(path, case_name, deadline):
         finished = time.perf_counter()
         _LOG.debug('AI context timing stage=%s seconds=%.6f', stage, finished - phase_started)
         _LOG.debug('AI context timing stage=total seconds=%.6f', finished - started)
+        _LOG.debug('AI context completion cpu_seconds=%.6f deadline_exceeded=%s',
+                   time.process_time() - cpu_started, time.monotonic() >= deadline)
