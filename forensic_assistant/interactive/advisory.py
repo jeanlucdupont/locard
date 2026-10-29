@@ -93,6 +93,7 @@ INVENTORY_QUESTIONS = frozenset((
     'what evidence is available in this case',
     'what artifacts are available',
     'what artifacts are available in this case',
+    'what forensic artifact categories are available in this case',
     'what does this case contain',
     'what sources are loaded',
     'what sources are loaded in this case',

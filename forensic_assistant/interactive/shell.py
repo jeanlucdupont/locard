@@ -82,12 +82,14 @@ class Shell:
         from .advisory import advise, AdvisoryError, response_characters
         from forensic_assistant.terminal_activity import ActivityIndicator
         try:
-            from .ai_context import build_ai_case_context
+            from .ai_context import build_ai_case_context, ContextBuildError
             with ActivityIndicator('Preparing case context...', args=self) as indicator:
                 try:
                     context = build_ai_case_context(self.active, self.case_label)
+                except ContextBuildError as exc:
+                    raise AdvisoryError(str(exc)) from None
                 except (OSError, ValueError, sqlite3.Error):
-                    raise AdvisoryError('AI case context unavailable. No action was taken.') from None
+                    raise AdvisoryError('AI case context unavailable (controlled internal failure). No action was taken.') from None
                 from forensic_assistant.ai.backend import status_callback, waiting_label, restart_confirmation
                 indicator.update(waiting_label())
                 with status_callback(indicator.update), restart_confirmation(self.reader.read, indicator):

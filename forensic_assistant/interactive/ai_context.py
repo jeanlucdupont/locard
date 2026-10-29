@@ -21,7 +21,17 @@ _LOG = logging.getLogger(__name__)
 class ContextBuildError(ValueError):
     """Safe diagnostic fields only; never stores raw exceptions or case contents."""
     def __init__(self, reason, stage, code=None, retryable=False):
-        super().__init__('AI case context unavailable. No action was taken.')
+        label = {
+            'database_busy': 'database busy',
+            'read_deadline': 'context timeout',
+            'database_read': 'database access failure',
+            'filesystem_read': 'database access failure',
+            'case_validation': 'context validation failure',
+            'source_metadata': 'source metadata validation failure',
+            'context_size': 'context size limit',
+            'query_failure': 'database query failure',
+        }.get(reason, 'controlled internal failure')
+        super().__init__(f'AI case context unavailable ({label}). No action was taken.')
         self.reason, self.stage = reason, stage
         self.sqlite_code, self.retryable = code, retryable
 
@@ -44,6 +54,8 @@ def _failure(exc, stage, deadline):
         reason = 'filesystem_read'
     elif stage == 'catalog':
         reason = 'command_catalog'
+    elif stage == 'size_limit':
+        reason = 'context_size'
     elif isinstance(exc, (TypeError, ValueError)):
         reason = {'sources': 'source_metadata', 'validation': 'case_validation',
                   'open': 'case_validation'}.get(stage, 'context_build')
@@ -72,6 +84,14 @@ def build_ai_case_context(path, case_name):
 
 def _build_ai_case_context(path, case_name, deadline):
     stage = 'catalog'
+    started = phase_started = time.perf_counter()
+
+    def phase(next_stage):
+        nonlocal stage, phase_started
+        now = time.perf_counter()
+        _LOG.debug('AI context timing stage=%s seconds=%.6f', stage, now - phase_started)
+        stage, phase_started = next_stage, now
+
     try:
         # Use the actual search parser's supported categories, including absent ones.
         from forensic_assistant.cli import build_parser
@@ -91,7 +111,7 @@ def _build_ai_case_context(path, case_name, deadline):
             return value[:TEXT_LIMIT]
 
         capabilities = investigation_capabilities()
-        stage = 'metadata'
+        phase('metadata')
         context = {
             'case_name': bounded(case_name, 'case_name'),
             'locard_version': __version__,
@@ -101,12 +121,12 @@ def _build_ai_case_context(path, case_name, deadline):
             'count_basis': 'Retained normalized evidence records, not files or ingestion attempts',
             'manual_commands': capabilities,
         }
-        stage = 'open'
+        phase('open')
         with closing(open_readonly(path, deadline=deadline)) as db:
             with read_transaction(db):
-                stage = 'validation'
+                phase('validation')
                 check_structure(db)
-                stage = 'inventory'
+                phase('inventory')
                 for kind in categories:
                     context['artifact_inventory'][kind] = db.execute(
                         'SELECT count(*) FROM evidence_records WHERE source_type=?', (kind,)
@@ -116,7 +136,7 @@ def _build_ai_case_context(path, case_name, deadline):
                     'available': [kind for kind, count in counts.items() if count > 0],
                     'unavailable': [kind for kind, count in counts.items() if count == 0],
                 }
-                stage = 'sources'
+                phase('sources')
                 sources = {'total': None, 'shown': 0, 'truncated': False, 'items': [],
                            'basis': 'Analyst-supplied assertions, not verified findings'}
                 if db.execute('PRAGMA user_version').fetchone()[0] >= 4:
@@ -134,9 +154,14 @@ def _build_ai_case_context(path, case_name, deadline):
                     sources['unavailable_reason'] = 'Schema has no source assertion registry'
                 context['sources'] = sources
         context['truncated_fields'] = truncated_fields
-        stage = 'serialization'
+        phase('serialization')
         if len(json.dumps(context, ensure_ascii=True).encode('utf-8')) > MAX_CONTEXT_BYTES:
+            phase('size_limit')
             raise ValueError('Context exceeds size bound')
         return context
     except Exception as exc:
         raise _failure(exc, stage, deadline) from None
+    finally:
+        finished = time.perf_counter()
+        _LOG.debug('AI context timing stage=%s seconds=%.6f', stage, finished - phase_started)
+        _LOG.debug('AI context timing stage=total seconds=%.6f', finished - started)

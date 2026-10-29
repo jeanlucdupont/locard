@@ -67,7 +67,7 @@ def test_retry_at_most_once_then_fail_closed(tmp_path, monkeypatch, model, caplo
     with caplog.at_level(logging.DEBUG, logger=ctx.__name__), pytest.raises(AdvisoryError) as failure:
         shell.request_advice('private request')
     assert len(attempts) == 2 and not model
-    assert str(failure.value) == 'AI case context unavailable. No action was taken.'
+    assert str(failure.value) == 'AI case context unavailable (database busy). No action was taken.'
     assert 'attempt=2 retry=False' in caplog.text
     assert all(secret not in caplog.text for secret in ('SECRET', str(path), 'private request'))
     assert path.read_bytes() == before
@@ -159,10 +159,96 @@ def test_malformed_source_and_size_failure_are_private_and_not_retried(tmp_path,
     monkeypatch.setattr(ctx, 'MAX_CONTEXT_BYTES', 1)
     with pytest.raises(ctx.ContextBuildError) as error:
         ctx.build_ai_case_context(path, 'Test')
-    assert error.value.reason == 'context_build' and not error.value.retryable
+    assert error.value.reason == 'context_size' and not error.value.retryable
 
 
 def test_concrete_guidance_keeps_unknown_ids_and_timestamps_as_placeholders():
     assert 'prefer the exact catalog usage with that value' in SYSTEM
     assert 'Use placeholders when IDs or timestamps are unknown; never fabricate them' in SYSTEM
     assert 'examiner must run recommendations manually' in SYSTEM
+
+@pytest.mark.parametrize('reason,label', [
+    ('read_deadline', 'context timeout'),
+    ('case_validation', 'context validation failure'),
+    ('source_metadata', 'source metadata validation failure'),
+    ('context_size', 'context size limit'),
+    ('query_failure', 'database query failure'),
+    ('filesystem_read', 'database access failure'),
+    ('unexpected_exception', 'controlled internal failure'),
+])
+def test_shell_preserves_only_safe_context_category(tmp_path, monkeypatch, model, reason, label):
+    path = case(tmp_path)
+    shell = Shell(State(None), Input(), no_color=True)
+    shell.activate(path)
+    def fail(*args):
+        raise ctx.ContextBuildError(reason, 'inventory')
+    monkeypatch.setattr(ctx, 'build_ai_case_context', fail)
+    with pytest.raises(AdvisoryError) as error:
+        shell.request_advice('Explain Windows Prefetch files.')
+    assert str(error.value) == f'AI case context unavailable ({label}). No action was taken.'
+    assert not model
+    shell.audit.end('test')
+
+
+def test_large_metadata_inventory_is_independent_of_run_history(tmp_path, monkeypatch, caplog, model):
+    path = case(tmp_path)
+    with closing(connect(path, existing_only=True)) as db, db:
+        sid = sources.create(db, name='Synthetic source', hostname=None)
+        for i in range(614):
+            db.execute('INSERT INTO evidence_files VALUES (?,?,?)', (f'{i:064x}', 1, '2026-01-01'))
+        for i in range(682):
+            bid = f'batch-{i}'
+            status = ('complete', 'partial', 'failed', 'unsupported')[i % 4]
+            db.execute('INSERT INTO ingestion_batches VALUES (?,?,?,?,?,?,?)',
+                       (bid, sid, '2026-01-01', '2026-01-01', 'SECRET_PATH', 'test', status))
+            db.execute('INSERT INTO ingestion_runs(source_file,file_sha256,started_utc,status,batch_id) VALUES (?,?,?,?,?)',
+                       ('SECRET_PATH', f'{i % 614:064x}', '2026-01-01', status, bid))
+        db.execute("""WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<10000)
+            INSERT INTO evidence_records SELECT printf('SYNTHETIC:%d',x),
+            CASE x%5 WHEN 0 THEN 'evtx' WHEN 1 THEN 'mft' WHEN 2 THEN 'prefetch' WHEN 3 THEN 'registry' ELSE 'browser' END,
+            'synthetic',printf('%064x',x%614),'SECRET_PATH','{}',
+            CASE x%2 WHEN 0 THEN 'HOST_CONFLICT_A' ELSE 'HOST_CONFLICT_B' END,
+            NULL,'synthetic','1','1','[]','SECRET_RAW' FROM n""")
+    before = path.read_bytes()
+    queries = []
+    original = ctx.open_readonly
+    def traced(*args, **kwargs):
+        db = original(*args, **kwargs)
+        db.set_trace_callback(queries.append)
+        return db
+    monkeypatch.setattr(ctx, 'open_readonly', traced)
+    # Context must not accidentally introduce expensive source summaries/fingerprints.
+    def forbidden(*args, **kwargs):
+        pytest.fail('Context attempted unrelated evidence aggregation')
+    monkeypatch.setattr(sources, 'summary', forbidden)
+    monkeypatch.setattr('forensic_assistant.semantic.documents.fingerprint', forbidden)
+    with caplog.at_level(logging.DEBUG, logger=ctx.__name__):
+        context = ctx.build_ai_case_context(path, 'Synthetic')
+    assert context['artifact_inventory'] == dict.fromkeys(('evtx', 'mft', 'prefetch', 'registry', 'browser'), 2000)
+    assert context['sources']['items'][0]['hostname'] is None
+    encoded = json.dumps(context)
+    assert len(encoded.encode()) < ctx.MAX_CONTEXT_BYTES
+    assert not any(s in encoded + caplog.text for s in ('SECRET', 'HOST_CONFLICT', str(path)))
+    reads = [q for q in queries if 'FROM evidence_records' in q]
+    assert len(reads) == 5 and all(q.startswith('SELECT count(*)') for q in reads)
+    assert not any('JOIN' in q.upper() and 'EVIDENCE_RECORDS' in q.upper() for q in queries)
+    for stage in ('catalog', 'metadata', 'open', 'validation', 'inventory', 'sources', 'serialization', 'total'):
+        assert f'AI context timing stage={stage} seconds=' in caplog.text
+    from forensic_assistant.interactive import advisory
+    assert advisory.advise(context, 'What forensic artifact categories are available in this case?') is advisory.INVENTORY_ADVICE
+    assert not model
+    advisory.advise(context, 'Explain the forensic significance of Windows Prefetch files.')
+    assert len(model) == 1
+    assert json.loads(model[0][0][1]['content'])['case_context'] == context
+    assert path.read_bytes() == before
+
+
+def test_reported_inventory_phrase_keeps_conservative_routing():
+    from forensic_assistant.interactive.advisory import is_inventory_question
+    from forensic_assistant.interactive.ai_routing import needs_investigation
+    request = 'What forensic artifact categories are available in this case?'
+    assert is_inventory_question(request)
+    assert not needs_investigation(request)
+    assert not is_inventory_question(request + ' Explain suspicious activity.')
+    assert not needs_investigation('Explain the forensic significance of Windows Prefetch files.')
+    assert needs_investigation('Did coreupdater.exe execute after loot.zip was downloaded?')
