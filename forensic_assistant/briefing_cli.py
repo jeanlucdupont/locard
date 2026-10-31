@@ -11,8 +11,8 @@ def configure(commands):
     source=p.add_mutually_exclusive_group(required=True)
     source.add_argument('--file',dest='briefing_file',help='UTF-8 analyst narrative, at most 32 KiB; not evidence')
     source.add_argument('--text',dest='briefing_text',help='Short inline analyst narrative; use --file for paragraphs')
-    for action in ('wizard', 'show', 'edit', 'analyze'):
-        source.add_argument('--'+action, action='store_true', help='Use the selected case briefing: '+action)
+    for action in ('interview', 'wizard', 'show', 'edit', 'analyze'):
+        source.add_argument('--'+action, action='store_true', help=('Recommended adaptive briefing interview' if action=='interview' else 'Legacy questionnaire' if action=='wizard' else 'Use the selected case briefing: '+action))
     p.add_argument('--save',action='store_true',help='Explicitly import --file/--text as saved narrative after confirmation')
     p.add_argument('--deterministic',action='store_true',help='Analyze saved briefing without AI')
     p.add_argument('--revision',type=int,help='Required current briefing revision for saved-briefing discovery approval')
@@ -29,8 +29,8 @@ def configure(commands):
 
 
 def run(args):
-    saved = any(getattr(args, name, False) for name in ('wizard','show','edit','analyze'))
-    writing = args.wizard or args.edit or args.save
+    saved = any(getattr(args, name, False) for name in ('interview','wizard','show','edit','analyze'))
+    writing = args.interview or args.wizard or args.edit or args.save
     if args.deterministic and (not args.analyze or args.ai):
         raise ValueError('--deterministic requires --analyze and cannot combine with --ai.')
     if args.save and saved:
@@ -39,7 +39,7 @@ def run(args):
         raise ValueError('Edit the saved briefing instead of using transient --correction.')
     if args.save and args.briefing_correction:
         raise ValueError('Import narrative first; corrections are not silently persisted.')
-    if (args.wizard or args.edit or args.show or args.save) and (args.ai or args.discover or args.approve or args.artifact or args.start or args.end or args.revision):
+    if (args.interview or args.wizard or args.edit or args.show or args.save) and (args.ai or args.discover or args.approve or args.artifact or args.start or args.end or args.revision):
         raise ValueError('Briefing entry/display cannot combine with analysis or search options.')
     if args.revision is not None and not (args.analyze and args.discover):
         raise ValueError('--revision is for approved discovery of saved content.')
@@ -55,7 +55,10 @@ def run(args):
             import sys
             read=getattr(args,'_confirm',None) or (input if sys.stdin.isatty() else None)
             if read is None:raise ValueError('Briefing changes require interactive confirmation.')
-            if args.wizard:
+            if args.interview:
+                from forensic_assistant.briefing_interview import interview
+                value=interview(current,read)
+            elif args.wizard:
                 value=workflow.wizard(current,read)
             elif args.edit:
                 value=workflow.edit(store,current,read)
@@ -65,12 +68,18 @@ def run(args):
                 if value is None:return {'kind':'saved_briefing','message':'Briefing unchanged; save cancelled.'}
                 return workflow.view(store.save(value,revision['digest'] if revision else None))
         if args.analyze:
-            if revision is None:raise ValueError('No saved briefing. Use briefing --wizard or --edit first.')
+            if revision is None:raise ValueError('No saved briefing. Use briefing --interview or --edit first.')
             if args.discover and args.revision != revision['revision']:
                 raise ValueError('Review current briefing and explicitly supply its --revision for discovery.')
             packet=briefing.extract_inputs(sources(revision))
             packet['saved_briefing']={k:revision[k] for k in ('revision','digest','modified')}
             packet['saved_briefing']['source_identity']=store.identity
+            packet['interview_provenance']=revision['content'].get('interviews',[])
+            packet['analyst_source_relations']=[
+                {'source':f"interview:{session['id']}:{i+1}", 'purpose':session['purpose'],
+                 'question_context':turn['question'], 'question_origin':turn['question_origin'],
+                 'corrects':f"interview:{session['id']}:{turn['supersedes']}" if turn['supersedes'] is not None else None}
+                for session in packet['interview_provenance'] for i,turn in enumerate(session['turns']) if turn['answer_status']=='answered']
     if not args.analyze:
         if args.briefing_file:
             path=Path(args.briefing_file)
@@ -80,7 +89,7 @@ def run(args):
             text=raw.decode('utf-8')
         else:text=args.briefing_text
         if args.save:
-            value=content(current['answers'],text)
+            value=content(current['answers'],text,current.get('interviews'))
             print('Import replaces the narrative only; structured answers and earlier revisions remain.')
             print(safe(text))
             if workflow.read_answer(read,'Save imported narrative? [y/N]: ').casefold() not in ('y','yes'):

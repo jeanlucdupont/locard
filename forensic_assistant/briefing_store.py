@@ -24,15 +24,18 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=True, sort_keys=True).encode()).hexdigest()
 
 
-def content(answers, narrative):
+def content(answers, narrative, interviews=None):
     if type(answers) is not dict or set(answers) != set(FIELDS):
         raise ValueError('Invalid briefing answer fields.')
     values = [*answers.values(), narrative]
+    if interviews is not None:
+        from forensic_assistant.briefing_interview import validate_sessions
+        values.extend(validate_sessions(interviews))
     if any(type(v) is not str or '\0' in v for v in values):
         raise ValueError('Invalid briefing text.')
     if any(len(v.encode('utf-8')) > 32768 for v in values) or sum(len(v.encode('utf-8')) for v in values) > 40960:
         raise ValueError('Briefing content exceeds 32 KiB per field / 40 KiB total.')
-    return {'answers': dict(answers), 'narrative': narrative}
+    return {'answers': dict(answers), 'narrative': narrative, **({'interviews': interviews} if interviews is not None else {})}
 
 
 class Store:
@@ -83,7 +86,7 @@ class Store:
                     raise ValueError('Invalid briefing timestamp.')
                 datetime.fromisoformat(revision['modified'])
                 c = revision['content']
-                if type(c) is not dict or set(c) != {'answers','narrative'} or content(c['answers'], c['narrative']) != c or digest(c) != revision['digest']:
+                if type(c) is not dict or set(c) not in ({'answers','narrative'}, {'answers','narrative','interviews'}) or content(c['answers'], c['narrative'], c.get('interviews')) != c or digest(c) != revision['digest']:
                     raise ValueError('Briefing content digest mismatch.')
             if type(state['analyses']) is not list or len(state['analyses']) > 100:
                 raise ValueError('Invalid briefing analysis metadata.')
@@ -126,7 +129,7 @@ class Store:
             if os.path.exists(name):os.unlink(name)
 
     def save(self, value, expected):
-        content(value['answers'], value['narrative'])
+        content(value['answers'], value['narrative'], value.get('interviews'))
         # Optimistic revision check prevents overwriting changes made while editing.
         with self.locked():
             state = self.load() if self.path.exists() else None
@@ -151,5 +154,8 @@ class Store:
 
 def sources(revision):
     c = revision['content']
-    return {**{'field:'+key:value for key,value in c['answers'].items() if value.lstrip('\ufeff').strip()},
+    return {**{f"interview:{session['id']}:{i+1}":turn['answer']
+               for session in c.get('interviews',[]) for i,turn in enumerate(session['turns'])
+               if turn['answer_status']=='answered' and turn['answer'].lstrip('\ufeff').strip()},
+            **{'field:'+key:value for key,value in c['answers'].items() if value.lstrip('\ufeff').strip()},
             **({'narrative':c['narrative']} if c['narrative'].lstrip('\ufeff').strip() else {})}

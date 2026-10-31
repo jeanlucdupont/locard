@@ -14,7 +14,8 @@ def names():
         for key in ('oneOf','anyOf','allOf'):
             for v in node.get(key,[]):walk(v)
     from forensic_assistant.briefing import SCHEMA as BRIEFING_SCHEMA
-    walk(schema(list(TOOLS)));walk(SCHEMA);walk(BRIEFING_SCHEMA)
+    from forensic_assistant.briefing_interview import SCHEMA as INTERVIEW_SCHEMA
+    walk(schema(list(TOOLS)));walk(SCHEMA);walk(BRIEFING_SCHEMA);walk(INTERVIEW_SCHEMA)
     return result
 
 def path(parts):

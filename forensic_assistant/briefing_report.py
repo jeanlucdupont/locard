@@ -25,6 +25,7 @@ def render(packet):
             if source.startswith('field:'):
                 from forensic_assistant.briefing_store import FIELDS
                 lines.append('  '+FIELDS.get(source[6:], 'Analyst answer')+':')
+            elif source.startswith('interview:'):lines.append('  Analyst interview response:')
             elif source == 'narrative':lines.append('  Narrative:')
             elif source != 'original':lines.append('  Analyst correction:')
             paragraph(text)

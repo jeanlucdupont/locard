@@ -17,7 +17,7 @@ def read_answer(read, prompt):
 
 
 def view(state):
-    if not state:return {'kind':'saved_briefing','message':'No saved briefing. Use briefing --wizard or briefing --edit.'}
+    if not state:return {'kind':'saved_briefing','message':'No saved briefing. Use briefing --interview or briefing --edit.'}
     revision = state['revisions'][-1]
     last = state['analyses'][-1] if state['analyses'] else None
     return {'kind':'saved_briefing','revision':revision,'last_analysis':last,
@@ -34,6 +34,12 @@ def render(value):
             lines.extend([label,*('  '+safe(line) for line in text.splitlines())])
     narrative=revision['content']['narrative']
     if narrative:lines.extend(['Narrative',*('  '+safe(line) for line in narrative.splitlines())])
+    for session in revision['content'].get('interviews', []):
+        lines.append('Interview ('+safe(session['purpose'])+') — original analyst responses')
+        for number, turn in enumerate(session['turns'], 1):
+            lines.append('  '+str(number)+'. '+safe(turn['question_origin'])+' question: '+safe(turn['question']))
+            lines.append('     Analyst: '+safe(turn['answer']) if turn['answer_status']=='answered' else '     Skipped — unknown, not a negative assertion')
+            if turn['supersedes'] is not None:lines.append('     Correction to response '+str(turn['supersedes']))
     lines.extend(['', 'Briefing revision: '+str(revision['revision']), 'Modified: '+safe(revision['modified'])])
     last=value['last_analysis']
     lines.append('Last analysis: '+('revision '+str(last['revision'])+(' — outdated; reanalysis recommended' if value['analysis_stale'] else ' — current revision') if last else 'not recorded'))
@@ -42,14 +48,14 @@ def render(value):
 
 
 def wizard(current, read):
-    value=content(current['answers'],current['narrative'])
+    value=content(current['answers'],current['narrative'],current.get('interviews'))
     print('All answers optional. Enter retains an answer; /clear clears it; cancel exits. Multiple values may be separated with semicolons.')
     for key,label in FIELDS.items():
         if value['answers'][key]:print(label+': '+safe(value['answers'][key]))
         answer=read_answer(read,label+': ')
         if answer == '/clear':value['answers'][key]=''
         elif answer:value['answers'][key]=answer
-    content(value['answers'],value['narrative'])
+    content(value['answers'],value['narrative'],value.get('interviews'))
     print('Proposed briefing (unknown answers remain unspecified):')
     for key,label in FIELDS.items():
         if value['answers'][key]:print('  '+label+': '+safe(value['answers'][key]))
@@ -103,7 +109,7 @@ def edit(store, current, read):
                 if len(raw)>32768:raise ValueError('Editor content exceeds 32 KiB; briefing unchanged.')
                 try:text=raw.decode('utf-8')
                 except UnicodeError:raise ValueError('Editor must save UTF-8; briefing unchanged.') from None
-                return content(current['answers'],text)
+                return content(current['answers'],text,current.get('interviews'))
         finally:
             # Do not recursively delete editor-created files or follow redirects.
             try:

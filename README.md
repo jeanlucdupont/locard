@@ -2645,7 +2645,7 @@ are labels only, not approval tokens. No automatic investigation follows.
 
 ### Saved case briefing (6.76)
 
-With a case selected, use `briefing --wizard`, `briefing --show`,
+With a case selected, prefer `briefing --interview`, `briefing --show`,
 `briefing --edit`, and `briefing --analyze`. Outside the shell specify
 `locard --db PATH briefing ...`. Wizard questions are optional: Enter retains
 existing text, `/clear` clears it, and `cancel` abandons the workflow. Saving
@@ -2703,3 +2703,71 @@ private `.briefing-edit-*` directory beside the case and are removed on exit.
 If cleanup fails, Locard warns and leaves the private directory for review.
 Configure external editors to avoid cloud sync, external backups and recovery
 copies: their own persistence behavior is outside Locard's control.
+
+### AI-guided briefing interview (6.77)
+
+`briefing --interview` is the recommended interactive entry point. It starts with
+“Tell me what happened?” and uses the configured, disclosure-authorized provider
+to select one follow-up question at a time. It does not search evidence or execute
+tools. API-key presence alone is not consent. `--wizard` remains a legacy optional
+questionnaire; `--file`, `--text`, `--save`, `--edit` and `--analyze` remain available.
+
+During questioning: `done` goes to review, `skip` records an unknown answer, and
+`cancel` abandons changes. “I don't know” is retained verbatim. At review, use
+`save`, `correct`, `full`, or `cancel`. Corrections refer to an earlier answer;
+the original is retained. Only `save` commits a new revision. Existing cases offer
+supplement/revise; neither silently erases prior answers or narrative. A revision
+interview records corrective analyst statements rather than overwriting history.
+
+The model returns only a validated ask/finish decision, topic and short question.
+It receives bounded existing briefing context and the current conversation as
+untrusted data. Questions with repeated topics, near-duplicate wording, unsupported
+technical literals, or invalid structure are rejected. Deterministic extraction
+also identifies supplied dates, hosts and users to avoid requesting them again.
+Semantic relevance and recognition of all paraphrases remain model limitations.
+A finish proposal is advisory: the analyst may add more information or finish.
+
+Limits: five follow-up model decisions, eight conversational responses, twelve
+turns including review corrections, 4 KiB per response, 240 bytes per question,
+12,000 serialized request bytes and 4 KiB accepted response bytes. Requests use
+30-second backend timeouts; no further decision starts after 150 seconds of
+accumulated model-call time. Existing backend startup/compatibility checks and
+cleanup retain their own bounds and can add overhead; this is not a hard wall-clock
+interview deadline. Analyst thinking time is not timed out. The existing 1,024-token
+normal response limit remains; the 4,096-token OpenAI briefing-analysis limit and
+investigation-controller budgets are unchanged. Compatibility probes, when needed,
+remain part of the existing backend and are not additional interview decisions.
+
+On model failure or rejection, answers stay in memory for review/save; there are
+no automatic retries. No model requests occur after `done`, cancellation, or entry
+to review. If a model says finish, additional answers use a Locard-owned prompt
+without further AI requests. Unsaved interviews are not crash-recovery drafts.
+
+The existing private sidecar retains an optional `interviews` collection in each
+revision: session identity, creation time, supplement/revision purpose, and ordered
+turns separating question origin, question text, exact answer, skipped status and
+correction reference. Up to eight sessions fit in active content, subject to the
+existing 40 KiB aggregate and revision/storage caps. 6.77 reads older revisions;
+older readers may reject revisions containing the new optional collection.
+`--show` labels AI questions separately from analyst answers. `--edit` changes only
+the supplemental narrative; it preserves the original interview. Existing extraction
+and analysis use separate answer sources with source-local offsets. Questions are
+context, not analyst assertions or extraction inputs; correction links remain
+available to analysis and in the JSON packet. No AI summary is saved as analyst text.
+
+Example (illustrative, not a recorded model response):
+
+```text
+briefing --interview
+Locard: Tell me what happened?
+Analyst: A suspicious invoice download was followed by script activity. I want to establish whether the script executed.
+Locard: When did this happen?
+Analyst: October 20, 2026; timezone unknown.
+Locard: Would you like to add anything else? (done to review)
+Analyst: done
+[Original answers and deterministic leads are displayed for review.]
+Save, correct, full review, or cancel? [cancel]: save
+```
+
+No automatic analysis or discovery follows saving. Use `briefing --show`, then
+`briefing --analyze --deterministic` or `briefing --analyze` explicitly.
