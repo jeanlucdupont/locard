@@ -57,6 +57,14 @@ def render(packet):
         lines.extend(['','AI interpretations — unverified, not findings'])
         for item in packet['ai_items']:
             lines.append('  '+safe(item['category'])+' ('+safe(item['basis'])+'): '+safe(item['text']))
+            if 'source_ids' in item:
+                inventory={u['id']:u for u in packet.get('source_units',[])}
+                refs=[]
+                for identity in item['source_ids']:
+                    unit=inventory.get(identity)
+                    refs.append(identity+(f" ({unit['source']}:{unit['start']}..{unit['end']})" if unit else ''))
+                lines.append('    Sources (analyst text, not evidence): '+safe(', '.join(refs)))
+            if item.get('basis_note'):lines.append('    '+safe(item['basis_note']))
             lines.append('    Uncertainty: '+safe(item['uncertainty']))
     lines.extend(['','Limitations',*('  - '+safe(v) for v in packet['limitations']+packet['conflicts'])])
     if packet.get('ai_error'):

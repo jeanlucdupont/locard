@@ -46,14 +46,15 @@ class Fake:
 
 
 def item(text,**extra):
-    return dict(category='hypothesis',start=0,end=len(text),quote=text,text=text,
-                basis='explicit',entity_ids=[],uncertainty='Unverified analyst report',**extra)
+    return dict(category='hypothesis',source_ids=[b.extract(text)['source_units'][0]['id']],text=text,
+                basis='inferred',entity_ids=[],uncertainty='Unverified analyst report',**extra)
+
 
 
 def test_ai_structural_and_literal_validation_and_cloud_consent():
     text='Suspected baje.ps1 activity';p=b.extract(text)
     good=item(text);bad={**good,'text':'base.ps1 executed','basis':'inferred'}
-    forged={**good,'start':2};f=Fake({'items':[good,bad,forged]})
+    forged={**good,'source_ids':['S-forged']};f=Fake({'items':[good,bad,forged]})
     b.interpret(p,f)
     assert len(f.calls)==1 and len(p['ai_items'])==1 and len(p['conflicts'])==2
     assert 'UNTRUSTED' in f.calls[0][0][0]['content']
@@ -69,7 +70,7 @@ def test_invalid_ai_falls_back_and_adversarial_input_is_data():
     b.interpret(p,f)
     assert p['leads'] and not p['ai_items'] and any('failed' in s for s in p['limitations'])
     p=b.extract('x'*6000);f=Fake({'items':[]});b.interpret(p,f)
-    assert not f.calls and 'budget' in p['limitations'][-1]
+    assert len(f.calls)==1 and not p['ai_source_coverage']['complete'] and 'budget' in p['limitations'][-1]
 
 
 @pytest.mark.parametrize('artifact,source,key',[
@@ -203,8 +204,7 @@ def test_ai_cannot_invent_date_or_attach_unrelated_source_reference():
     text='Suspect baje.ps1. Another statement.';p=b.extract(text)
     lead=next(r for r in p['leads'] if r['type']=='filename')
     forged={**item(text),'text':'On 2027-01-01 baje.ps1 ran','basis':'inferred'}
-    unrelated={**item(text),'start':17,'end':len(text),'quote':text[17:],
-               'text':text[17:],'entity_ids':[lead['id']]}
+    unrelated={**item(text),'source_ids':['S-unrelated'],'entity_ids':[lead['id']]}
     b.interpret(p,Fake({'items':[forged,unrelated]}))
     assert not p['ai_items'] and len(p['conflicts'])==2
 

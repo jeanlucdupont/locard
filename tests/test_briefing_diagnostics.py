@@ -96,7 +96,7 @@ def test_missing_field_internal_failure_and_empty_success():
     b.interpret(p,Fake({'items':[]}));assert p['ai_status']=='success' and p['ai_items']==[]
 
 
-@pytest.mark.parametrize('change,rule', [({'start':1},'source_span'),({'entity_ids':['L-fake']},'unknown_entity'),
+@pytest.mark.parametrize('change,rule', [({'source_ids':['S-forged']},'unknown_source_id'),({'entity_ids':['L-fake']},'unknown_entity_id'),
     ({'basis':'inferred','text':'other.ps1 executed'},'unsupported_technical_literal')])
 def test_reconciliation_reason(change,rule):
     p=b.extract('baje.ps1');b.interpret(p,Fake({'items':[{**item('baje.ps1'),**change}]}))
@@ -110,5 +110,5 @@ def test_bom_preserved_valid_categories_and_partial_status():
     values=[{**item(text),'category':c,'entity_ids':[identity]} for c in ('reported_activity','hypothesis','question','ambiguity')]
     b.interpret(p,Fake({'items':values}))
     assert p['ai_status']=='success' and len(p['ai_items'])==4 and p['inputs']['original']==text
-    p=b.extract(text);b.interpret(p,Fake({'items':[values[0],{**values[1],'start':1}]}))
+    p=b.extract(text);b.interpret(p,Fake({'items':[values[0],{**values[1],'source_ids':['S-forged']}]}))
     assert p['ai_status']=='partial' and len(p['ai_items'])==1

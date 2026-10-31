@@ -2,6 +2,93 @@
 
 Implementation and synthetic validation: 2026-10-31. Manual acceptance pending.
 
+### Current interpretation contract: version 2 source references
+
+This section supersedes the legacy offset/quote model-response descriptions below.
+The outer briefing JSON remains `format: 1` with additive
+`interpretation_contract: 2`, `source_units` and coverage fields. Deterministic
+lead IDs are unchanged. New model responses must use `source_ids`; legacy
+`start/end/quote` responses are rejected, never reinterpreted. There is no saved
+briefing importer to migrate. Existing saved JSON and investigation transcripts
+remain untouched; the text renderer still handles older accepted items without
+inventing source-unit links. Case schemas and evidence IDs do not change.
+
+`briefing_sources.inventory` divides each input at blank-line paragraph boundaries,
+retaining the separators, and splits oversized paragraphs every 256 Unicode
+characters. Single LF/CRLF line breaks stay inside a multiline paragraph. No BOM,
+whitespace or newline normalization occurs. Up to 256 units are retained; total and
+retained counts and explicit incomplete-coverage notices identify omissions. The
+complete original and correction strings remain in `inputs` even when unit bounds
+are reached. Empty/whitespace-only input (including BOM plus whitespace) is rejected.
+
+Each unit contains `id`, `source`, `start`, exclusive `end`, exact `text` and global
+`order`. IDs have the form `S-O-<12-hex input digest>-001` or
+`S-C1-<digest>-001` for correction 1. Ordinals distinguish repeated passages;
+source prefixes distinguish corrections. Identical input and segmentation rules
+produce identical IDs. IDs are analysis-local, not stable across edits, not an
+integrity attestation, and never forensic evidence IDs. Always:
+`inputs[unit.source][unit.start:unit.end] == unit.text`.
+
+The model receives a deterministic prefix of whole source units and only entities
+covered by those units, rather than another copy of the entire narrative. The
+5,600-byte message budget is unchanged. `ai_source_coverage` records the exact
+exposed IDs and total/exposed counts; unexposed units cannot be cited. If no unit
+fits, interpretation is skipped. Long originals can leave later corrections outside
+the exposure budget; this is reported, never silently treated as complete coverage.
+
+The response remains an ordinary object containing up to twelve items:
+
+```json
+{"items":[{"category":"question","text":"What independent evidence could test the reported relationship?","source_ids":["S-O-0123456789ab-001","S-O-0123456789ab-002"],"entity_ids":[],"basis":"inferred","uncertainty":"Not investigated"}]}
+```
+
+This is a synthetic shape example, not a captured response or usable source ID.
+Each item cites one to six distinct exposed IDs and at most eight distinct entity
+IDs. Entity occurrences must be completely covered by the cited units in their
+actual input; contiguous chunks can jointly cover a split occurrence. A correction
+entity cannot be attributed only to an original unit. Unsupported technical
+literals are checked against leads supported by the cited units. Canonical array
+uniqueness, bounds, enums and required properties remain enforced locally; the
+OpenAI wire adapter recognizes the revised exact schema and removes unsupported
+uniqueness keywords without adding an investigation `proposal` wrapper.
+
+Categories are `reported_activity`, `hypothesis`, `question`, `alternative`, and
+`ambiguity`. The latter four require `basis: inferred`. Exact reported excerpts
+may remain explicit. Model-labeled explicit paraphrases are accepted only as
+unverified inferred interpretations, retaining `model_basis: explicit` and a fixed
+qualification: semantic faithfulness is not deterministically verified. Every
+accepted item has `semantic_entailment: not_verified`; references do not establish
+truth, causation, execution, or compromise. Arbitrary inferred prose cannot be
+semantically proven by this validator and is never promoted to findings.
+
+The prompt prioritizes actionable evidence-seeking questions, tentative mechanisms,
+and meaningful competing explanations; it discourages verbatim repetition and
+trivial indicator restatement. Human output displays category, effective basis,
+uncertainty and source IDs with input/offset locations, without repeating all unit
+text. JSON contains the exact unit inventory for resolving those references.
+
+Safe reconciliation rules include `unknown_source_id`, `unknown_entity_id`,
+`entity_outside_referenced_source`, `invalid_inference_classification`, and
+`unsupported_technical_literal`. Duplicate/missing source references fail canonical
+`uniqueItems`/`minItems` validation; unknown model-supplied IDs are not echoed in
+diagnostics. Rejected indexes remain visible and valid items can form a partial
+interpretation. No approval, retrieval or evidence-exposure-ledger path is added.
+
+Focused validation: 176 tests passed in 25.00 seconds. The existing acceptance
+file retains eight identical lead IDs and produces six units. Synthetic measurements:
+
+| Input | Segmentation | Reconciliation (one fake item) | Rendering | Old/new message bytes |
+|---|---:|---:|---:|---:|
+| 107-byte narrative | 0.120 ms | 0.107 ms | 0.111 ms | 833 / 1,701 |
+| 32,760-byte narrative | 1.217 ms | 0.090 ms | 0.110 ms | 36,590 / 5,522 |
+
+The near-limit example exposed 38 of 800 units with explicit incomplete coverage;
+its former full prompt exceeded budget. The serialized schema changed from 968 to
+933 bytes. These are single synthetic measurements, not model latency or quality
+claims. The OpenAI 4,096-token ceiling, 128-KiB briefing response limit and all
+other provider settings remain unchanged. Manual acceptance must assess whether
+the model produces useful questions and tentative alternatives.
+
 ### Current acceptance correction: OpenAI briefing output budget
 
 After analyst-confirmed truncation, `briefing.OPENAI_OUTPUT_TOKENS` is **4096**,

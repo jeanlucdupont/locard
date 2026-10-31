@@ -44,9 +44,9 @@ def large_response():
     # Escaped whitespace deliberately exceeds the old byte bound while obeying
     # all per-string and item constraints; token counts are not inferred from bytes.
     text='Analyst assertion '+('\t'*380)+'uncertain'
-    values=[dict(category='hypothesis',start=0,end=len(text),quote=text,text=text,
-                 basis='explicit',entity_ids=[],uncertainty='Unverified '+str(i)+' '+('\t'*270)) for i in range(12)]
-    return text,json.dumps({'items':values},ensure_ascii=True)
+    values=[dict(category='hypothesis',source_ids=[u['id'] for u in b.extract(text)['source_units']],text=text,
+                 basis='inferred',entity_ids=[],uncertainty='Unverified '+str(i)+' '+('\t'*270)) for i in range(12)]
+    return text,json.dumps({'items':values},ensure_ascii=True)+' '*8000
 
 
 def test_larger_valid_response_and_unchanged_default_parser_bound():
