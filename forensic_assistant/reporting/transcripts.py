@@ -36,7 +36,7 @@ def load(root, investigation_id):
         manifest = loads(manifest_raw)
         if manifest.get('evidence_state') is not None:
             raise ValueError('Report import requires a fingerprint-backed transcript; use explicit evidence selection for a newly grounded report.')
-        if (type(manifest['format']) is not int or manifest['format'] != 1 or manifest['policy_version'] not in ('v4-1', 'v4-2') or manifest['schema'] not in (3, 4, 5)
+        if (type(manifest['format']) is not int or manifest['format'] != 1 or manifest['policy_version'] not in ('v4-1', 'v4-2', 'v4-3') or manifest['schema'] not in (3, 4, 5)
             # Producer release is provenance; format/policy/schema govern compatibility.
             # Accept current two-part and historical three-part release syntax.
             or not isinstance(manifest['application_version'], str)
@@ -67,7 +67,7 @@ def load(root, investigation_id):
         if events[-1]['kind'] != 'terminal' or sum(e['kind'] == 'terminal' for e in events) != 1:
             raise ValueError('Invalid terminal sequence')
         state = State(Budget(**manifest['budgets']))
-        if manifest['policy_version'] == 'v4-2':
+        if manifest['policy_version'] in ('v4-2', 'v4-3'):
             from forensic_assistant.retrieval.temporal_scope import resolve, validate_proposal
             state.scope = resolve(manifest['question'], manifest.get('date_hint'))
             if manifest.get('temporal_scope') != state.scope:
@@ -98,7 +98,7 @@ def load(root, investigation_id):
                 proposal = data['proposal']
                 name = proposal['tool']
                 args = arguments(name, proposal['arguments'])
-                if manifest['policy_version'] == 'v4-2':
+                if manifest['policy_version'] in ('v4-2', 'v4-3'):
                     validate_proposal(state.scope, name, args)
                 if 'evidence_id' in args and args['evidence_id'] not in state.exposed:
                     raise ValueError('Undisclosed anchor')
@@ -133,7 +133,17 @@ def load(root, investigation_id):
             elif kind == 'validated_final':
                 if not initialized or pending:
                     raise ValueError('Invalid final sequence')
+                if manifest['policy_version'] in ('v4-1', 'v4-2'):
+                    from copy import deepcopy
+                    from forensic_assistant.investigation_ai.contracts import FINAL, validate
+                    legacy = deepcopy(FINAL)
+                    legacy['properties'].pop('interpretations')
+                    legacy['properties'].pop('answer_status')
+                    legacy['properties']['observed']['maxItems'] = 3
+                    validate(data['answer'], legacy)
                 final = state.render(data['answer'])
+                if final.get('interpretations'):
+                    raise ValueError('Report import of deterministic interpretations is not supported; use explicit evidence selection for a newly grounded report.')
                 continue
             elif kind in ('rejected', 'loop_rejected'):
                 continue

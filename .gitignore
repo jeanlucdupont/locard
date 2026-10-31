@@ -200,3 +200,4 @@ report-bundles/
 
 # Implementation contract documentation; never case data.
 !/docs/investigation_read_view_contract.md
+!/docs/LOCARD_6_72_CONCLUSIONS.md

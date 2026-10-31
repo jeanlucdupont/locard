@@ -10,7 +10,7 @@ from test_v4_controller import Scripted, tool, final
 
 def unsupported():
     return dict(action='final', answer=dict(observed=[dict(evidence_id=EID, field='/not_disclosed')],
-        relationships=[], detections=[], hypotheses=[], unknowns=[]))
+        relationships=[], detections=[], hypotheses=[], unknowns=[], interpretations=[], answer_status='partial'))
 
 
 def test_guidance_disclosure_and_existing_grammar_stay_bounded():

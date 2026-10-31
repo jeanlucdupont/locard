@@ -162,7 +162,9 @@ def validate_output(result):
                 raise ValueError('Forensic object has missing supporting evidence')
 FINAL = obj(
     {
-        'observed': array(obj({'evidence_id': string(160), 'field': string(256)}, ('evidence_id', 'field')), 3),
+        'observed': array(obj({'evidence_id': string(160), 'field': string(256)}, ('evidence_id', 'field')), 12),
+        'interpretations': array(string(80), 4),
+        'answer_status': enumeration('answered', 'partial', 'unresolved'),
         'relationships': array(string(80), 3),
         'detections': array(string(160), 3),
         'hypotheses': array(
@@ -290,11 +292,14 @@ def request(text, advertised):
     return value
 
 def schema(advertised, browser_available=True):
+    from copy import deepcopy
+    current_final = deepcopy(FINAL)
+    current_final['required'] += ['interpretations', 'answer_status']
     result = {'oneOf': [obj(
         {'action': enumeration('tool'), 'tool': enumeration(name), 'arguments': TOOLS[name][1], 'reason': string(256)},
         ('action', 'tool', 'arguments', 'reason')
     ) for name in advertised] +
-            [obj({'action': enumeration('final'), 'answer': FINAL}, ('action', 'answer'))]}
+            [obj({'action': enumeration('final'), 'answer': current_final}, ('action', 'answer'))]}
     if not browser_available:
         from copy import deepcopy
         result = deepcopy(result)

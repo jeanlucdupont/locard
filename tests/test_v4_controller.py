@@ -24,7 +24,9 @@ def final(messages):
             'relationships': [],
             'detections': [],
             'hypotheses': [],
-            'unknowns': []
+            'unknowns': [],
+            'interpretations': [],
+            'answer_status': 'partial'
         }
     }
 

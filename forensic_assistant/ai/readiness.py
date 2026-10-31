@@ -24,7 +24,8 @@ def openai_probes():
     tool = {'action': 'tool', 'tool': 'show_evidence', 'arguments': {
         'evidence_id': 'EVTX:' + 'a'*64 + ':Offset:1'}, 'reason': 'Synthetic compatibility check'}
     final = {'action': 'final', 'answer': {'observed': [], 'relationships': [],
-             'detections': [], 'hypotheses': [], 'unknowns': []}}
+             'detections': [], 'hypotheses': [], 'unknowns': [],
+             'interpretations': [], 'answer_status': 'unresolved'}}
     for family, contract, expected in (('advisory', advisory_schema, advisory),
                                        ('investigation', grammar, tool), ('investigation', grammar, final)):
         yield family, contract, expected, [{'role': 'user', 'content':

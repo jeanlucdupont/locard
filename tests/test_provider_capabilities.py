@@ -27,7 +27,14 @@ def config(provider):
 def probe_responses(provider):
     replies = ['{"status":"ok"}']
     if provider in ('openai', 'gemini', 'anthropic'):
-        for family, _, expected, _ in readiness.openai_probes():
+        for family, contract, expected, _ in readiness.openai_probes():
+            if provider == 'openai' and family == 'investigation' and expected['action'] == 'tool':
+                # The strict OpenAI wire requires null for unused optional arguments.
+                # In particular show_evidence now advertises event_data_offset.
+                expected = copy.deepcopy(expected)
+                branch = next(v for v in contract['oneOf'] if v['properties'].get('tool', {}).get('enum') == [expected['tool']])
+                expected['arguments'] = {key: expected['arguments'].get(key)
+                                         for key in branch['properties']['arguments']['properties']}
             if provider == 'anthropic' and family == 'investigation':
                 replies.append(json.dumps({'selection':expected.get('tool','final')}))
                 replies.append(json.dumps({k:v for k,v in expected.items() if k not in ('action','tool')}))

@@ -144,7 +144,7 @@ def test_full_loop_empty_initial_rejection_cursor_and_grounding(tmp_path, monkey
         assert 'baje.ps1' in result['findings']['observed'][0]['reported_value']
         assert db.total_changes == before and max(result['metrics']['prompt_bytes']) <= 5600
         m, events = load(tmp_path / 'runs', result['investigation_id'])
-        assert m['temporal_scope'] == scope and m['policy_version'] == 'v4-2'
+        assert m['temporal_scope'] == scope and m['policy_version'] == 'v4-3'
         assert 'Temporal scope conflict' in next(e['data']['reason'] for e in events if e['kind'] == 'rejected')
         first = next(e['data']['content'] for e in events if e['kind'] == 'exposure')
         assert first['records'] == []

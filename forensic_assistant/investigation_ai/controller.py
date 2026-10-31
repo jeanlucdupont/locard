@@ -284,7 +284,7 @@ def _run(
                         'deterministically_correlated',
                         'corroborated',
                         'detections'
-                    )) else 'INSUFFICIENT_EVIDENCE'
+                    )) or rendered.get('interpretations') else 'INSUFFICIENT_EVIDENCE'
                     transcript.append('validated_final', proposal)
                     break
                 name, args = proposal['tool'], proposal['arguments']
@@ -513,10 +513,17 @@ def _run(
     if remaining() <= 0:
         timeout_cause = timeout_cause or 'execution_budget_exhausted'
         termination = 'MAX_SECONDS' if startup_complete else 'STARTUP_TIMEOUT'
+    from .conclusions import assess
+    # ANSWER_SUPPORTED remains a grounding termination, never a completeness verdict.
+    declared_answer = proposal['answer'] if final is not None and termination == 'ANSWER_SUPPORTED' else {
+        'answer_status': 'unresolved', 'unknowns': final.get('model_proposed_unknowns', [])}
+    answer_assessment = assess(question, declared_answer, final, limitations=state.limits,
+                               omitted=state.prompt_omitted, candidate_count=len(state.records))
     result = {
         'investigation_id': transcript.id,
         'termination': termination,
         'findings': final,
+        'answer_assessment': answer_assessment,
         'evidence_fingerprint': fingerprint,
         **({'evidence_state': evidence_state} if evidence_state is not None else {}),
         'derived_data': True,

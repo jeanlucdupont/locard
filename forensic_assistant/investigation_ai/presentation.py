@@ -149,6 +149,10 @@ def render(result, palette=None, *, dry_run=False):
     dry_run = dry_run or bool(result.get('dry_run_proposal'))
     lines = [palette('success' if supported else 'warning',
                      'Investigation result' if supported else 'Investigation incomplete')]
+    assessment = result.get('answer_assessment')
+    if assessment:
+        lines.extend(['', 'Answer status: ' + safe(assessment.get('status', 'UNRESOLVED')),
+                      '  ' + safe(assessment.get('reason', 'Objective completeness is not established.'))])
     findings = result.get('findings') or {}
     caveats = list(result.get('limitations') or [])
     state = result.get('state') or {}
@@ -181,10 +185,22 @@ def render(result, palette=None, *, dry_run=False):
             source_material |= source_dependency(row)
             if context:
                 caveats.append('Source metadata includes analyst assertions; it is not independently verified evidence.')
-            if row.get('truncated_fields'):
+            from .conclusions import coverage_text
+            caveats.extend(coverage_text(n) for n in row.get('coverage_notes') or [])
+            if row.get('truncated_fields') and not row.get('coverage_notes'):
                 caveats.append('Some evidence fields were truncated; omitted values are unavailable.')
             caveats.extend(row.get('warnings') or [])
             caveats.extend(row.get('limitations') or [])
+    if findings.get('interpretations'):
+        lines.extend(['', palette('heading', 'Deterministic interpretations (derived, not original fields)')])
+        for item in findings['interpretations'][:4]:
+            lines.extend(['  ' + safe(item['text']), '    Derivation: ' + safe(item['derivation_id'])])
+            for eid in item['evidence_ids']:
+                lines.append('    Evidence: ' + palette('evidence_id', safe(eid)))
+    if findings.get('model_proposed_unknowns'):
+        lines.extend(['', palette('heading', 'Model-proposed uncertainty (unverified)')])
+        for unknown in findings['model_proposed_unknowns'][:3]:
+            lines.append('  - ' + safe(str(unknown)[:200]))
     completed = sum(p.get('operation') != 'initial' for p in state.get('investigation_path', []) if isinstance(p, dict))
     if completed and not dry_run:
         lines.extend(['', palette('heading', 'Forensic lookups'), '  Completed: ' + palette('number_value', str(completed))])

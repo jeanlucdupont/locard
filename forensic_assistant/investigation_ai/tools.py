@@ -29,8 +29,9 @@ def compact(record):
     result['source_type'] = record.get('source_type', 'evtx')
     result['kind'] = record.get('kind')
     if result['source_type'] == 'evtx':
-        from forensic_assistant.retrieval.event_data import projection, interpretation
+        from forensic_assistant.retrieval.event_data import projection, interpretation, payload
         result.pop('event_data_json', None)
+        result['truncated_fields'] = [f for f in result.get('truncated_fields', []) if f != 'event_data_json']
         entries, notes = projection(record, ordinals=[m['ordinal'] for m in record.get('content_matches', []) if m['ordinal'] is not None],
                                     offset=record.get('_event_data_offset', 0), byte_limit=1024)
         result['original_event_data'] = entries
@@ -40,6 +41,8 @@ def compact(record):
         interpreted = interpretation(record)
         if interpreted:
             result['defender_asr'] = interpreted
+            from .conclusions import interpretations
+            result['interpretation_ids'] = list(interpretations(result))
         if record.get('content_matches'):
             matches = []
             for original in record['content_matches']:
@@ -55,6 +58,20 @@ def compact(record):
                     or any(m['truncated'] for m in matches)):
 
                 result.setdefault('truncated_fields', []).append('content_matches')
+        coverage = []
+        if any(entry['truncated'] for entry in entries):
+            coverage.append('original_value_shortened')
+        original_entries, payload_notes = payload(record)
+        if payload_notes or len(entries) < len(original_entries):
+            coverage.append('original_fields_omitted')
+        if 'content_matches' in result.get('truncated_fields', []):
+            coverage.append('search_excerpt_shortened')
+        if result.get('truncated_fields') and any(f not in ('original_event_data', 'content_matches') for f in result['truncated_fields']):
+            coverage.append('normalized_value_shortened')
+        if coverage:
+            result['coverage_notes'] = coverage
+        if not result['truncated_fields']:
+            result.pop('truncated_fields')
     context = record.get('context', {})
     if context:
         # Assertions remain attributed metadata, never independently verified facts.
@@ -87,6 +104,9 @@ def compact(record):
         result['warnings'] = [str(v)[:200] for v in record['warnings'][:4]]
         if len(record['warnings']) > 4 or any(len(str(v)) > 200 for v in record['warnings'][:4]):
             result.setdefault('truncated_fields', []).append('warnings')
+    if result.get('coverage_notes') and any(f in ('source assertions', 'warnings')
+                                           for f in result.get('truncated_fields', [])):
+        result['coverage_notes'].append('context_shortened')
     return result
 
 def envelope(db, name, raw, limit=50):
@@ -168,7 +188,10 @@ def envelope(db, name, raw, limit=50):
         limits.append('Source/host context is ambiguous; records must not be attributed to a single source or host')
     if any(r.get('source_context', {}).get('basis') not in (None, 'artifact field', 'unknown') for r in records.values()):
         limits.append('Source metadata includes analyst assertions; these are not independently verified artifact facts')
-    if any(r.get('truncated_fields') for r in records.values()):
+    for record in records.values():
+        from .conclusions import coverage_text
+        limits.extend(coverage_text(note) for note in record.get('coverage_notes', []) if coverage_text(note) not in limits)
+    if any(r.get('truncated_fields') and not r.get('coverage_notes') for r in records.values()):
         limits.append('Some evidence fields are truncated; inspect the original records')
     if omitted:
         limits.append(f'{omitted} relationship/detection objects omitted because support was unavailable, ambiguous or outside result bounds')
