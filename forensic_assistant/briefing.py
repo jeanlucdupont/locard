@@ -196,7 +196,7 @@ def _interpret(packet, client):
     exposed={u['id']:u for u in units}
     known={r['id']:r for r in packet['leads'] if supports(r,units)}
     rejections=[]
-    technical={'timestamp','date','event_id','windows_path','registry_path','hash','ipv4','ipv6','filename','domain','hostname','username'}
+    from .briefing_literals import unsupported, claims_proof
     for index,item in enumerate(value['items']):
         rule=None
         cited=[exposed[sid] for sid in item['source_ids'] if sid in exposed]
@@ -204,11 +204,15 @@ def _interpret(packet, client):
         elif not set(item['entity_ids'])<=known.keys():rule='unknown_entity_id'
         elif not all(supports(known[eid],cited) for eid in item['entity_ids']):rule='entity_outside_referenced_source'
         elif item['basis']=='explicit' and item['category']!='reported_activity':rule='invalid_inference_classification'
-        literals={(r['type'],str(r['normalized'])) for r in known.values() if supports(r,cited)}
-        added={(r['type'],str(r['normalized'])) for r in extract(item['text'])['leads'] if r['type'] in technical}
-        if rule is None and not added<=literals:rule='unsupported_technical_literal'
+        elif claims_proof(item['text']):rule='unsupported_factual_conclusion'
+        missing=unsupported(item['text'],packet['inputs'],cited) if rule is None else set()
+        if missing:rule='unsupported_technical_literal'
         if rule:
-            rejections.append({'item_index':index,'rule':rule})
+            detail={'item_index':index,'rule':rule}
+            if missing:
+                detail['literal_types']=sorted({kind for kind,value in missing})
+                detail['unsupported_count']=len(missing)
+            rejections.append(detail)
             packet['conflicts'].append('AI item rejected: '+rule+'.')
             continue
         accepted={**item,'verification':'UNVERIFIED AI INTERPRETATION','semantic_entailment':'not_verified'}

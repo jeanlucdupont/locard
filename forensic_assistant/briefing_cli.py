@@ -77,6 +77,9 @@ def render(packet):
             lines.append('  '+safe(field)+': '+safe(str(value)))
         for rejection in error.get('rejected_items',[]):
             lines.append('  Item '+str(rejection['item_index'])+': '+safe(rejection['rule']))
+            if rejection.get('literal_types'):
+                lines.append('    Unsupported literal types: '+safe(', '.join(rejection['literal_types']))+
+                             ' ('+str(rejection['unsupported_count'])+')')
         for entry in error.get('validation',{}).get('errors',[]):
             lines.append('  '+safe(entry['canonical_path'])+': '+safe(entry['validator_keyword']))
     discovery=packet.get('discovery')
