@@ -16,12 +16,17 @@ def render(packet):
             line = safe(original_line)
             lines.extend(textwrap.wrap(line, width=96, initial_indent=indent,
                                       subsequent_indent=indent) or [indent])
+    if packet.get('saved_briefing'):
+        paragraph('Analysis of saved briefing revision '+str(packet['saved_briefing']['revision'])+' (new analysis, not a cached result).')
     discovery = packet.get('discovery')
     if not discovery:
         lines.extend(['', 'Reported incident (original analyst text)'])
         for source, text in packet['inputs'].items():
-            if source != 'original':
-                lines.append('  Analyst correction:')
+            if source.startswith('field:'):
+                from forensic_assistant.briefing_store import FIELDS
+                lines.append('  '+FIELDS.get(source[6:], 'Analyst answer')+':')
+            elif source == 'narrative':lines.append('  Narrative:')
+            elif source != 'original':lines.append('  Analyst correction:')
             paragraph(text)
     lines.extend(['', 'Key leads'])
     leads = {lead['id']: lead for lead in packet['leads']}
@@ -80,17 +85,19 @@ def render(packet):
             result = query['result']
             paragraph('Search: ' + lead['occurrences'][0]['original'])
             records = result['records']
-            paragraph(f'{len(records)} evidence records returned (bounded results).')
+            paragraph(f"{len(records)} evidence {'record' if len(records)==1 else 'records'} returned (bounded results).")
             if not records:
                 paragraph('No evidence returned within this bounded search; this does not establish absence.')
             for number, record in enumerate(records, 1):
                 paragraph(f'Result {number}')
-                for key, label in [('timestamp', 'Recorded time'), ('hostname', 'Recorded host'),
+                for key, label in [('timestamp_utc', 'Recorded event time'), ('timestamp', 'Recorded time'), ('hostname', 'Recorded host'),
                                    ('provider', 'Provider'), ('event_id', 'Event ID'),
                                    ('process_name', 'Process'), ('command_line', 'Recorded command')]:
                     if record.get(key) is not None:
                         paragraph(label + ': ' + str(record[key]), '    ')
                 for field in record.get('original_event_data', []):
+                    if field.get('name') not in ('CommandLine','Process Name','Path','FileName','TargetFilename','ProcessName'):
+                        continue
                     paragraph('Original EventData: ' + str(field.get('name', '(unnamed)')) + ': ' + str(field.get('value', '')), '    ')
                 from forensic_assistant.investigation_ai.conclusions import interpretations
                 for interpretation in interpretations(record).values():
@@ -110,9 +117,13 @@ def render(packet):
         paragraph('Investigation has not yet been performed. Use --details to review full evidence IDs and inspect records with show <evidence-id>.')
     else:
         paragraph('No forensic evidence searched.')
+    if discovery:
+        return '\n'.join(lines)
     lines.extend(['', 'Next steps'])
     paragraph('Use --details for exact lead IDs, source references, evidence IDs and diagnostics; --json preserves the structured packet.')
     paragraph('To approve a lead, rerun the SAME briefing input and corrections with:')
+    if packet.get('saved_briefing'):
+        paragraph('For saved content: briefing --analyze --deterministic --revision '+str(packet['saved_briefing']['revision'])+' plus the approval options below.')
     eligible = next((lead for lead in sorted(leads.values(), key=lambda lead: lead['type'] not in ('filename', 'windows_path', 'domain', 'ipv4', 'event_id')) if not lead['negated'] and lead['classification'] not in ('partial', 'invalid', 'ambiguous')), None)
     if eligible:
         suffix = (' --artifact ' + discovery['artifact'] + ' --start ' + discovery['start'] + ' --end ' + discovery['end']) if discovery else ' --artifact <family> --start <ISO-time-with-zone> --end <ISO-time-with-zone>'

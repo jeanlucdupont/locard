@@ -203,3 +203,7 @@ report-bundles/
 !/docs/LOCARD_6_72_CONCLUSIONS.md
 !/docs/LOCARD_6_73_BRIEFING.md
 !/docs/LOCARD_6_74_LITERALS.md
+
+# Analyst briefing sidecars and private editor scratch directories
+*.briefing/
+.briefing-edit-*/

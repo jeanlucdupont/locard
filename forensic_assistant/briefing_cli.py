@@ -11,6 +11,11 @@ def configure(commands):
     source=p.add_mutually_exclusive_group(required=True)
     source.add_argument('--file',dest='briefing_file',help='UTF-8 analyst narrative, at most 32 KiB; not evidence')
     source.add_argument('--text',dest='briefing_text',help='Short inline analyst narrative; use --file for paragraphs')
+    for action in ('wizard', 'show', 'edit', 'analyze'):
+        source.add_argument('--'+action, action='store_true', help='Use the selected case briefing: '+action)
+    p.add_argument('--save',action='store_true',help='Explicitly import --file/--text as saved narrative after confirmation')
+    p.add_argument('--deterministic',action='store_true',help='Analyze saved briefing without AI')
+    p.add_argument('--revision',type=int,help='Required current briefing revision for saved-briefing discovery approval')
     p.add_argument('--correction',dest='briefing_correction',action='append',default=[],help='Separate analyst correction; original wording remains intact')
     p.add_argument('--ai',action='store_true',help='One bounded narrative interpretation using the configured provider; no tools')
     p.add_argument('--allow-cloud',action='store_true',help='Legacy disclosure flag; unnecessary after provider configuration acknowledgment')
@@ -24,15 +29,73 @@ def configure(commands):
 
 
 def run(args):
-    if args.briefing_file:
-        path=Path(args.briefing_file)
-        if not path.is_file():raise ValueError('Briefing input must be a regular UTF-8 file.')
-        with path.open('rb') as stream:raw=stream.read(briefing.MAX_BYTES+1)
-        if len(raw)>briefing.MAX_BYTES:raise ValueError('Briefing file exceeds 32768 bytes.')
-        text=raw.decode('utf-8')
-    else:text=args.briefing_text
-    packet=briefing.extract(text,args.briefing_correction)
-    if args.ai:
+    saved = any(getattr(args, name, False) for name in ('wizard','show','edit','analyze'))
+    writing = args.wizard or args.edit or args.save
+    if args.deterministic and (not args.analyze or args.ai):
+        raise ValueError('--deterministic requires --analyze and cannot combine with --ai.')
+    if args.save and saved:
+        raise ValueError('--save imports --file or --text only.')
+    if saved and args.briefing_correction:
+        raise ValueError('Edit the saved briefing instead of using transient --correction.')
+    if args.save and args.briefing_correction:
+        raise ValueError('Import narrative first; corrections are not silently persisted.')
+    if (args.wizard or args.edit or args.show or args.save) and (args.ai or args.discover or args.approve or args.artifact or args.start or args.end or args.revision):
+        raise ValueError('Briefing entry/display cannot combine with analysis or search options.')
+    if args.revision is not None and not (args.analyze and args.discover):
+        raise ValueError('--revision is for approved discovery of saved content.')
+    store = state = revision = None
+    if saved or args.save:
+        from forensic_assistant.briefing_store import Store, FIELDS, content, sources
+        from forensic_assistant import briefing_workflow as workflow
+        store=Store(args.db);state=store.load()
+        revision=state['revisions'][-1] if state else None
+        current=revision['content'] if revision else content(dict.fromkeys(FIELDS,''),'')
+        if args.show:return workflow.view(state)
+        if writing:
+            import sys
+            read=getattr(args,'_confirm',None) or (input if sys.stdin.isatty() else None)
+            if read is None:raise ValueError('Briefing changes require interactive confirmation.')
+            if args.wizard:
+                value=workflow.wizard(current,read)
+            elif args.edit:
+                value=workflow.edit(store,current,read)
+            else:
+                value=None  # Explicit import handled after bounded input reading below.
+            if not args.save:
+                if value is None:return {'kind':'saved_briefing','message':'Briefing unchanged; save cancelled.'}
+                return workflow.view(store.save(value,revision['digest'] if revision else None))
+        if args.analyze:
+            if revision is None:raise ValueError('No saved briefing. Use briefing --wizard or --edit first.')
+            if args.discover and args.revision != revision['revision']:
+                raise ValueError('Review current briefing and explicitly supply its --revision for discovery.')
+            packet=briefing.extract_inputs(sources(revision))
+            packet['saved_briefing']={k:revision[k] for k in ('revision','digest','modified')}
+            packet['saved_briefing']['source_identity']=store.identity
+    if not args.analyze:
+        if args.briefing_file:
+            path=Path(args.briefing_file)
+            if not path.is_file():raise ValueError('Briefing input must be a regular UTF-8 file.')
+            with path.open('rb') as stream:raw=stream.read(briefing.MAX_BYTES+1)
+            if len(raw)>briefing.MAX_BYTES:raise ValueError('Briefing file exceeds 32768 bytes.')
+            text=raw.decode('utf-8')
+        else:text=args.briefing_text
+        if args.save:
+            value=content(current['answers'],text)
+            print('Import replaces the narrative only; structured answers and earlier revisions remain.')
+            print(safe(text))
+            if workflow.read_answer(read,'Save imported narrative? [y/N]: ').casefold() not in ('y','yes'):
+                return {'kind':'saved_briefing','message':'Briefing unchanged; import cancelled.'}
+            return workflow.view(store.save(value,revision['digest'] if revision else None))
+        packet=briefing.extract(text,args.briefing_correction)
+    use_ai=args.ai
+    if args.analyze and not args.deterministic:
+        from forensic_assistant.ai import settings
+        import os
+        config=settings.load()  # validates durable cloud acknowledgment before any request
+        use_ai=bool(config['model_path'] and config['executable']) if config['provider']=='local' else bool(os.environ.get(settings.PROVIDERS[config['provider']][1], '').strip())
+        if not use_ai:
+            packet['limitations'].append('Configured AI is unavailable; deterministic analysis only. No provider request made.')
+    if use_ai:
         from forensic_assistant.ai.backend import ModelBackend
         client=ModelBackend(timeout=45)
         briefing.interpret(packet,client,allow_cloud=args.allow_cloud)
@@ -41,12 +104,15 @@ def run(args):
             raise ValueError('Discovery requires reviewed --approve IDs, --artifact, --start and --end.')
         briefing.discover(packet,args.db,args.approve,args.artifact,args.start,args.end)
     elif args.approve or args.artifact or args.start or args.end:
-        raise ValueError('Search options require --discover; review with briefing --file or --text first.')
+        raise ValueError('Search options require --discover; review this briefing first.')
+    if args.analyze:
+        store.record_analysis(revision,packet)
+        packet['limitations'].append('Only analysis revision/status metadata is saved; this result packet is not cached. Export explicitly if needed.')
     return packet
 
 
 def render_details(packet):
-    lines=['Case briefing analysis — unverified analyst input','', 'Explicit indicators and contextual leads']
+    lines=['Case briefing analysis — unverified analyst input', 'New analysis for this invocation; --details does not load earlier AI responses.', '', 'Explicit indicators and contextual leads']
     if packet.get('ai_status') in ('success','partial','skipped'):
         lines.insert(1,'AI interpretation: '+packet['ai_status']+' ('+str(len(packet['ai_items']))+' accepted items)')
     for lead in packet['leads']:
@@ -67,7 +133,8 @@ def render_details(packet):
                 lines.append('    Sources (analyst text, not evidence): '+safe(', '.join(refs)))
             if item.get('basis_note'):lines.append('    '+safe(item['basis_note']))
             lines.append('    Uncertainty: '+safe(item['uncertainty']))
-    lines.extend(['','Limitations',*('  - '+safe(v) for v in packet['limitations']+packet['conflicts'])])
+    notes = [('Some AI items were rejected; accepted interpretations remain available.' if packet.get('ai_status') == 'partial' and v.startswith('AI interpretation failed:') else v) for v in packet['limitations']+packet['conflicts']]
+    lines.extend(['','Limitations',*('  - '+safe(v) for v in notes)])
     if packet.get('ai_error'):
         error=packet['ai_error']
         lines.append('  AI diagnostic: '+safe(error['category'])+' / '+safe(error['stage']))
@@ -96,14 +163,19 @@ def render_details(packet):
         lines.extend('  '+safe(v) for v in discovery['limitations'])
         if packet.get('handoff'):
             lines.extend(['','Reviewable investigation plan', '  '+packet['handoff']['instructions'],
-                          '  Original objective remains in inputs.original; use --json for the complete packet.'])
+                          '  Analyst objective remains in named inputs; use --json for the complete packet.'])
     else:
         lines.extend(['','No evidence searches executed. Review IDs, then use --discover with explicit approvals and time bounds.'])
-    lines.extend(['', 'Technical packet', *[safe(line) for line in json.dumps(packet, ensure_ascii=False, indent=2).splitlines()]])
+    lines.extend(['', 'Detailed evidence projections'])
+    for query in (packet.get('discovery') or {}).get('queries', []):
+        lines.extend(safe(line) for line in json.dumps(query['result'], ensure_ascii=False, indent=2).splitlines())
     return '\n'.join(lines)
 
 
 def render(packet, *, details=False):
+    if packet.get('kind') == 'saved_briefing':
+        from forensic_assistant.briefing_workflow import render as saved_render
+        return saved_render(packet)
     if details:
         return render_details(packet)
     from forensic_assistant.briefing_report import render as human

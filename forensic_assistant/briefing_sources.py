@@ -19,7 +19,8 @@ def inventory(inputs):
         boundaries.append(len(text))
         start = 0
         digest = hashlib.sha256(text.encode('utf-8')).hexdigest()[:12]
-        prefix = 'O' if source == 'original' else 'C'+source.split(':')[1]
+        prefix = ('O' if source == 'original' else 'C'+source.split(':')[1]
+                  if source.startswith('correction:') else 'F'+hashlib.sha256(source.encode()).hexdigest()[:8])
         ordinal = 0
         for end in boundaries:
             while start < end:

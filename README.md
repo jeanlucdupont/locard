@@ -2642,3 +2642,64 @@ Review exact IDs with `--details`, then repeat the same input and corrections
 with `--discover --approve LEAD_ID --artifact evtx --start START --end END`.
 Use ISO timestamps with zones and a window at most 24 hours. Display numbers
 are labels only, not approval tokens. No automatic investigation follows.
+
+### Saved case briefing (6.76)
+
+With a case selected, use `briefing --wizard`, `briefing --show`,
+`briefing --edit`, and `briefing --analyze`. Outside the shell specify
+`locard --db PATH briefing ...`. Wizard questions are optional: Enter retains
+existing text, `/clear` clears it, and `cancel` abandons the workflow. Saving
+requires an affirmative confirmation. Wizard answers and narrative coexist.
+
+`--analyze` makes a **new** analysis using the acknowledged configured provider
+when credentials (cloud) or executable/model configuration (local) are available.
+`--analyze --deterministic` prevents all model calls. Availability does not promise
+successful transport; failures retain deterministic leads. `--show` does not
+analyze, search evidence, or contact a provider. An entirely blank saved briefing
+can be shown but cannot be analyzed until some information is supplied.
+
+Analyst data lives at `<database-path>.briefing/state.json`, beside the database,
+in a private directory (current Windows user and SYSTEM). Format 1 retains up to
+100 complete revisions with timestamps and SHA-256 content digests. Updates use
+an exclusive lock, temporary file, fsync, and atomic replacement; concurrent edits
+are rejected. An interrupted `write.lock` is not automatically stolen. Incomplete
+or corrupt workspaces are rejected and preserved for manual recovery.
+
+Identity binds the sidecar to the absolute database path and filesystem device/
+file ID. Moving, copying or replacing a database requires explicit manual handling;
+there is no automatic rebinding. These checks and digests are consistency controls,
+not authentication against someone able to rewrite the workspace. Evidence bytes
+and schema are not changed; only read-only case structure validation is performed.
+
+Only analysis **revision/status metadata** is retained (up to 100 entries).
+`--show` marks it stale when the active content digest changes. AI responses,
+discovery packets and previous rendered reports are not cached: export them
+explicitly with existing output options if needed. `--details` describes the
+current command's result, never an earlier AI response. `--json` gives the complete
+current result. Saved discovery requires a fresh explicit current revision:
+`briefing --analyze --deterministic --revision N --discover --approve LEAD_ID
+--artifact evtx --start START --end END`. Prior searches are not declared invalid,
+and no approvals are replayed automatically.
+
+Legacy `--file` / `--text` remain transient. Add `--save` to explicitly import the
+text as the saved narrative, preserving structured answers and previous revisions.
+Import requires interactive confirmation and does not perform analysis.
+
+The editor defaults to Windows Notepad. Set `LOCARD_BRIEFING_EDITOR` to a JSON
+argument array containing an absolute executable and exactly one standalone
+`{file}` placeholder, for example:
+
+```powershell
+$env:LOCARD_BRIEFING_EDITOR = '["C:/Tools/Editor/editor.exe", "--wait", "{file}"]'
+```
+
+No shell evaluates editor arguments. Locard waits for the launched process and
+then requires you to **save and close the document** and explicitly confirm import.
+This also handles editors that delegate to an existing process; process exit is
+not taken as proof of completed editing. UTF-8 text, BOM and line endings are
+preserved. Unchanged content creates no revision. Each field is bounded to 32 KiB,
+combined content to 40 KiB, and the store to 8 MiB. Editor scratch files live in a
+private `.briefing-edit-*` directory beside the case and are removed on exit.
+If cleanup fails, Locard warns and leaves the private directory for review.
+Configure external editors to avoid cloud sync, external backups and recovery
+copies: their own persistence behavior is outside Locard's control.

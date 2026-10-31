@@ -31,6 +31,16 @@ def extract(text, corrections=()):
     if len(corrections) > 8 or sum(len(v.encode()) for v in corrections) > 8192:
         raise ValueError('At most eight corrections / 8192 UTF-8 bytes are allowed.')
     inputs = {'original': text, **{f'correction:{i+1}': bounded(v) for i,v in enumerate(corrections)}}
+    return extract_inputs(inputs)
+
+
+def extract_inputs(inputs):
+    """Extract from separate bounded analyst sources; offsets stay source-local."""
+    started = time.perf_counter()
+    if not inputs or len(inputs) > 10 or sum(len(v.encode('utf-8')) for v in inputs.values()) > MAX_BYTES + 8192:
+        raise ValueError('Briefing source bounds exceeded or no content supplied.')
+    for text in inputs.values():
+        bounded(text)
     leads = {}; limited = False
     patterns = [
         ('timestamp', STAMP),
@@ -96,10 +106,11 @@ def extract(text, corrections=()):
                     leads[key]['occurrences'].append(dict(source=source, start=a, end=b, original=original))
                 else: limited = True
     assertions=[]
-    for match in re.finditer(r'[^\n]+',text):
-        if len(assertions)>=64:break
-        assertions.append(dict(source='original',start=match.start(),end=match.end(),
-                               classification='UNVERIFIED ANALYST ASSERTION'))
+    for source, text in inputs.items():
+        for match in re.finditer(r'[^\n]+',text):
+            if len(assertions)>=64:break
+            assertions.append(dict(source=source,start=match.start(),end=match.end(),
+                                   classification='UNVERIFIED ANALYST ASSERTION'))
     polarity = {}
     for lead in leads.values():
         polarity.setdefault((lead['type'], str(lead['normalized'])), set()).add(lead['negated'])
@@ -331,7 +342,7 @@ def discover(packet, case_path, approved, artifact, start, end, *, worker_factor
     returned={q['lead_id'] for q in packet['discovery']['queries']}
     packet['discovery']['without_result']=[identity for identity,q in plans if identity not in returned]
     packet['handoff']={'type':'reviewable_plan','automatic_execution':False,
-        'objective_source':'inputs.original','approved_leads':list(approved),
+        'objective_source':'inputs.original' if 'original' in packet['inputs'] else 'inputs (named analyst sources)','approved_leads':list(approved),
         'scope':{'start':start,'end':end},
         'evidence_ids':list(dict.fromkeys(r['id'] for q in packet['discovery']['queries'] for r in q['result']['records'])),
         'instructions':'Review original objective and evidence IDs. Issue a bounded investigate-ai question with explicit time bounds and --approve-tools. The controller retrieves its own evidence; this packet is not imported into its exposure ledger.'}

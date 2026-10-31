@@ -50,7 +50,7 @@ def test_status_and_views_preserve_packet(status):
     assert 'S-forged' not in human and 'unknown_source_id' not in human
     assert 'original:0..' not in human
     assert p['leads'][0]['id'] in technical
-    assert 'Technical packet' in technical
+    assert 'Detailed evidence projections' in technical
     assert 'No forensic evidence searched.' in human
     if status=='partial':
         assert '1 interpretations accepted; 1 rejected' in human
@@ -72,7 +72,7 @@ def test_discovery_readable_original_and_derived(count,incomplete):
     result['content_search']={'complete':not incomplete}
     snapshot=copy.deepcopy(p)
     output=briefing_cli.render(p)
-    assert p==snapshot and str(count)+' evidence records returned' in output
+    assert p==snapshot and str(count)+(' evidence record returned' if count==1 else ' evidence records returned') in output
     assert START in output and END in output and 'baje.ps1' in output
     assert original['id'] not in output
     assert 'Investigation has not yet been performed' in output
