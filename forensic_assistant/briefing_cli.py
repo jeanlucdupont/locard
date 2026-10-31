@@ -46,6 +46,8 @@ def run(args):
 
 def render(packet):
     lines=['Case briefing analysis — unverified analyst input','', 'Explicit indicators and contextual leads']
+    if packet.get('ai_status') in ('success','partial','skipped'):
+        lines.insert(1,'AI interpretation: '+packet['ai_status']+' ('+str(len(packet['ai_items']))+' accepted items)')
     for lead in packet['leads']:
         span=lead['occurrences'][0]
         lines.append('  '+safe(lead['id'])+'  '+safe(lead['type'])+': '+safe(span['original']))
@@ -57,6 +59,16 @@ def render(packet):
             lines.append('  '+safe(item['category'])+' ('+safe(item['basis'])+'): '+safe(item['text']))
             lines.append('    Uncertainty: '+safe(item['uncertainty']))
     lines.extend(['','Limitations',*('  - '+safe(v) for v in packet['limitations']+packet['conflicts'])])
+    if packet.get('ai_error'):
+        error=packet['ai_error']
+        lines.append('  AI diagnostic: '+safe(error['category'])+' / '+safe(error['stage']))
+        detail=([f"HTTP {error['http_status']}"] if 'http_status' in error else [])
+        detail.extend(str(error[k]) for k in ('parameter','rule','provider_category') if k in error)
+        if detail:lines.append('  '+' | '.join(safe(v) for v in detail))
+        for rejection in error.get('rejected_items',[]):
+            lines.append('  Item '+str(rejection['item_index'])+': '+safe(rejection['rule']))
+        for entry in error.get('validation',{}).get('errors',[]):
+            lines.append('  '+safe(entry['canonical_path'])+': '+safe(entry['validator_keyword']))
     discovery=packet.get('discovery')
     if discovery:
         lines.extend(['','Approved deterministic discovery'])

@@ -27,7 +27,7 @@ def test_total_count_and_five_error_cap():
 def test_openai_post_translation_unique_diagnostic(tmp_path,monkeypatch):
     monkeypatch.setenv('LOCALAPPDATA',str(tmp_path))
     schema=contracts.schema([])
-    proposal={'action':'final','answer':{'observed':[],'relationships':[],'detections':[],'hypotheses':[],'unknowns':['PRIVATE-EVIDENCE']*2}}
+    proposal={'action':'final','answer':{'observed':[],'relationships':[],'detections':[],'hypotheses':[],'unknowns':['PRIVATE-EVIDENCE']*2,'interpretations':[],'answer_status':'partial'}}
     with pytest.raises(pd.ProviderFailure) as caught:openai_schema.response('openai',json.dumps({'proposal':proposal}),schema)
     detail=caught.value.metadata['validation_diagnostics']
     assert detail['provider_structured_validation']=='passed'
@@ -46,7 +46,7 @@ def test_pre_translation_and_translation_failure_separate(monkeypatch):
     schema=contracts.schema([])
     with pytest.raises(pd.ProviderFailure) as caught:openai_schema.response('openai','{"proposal":{}}',schema)
     assert caught.value.metadata['validation_diagnostics']['translation_status']=='not_attempted'
-    proposal={'action':'final','answer':{'observed':[],'relationships':[],'detections':[],'hypotheses':[],'unknowns':[]}}
+    proposal={'action':'final','answer':{'observed':[],'relationships':[],'detections':[],'hypotheses':[],'unknowns':[],'interpretations':[],'answer_status':'partial'}}
     def broken(*a):raise ValueError('PRIVATE-EVIDENCE')
     monkeypatch.setattr(openai_schema,'_decode',broken)
     with pytest.raises(pd.ProviderFailure) as caught:openai_schema.response('openai',json.dumps({'proposal':proposal}),schema)

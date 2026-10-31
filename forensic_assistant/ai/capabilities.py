@@ -30,6 +30,8 @@ def configure(kwargs, provider, schema):
     if adapted:
         schema = request_schema(provider, schema)
         kwargs['messages'] = instruct(kwargs['messages'])
+    elif provider == 'openai':
+        schema = request_schema(provider, schema)
     if capability.mode == "json_schema":
         kwargs["response_format"] = {"type": "json_schema", "json_schema": {
             "name": "investigation_proposal" if adapted else "forensic_analysis", "strict": True, "schema": schema}}

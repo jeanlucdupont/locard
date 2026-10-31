@@ -17,6 +17,12 @@ def investigation(schema):
         return False
 
 
+def briefing(schema):
+    """Only the exact application-owned briefing contract is eligible."""
+    from forensic_assistant.briefing import SCHEMA
+    return type(schema) is dict and schema == SCHEMA
+
+
 def _wire(node):
     result=copy.deepcopy(node)
     # Uniqueness is still mandatory in canonical validation after decoding.
@@ -32,6 +38,8 @@ def _wire(node):
 
 
 def request_schema(provider, canonical):
+    if provider == 'openai' and briefing(canonical):
+        return _wire(canonical)
     if provider!='openai' or not investigation(canonical):
         return canonical
     return {'type':'object','additionalProperties':False,'required':['proposal'],
@@ -65,6 +73,10 @@ def response(provider,text,canonical):
     from .response_contract import validate
     from .provider_diagnostics import ProviderFailure
     wire=request_schema(provider,canonical)
+    if provider == 'openai' and briefing(canonical):
+        # Same object shape; enforce all canonical constraints omitted on the wire.
+        validate(text,canonical)
+        return text
     if wire is canonical:
         validate(text,canonical)
         return text

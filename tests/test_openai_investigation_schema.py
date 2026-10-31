@@ -75,7 +75,8 @@ def test_each_tool_roundtrip_is_unambiguous(name):
 
 def test_wire_valid_duplicate_final_fails_canonical():
     schema=contracts.schema([])
-    final={'action':'final','answer':{'observed':[],'relationships':[],'detections':[],'hypotheses':[],'unknowns':['same','same']}}
+    final={'action':'final','answer':{'observed':[],'relationships':[],'detections':[],
+           'hypotheses':[],'unknowns':['same','same'],'interpretations':[],'answer_status':'partial'}}
     raw=encode(final,schema)
     validate(raw,adapter.request_schema('openai',schema))
     with pytest.raises(ProviderFailure):adapter.response('openai',raw,schema)

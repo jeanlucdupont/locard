@@ -13,7 +13,8 @@ def names():
         walk(node.get('items'))
         for key in ('oneOf','anyOf','allOf'):
             for v in node.get(key,[]):walk(v)
-    walk(schema(list(TOOLS)));walk(SCHEMA)
+    from forensic_assistant.briefing import SCHEMA as BRIEFING_SCHEMA
+    walk(schema(list(TOOLS)));walk(SCHEMA);walk(BRIEFING_SCHEMA)
     return result
 
 def path(parts):

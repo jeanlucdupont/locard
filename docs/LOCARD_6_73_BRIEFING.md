@@ -2,6 +2,38 @@
 
 Implementation and synthetic validation: 2026-10-31. Manual acceptance pending.
 
+### Acceptance correction: OpenAI schema and diagnostics
+
+The OpenAI briefing wire schema now omits `uniqueItems` recursively, using the
+existing adapter. Only the exact briefing contract is eligible; its plain object
+shape is preserved. Investigation responses still use their existing `proposal`
+wrapper. Canonical local validation retains uniqueness for both `items` and
+`entity_ids`, required properties, bounds and enums. Other providers are unchanged.
+The confirmed HTTP-400 `unsupported_uniqueItems` failure is addressed; acceptance
+by the live provider still requires manual testing. No other newly unsupported
+keyword was established by these offline checks.
+
+JSON adds `ai_status`: `not_requested`, `skipped` (input budget), `success`
+(including a valid empty list), `partial` (some items rejected), or `failed`.
+Failures include `ai_error` with category/stage and available allowlisted metadata.
+Categories distinguish provider schema rejection, transport, authentication or
+authorization, rate limiting, other provider failures, response parsing, structural
+validation, source reconciliation, and unexpected internal failures. HTTP 400 by
+itself is not classified as schema rejection. Reconciliation diagnostics identify
+item index and fixed rule, never quoted narrative values. Unexpected exception
+text is not displayed or newly persisted. Existing safe provider logs remain usable.
+
+Example diagnostic (synthetic, not a new provider request):
+
+```json
+{"ai_status":"failed","ai_error":{"category":"provider_schema_rejection","stage":"provider_request","provider_category":"invalid_request","http_status":400,"parameter":"response_format","rule":"unsupported_uniqueItems"}}
+```
+
+Human output states that the provider rejected the response schema, displays
+`HTTP 400 | response_format | unsupported_uniqueItems`, and confirms that
+deterministic leads remain available. Original BOM/text and character offsets are
+unchanged. The correction does not alter retrieval, approval, or grounding.
+
 ## Workflow and trust boundaries
 
 `briefing` is separate from `!` and `investigate-ai`. Its default is deterministic,
