@@ -2,6 +2,37 @@
 
 Implementation and synthetic validation: 2026-10-31. Manual acceptance pending.
 
+### Current acceptance correction: OpenAI briefing output budget
+
+After analyst-confirmed truncation, `briefing.OPENAI_OUTPUT_TOKENS` is **4096**,
+formerly 1024. The cloud worker applies it only to non-handshake OpenAI requests
+whose canonical schema exactly matches the briefing contract. Other operations,
+readiness probes and providers retain their prior settings. Locard supplies the
+existing LiteLLM `max_tokens` parameter; the installed SDK has model-specific
+translation to `max_completion_tokens` where applicable. No new model override,
+fallback, retries or additional interpretation request is introduced. Provider
+capability rejection remains an error rather than silently changing the budget.
+
+`briefing.OPENAI_RESPONSE_BYTES` is 128 KiB for this OpenAI interpretation parser
+only. The legacy 16-KiB parsing limit could reject valid escaped briefing output:
+a synthetic 27,157-byte response with twelve valid items now passes. The 128-KiB
+ceiling conservatively accommodates bounded item strings and JSON escaping.
+The generic parser default remains 16 KiB, including investigation and local/other
+provider briefing paths. The 1-MiB response/canonical-validator ceiling, 2-MiB worker
+reply ceiling, input budgets, item counts and CLI rendering behavior are unchanged.
+The envelope diagnostic allowlist now preserves the 4096 output limit.
+
+Tokens and bytes are different limits; 4096 tokens do not guarantee 16 KiB of
+visible text, especially for reasoning models. This is four times the previous
+generation allowance, not a required output length. Latency and API consumption
+may increase; the existing timeout still applies. No live performance claim is made.
+
+Validation: 145 focused tests passed in 23.98 seconds, including budget isolation,
+single-call truncation fallback, schema/uniqueness, source validation and provider
+compatibility regressions. Synthetic 27,157-byte validation/reconciliation took
+122.2 ms; rendering twelve items took 1.6 ms (one local measurement, no provider).
+The earlier 1024-token statements below describe the preceding diagnostic patch.
+
 ### Acceptance correction: OpenAI schema and diagnostics
 
 Response-envelope diagnostics now distinguish `output_truncated`,

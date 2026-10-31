@@ -94,12 +94,12 @@ def test_generate_ipc_parent_log_and_briefing_roundtrip(tmp_path,monkeypatch):
     with pytest.raises(pd.ProviderFailure) as logged:backend._cloud([],b.SCHEMA)
     raw=(settings.root()/'provider.log').read_text()
     assert 'SECRET' not in raw and 'output_truncated' in pd.render(raw)
-    assert json.loads(raw.splitlines()[-1])['response_envelope']['output_token_limit']==1024
+    assert json.loads(raw.splitlines()[-1])['response_envelope']['output_token_limit']==b.OPENAI_OUTPUT_TOKENS
     assert logged.value.metadata['response_envelope']==restored.metadata['response_envelope']
 
 
 def test_uniqueness_instruction_and_budget_unchanged(monkeypatch):
     monkeypatch.setenv('OPENAI_API_KEY','SYNTHETIC')
     kwargs=cloud_worker.request_kwargs(dict(provider='openai',model='synthetic',messages=[],schema=b.SCHEMA,timeout=45))
-    assert kwargs['max_tokens']==1024 and kwargs['num_retries']==0
+    assert kwargs['max_tokens']==b.OPENAI_OUTPUT_TOKENS and kwargs['num_retries']==0
     assert 'No duplicate interpretation items or repeated entity IDs' in b.SYSTEM

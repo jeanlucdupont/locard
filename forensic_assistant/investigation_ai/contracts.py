@@ -210,8 +210,8 @@ def validate(value, schema, path='request'):
     if 'enum' in schema and value not in schema['enum']:
         raise ValueError(path + ': unsupported value')
 
-def loads(text):
-    if not isinstance(text, str) or len(text.encode()) > 16384:
+def loads(text, *, max_bytes=16384):
+    if not isinstance(text, str) or len(text.encode()) > max_bytes:
         raise ValueError('Model response exceeds content limit')
     def pairs(items):
         result = {}

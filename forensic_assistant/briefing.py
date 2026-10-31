@@ -12,6 +12,9 @@ from forensic_assistant.retrieval.temporal_scope import MONTHS, STAMP, resolve, 
 MAX_BYTES = 32768
 MAX_LEADS = 128
 MAX_SEARCHES = 6
+OPENAI_OUTPUT_TOKENS = 4096
+# Canonical bounds permit 12 items with escaped strings beyond the legacy 16 KiB.
+OPENAI_RESPONSE_BYTES = 128 * 1024
 ARTIFACTS = ('evtx', 'mft', 'prefetch', 'registry', 'browser')
 
 
@@ -154,7 +157,7 @@ def _interpret(packet, client):
         fail(packet, 'provider_transport', 'provider_request')
         return
     try:
-        value=loads(raw)
+        value=loads(raw, max_bytes=OPENAI_RESPONSE_BYTES) if client.provider_name=='openai' else loads(raw)
     except ValueError as exc:
         fail(packet, 'response_parsing', 'response_parse', rule=local_rule(exc, parsing=True))
         return

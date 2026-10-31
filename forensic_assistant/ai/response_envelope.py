@@ -20,7 +20,8 @@ def safe(value):
     for key in ('tool_calls_present','function_call_present','content_bytes_capped'):
         if type(value.get(key)) is bool:
             result[key] = value[key]
-    for key, maximum in (('content_bytes',LIMIT+1),('output_token_limit',1024)):
+    from forensic_assistant.briefing import OPENAI_OUTPUT_TOKENS
+    for key, maximum in (('content_bytes',LIMIT+1),('output_token_limit',OPENAI_OUTPUT_TOKENS)):
         if type(value.get(key)) is int and 0 <= value[key] <= maximum:
             result[key] = value[key]
     return result

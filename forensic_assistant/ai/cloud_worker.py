@@ -15,14 +15,18 @@ def request_kwargs(request):
     # Explicit provider + model, no router, fallback or provider-native tools.
     from .capabilities import CAPABILITIES, configure
     route = CAPABILITIES[provider].route
-    from .openai_schema import investigation
+    from .openai_schema import investigation, briefing
+    output_tokens = 1024
+    if provider == 'openai' and request.get('handshake') is not True and briefing(request.get('schema')):
+        from forensic_assistant.briefing import OPENAI_OUTPUT_TOKENS
+        output_tokens = OPENAI_OUTPUT_TOKENS
     probe_tokens = 256 if provider in ('openai', 'gemini') and investigation(request.get('schema')) else 64
     if provider == 'gemini':
         from .readiness import SCHEMA
         probe_tokens = 512 if request.get('schema') == SCHEMA else 1024 if investigation(request.get('schema')) else 512
     kwargs = dict(model=route + '/' + request['model'],
                   custom_llm_provider=route, api_key=os.environ[PROVIDERS[provider][1]],
-                  messages=request['messages'], stream=False, max_tokens=probe_tokens if request.get('handshake') is True else 1024,
+                  messages=request['messages'], stream=False, max_tokens=probe_tokens if request.get('handshake') is True else output_tokens,
                   timeout=request['timeout'], num_retries=0, drop_params=False)
     return configure(kwargs, provider, request.get('schema'))
 
