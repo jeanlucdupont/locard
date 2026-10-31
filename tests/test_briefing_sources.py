@@ -60,7 +60,7 @@ def test_multi_source_questions_alternatives_and_explicit_paraphrase():
     assert p['ai_status']=='success' and len(p['ai_items'])==4
     assert p['ai_items'][-1]['basis']=='inferred' and p['ai_items'][-1]['model_basis']=='explicit'
     assert all(v['semantic_entailment']=='not_verified' for v in p['ai_items'])
-    output=briefing_cli.render(p)
+    output=briefing_cli.render(p, details=True)
     assert ids[0] in output and 'not evidence' in output and 'alternative' in output
     assert 'discovery' not in p and 'handoff' not in p
 

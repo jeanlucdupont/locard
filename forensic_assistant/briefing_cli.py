@@ -13,12 +13,13 @@ def configure(commands):
     source.add_argument('--text',dest='briefing_text',help='Short inline analyst narrative; use --file for paragraphs')
     p.add_argument('--correction',dest='briefing_correction',action='append',default=[],help='Separate analyst correction; original wording remains intact')
     p.add_argument('--ai',action='store_true',help='One bounded narrative interpretation using the configured provider; no tools')
-    p.add_argument('--allow-cloud',action='store_true',help='Explicitly authorize disclosure of this original narrative and indicator list to the configured cloud provider')
+    p.add_argument('--allow-cloud',action='store_true',help='Legacy disclosure flag; unnecessary after provider configuration acknowledgment')
     p.add_argument('--discover',action='store_true',help='Execute approved lead lookups; requires --approve, --artifact, --start and --end')
     p.add_argument('--approve',action='append',default=[],metavar='LEAD_ID',help='Approve exactly this reviewed lead; repeat for at most six leads')
     p.add_argument('--artifact',choices=briefing.ARTIFACTS,help='Search only this explicitly selected artifact family')
     p.add_argument('--start',help='Authorized search start with UTC/offset; never inferred from narrative')
     p.add_argument('--end',help='Authorized search end with UTC/offset; maximum 24-hour window')
+    p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
     p.add_argument('--json',action='store_true',help='Include original narrative, spans, leads, packet and plan; sensitive derived output')
 
 
@@ -44,7 +45,7 @@ def run(args):
     return packet
 
 
-def render(packet):
+def render_details(packet):
     lines=['Case briefing analysis — unverified analyst input','', 'Explicit indicators and contextual leads']
     if packet.get('ai_status') in ('success','partial','skipped'):
         lines.insert(1,'AI interpretation: '+packet['ai_status']+' ('+str(len(packet['ai_items']))+' accepted items)')
@@ -98,4 +99,12 @@ def render(packet):
                           '  Original objective remains in inputs.original; use --json for the complete packet.'])
     else:
         lines.extend(['','No evidence searches executed. Review IDs, then use --discover with explicit approvals and time bounds.'])
+    lines.extend(['', 'Technical packet', *[safe(line) for line in json.dumps(packet, ensure_ascii=False, indent=2).splitlines()]])
     return '\n'.join(lines)
+
+
+def render(packet, *, details=False):
+    if details:
+        return render_details(packet)
+    from forensic_assistant.briefing_report import render as human
+    return human(packet)

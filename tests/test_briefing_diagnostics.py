@@ -55,7 +55,7 @@ def test_provider_categories_safe_in_json_and_human(category,expected):
     b.interpret(p,Raise(exc),allow_cloud=True)
     assert p['ai_status']=='failed' and p['ai_error']['category']==expected and p['leads']
     assert 'SecretNarrative' not in json.dumps(p['ai_error'])
-    assert 'sk-SUPERSECRET' not in briefing_cli.render(p)
+    assert 'sk-SUPERSECRET' not in briefing_cli.render(p, details=True)
 
 
 def test_schema_rejection_metadata_and_cli_json(monkeypatch,capsys):
@@ -68,7 +68,7 @@ def test_schema_rejection_metadata_and_cli_json(monkeypatch,capsys):
     assert main(['briefing','--text','baje.ps1','--ai','--allow-cloud','--json'])==0
     p=json.loads(capsys.readouterr().out)
     assert p['ai_error']['category']=='provider_schema_rejection'
-    rendered=briefing_cli.render(p)
+    rendered=briefing_cli.render(p, details=True)
     assert all(s in rendered for s in ('HTTP 400','response_format','unsupported_uniqueItems'))
     assert 'sk-SECRET' not in json.dumps(p) and 'SecretNarrative' not in rendered
 
@@ -101,7 +101,7 @@ def test_missing_field_internal_failure_and_empty_success():
 def test_reconciliation_reason(change,rule):
     p=b.extract('baje.ps1');b.interpret(p,Fake({'items':[{**item('baje.ps1'),**change}]}))
     assert p['ai_error']['category']=='reconciliation' and p['ai_error']['rejected_items'][0]['rule']==rule
-    assert rule in briefing_cli.render(p)
+    assert rule in briefing_cli.render(p, details=True)
 
 
 def test_bom_preserved_valid_categories_and_partial_status():

@@ -2624,3 +2624,21 @@ Manual supervised example, after selecting the intended case:
 ```text
 investigate-ai --no-semantic --approve-tools "Investigate Microsoft Defender Event ID 1121 on September 30, 2026, between 14:05:40 and 14:06:10 UTC. Find original EVTX EventData mentioning baje.ps1. Determine what Defender recorded about attempted PowerShell execution and cite the supporting evidence."
 ```
+
+### Briefing presentation and cloud consent
+
+`briefing --file PATH --ai` reuses the configured provider's durable disclosure
+acknowledgment. An API key alone does not authorize cloud use. Provider changes
+require the existing acknowledgment workflow. `--allow-cloud` remains accepted
+for compatibility; it does not bypass backend configuration validation.
+
+The default report separates analyst input, extracted leads, tentative AI ideas
+and bounded discovery. `--details` shows full provenance, evidence packets and
+safe diagnostics. `--json` preserves the structured contract. Both views use the
+same validated data without additional queries or model calls. Existing `--page`,
+`--output` and `--append` controls remain available.
+
+Review exact IDs with `--details`, then repeat the same input and corrections
+with `--discover --approve LEAD_ID --artifact evtx --start START --end END`.
+Use ISO timestamps with zones and a window at most 24 hours. Display numbers
+are labels only, not approval tokens. No automatic investigation follows.

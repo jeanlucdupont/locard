@@ -37,7 +37,7 @@ def test_budget_reaches_sdk_and_no_retry(monkeypatch):
         provider_name='openai'
         def complete(self,*args):raise caught.value
     p=b.extract('baje.ps1');b.interpret(p,Client(),allow_cloud=True)
-    assert p['leads'] and p['ai_status']=='failed' and '4096' in briefing_cli.render(p)
+    assert p['leads'] and p['ai_status']=='failed' and '4096' in briefing_cli.render(p, details=True)
 
 
 def large_response():
@@ -61,7 +61,7 @@ def test_larger_valid_response_and_unchanged_default_parser_bound():
     client=Client();p=b.extract(text);b.interpret(p,client,allow_cloud=True)
     assert client.calls==1 and p['ai_status']=='success' and len(p['ai_items'])==12
     assert all(r['verification']=='UNVERIFIED AI INTERPRETATION' for r in p['ai_items'])
-    assert 'hypothesis' in briefing_cli.render(p)
+    assert 'hypothesis' in briefing_cli.render(p, details=True)
 
 
 def test_openai_briefing_size_bound_remains_hard():

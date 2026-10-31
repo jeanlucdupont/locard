@@ -40,7 +40,7 @@ def test_invented_indicators_still_rejected(text,kind):
     rejected=p['ai_error']['rejected_items'][0]
     assert rejected['rule']=='unsupported_technical_literal' and kind in rejected['literal_types']
     assert text not in json.dumps(rejected)
-    assert kind in briefing_cli.render(p)
+    assert kind in briefing_cli.render(p, details=True)
 
 
 @pytest.mark.parametrize('source,text',[
