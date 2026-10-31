@@ -62,6 +62,8 @@ def build_parser(*, interactive=False):
     parser.add_argument("--db", default=Config.database)
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling (also respects NO_COLOR)')
     commands = parser.add_subparsers(dest="command", required=True)
+    from forensic_assistant import briefing_cli
+    briefing_cli.configure(commands)
     from forensic_assistant import dump_cli
     dump_cli.configure(commands)
     v1_cli.configure(commands)
@@ -294,6 +296,14 @@ def _dispatch(args, output, *, existing_only=False):
     from forensic_assistant.investigation_ai import cli as investigation_cli
     from forensic_assistant.reporting import cli as report_cli
     try:
+        if args.command == 'briefing':
+            from forensic_assistant import briefing_cli
+            result = briefing_cli.run(args)
+            if args.json:
+                emit(result)
+            else:
+                output.write(briefing_cli.render(result))
+            return 0
         if args.command == 'dump':
             from forensic_assistant.dump_cli import run, DumpExistsError
             try:

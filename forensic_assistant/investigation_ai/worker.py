@@ -42,6 +42,8 @@ def serve():
                     response = {'ready': True, 'worker_pid': os.getpid()}
                 else:
                     op = request['operation']
+                    if config.get('_briefing_initial') and op not in ('initial','briefing_search','check'):
+                        raise ValueError('Operation outside approved briefing discovery surface')
                     def emit(value):
                         protocol.write(json.dumps({'startup_diagnostic': value}).encode() + b'\n')
                         protocol.flush()
@@ -108,9 +110,14 @@ def serve():
                                 tool_config = {**config, '_read_view_proof': ReadViewFingerprint(view)}
                             with contextlib.redirect_stdout(sys.stderr):
                                 if op == 'initial':
-                                    result = tools.initial(db, request['question'], {**tool_config, '_profile': profile}, model)
+                                    result = (tools.envelope(db, 'briefing_initial', {'records': []})
+                                              if config.get('_briefing_initial') else
+                                              tools.initial(db, request['question'], {**tool_config, '_profile': profile}, model))
                                 elif op == 'check':
                                     result = {'checked': True}
+                                elif op == 'briefing_search' and config.get('_briefing_initial'):
+                                    from forensic_assistant.briefing import execute_query
+                                    result = execute_query(db, request['arguments'])
                                 else:
                                     result = tools.execute(
                                         db,

@@ -4,6 +4,7 @@ from types import MappingProxyType
 
 
 COMMANDS = MappingProxyType({
+    'briefing': 'Review analyst incident leads and approve bounded evidence discovery',
     'add-evidence': 'Compatibility alias for ingest wizard',
     'ingest-wizard': 'Guided evidence discovery and ingestion',
     'ai': 'Configure AI provider and local runtime',

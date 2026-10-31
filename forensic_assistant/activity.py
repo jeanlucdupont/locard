@@ -26,7 +26,7 @@ MAX_ENTRY = 1024 * 1024
 _THREAD_LOCK = threading.RLock()
 CURRENT = ContextVar('locard_activity_session', default=None)
 COMMAND = ContextVar('locard_activity_command', default=None)
-SECRET = re.compile(r'(?:^|[-_])(?:password|passwd|token|secret|credentials|authorization|api[-_]key)$', re.I)
+SECRET = re.compile(r'(?:^|[-_])(?:password|passwd|token|secret|credentials|authorization|api[-_]key|briefing_(?:text|file|correction))$', re.I)
 
 
 class AuditError(ValueError):
@@ -57,7 +57,7 @@ def redact_argv(argv):
             pending = False
             continue
         key, separator, rest = value.partition('=')
-        if key.startswith('--') and SECRET.search(key[2:]):
+        if key.startswith('--') and (SECRET.search(key[2:]) or ('briefing' in argv and key in ('--text','--file','--correction'))):
             result.append(key + '=<redacted>' if separator else key)
             pending = not separator
         else:

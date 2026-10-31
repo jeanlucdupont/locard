@@ -17,6 +17,7 @@ from test_interactive_shell import Input, case
 
 # Intentional wording contract, independent of the production metadata.
 EXPECTED = dict(line.split('|', 1) for line in """?|Show help for a command
+briefing|Review analyst incident leads and approve bounded evidence discovery
 add-evidence|Compatibility alias for ingest wizard
 ingest-wizard|Guided evidence discovery and ingestion
 ai|Configure AI provider and local runtime

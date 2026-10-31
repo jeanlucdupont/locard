@@ -32,6 +32,10 @@ See [bounded investigation diagnostics](docs/v4.md#budgets-and-termination).
 
 ## Reminders
 
+Analyst incident narratives can now be reviewed with `briefing --file PATH`.
+See [briefing review, explicit discovery approval, and manual acceptance](docs/LOCARD_6_73_BRIEFING.md).
+Default briefing analysis is model-free; narrative claims are never forensic findings.
+
 The bounded `investigate-ai` engine is assessed in [the investigation architecture
 and safety review](V4.md), including its tool inventory, limits, privacy boundaries
 and requirements for future reuse. The normal `!` interface supports advisory guidance and bounded investigation with per-tool approval.
