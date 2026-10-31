@@ -104,6 +104,9 @@ def termination_label(result):
 
 def field_label(row):
     path = str(row.get('field', ''))
+    if row.get('recorded_field'):
+        entry = row['recorded_field']
+        return 'Recorded field [' + safe(entry.get('ordinal')) + '] ' + safe(entry.get('name')), False
     match = re.fullmatch(r'/timestamps/(\d+)/utc', path)
     semantics = row.get('timestamp_semantics')
     if match and isinstance(semantics, list):

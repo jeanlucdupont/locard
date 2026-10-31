@@ -164,8 +164,16 @@ def render(result, palette=None, *, ids=False, width=None):
             lines.append(f"Row {index}: ServiceInstall " + safe(data['service_name']))
             for name, key in (('Image', 'image_path'), ('Account', 'account'), ('Start type', 'start_type')):
                 lines.append('  ' + name + ': ' + (safe_path if key == 'image_path' else safe)(data[key]))
+    if result.get('content_search'):
+        for index, record in enumerate(records, 1):
+            for match in record.get('content_matches', []):
+                lines.append(f"Row {index}: " + safe(match['basis']) + ' / ' + safe(match['name']) + ': ' + safe(match['excerpt']))
+            from .event_data import interpretation
+            interpreted = interpretation(record)
+            if interpreted:
+                lines.append(palette('forensic_note', interpreted['limitation']))
     if not records:
-        lines.append('No matching evidence.')
+        lines.append('No matches in examined candidates.' if result.get('content_search') else 'No matching evidence.')
     missing_candidates = []
     for index, r in enumerate(records, 1):
         if r['source_type'] == 'browser':
@@ -195,6 +203,16 @@ def render(result, palette=None, *, ids=False, width=None):
     browser_notes = shared_notes(records, palette)
     lines += registry_notes
     lines += browser_notes[2:] if registry_notes and browser_notes else browser_notes
+    if result.get('content_search'):
+        coverage = result['content_search']
+        lines += ['', f"{len(records)} matches in this batch; {coverage['examined']} candidates examined."]
+        for note in result.get('limits', []):
+            lines.append(palette('warning', safe(note)))
+        if coverage['continued']:
+            lines.append('Continuation batch only; earlier coverage limitations still apply.')
+        if coverage['next_cursor']:
+            lines.append('Continue with unchanged filters: --evtx-after ' + coverage['next_cursor'])
+        return '\n'.join(lines)
     footer = pagination(len(records), result['total'], result.get('offset', 0))
     if footer:
         lines += ['', footer]

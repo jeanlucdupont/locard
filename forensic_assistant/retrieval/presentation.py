@@ -72,6 +72,9 @@ def detail(event):
 
 def human_detail(event):
     """Escape each known component, preserving separators only in actual paths."""
+    from .event_data import is_defender_block
+    if is_defender_block(event):
+        return "Defender ASR blocking action recorded; not proof of successful execution"
     kind = event.get('kind') or event.get('artifact_type')
     if kind == 'file_create':
         actor = safe(ntpath.basename(event.get('process_name') or '?'))

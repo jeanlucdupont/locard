@@ -368,6 +368,15 @@ class EvidenceQueries:
         require_complete=False,
         **filters
     ):
+        if filters.get('evtx_text') is not None:
+            if timeline or nearest_to or exclude_time or require_complete:
+                raise ValueError('EVTX content search is only available through explicit search')
+            from .evtx_content import search
+            return search(self, start=start, end=end, limit=limit, offset=offset, raw=raw, **filters)
+        if any(filters.get(k) is not None for k in ('evtx_match', 'evtx_after')):
+            raise ValueError('EVTX match/continuation requires --evtx-text')
+        for key in ('evtx_text', 'evtx_match', 'evtx_after'):
+            filters.pop(key, None)
         if not 1 <= limit <= 10000 or offset < 0:
             raise ValueError('Invalid pagination bounds')
         start = required_time(start) if start else None

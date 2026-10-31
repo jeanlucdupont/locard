@@ -83,6 +83,9 @@ def build_parser(*, interactive=False):
         action='store_true',
         help='Include full copyable evidence IDs, numbered to match table rows; display paths may be shortened. Use show for details, --json for the existing structured projection, --raw for available raw payloads.'
     )
+    search.add_argument('--evtx-text', help='Explicit literal, case-sensitive EVTX field search; requires --artifact evtx and a paired time window <=24 hours; bounded coverage, no raw/offset')
+    search.add_argument('--evtx-match', choices=('exact', 'contains'), help='Whole-value exact or literal substring match; default contains')
+    search.add_argument('--evtx-after', help='Copy the continuation cursor; retain the same filters and unchanged case contents')
     search.add_argument("--event-id", type=int)
     search.add_argument(
         "--kind",

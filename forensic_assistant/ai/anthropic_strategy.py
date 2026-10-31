@@ -6,7 +6,7 @@ from contextvars import ContextVar
 from .response_contract import validate
 from .provider_diagnostics import ProviderFailure
 
-VERSION = 1
+VERSION = 2
 RAW_STAGE = ContextVar('anthropic_raw_stage', default=None)
 
 def stages(canonical):
@@ -15,6 +15,17 @@ def stages(canonical):
         props=branch['properties']
         selection=props['tool']['enum'][0] if props['action']['enum']==['tool'] else 'final'
         variants[selection]=copy.deepcopy(branch)
+        if selection == 'search_evidence' and 'evtx_text' in props['arguments']['properties']:
+            # Two wire alternatives for the same authorized canonical tool keep
+            # optional-property complexity below the existing provider ceiling.
+            ordinary = variants[selection]['properties']['arguments']
+            for key in ('evtx_text', 'evtx_match', 'evtx_after'):
+                ordinary['properties'].pop(key)
+            content = copy.deepcopy(branch)
+            args = content['properties']['arguments']
+            args['required'] = list(dict.fromkeys([*args['required'], 'artifact', 'start', 'end', 'evtx_text']))
+            args['properties']['artifact'] = {'type': 'string', 'enum': ['evtx']}
+            variants['search_evidence_content'] = content
     selector={'type':'object','additionalProperties':False,'required':['selection'],
               'properties':{'selection':{'type':'string','enum':list(variants)}}}
     return selector, variants
@@ -66,10 +77,10 @@ def generate(client,messages,canonical,timeout,handshake):
             detail[key+'_model_time']=round(time.monotonic()-stage_started,6)
     try:
         selection=call(1,selector,'Transport stage 1: return only selection, choosing a tool from the permitted enum or final. Do not provide arguments or findings yet.')['selection']
-        detail['selected_tool']=selection
+        detail['selected_tool']='search_evidence' if selection=='search_evidence_content' else selection
         branch=variants[selection]
         payload=call(2,payload_schema(branch),'Transport stage 2: selection is '+selection+'. Return only the fields required by this selected proposal schema. Preserve the requested rationale; do not change the selection. Use only the supplied context.')
-        proposal={'action':'final',**payload} if selection=='final' else {'action':'tool','tool':selection,**payload}
+        proposal={'action':'final',**payload} if selection=='final' else {'action':'tool','tool':branch['properties']['tool']['enum'][0],**payload}
         text=json.dumps(proposal,ensure_ascii=True)
         validate(text,canonical)
         detail['canonical_validation']='passed'

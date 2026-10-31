@@ -2514,3 +2514,61 @@ This does not validate log contents: readable, unchanged companions are recorded
 as unsupported and not replayed. Access or integrity failures remain failures.
 The replay limitation appears once per phase, with companions grouped rather than
 listed as failed hives. Spinner and parser behavior are unchanged.
+
+
+### Explicit EVTX content search (existing cases)
+
+`--evtx-text` searches retained named EventData values and normalized process,
+parent-process, command-line, script-block, service-name and task-name fields.
+It does not search raw XML or change the meaning of `--process`/`--path`.
+Comparisons are literal and case-sensitive: `--evtx-match contains` (default)
+or whole-value `--evtx-match exact`. Match details identify original versus
+normalized fields, original ordinals, excerpts and truncation.
+
+```text
+search --artifact evtx --evtx-text "example.ps1" --start 2026-01-01T00:00:00Z --end 2026-01-02T00:00:00Z --ids
+```
+
+Both time bounds are required, with a maximum 24-hour span. Existing host,
+event-ID and other filters remain conjunctive. Do not add a normalized process
+filter when trying to find a process mentioned only in unmapped EventData.
+
+Each call examines at most 1,000 candidates in `(SystemTime, evidence ID)` order,
+returns at most 50 matches (default 20), and has a five-second SQLite interrupt
+budget. The outer investigation deadline/containment still applies. SQLite
+interruption is cooperative, not a guarantee that blocked operating-system I/O
+returns within five seconds. Time-index selection can still require sorting
+same-time records; a row limit alone is not a query-work bound.
+
+The examined text budget is 8 MiB per call. Records with more than 32 KiB of
+searchable payload or 128 KiB of raw XML are skipped before hydration; malformed
+payloads and fields beyond the 256-field inspection bound also leave coverage
+incomplete. Raw XML is not supplied to the model. These are retrieval limits,
+not changes to retained evidence.
+
+Incomplete coverage is explicit, including when no matches were returned.
+Copy the returned cursor into `--evtx-after "<cursor>"` with the same filters.
+Cursors are bound to the case-file identity and search scope. Continue only while
+the case contents remain unchanged: separate CLI calls do not share a snapshot.
+An exhausted continuation covers the remaining suffix, not any records skipped
+in earlier batches. No continuation advances past an unexamined byte-budget
+boundary. If a timeout occurs before progress, narrow the time window or filters.
+`--offset` and `--raw` are not available with content search. JSON totals count
+matches in this batch, not a full-period count; inspect `content_search`,
+`total_is_lower_bound`, `truncated` and `limits`.
+
+Ordinary `show` now displays bounded original EventData with names and ordinals.
+The AI `search_evidence` tool accepts `evtx_text`, `evtx_match` and `evtx_after`;
+`show_evidence` accepts an optional `event_data_offset` (original ordinal 0..255).
+Model projections retain at most 12 fields and 1 KiB of encoded field entries
+(ordinary human display uses 2 KiB), plus at most 768 bytes of match excerpts,
+with explicit truncation. Existing prompt, call, approval and novelty budgets
+still limit automatic continuation. Only actually disclosed original values can
+support observations; matches do not establish execution or causation.
+
+Microsoft Defender provider/channel-qualified Event 1121 is interpreted at read
+time as a recorded ASR blocking action. `Process Name`, `Path`, target/parent
+command lines and detection time remain separate original fields. `Path` is not
+universally an executable; detection time is not substituted for SystemTime.
+The interpretation does not establish successful target execution. Existing
+schema-5 evidence benefits without reingestion, migrations or evidence writes.

@@ -81,7 +81,7 @@ def test_cache_is_provider_specific(monkeypatch):
 
 def test_restricted_allowlist():
     selector,_=a.stages(contracts.schema(['search_evidence']))
-    assert selector['properties']['selection']['enum']==['search_evidence','final']
+    assert selector['properties']['selection']['enum']==['search_evidence','search_evidence_content','final']
     with pytest.raises(ProviderFailure):validate('{"selection":"show_evidence"}',selector)
 
 
@@ -110,3 +110,17 @@ def test_raw_stage_label():
     raw.capture({'kind':'raw_model_output','text':'synthetic','stage':'stage2'})
     assert 'anthropic_stage2_raw_model_output' in raw.display()
     raw.clear()
+
+
+def test_content_alternative_stays_within_provider_bounds_and_canonical_tool():
+    selector, variants = a.stages(C)
+    for branch in variants.values():
+        part = a.payload_schema(branch)
+        assert profile(part)['optional_property_count'] <= 10
+        assert profile(part)['nullable_union_count'] == 0
+    args = dict(artifact='evtx', start='2026-01-01T00:00:00Z', end='2026-01-02T00:00:00Z', evtx_text='baje.ps1')
+    result, calls = run([{'selection':'search_evidence_content'}, {'arguments':args,'reason':'Inspect original recorded fields'}])
+    assert json.loads(result['text']) == dict(action='tool',tool='search_evidence',arguments=args,reason='Inspect original recorded fields')
+    assert result['anthropic_strategy']['selected_tool']=='search_evidence'
+    with pytest.raises(ProviderFailure):
+        run([{'selection':'search_evidence_content'}, {'arguments':{'evtx_text':'x'},'reason':'Narrow'}])

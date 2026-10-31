@@ -52,7 +52,7 @@ def test_wire_subset_and_canonical_unchanged(browser):
     assert canonical==original
     p=profiles('openai',canonical)
     assert p['schema_profile']['oneOf_count']==1
-    assert p['schema_profile']['optional_property_count']==45
+    assert p['schema_profile']['optional_property_count']==49
     assert p['provider_schema_profile']['optional_property_count']==0
     assert p['provider_schema_profile']['nesting_depth']<=10
     for key in ('evidence_fingerprint','metrics','audit','source_context','transcript'):

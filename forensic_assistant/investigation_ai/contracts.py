@@ -28,12 +28,12 @@ FILTERS = {
 }
 ANCHOR = {'evidence_id': string(160)}
 TOOLS = {
-    'search_evidence': ('Search case metadata using exact SQL filters. Time bounds must be paired: start <= end; maximum span 24 hours.', obj({**FILTERS, 'limit': integer(1, 50)})),
+    'search_evidence': ('Search case metadata using exact SQL filters. Time bounds must be paired: start <= end; maximum span 24 hours. For unmapped EVTX indicators use explicit evtx_text with artifact evtx and time bounds; case-sensitive literal contains (default) or exact. Other supplied filters are conjunctive; omit process/path when locating unmapped mentions. Use evtx_after for returned continuation; preserve filters. Incomplete coverage never establishes absence.', obj({**FILTERS, 'limit': integer(1, 50), 'evtx_text': string(256), 'evtx_match': enumeration('exact', 'contains'), 'evtx_after': string(1024)})),
     'semantic_search': (
         'Find candidates; similarity establishes no relationship or confidence.',
         obj({'query': string(1000), **FILTERS, 'limit': integer(1, 20)}, ('query',))
     ),
-    'show_evidence': ('Inspect a known original evidence record; bounded fields only.', obj(ANCHOR, ('evidence_id',))),
+    'show_evidence': ('Inspect a known original evidence record; bounded fields only. For EVTX, event_data_offset selects original field ordinals >= the offset (0..255); default prioritizes recognized Defender fields. Original EventData is distinct from Locard interpretation.', obj({**ANCHOR, 'event_data_offset': integer(0, 255)}, ('evidence_id',))),
     'timeline': (
         'Read timestamp observations with their original meanings.',
         obj({**FILTERS, 'limit': integer(1, 50)}, ('start', 'end'))
@@ -120,7 +120,7 @@ OUTPUT_SCHEMA = {
         'limitations': {'type': 'array', 'items': {'type': 'string'}}, 'returned_count': integer(0, 50),
         'truncated': {'type': 'boolean'}, 'semantic_candidates': {'type': 'array', 'maxItems': 20},
         'label': {'const': 'UNTRUSTED FORENSIC EVIDENCE'},
-        'plan': {'type': 'object'}, 'semantic_used': {'type': 'boolean'},
+        'content_search': {'type': 'object'}, 'plan': {'type': 'object'}, 'semantic_used': {'type': 'boolean'},
     }}
 
 def catalog():
@@ -243,6 +243,12 @@ def arguments(name, args):
             raise ValueError('Time window exceeds 24 hours or is reversed')
     if name == 'search_evidence' and not any(k in args for k in FILTERS):
         raise ValueError('Search needs at least one scope filter')
+    if name == 'search_evidence':
+        if 'evtx_text' in args:
+            if args.get('artifact') != 'evtx' or not all(k in args for k in ('start', 'end')):
+                raise ValueError('EVTX content search requires artifact evtx and paired time bounds')
+        elif 'evtx_match' in args or 'evtx_after' in args:
+            raise ValueError('EVTX continuation/match requires evtx_text')
     defaults = {'limit': 20}
     if name == 'process_tree':
         defaults = {'seconds': 300, 'max_nodes': 20, 'max_depth': 4}

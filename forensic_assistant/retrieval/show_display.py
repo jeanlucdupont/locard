@@ -112,6 +112,20 @@ def render(record, palette=None, *, registry_values=None):
                 field(key.replace('_', ' ').capitalize(), value, path=key == 'image_path', account=key == 'account')
             lines += ['', palette('forensic_note', 'Forensic note'), palette('forensic_note', '- ' + NOTE)]
         lines.append(palette('key', 'Observation: ') + palette('string_value', human_detail(record)))
+        from .event_data import projection, interpretation
+        original, limitations = projection(record)
+        if original:
+            lines += ['', palette('heading', 'Original EventData (recorded values)')]
+            for item in original:
+                field('  [' + str(item['ordinal']) + '] ' + safe(item['name']), item['value'])
+                if item['truncated']:
+                    lines.append(palette('warning', '    Recorded field display truncated.'))
+        for note in limitations:
+            lines.append(palette('warning', note))
+        interpreted = interpretation(record)
+        if interpreted:
+            lines += ['', palette('heading', 'Interpretation: recorded Defender ASR block'),
+                      palette('forensic_note', interpreted['limitation'])]
     times = record.get('timestamps', [])
     populated = [t for t in times if t.get('timestamp_utc')]
     if times and kind == 'mft':

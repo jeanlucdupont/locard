@@ -221,6 +221,9 @@ def dispatch(db, args, *, presentation=None):
                 filters['powershell'] = True
             elif args.kind:
                 filters['artifact_types'] = kinds[args.kind]
+            filters.update({k: getattr(args, k, None) for k in ('evtx_text', 'evtx_match', 'evtx_after')})
+            if filters['evtx_text'] is not None and filters['evtx_match'] is None:
+                filters['evtx_match'] = 'contains'
             result = q.search(start=args.start, end=args.end, **filters)
         else:
             if args.timestamp and args.around:

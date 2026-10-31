@@ -28,6 +28,33 @@ def compact(record):
     result['artifact_type'] = record.get('artifact_type')
     result['source_type'] = record.get('source_type', 'evtx')
     result['kind'] = record.get('kind')
+    if result['source_type'] == 'evtx':
+        from forensic_assistant.retrieval.event_data import projection, interpretation
+        result.pop('event_data_json', None)
+        entries, notes = projection(record, ordinals=[m['ordinal'] for m in record.get('content_matches', []) if m['ordinal'] is not None],
+                                    offset=record.get('_event_data_offset', 0), byte_limit=1024)
+        result['original_event_data'] = entries
+        result['event_data_limitations'] = notes
+        if notes:
+            result.setdefault('truncated_fields', []).append('original_event_data')
+        interpreted = interpretation(record)
+        if interpreted:
+            result['defender_asr'] = interpreted
+        if record.get('content_matches'):
+            matches = []
+            for original in record['content_matches']:
+                match = dict(original)
+                while match['excerpt'] and len(json.dumps(matches + [match], ensure_ascii=True).encode()) > 768:
+                    match['excerpt'] = match['excerpt'][:-1]
+                    match['truncated'] = True
+                if len(json.dumps(matches + [match], ensure_ascii=True).encode()) > 768:
+                    break
+                matches.append(match)
+            result['content_matches'] = matches
+            if (record.get('content_matches_truncated') or len(matches) < len(record['content_matches'])
+                    or any(m['truncated'] for m in matches)):
+
+                result.setdefault('truncated_fields', []).append('content_matches')
     context = record.get('context', {})
     if context:
         # Assertions remain attributed metadata, never independently verified facts.
@@ -148,6 +175,7 @@ def envelope(db, name, raw, limit=50):
     if ambiguous:
         limits.append('Cross-source relationships omitted: host attribution is missing, conflicting or ambiguous')
     return {
+        **({'content_search': raw['content_search']} if 'content_search' in raw else {}),
         'tool': name,
         'behavior': 'semantic' if name == 'semantic_search' else 'deterministic',
         'records': list(records.values()),
@@ -177,7 +205,11 @@ def execute(db, name, args, config, model=None):
     elif name == 'timeline':
         raw = q.search(**args, timeline=True, strict_host=bool(args.get('hostname'))).as_dict()
     elif name == 'show_evidence':
-        raw = {'records': [get_evidence(db, args['evidence_id'])]}
+        record = get_evidence(db, args['evidence_id'])
+        if 'event_data_offset' in args and record['source_type'] != 'evtx':
+            raise ValueError('EventData offset requires an EVTX record')
+        record['_event_data_offset'] = args.get('event_data_offset', 0)
+        raw = {'records': [record]}
     elif name == 'around':
         anchor = get_evidence(db, args['evidence_id'])
         from forensic_assistant.retrieval.evidence import same_host_window
