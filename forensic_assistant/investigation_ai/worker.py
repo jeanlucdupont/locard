@@ -64,7 +64,9 @@ def serve():
                         needs_model = op == 'semantic_search'
                         if op == 'initial' and config.get('semantic_enabled'):
                             from forensic_assistant.semantic.hybrid import precise
-                            needs_model = not precise(request['question'])
+                            from forensic_assistant.retrieval.temporal_scope import resolve
+                            needs_model = (resolve(request['question'], config.get('date_hint'))['kind'] == 'none'
+                                           and not precise(request['question']))
                         if needs_model and model is None:
                             try:
                                 with contextlib.redirect_stdout(sys.stderr):

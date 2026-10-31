@@ -281,35 +281,56 @@ def execute(db, name, args, config, model=None):
 
 def initial(db, question, config, model=None):
     from forensic_assistant.semantic.hybrid import retrieve
+    from forensic_assistant.retrieval.temporal_scope import resolve
+    import re
     profile = config.get('_profile')
+    scope = resolve(question, config.get('date_hint'))
+    browser_question = bool(re.search(r'\bbrowser\b|\bdownload(?:s|ed|ing)?\b|\bnavigation\b|\bvisited\b', question, re.I))
     searcher = None
     if config.get('_read_view_proof') is not None:
         from functools import partial
         from forensic_assistant.semantic.index import search
         searcher = partial(search, _read_view_proof=config['_read_view_proof'])
     with measure(profile, 'initial_retrieval'):
-        plan, context = retrieve(
-            Queries(db),
-            question,
-            config.get('date_hint'),
-            20,
-            index_root=config.get('index_root') if config.get('semantic_enabled') else None,
-            model_path=config.get('model_path'),
-            model=model,
-            searcher=searcher
-        )
+        if scope['kind'] in ('unresolved', 'inferred'):
+            plan, context = {'operation': 'unresolved_scope'}, {'records': [], 'limits': [scope['limitation']]}
+        elif scope['kind'] in ('explicit', 'exploratory') or browser_question:
+            # No correlation/semantic expansion outside an analyst's bounded window.
+            from forensic_assistant.retrieval.planner import plan_question
+            filters = {}
+            if not browser_question:
+                try:
+                    filters = dict(plan_question(question, EvidenceQueries(db), config.get('date_hint')).filters)
+                except ValueError:
+                    pass  # A scoped discovery request need not contain a legacy keyword.
+            else:
+                filters['artifact'] = 'browser'
+                if re.search(r'\bdownload(?:s|ed|ing)?\b', question, re.I):
+                    filters['browser_kind'] = 'download'
+                    executable = re.search(r'\b[\w.-]+\.exe\b', question, re.I)
+                    if executable:
+                        filters['download_path_contains'] = executable[0]
+            host = re.search(r'\bhost(?:name)?\s+([\w.-]+)', question, re.I)
+            if host:
+                filters.update(hostname=host[1].rstrip('.?'), strict_host=True)
+            if 'start' in scope:
+                filters.update(start=scope.get('initial_start', scope['start']), end=scope.get('initial_end', scope['end']))
+            context = EvidenceQueries(db).search(limit=20, **filters).as_dict()
+            plan = {'operation': 'scoped_search', 'filters': filters}
+        else:
+            plan, context = retrieve(
+                Queries(db),
+                question,
+                config.get('date_hint'),
+                20,
+                index_root=config.get('index_root') if config.get('semantic_enabled') else None,
+                model_path=config.get('model_path'),
+                model=model,
+                searcher=searcher
+            )
     # Availability is measured from this same read snapshot, not guessed by the LLM.
     with measure(profile, 'inventory'):
-        browser_count = db.execute("SELECT count(*) FROM evidence_records WHERE source_type='browser'").fetchone()[0]
-    if browser_count:
-        context = dict(context)
-        rows = list(context.get('evidence_records', []))
-        seen = {r['id'] for r in rows}
-        browser_rows = EvidenceQueries(db).search(artifact='browser', limit=10)
-        context['evidence_records'] = rows[:40] + [r for r in browser_rows.records if r['id'] not in seen]
-        context['limits'] = [*context.get('limits', []),
-                             'Initial browser sample is bounded context, not an exhaustive download investigation']
-        context['truncated'] = bool(context.get('truncated') or browser_rows.truncated or len(rows) > 40)
+        browser_count = db.execute("SELECT EXISTS(SELECT 1 FROM evidence_records WHERE source_type='browser')").fetchone()[0]
     with measure(profile, 'source_hydration'):
         result = envelope(db, 'initial_retrieval', context, 50)
     result['plan'] = {k: v for k, v in plan.items() if k not in ('semantic_results', 'selection_reasons')}

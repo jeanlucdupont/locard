@@ -37,7 +37,7 @@ def implementation():
     for path in sorted(root.rglob('*.py')):
         h.update(path.relative_to(root).as_posix().encode())
         h.update(path.read_bytes())
-    return {'application_version': __version__, 'code_sha256': h.hexdigest(), 'policy_version': 'v4-1', 'schema': 3}
+    return {'application_version': __version__, 'code_sha256': h.hexdigest(), 'policy_version': 'v4-2', 'schema': 3}
 
 class Transcript:
     def __init__(self, root, metadata, *, investigation_id=None):

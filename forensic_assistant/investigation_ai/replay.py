@@ -30,6 +30,10 @@ def replay(config, root, investigation_id):
     question = manifest.get('question')
     if type(question) is not str or not 0 < len(question.encode()) <= 1000:
         raise ValueError('Invalid replay question')
+    from forensic_assistant.retrieval.temporal_scope import resolve, validate_proposal
+    state.scope = resolve(question, manifest.get('date_hint'))
+    if manifest.get('temporal_scope') != state.scope:
+        raise ValueError('Transcript temporal scope is incompatible')
     started = time.monotonic()
     pending = None
     initialized = False
@@ -82,6 +86,7 @@ def replay(config, root, investigation_id):
                     proposal = data['proposal']
                     name = proposal['tool']
                     args = arguments(name, proposal['arguments'])
+                    validate_proposal(state.scope, name, args)
                     validate_anchor(state, name, args, rules)
                     if state.accepted >= budget.calls:
                         raise ValueError('Replay call budget exceeded')

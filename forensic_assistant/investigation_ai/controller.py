@@ -57,6 +57,8 @@ def _run(
     profile = Profile(lambda: clock.deadline)
     startup_complete = False
     state = State(budget)
+    from forensic_assistant.retrieval.temporal_scope import resolve, validate_proposal
+    state.scope = resolve(question, config.get('date_hint'))
     rules = [r.rule_id for r in available_rules()]
     config = {**config, 'rule_ids': rules}
     from forensic_assistant.ai.backend import backend
@@ -74,7 +76,8 @@ def _run(
                 'tools': list(contracts.TOOLS),
                 'rule_ids': rules,
                 'dry_run': dry_run,
-                'date_hint': config.get('date_hint')
+                'date_hint': config.get('date_hint'),
+                'temporal_scope': state.scope
             },
             investigation_id=investigation_id
         )
@@ -190,262 +193,262 @@ def _run(
         state.semantic += int(initial['result'].get('semantic_used', False))
         state.path.append({'operation': 'initial', 'new_records': len(state.records)})
         semantic_available = initial.get('semantic_available', False)
-        if state.records:
-            for step in range(budget.steps):
-                state.steps = step + 1
+        for step in range(budget.steps):
+            state.steps = step + 1
+            if remaining() <= 0:
+                termination = 'BUDGET_EXHAUSTED'
+                break
+            names = state.applicable(semantic_available, rules)
+            status('exposure')
+            with profile.phase('exposure'):
+                messages, exposed, size = state.prompt(question, names, rules, feedback)
+                grammar = contracts.schema(names, state.browser_available)
+                if len(encoded(grammar).encode()) > 32768:
+                    raise ValueError('Grammar byte budget exceeded')
+                transcript.append(
+                    'exposure',
+                    {
+                        'step': state.steps,
+                        'content': exposed,
+                        'prompt_bytes': size,
+                        'prompt_sha256': digest(messages),
+                        'tools': names
+                    }
+                )
+                state.disclose(exposed)
+            prompt_sizes.append(size)
+            if remaining() <= 0:
+                termination = 'MAX_SECONDS'
+                break
+            # LocalClient applies a wall-clock socket watchdog as well as I/O timeouts.
+            client.timeout = min(budget.tool_seconds, remaining())
+            if step == 0:
+                profile.send('pre_model', 'complete', time.perf_counter() - profile.started)
+                startup_complete = True
+                if config.get('_startup_complete'):
+                    config['_startup_complete']()
+            status('model')
+            model_started = time.monotonic()
+            try:
+                from forensic_assistant.ai.backend import model_operation
+                with profile.phase('model_request'), model_operation('investigation'):
+                    raw = client.complete(messages, grammar)
+            except (LLMError, OSError, ValueError) as exc:
                 if remaining() <= 0:
-                    termination = 'BUDGET_EXHAUSTED'
-                    break
-                names = state.applicable(semantic_available, rules)
-                status('exposure')
-                with profile.phase('exposure'):
-                    messages, exposed, size = state.prompt(question, names, rules, feedback)
-                    grammar = contracts.schema(names, state.browser_available)
-                    if len(encoded(grammar).encode()) > 32768:
-                        raise ValueError('Grammar byte budget exceeded')
-                    transcript.append(
-                        'exposure',
-                        {
-                            'step': state.steps,
-                            'content': exposed,
-                            'prompt_bytes': size,
-                            'prompt_sha256': digest(messages),
-                            'tools': names
-                        }
-                    )
-                    state.disclose(exposed)
-                prompt_sizes.append(size)
-                if remaining() <= 0:
-                    termination = 'MAX_SECONDS'
-                    break
-                # LocalClient applies a wall-clock socket watchdog as well as I/O timeouts.
-                client.timeout = min(budget.tool_seconds, remaining())
-                if step == 0:
-                    profile.send('pre_model', 'complete', time.perf_counter() - profile.started)
-                    startup_complete = True
-                    if config.get('_startup_complete'):
-                        config['_startup_complete']()
-                status('model')
-                model_started = time.monotonic()
-                try:
-                    from forensic_assistant.ai.backend import model_operation
-                    with profile.phase('model_request'), model_operation('investigation'):
-                        raw = client.complete(messages, grammar)
-                except (LLMError, OSError, ValueError) as exc:
-                    if remaining() <= 0:
-                        timeout_cause = 'execution_budget_exhausted'
-                    elif getattr(exc, 'category', None) == 'timeout' or 'timed out' in str(exc).lower():
-                        timeout_cause = 'provider_request_timeout'
-                    termination = 'MAX_SECONDS' if remaining() <= 0 else 'MODEL_FAILURE'
-                    break
-                finally:
-                    model_time += time.monotonic() - model_started
-                metadata = getattr(client, 'last_metadata', {})
-                if metadata:
-                    model_metadata.append(metadata)
-                if remaining() <= 0:
-                    termination = 'BUDGET_EXHAUSTED'
-                    break
-                try:
-                    status('validation')
-                    call_metadata = None
-                    decoded = None
-                    validation_stage = 'proposal_parsing'
+                    timeout_cause = 'execution_budget_exhausted'
+                elif getattr(exc, 'category', None) == 'timeout' or 'timed out' in str(exc).lower():
+                    timeout_cause = 'provider_request_timeout'
+                termination = 'MAX_SECONDS' if remaining() <= 0 else 'MODEL_FAILURE'
+                break
+            finally:
+                model_time += time.monotonic() - model_started
+            metadata = getattr(client, 'last_metadata', {})
+            if metadata:
+                model_metadata.append(metadata)
+            if remaining() <= 0:
+                termination = 'BUDGET_EXHAUSTED'
+                break
+            try:
+                status('validation')
+                call_metadata = None
+                decoded = None
+                validation_stage = 'proposal_parsing'
+                with profile.phase('validation'):
+                    decoded = contracts.loads(raw)
+                if isinstance(decoded, dict) and decoded.get('action') == 'tool':
+                    state.requested += 1
+                    call_number += 1
+                    call_metadata = dict(tool_call_number=call_number,
+                                         tool=decoded.get('tool') if type(decoded.get('tool')) is str and decoded['tool'] in contracts.TOOLS else 'invalid',
+                                         proposed_arguments_sha256=digest(decoded.get('arguments')), status='proposed')
+                    LOG.debug('lookup=%s status=proposed', call_metadata['tool'])
+                    transcript.manifest.setdefault('tool_calls', []).append(call_metadata)
+                    transcript._manifest()
+                    audit('TOOL_PROPOSED', **{k: v for k, v in call_metadata.items() if k != 'status'})
+                validation_stage = 'proposal_validation'
+                with profile.phase('validation'):
+                    proposal = contracts.request(raw, names)
+                if proposal['action'] == 'final':
+                    validation_stage = 'final_grounding'
                     with profile.phase('validation'):
-                        decoded = contracts.loads(raw)
-                    if isinstance(decoded, dict) and decoded.get('action') == 'tool':
-                        state.requested += 1
-                        call_number += 1
-                        call_metadata = dict(tool_call_number=call_number,
-                                             tool=decoded.get('tool') if type(decoded.get('tool')) is str and decoded['tool'] in contracts.TOOLS else 'invalid',
-                                             proposed_arguments_sha256=digest(decoded.get('arguments')), status='proposed')
-                        LOG.debug('lookup=%s status=proposed', call_metadata['tool'])
-                        transcript.manifest.setdefault('tool_calls', []).append(call_metadata)
-                        transcript._manifest()
-                        audit('TOOL_PROPOSED', **{k: v for k, v in call_metadata.items() if k != 'status'})
-                    validation_stage = 'proposal_validation'
-                    with profile.phase('validation'):
-                        proposal = contracts.request(raw, names)
-                    if proposal['action'] == 'final':
-                        validation_stage = 'final_grounding'
-                        with profile.phase('validation'):
-                            rendered = state.render(proposal['answer'])
-                        if dry_run:
-                            proposed_action = proposal
-                            transcript.append('dry_run_proposal', proposal)
-                            termination = 'USER_SCOPE_REACHED'
-                            break
-                        call('check')
-                        final = rendered
-                        termination = 'ANSWER_SUPPORTED' if any(rendered[k] for k in (
-                            'observed',
-                            'deterministically_correlated',
-                            'corroborated',
-                            'detections'
-                        )) else 'INSUFFICIENT_EVIDENCE'
-                        transcript.append('validated_final', proposal)
-                        break
-                    name, args = proposal['tool'], proposal['arguments']
-                    call_metadata['arguments_sha256'] = digest(args)
-                    if args.get('artifact') == 'browser' and not state.browser_available:
-                        raise ValueError('Browser evidence is unavailable in this case')
-                    validation_stage = 'anchor_validation'
-                    with profile.phase('validation'):
-                        validate_anchor(state, name, args, rules)
-                    normalized = contracts.normalized_call(name, args)
-                    if normalized in state.calls:
-                        rejection_record(decoded, 'loop_validation', 'Repeated normalized tool call')
-                        decision('rejected')
-                        audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=name, reason='repeated_call')
-                        transcript.append('loop_rejected', proposal)
-                        termination = 'TOOL_LOOP'
-                        break
-                    if state.accepted >= budget.calls or (name == 'semantic_search' and state.semantic >= budget.semantic):
-                        rejection_record(decoded, 'budget_validation', 'Tool-call budget exhausted')
-                        decision('rejected')
-                        audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=name, reason='call_budget')
-                        termination = 'BUDGET_EXHAUSTED'
-                        break
+                        rendered = state.render(proposal['answer'])
                     if dry_run:
                         proposed_action = proposal
                         transcript.append('dry_run_proposal', proposal)
                         termination = 'USER_SCOPE_REACHED'
-                        decision('dry_run_not_executed')
                         break
-                    if approval is not None:
-                        status('approval')
-                    if remaining() <= 0:
-                        termination = 'MAX_SECONDS'
-                        break
-                    approved = True
-                    if approval is not None:
-                        # In production the terminal-owning supervisor supplies the exact wait credit.
-                        pause = nullcontext() if config.get('_approval_clock_managed') else clock.approval_wait()
-                        with pause:
-                            try:
-                                approved = approval(proposal, APPROVAL_SECONDS)
-                            except (EOFError, TimeoutError):
-                                approved = False
-                    if not approved:
-                        rejected_diagnostic = rejection_record(decoded, 'analyst_approval', 'Analyst rejected or approval timed out')
-                        decision('rejected')
-                        audit('TOOL_REJECTED', 'cancelled', tool_call_number=call_number, tool=name)
-                        transcript.append('rejected', {'step': state.steps, 'tool_call_number': call_number,
-                                                      'reason': 'Analyst rejected or approval timed out', 'request': proposal,
-                                                      'diagnostic': rejected_diagnostic})
-                        termination = 'MAX_SECONDS' if remaining() <= 0 else 'USER_REJECTED'
-                        break
-                    if remaining() <= 0:
-                        termination = 'BUDGET_EXHAUSTED'
-                        break
-                    decision('approved' if approval is not None else 'policy_authorized')
-                    audit('TOOL_APPROVED', tool_call_number=call_number, tool=name,
-                          arguments_sha256=digest(args),
-                          approval='analyst' if approval is not None else 'configured_policy')
-                    state.calls.add(normalized)
-                    state.accepted += 1
-                    if name == 'semantic_search':
-                        state.semantic += 1
-                    transcript.append('accepted', {'step': state.steps, 'tool_call_number': call_number, 'proposal': proposal})
-                    status('operation')
-                    lookup_started = time.monotonic()
-                    decision('started')
-                    try:
-                        response = call(name, args)
-                    except WorkerError as exc:
-                        failure_diagnostic = rejection_record(decoded, 'worker_execution', exc)
-                        category = 'timeout' if exc.timed_out or 'TIMEOUT' in str(exc) else 'failed'
-                        failed_lookup = dict(failed_lookup_tool=name, failed_lookup_category=category,
-                                             failed_lookup_reason='Lookup execution timed out' if category == 'timeout' else 'Forensic worker execution or result validation failed')
-                        call_metadata.update(outcome=category, failure_stage=exc.stage or 'worker_execution', elapsed_seconds=time.monotonic()-lookup_started, **failed_lookup)
-                        LOG.debug('lookup=%s status=%s category=%s stage=%s elapsed=%.6f', name, category, failure_diagnostic['category'], call_metadata['failure_stage'], call_metadata['elapsed_seconds'])
-                        decision('failed')
-                        audit('TOOL_FAILED', 'failure', tool_call_number=call_number, tool=name)
-                        raise
-                    from .tools import AROUND_LIMITATIONS
-                    unresolved = name == 'around' and any(v in AROUND_LIMITATIONS for v in response['result']['limitations'])
-                    outcome = 'unresolved' if unresolved else 'completed' if response['result']['returned_count'] else 'completed_empty'
-                    call_metadata.update(outcome=outcome, elapsed_seconds=time.monotonic()-lookup_started, returned_count=response['result']['returned_count'])
-                    LOG.debug('lookup=%s status=%s elapsed=%.6f records=%d', name, outcome, call_metadata['elapsed_seconds'], call_metadata['returned_count'])
-                    decision('executed')
-                    audit('TOOL_EXECUTED', tool_call_number=call_number, tool=name,
-                          arguments_sha256=digest(args),
-                          result_count=response['result']['returned_count'])
-                    transcript.append(
-                        'result',
-                        {
-                            'step': state.steps,
-                            'tool_call_number': call_number,
-                            'operation': name,
-                            'response': response,
-                            'result_sha256': digest(response['result'])
-                        }
-                    )
-                    new = state.ingest(response['result'])
-                    state.path.append({
-                        'operation': name,
-                        'new_records': new,
-                        'returned_records': response['result']['returned_count'],
-                        'outcome': outcome
-                    })
-                    feedback = str(new) + ' NEW EVIDENCE' if new else 'NO NEW EVIDENCE'
-                    if unresolved:
-                        feedback = 'Previous around lookup is unresolved: ' + '; '.join(response['result']['limitations']) + '. This is a limitation, not evidence. Do not repeat the identical lookup or broaden across hosts; choose another grounded allowed lookup or conclude unresolved.'
-                    if state.no_new >= 3:
-                        termination = 'NO_NEW_EVIDENCE'
-                        break
-                    if len(state.records) >= budget.records:
-                        termination = 'BUDGET_EXHAUSTED'
-                        break
-                except WorkerError:
+                    call('check')
+                    final = rendered
+                    termination = 'ANSWER_SUPPORTED' if any(rendered[k] for k in (
+                        'observed',
+                        'deterministically_correlated',
+                        'corroborated',
+                        'detections'
+                    )) else 'INSUFFICIENT_EVIDENCE'
+                    transcript.append('validated_final', proposal)
+                    break
+                name, args = proposal['tool'], proposal['arguments']
+                call_metadata['arguments_sha256'] = digest(args)
+                validate_proposal(state.scope, name, args)
+                if args.get('artifact') == 'browser' and not state.browser_available:
+                    raise ValueError('Browser evidence is unavailable in this case')
+                validation_stage = 'anchor_validation'
+                with profile.phase('validation'):
+                    validate_anchor(state, name, args, rules)
+                normalized = contracts.normalized_call(name, args)
+                if normalized in state.calls:
+                    rejection_record(decoded, 'loop_validation', 'Repeated normalized tool call')
+                    decision('rejected')
+                    audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=name, reason='repeated_call')
+                    transcript.append('loop_rejected', proposal)
+                    termination = 'TOOL_LOOP'
+                    break
+                if state.accepted >= budget.calls or (name == 'semantic_search' and state.semantic >= budget.semantic):
+                    rejection_record(decoded, 'budget_validation', 'Tool-call budget exhausted')
+                    decision('rejected')
+                    audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=name, reason='call_budget')
+                    termination = 'BUDGET_EXHAUSTED'
+                    break
+                if dry_run:
+                    proposed_action = proposal
+                    transcript.append('dry_run_proposal', proposal)
+                    termination = 'USER_SCOPE_REACHED'
+                    decision('dry_run_not_executed')
+                    break
+                if approval is not None:
+                    status('approval')
+                if remaining() <= 0:
+                    termination = 'MAX_SECONDS'
+                    break
+                approved = True
+                if approval is not None:
+                    # In production the terminal-owning supervisor supplies the exact wait credit.
+                    pause = nullcontext() if config.get('_approval_clock_managed') else clock.approval_wait()
+                    with pause:
+                        try:
+                            approved = approval(proposal, APPROVAL_SECONDS)
+                        except (EOFError, TimeoutError):
+                            approved = False
+                if not approved:
+                    rejected_diagnostic = rejection_record(decoded, 'analyst_approval', 'Analyst rejected or approval timed out')
+                    decision('rejected')
+                    audit('TOOL_REJECTED', 'cancelled', tool_call_number=call_number, tool=name)
+                    transcript.append('rejected', {'step': state.steps, 'tool_call_number': call_number,
+                                                  'reason': 'Analyst rejected or approval timed out', 'request': proposal,
+                                                  'diagnostic': rejected_diagnostic})
+                    termination = 'MAX_SECONDS' if remaining() <= 0 else 'USER_REJECTED'
+                    break
+                if remaining() <= 0:
+                    termination = 'BUDGET_EXHAUSTED'
+                    break
+                decision('approved' if approval is not None else 'policy_authorized')
+                audit('TOOL_APPROVED', tool_call_number=call_number, tool=name,
+                      arguments_sha256=digest(args),
+                      approval='analyst' if approval is not None else 'configured_policy')
+                state.calls.add(normalized)
+                state.accepted += 1
+                if name == 'semantic_search':
+                    state.semantic += 1
+                transcript.append('accepted', {'step': state.steps, 'tool_call_number': call_number, 'proposal': proposal})
+                status('operation')
+                lookup_started = time.monotonic()
+                decision('started')
+                try:
+                    response = call(name, args)
+                except WorkerError as exc:
+                    failure_diagnostic = rejection_record(decoded, 'worker_execution', exc)
+                    category = 'timeout' if exc.timed_out or 'TIMEOUT' in str(exc) else 'failed'
+                    failed_lookup = dict(failed_lookup_tool=name, failed_lookup_category=category,
+                                         failed_lookup_reason='Lookup execution timed out' if category == 'timeout' else 'Forensic worker execution or result validation failed')
+                    call_metadata.update(outcome=category, failure_stage=exc.stage or 'worker_execution', elapsed_seconds=time.monotonic()-lookup_started, **failed_lookup)
+                    LOG.debug('lookup=%s status=%s category=%s stage=%s elapsed=%.6f', name, category, failure_diagnostic['category'], call_metadata['failure_stage'], call_metadata['elapsed_seconds'])
+                    decision('failed')
+                    audit('TOOL_FAILED', 'failure', tool_call_number=call_number, tool=name)
                     raise
-                except ValueError as exc:
-                    if isinstance(exc, activity.AuditError):
-                        raise
-                    from forensic_assistant.ai.provider_diagnostics import validation
-                    validation(client, 'response_parse' if validation_stage == 'proposal_parsing' else
-                               'grounding' if validation_stage == 'final_grounding' else 'structured_validation')
-                    rejected_diagnostic = rejection_record(decoded, validation_stage, exc)
-                    if rejected_diagnostic['category'] == 'GROUNDING_VIOLATION' and validation_stage == 'final_grounding':
-                        state.final_grounding_rejections += 1
-                        reason = ('unexposed_field' if rejected_diagnostic['reason'] ==
-                                  'Observed finding references an unexposed evidence field' else 'grounding_contract')
-                        if reason not in state.final_grounding_reasons:
-                            state.final_grounding_reasons.append(reason)
-                    state.rejected += 1
-                    from .feedback import correction
-                    feedback = correction(decoded, rejected_diagnostic)
-                    rejected = {}
-                    try:
-                        value = contracts.loads(raw)
-                        if isinstance(value, dict):
-                            for key in ('action', 'tool', 'arguments', 'reason'):
-                                if key in value and len(encoded(value[key]).encode()) <= 2048:
-                                    rejected[key] = value[key]
-                    except ValueError:
-                        pass
-                    transcript.append(
-                        'rejected',
-                        {
-                            'step': state.steps,
-                            'tool_call_number': call_number if call_metadata is not None else None,
-                            'reason': str(exc)[:300],
-                            'diagnostic': rejected_diagnostic,
-                            'request': rejected,
-                            'response_sha256': hashlib.sha256(raw.encode()).hexdigest()
-                        }
-                    )
-                    if call_metadata is not None and call_metadata.get('status') == 'proposed':
-                        decision('rejected')
-                        audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=call_metadata['tool'])
-                    if dry_run:
-                        termination = 'USER_SCOPE_REACHED'
-                        break
-                    if state.rejected >= budget.rejections:
-                        termination = 'TOO_MANY_REJECTIONS'
-                        break
-            else:
-                termination = 'BUDGET_EXHAUSTED'
+                from .tools import AROUND_LIMITATIONS
+                unresolved = name == 'around' and any(v in AROUND_LIMITATIONS for v in response['result']['limitations'])
+                outcome = 'unresolved' if unresolved else 'completed' if response['result']['returned_count'] else 'completed_empty'
+                call_metadata.update(outcome=outcome, elapsed_seconds=time.monotonic()-lookup_started, returned_count=response['result']['returned_count'])
+                LOG.debug('lookup=%s status=%s elapsed=%.6f records=%d', name, outcome, call_metadata['elapsed_seconds'], call_metadata['returned_count'])
+                decision('executed')
+                audit('TOOL_EXECUTED', tool_call_number=call_number, tool=name,
+                      arguments_sha256=digest(args),
+                      result_count=response['result']['returned_count'])
+                transcript.append(
+                    'result',
+                    {
+                        'step': state.steps,
+                        'tool_call_number': call_number,
+                        'operation': name,
+                        'response': response,
+                        'result_sha256': digest(response['result'])
+                    }
+                )
+                new = state.ingest(response['result'])
+                state.path.append({
+                    'operation': name,
+                    'new_records': new,
+                    'returned_records': response['result']['returned_count'],
+                    'outcome': outcome
+                })
+                feedback = str(new) + ' NEW EVIDENCE' if new else 'NO NEW EVIDENCE'
+                if unresolved:
+                    feedback = 'Previous around lookup is unresolved: ' + '; '.join(response['result']['limitations']) + '. This is a limitation, not evidence. Do not repeat the identical lookup or broaden across hosts; choose another grounded allowed lookup or conclude unresolved.'
+                if state.no_new >= 3:
+                    termination = 'NO_NEW_EVIDENCE'
+                    break
+                if len(state.records) >= budget.records:
+                    termination = 'BUDGET_EXHAUSTED'
+                    break
+            except WorkerError:
+                raise
+            except ValueError as exc:
+                if isinstance(exc, activity.AuditError):
+                    raise
+                from forensic_assistant.ai.provider_diagnostics import validation
+                validation(client, 'response_parse' if validation_stage == 'proposal_parsing' else
+                           'grounding' if validation_stage == 'final_grounding' else 'structured_validation')
+                rejected_diagnostic = rejection_record(decoded, validation_stage, exc)
+                if rejected_diagnostic['category'] == 'GROUNDING_VIOLATION' and validation_stage == 'final_grounding':
+                    state.final_grounding_rejections += 1
+                    reason = ('unexposed_field' if rejected_diagnostic['reason'] ==
+                              'Observed finding references an unexposed evidence field' else 'grounding_contract')
+                    if reason not in state.final_grounding_reasons:
+                        state.final_grounding_reasons.append(reason)
+                state.rejected += 1
+                from .feedback import correction
+                feedback = correction(decoded, rejected_diagnostic)
+                rejected = {}
+                try:
+                    value = contracts.loads(raw)
+                    if isinstance(value, dict):
+                        for key in ('action', 'tool', 'arguments', 'reason'):
+                            if key in value and len(encoded(value[key]).encode()) <= 2048:
+                                rejected[key] = value[key]
+                except ValueError:
+                    pass
+                transcript.append(
+                    'rejected',
+                    {
+                        'step': state.steps,
+                        'tool_call_number': call_number if call_metadata is not None else None,
+                        'reason': str(exc)[:300],
+                        'diagnostic': rejected_diagnostic,
+                        'request': rejected,
+                        'response_sha256': hashlib.sha256(raw.encode()).hexdigest()
+                    }
+                )
+                if call_metadata is not None and call_metadata.get('status') == 'proposed':
+                    decision('rejected')
+                    audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=call_metadata['tool'])
+                if dry_run:
+                    termination = 'USER_SCOPE_REACHED'
+                    break
+                if state.rejected >= budget.rejections:
+                    termination = 'TOO_MANY_REJECTIONS'
+                    break
+        else:
+            termination = 'BUDGET_EXHAUSTED'
     except activity.AuditError:
         termination = 'AUDIT_FAILURE'
         state.limit('Required investigation audit could not be recorded; execution stopped')

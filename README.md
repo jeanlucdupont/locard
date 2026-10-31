@@ -2572,3 +2572,51 @@ command lines and detection time remain separate original fields. `Path` is not
 universally an executable; detection time is not substituted for SystemTime.
 The interpretation does not establish successful target execution. Existing
 schema-5 evidence benefits without reingestion, migrations or evidence writes.
+
+### Scoped AI investigations (Stage A)
+
+The investigation controller preserves the original objective and a separately
+resolved temporal scope. Explicit paired UTC/offset timestamps, qualified dates
+(`on September 30, 2026` or `on 2026-09-30`), and `between ... and ... UTC on DATE`
+are supported. Date-only scopes and `--date` use UTC calendar dates; clock times
+without a timezone or `--date` are unresolved. A single timestamp retains the
+default exploratory five-minute window, identified as a default rather than an
+authorization boundary. With a supplied calendar date, that date remains the
+authorization boundary and the initial anchor window is clipped to it.
+Contextual references such as `before the event on ...`
+do not become a restrictive day boundary. Ambiguous/conflicting references are
+reported in the planning context, not guessed from unrelated evidence.
+
+For an explicit boundary, model searches/timelines must supply both bounds inside
+that window. Conflicts are rejected **before approval**. Detail reads remain
+available for already exposed evidence. Tools whose correlation or semantic
+expansion cannot guarantee that boundary are not offered in this scoped mode;
+start a new analyst objective to change scope. Existing deterministic commands
+and unscoped investigation tools retain their semantics.
+
+Initial retrieval no longer adds arbitrary browser samples. Browser availability
+remains metadata; browser/download questions and explicit lookups retrieve their
+own records. Empty relevant retrieval is a valid planning state. It does not
+authorize fabricated IDs or unsupported findings, and does not remove approval,
+step, call, rejection, time, or repeated-call controls.
+
+The investigation prompt retains its 5,600-byte content limit. Repeated control
+text/history is compacted; current evidence and complete supporting groups take
+priority over historical context. Evidence records are admitted intact or omitted
+with an omission count, not silently shortened by prompt packing. Existing
+EventData projections retain names, ordinals and truncation markers. If no record
+fits, a planning-only prompt can request another allowed lookup. The exposure
+ledger and factual grounding checks remain mandatory.
+
+New transcripts record `temporal_scope` under policy `v4-2`. Older transcripts
+remain inspectable; existing implementation/policy checks prevent cross-policy
+exact replay. Read-view transcripts still do not support exact-state replay.
+No evidence-schema or report-format migration is required. Novelty continues to
+count new evidence IDs only; empty continuation pages and newly inspected fields
+on existing IDs can still reach the existing no-new-evidence limit (Stage B).
+
+Manual supervised example, after selecting the intended case:
+
+```text
+investigate-ai --no-semantic --approve-tools "Investigate Microsoft Defender Event ID 1121 on September 30, 2026, between 14:05:40 and 14:06:10 UTC. Find original EVTX EventData mentioning baje.ps1. Determine what Defender recorded about attempted PowerShell execution and cite the supporting evidence."
+```

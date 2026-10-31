@@ -146,8 +146,13 @@ def test_registry_fact_requires_key_support_and_hypothesis_alternative():
     key = 'REGISTRY:' + 'a' * 64 + ':KeyOffset:1'
     value = 'REGISTRY:' + 'a' * 64 + ':ValueOffset:2'
     state.records[value] = {'id': value, 'value_data': 'x', 'supporting_evidence_ids': [key]}
-    with pytest.raises(ValueError, match='No grounded'):
-        state.prompt('inspect', [], [])
+    messages, empty, _ = state.prompt('inspect', [], [])
+    assert empty['records'] == []  # Missing support cannot be disclosed, even in planning mode.
+    assert json.loads(messages[1]['content'])['controller']['planning_only']
+    state.disclose(empty)
+    with pytest.raises(ValueError, match='unexposed'):
+        state.render(dict(observed=[{'evidence_id': value, 'field': '/value_data'}],
+                          relationships=[], detections=[], hypotheses=[], unknowns=[]))
     state.records[key] = {'id': key, 'key': 'Software\\Synthetic'}
     _, data, _ = state.prompt('inspect', [], [])
     state.disclose(data)

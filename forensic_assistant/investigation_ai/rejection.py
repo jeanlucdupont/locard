@@ -18,6 +18,9 @@ REASONS = {
     'Successful logon anchor required': ('INVALID_ARGUMENT', 'anchor_validation'),
 }
 FIXED = frozenset((
+    'Temporal scope requires bounded search/timeline or show_evidence; anchor expansion is not authorized.',
+    'Temporal scope requires both start and end within the authorized window.',
+    'Temporal scope conflict: use start/end within the authorized window; expansion requires a new analyst objective.',
     'Malformed structured response', 'Duplicate JSON key', 'Nonfinite JSON value',
     'Model response exceeds content limit', 'Response must be an object',
     'Malformed evidence ID', 'Time window exceeds 24 hours or is reversed',
