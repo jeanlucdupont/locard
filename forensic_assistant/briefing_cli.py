@@ -65,6 +65,8 @@ def render(packet):
         detail=([f"HTTP {error['http_status']}"] if 'http_status' in error else [])
         detail.extend(str(error[k]) for k in ('parameter','rule','provider_category') if k in error)
         if detail:lines.append('  '+' | '.join(safe(v) for v in detail))
+        for field,value in error.get('envelope',{}).items():
+            lines.append('  '+safe(field)+': '+safe(str(value)))
         for rejection in error.get('rejected_items',[]):
             lines.append('  Item '+str(rejection['item_index'])+': '+safe(rejection['rule']))
         for entry in error.get('validation',{}).get('errors',[]):

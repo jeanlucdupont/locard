@@ -4,6 +4,37 @@ Implementation and synthetic validation: 2026-10-31. Manual acceptance pending.
 
 ### Acceptance correction: OpenAI schema and diagnostics
 
+Response-envelope diagnostics now distinguish `output_truncated`,
+`unexpected_finish_reason`, `unexpected_tool_call`, `missing_response_message`,
+`missing_response_content`, `empty_response_content`, `invalid_content_type`,
+`response_size_exceeded`, and `invalid_response_envelope`. They record only
+allowlisted finish reason/type, tool/function-call presence, a byte count capped
+at 1 MiB + 1 (with a capping flag), and the configured output-token limit.
+JSON parsing and canonical validation are explicitly `not_attempted` on these
+failures. Arbitrary SDK objects, payloads and exception messages are never included.
+
+The existing provider error packet carries `response_envelope` through JSON IPC,
+parent reconstruction and allowlisted provider logs; briefing JSON exposes the same
+safe fields as `ai_error.envelope`. Human output prints those fixed labels. For
+example (synthetic):
+
+```json
+{"ai_status":"failed","ai_error":{"category":"output_truncated","stage":"response_envelope","provider_category":"output_truncated","envelope":{"rule":"output_truncated","finish_reason":"length","output_token_limit":1024,"json_parse":"not_attempted","canonical_validation":"not_attempted"}}}
+```
+
+An unexpected call instead uses category `response_envelope`, rule
+`unexpected_tool_call`, and separate boolean tool/function presence fields.
+A malformed SDK object uses `invalid_response_envelope`; unavailable metadata is
+omitted. Gemini retains its established `provider_generation` truncation stage
+and existing Gemini metadata, augmented with the safe envelope details.
+
+The briefing prompt explicitly prohibits duplicate interpretation items, repeated
+entity IDs and invented source references. This is preventive, not a diagnosis of
+the previous live failure. The 1,024-token limit, item limits, prompt-size budget,
+provider/model selection, retries and response acceptance constraints are unchanged.
+One further manually authorized live test is needed to identify the actual condition;
+no cloud request was made while implementing this instrumentation.
+
 The OpenAI briefing wire schema now omits `uniqueItems` recursively, using the
 existing adapter. Only the exact briefing contract is eligible; its plain object
 shape is preserved. Investigation responses still use their existing `proposal`

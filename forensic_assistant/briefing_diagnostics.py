@@ -2,6 +2,8 @@
 from forensic_assistant.ai.provider_diagnostics import safe_metadata
 
 MESSAGES = {
+    'output_truncated': 'model output was truncated',
+    'response_envelope': 'provider response envelope was invalid before JSON parsing',
     'provider_schema_rejection': 'provider rejected the response schema',
     'provider_transport': 'provider connection failed or timed out',
     'provider_authentication': 'provider authentication or authorization failed',
@@ -23,7 +25,11 @@ def fail(packet, category, stage, **details):
 def provider_failure(packet, exc):
     metadata = safe_metadata(exc.metadata)
     category = exc.category
-    if category in ('unsupported_schema', 'structured_output_unsupported') or metadata.get('schema_rule'):
+    if category == 'output_truncated':
+        kind = 'output_truncated'
+    elif category == 'response_envelope_failed':
+        kind = 'response_envelope'
+    elif category in ('unsupported_schema', 'structured_output_unsupported') or metadata.get('schema_rule'):
         kind = 'provider_schema_rejection'
     elif category in ('timeout', 'network_error'):
         kind = 'provider_transport'
@@ -39,7 +45,7 @@ def provider_failure(packet, exc):
         kind = 'provider_failure'
     details = {'provider_category': category}
     for source, target in (('http_status','http_status'), ('rejected_parameter','parameter'),
-                           ('schema_rule','rule'), ('validation_diagnostics','validation')):
+                           ('schema_rule','rule'), ('validation_diagnostics','validation'), ('response_envelope','envelope')):
         if source in metadata:
             details[target] = metadata[source]
     fail(packet, kind, exc.stage, **details)

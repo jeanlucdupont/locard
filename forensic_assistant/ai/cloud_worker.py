@@ -76,17 +76,24 @@ def complete(kwargs, sdk):
             _, gemini_detail = extract(result)
         except ProviderFailure as exc:
             detail = exc.metadata.get('gemini_response', {})
+            from .response_envelope import content
+            envelope_detail = {}
+            envelope_failure = None
+            try:
+                content(result, kwargs)
+            except ProviderFailure as detected:
+                envelope_detail = detected.metadata
+                envelope_failure = detected
             if detail.get('finish_reason') == 'length':
                 raise ProviderFailure('output_truncated', 'provider_generation', metadata={
-                    'gemini_response': detail, **gemini_metadata}) from None
+                    'gemini_response': detail, **gemini_metadata, **envelope_detail}) from None
+            if envelope_failure is not None:
+                raise ProviderFailure(envelope_failure.category, envelope_failure.stage,
+                    metadata={**exc.metadata, **gemini_metadata, **envelope_detail}) from None
             raise ProviderFailure(exc.category, exc.stage, metadata={**exc.metadata, **gemini_metadata}) from None
     try:
-        choice = result.choices[0]
-        if choice.finish_reason not in ('stop', 'end_turn') or getattr(choice.message, 'tool_calls', None) or getattr(choice.message, 'function_call', None):
-            raise ProviderFailure('structured_validation', 'structured_validation')
-        text = choice.message.content
-        if not isinstance(text, str) or not text.strip() or len(text.encode()) > 1024 * 1024:
-            raise ProviderFailure('structured_validation', 'structured_validation')
+        from .response_envelope import content
+        text = content(result, kwargs)
         usage = getattr(result, 'usage', None)
         return {'text': text, **({'gemini_response':gemini_detail, **gemini_metadata} if gemini_detail else {}), 'usage': {name: getattr(usage, name) for name in
                 ('prompt_tokens', 'completion_tokens', 'total_tokens')

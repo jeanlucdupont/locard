@@ -8,6 +8,7 @@ from . import settings, diagnostics
 from forensic_assistant.llm.client import LLMError
 
 REASONS = {
+    'response_envelope_failed': 'Provider response envelope failed validation before JSON parsing',
     'output_truncated': 'Model output was truncated before a complete structured response was produced',
     'response_validated': 'Provider response passed canonical structural validation; grounding is checked separately',
     'compatibility_failed': "AI provider is connected, but the selected model is not compatible with Locard's required response format",
@@ -39,7 +40,7 @@ ALIASES = dict(missing_key='missing_credential', authentication='authentication_
                permission='authorization_failed', network='network_error', rate_limit='rate_limited',
                provider_failure='unknown_provider_error', response_parse='response_parse_failed',
                structured_validation='structured_validation_failed')
-STAGES = {'provider_generation', 'configuration', 'handshake', 'provider_request', 'response_parse',
+STAGES = {'response_envelope', 'provider_generation', 'configuration', 'handshake', 'provider_request', 'response_parse',
           'structured_validation', 'grounding', 'timeout'}
 CODES = {
     'invalid_api_key': 'authentication_failed', 'authentication_error': 'authentication_failed',
@@ -129,6 +130,9 @@ def safe_metadata(value):
     from .gemini_adapter import safe as gemini_safe
     gemini = gemini_safe(value.get('gemini_response'))
     if gemini: result['gemini_response'] = gemini
+    from .response_envelope import safe as safe_envelope
+    envelope = safe_envelope(value.get('response_envelope'))
+    if envelope: result['response_envelope'] = envelope
     from .validation_diagnostics import safe
     detail = safe(value.get('validation_diagnostics'))
     if detail: result['validation_diagnostics'] = detail
@@ -302,6 +306,9 @@ def render(text):
             elif key == 'gemini_response':
                 rows.append('  Gemini response diagnostics:')
                 for field, state in item.items(): rows.append('    ' + field.replace('_',' ').capitalize() + ': ' + str(state))
+            elif key == 'response_envelope':
+                rows.append('  Response envelope:')
+                for field, state in item.items():rows.append('    '+field+': '+str(state))
             elif key == 'validation_diagnostics':
                 rows.append('  Structural validation diagnostics:')
                 for field in ('provider_structured_validation','translation_status','translation_rule','canonical_validation','phase','error_count'):
