@@ -29,7 +29,7 @@ def render(value):
     if value.get('message'):return value['message']
     if value['revision']['content'].get('canonical'):
         from .briefing_canonical import render as render_canonical
-        return render_canonical({'document':value['revision']['content']['canonical']['document'],'accepted':True})+'\nBriefing revision: '+str(value['revision']['revision'])+'\nOriginal responses retained; --json exposes revision provenance.'
+        return render_canonical({**value['revision']['content']['canonical'],'accepted':True})+'\nBriefing revision: '+str(value['revision']['revision'])+'\nOriginal responses retained; --json exposes revision provenance.'
     revision=value['revision']; lines=['Incident briefing — analyst assertions, not evidence','']
     for key,label in FIELDS.items():
         text=revision['content']['answers'][key]

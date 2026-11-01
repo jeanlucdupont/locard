@@ -81,7 +81,9 @@ def run(args):
             if current.get('canonical') and not sources(revision):return workflow.view(state)
             from .briefing_entities import source_questions
             packet=briefing.extract_inputs(sources(revision),questions=source_questions(revision['content']))
-            if current.get('canonical'):packet['accepted_canonical']=current['canonical']['document']
+            if current.get('canonical'):
+                packet['accepted_canonical']=current['canonical']['document']
+                packet['accepted_canonical_provenance']=current['canonical']['original_provenance']
             packet['saved_briefing']={k:revision[k] for k in ('revision','digest','modified')}
             packet['saved_briefing']['source_identity']=store.identity
             packet['interview_provenance']=revision['content'].get('interviews',[])

@@ -3018,3 +3018,47 @@ and safe rejection categories remain available through `--details`/`--json`.
 Large maximum-size responses can still exceed the local 16 KiB response limit or
 OpenAI's 4,096-token generation limit; they fail closed rather than silently
 truncate fields. No live-provider fit or extraction-quality guarantee is implied.
+
+
+### Canonical briefing review refinements (6.84)
+
+The same single AI interpretation call now defines all 18 categories, separates
+security-product enforcement from human response, and requests supplied people,
+systems, initial experience, objectives and uncertainty in the proposed summary.
+Resource limits and source/literal validation are unchanged.
+
+New AI candidates typed `alert`, `origin` or `objective` are placed in their matching
+category when their supplied category conflicts. The original placement and the
+type-based normalization are recorded. Ambiguous activity is not reclassified by
+keyword matching: possible gaps are shown for review, without inventing entries.
+Empty categories mean extraction coverage is unknown, not that the original
+narrative lacked the information. Rejected candidate categories and related
+information assigned elsewhere are distinguished. These checks cannot prove
+semantic completeness. Summary checks flag missing exact person/system names;
+experience and objective coverage still require analyst review.
+
+Unknown values display a short label such as `Timezone: Unknown`; original
+statements remain in provenance/JSON. Actual multiline text renders on separate
+lines. Literal backslash sequences (including Windows paths) are never unescaped.
+
+During `briefing --analyze`, use `move` to select the current category, 1-based item
+number and destination category. Value, polarity and source references survive
+that correction. Only `accept` saves a new revision. Acceptance means accepted
+for use, not verified: AI-derived classifications retain their origin, while
+explicit edits are labeled analyst corrections/additions. Earlier revisions and
+original responses remain intact. `finish` and cancellation save no acceptance.
+
+Editable JSON format 1, its schema/template, and the evidence database are
+unchanged. Review annotations live outside the editable document in its internal
+provenance envelope. Historical documents are not recategorized on load; missing
+historical origin information is shown as unrecorded. Export/import still treats
+all supplied document content as unverified analyst input, never evidence.
+
+The reported 6.83 display established two code defects: empty unknown values fell
+back to entire source statements, and the single-line sanitizer escaped real
+newlines. Assembly also preferred a candidate's category over its semantic type.
+The live raw response was not available, so its omissions versus rejections cannot
+be reconstructed from displayed output. Development validation uses fake providers
+and a synthetic reconstruction of the supplied incident facts, not a captured case
+transcript or a claim of improved live-model quality. Manual acceptance remains
+required; no extra provider request is made to repair omissions.

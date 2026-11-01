@@ -102,11 +102,17 @@ def check_envelope(value):
 
 
 def build(packet):
-    document=copy.deepcopy(packet.get('accepted_canonical') or empty());refs={};used=set()
+    from .briefing_review import category as normalize_category
+    document=copy.deepcopy(packet.get('accepted_canonical') or empty());used=set()
+    original=copy.deepcopy(packet.get('accepted_canonical_provenance') or {})
+    refs=original.setdefault('references',{});origins=original.setdefault('classification_origins',{})
+    normalizations=[]
+    for key,items in document['categories'].items():
+        for i in range(len(items)):origins.setdefault(f'{key}:{i}','legacy_unspecified')
     def present(category,item):
         return any(all(existing[k]==item[k] for k in ('status','value','kind','polarity')) for existing in document['categories'][category])
     for candidate in packet.get('ai_candidates',[]):
-        category=candidate.get('category') or TYPE_CATEGORY[candidate['type']]
+        category,normalized=normalize_category(candidate,TYPE_CATEGORY[candidate['type']])
         status=candidate.get('status') or ('unknown' if candidate['type']=='unknown' else
                  'ambiguous' if candidate['polarity']=='uncertain' else 'provided')
         if any(l.get('conflicted') and l['id']==candidate.get('lead_id') for l in packet.get('leads',[])):status='conflicting'
@@ -125,7 +131,12 @@ def build(packet):
             packet['limitations'].append('Canonical capacity reached; additional AI candidates remain in --details.')
             continue
         document['categories'][category].append(item)
-        refs[f'{category}:{len(document["categories"][category])-1}']={k:candidate[k] for k in ('source_ids','occurrences')}
+        key=f'{category}:{len(document["categories"][category])-1}'
+        refs[key]={k:candidate[k] for k in ('source_ids','occurrences')}
+        origins[key]='ai_classification'
+        if normalized:
+            refs[key]['category_normalization']=normalized
+            normalizations.append({**normalized,'entry':key})
         if candidate.get('lead_id'):used.add(candidate['lead_id'])
     for lead in packet.get('leads',[]):
         if sum(len(items) for items in document['categories'].values())>=48:
@@ -145,31 +156,56 @@ def build(packet):
             continue
         document['categories'][category].append({'status':status,'value':value,'kind':kind,'statement':value,'polarity':'negated' if lead['negated'] else 'reported',
             'note':'Deterministically validated technical reference; semantic role unverified.'})
-        refs[f'{category}:{len(document["categories"][category])-1}']={'occurrences':lead['occurrences']}
+        key=f'{category}:{len(document["categories"][category])-1}'
+        refs[key]={'occurrences':lead['occurrences']};origins[key]='deterministic_reference'
     proposed=packet.get('proposed_summary')
     if proposed:
         document['summary']={'text':proposed['text']+'\nUncertainty: '+proposed['uncertainty'],'status':'proposed','statement':proposed['source_text']}
-        refs['summary']={'source_ids':proposed['source_ids']}
+        refs['summary']={'source_ids':proposed['source_ids']};origins['summary']='ai_summary'
     check(document)
-    return {'document':document,'original_provenance':{'references':refs,'inputs':packet['inputs'],
-             'source_units':packet.get('source_units',[])},'accepted':False,
+    # Retain prior source inventories: old entry references must remain resolvable.
+    original['inputs']={**original.get('inputs',{}),**packet['inputs']}
+    units={u['id']:u for u in original.get('source_units',[])}
+    units.update({u['id']:u for u in packet.get('source_units',[])})
+    original['source_units']=list(units.values())
+    original['review_diagnostics']={'rejected_items':copy.deepcopy(packet.get('ai_error',{}).get('rejected_items',[])),
+                                  'source_coverage':packet.get('ai_source_coverage'), 'normalizations':normalizations}
+    return {'document':document,'original_provenance':original,'accepted':False,
              'coverage':packet.get('semantic_coverage','limited_deterministic_technical_only')}
 
 
 def render(value):
     from forensic_assistant.interactive.console import safe
-    document=value['document'];lines=['CASE BRIEFING - unverified analyst input',
-        'Accepted analyst representation' if value.get('accepted') else 'Proposed representation - not yet accepted','', 'Information collected and gaps']
+    from .briefing_review import assess
+    document=value['document'];original=value.get('original_provenance',{})
+    assessment=assess(document,original.get('review_diagnostics'))
+    origins=original.get('classification_origins',{})
+    lines=['CASE BRIEFING - unverified analyst input',
+        'Accepted for use - assertions and derived interpretations remain unverified' if value.get('accepted') else 'Proposed representation - not yet accepted','', 'Information collected and gaps']
+    def multiline(text,indent=''):
+        lines.extend(indent+safe(line) for line in text.splitlines())
     for category,label in CATEGORIES.items():
         lines.append('  '+label)
-        items=document['categories'][category]
-        if not items:lines.append('    Not provided in this representation (extraction may have omitted it).')
-        for item in items:
-            lines.append('    '+safe(item['value'] or item['statement'])+' ['+item['status']+'; '+item['polarity']+']')
-            if item['note']:lines.append('      '+safe(item['note']))
+        items=document['categories'][category];gap=assessment['categories'][category]
+        if not items:
+            lines.append('    Not provided in this representation (extraction may have omitted it).')
+            if gap['state']=='validation_rejected':lines.append('    Candidate rejected during validation; review source and --details.')
+            elif gap['state'] in ('assigned_elsewhere','possible_classification_gap'):
+                lines.append('    Possible classification gap; review '+', '.join(CATEGORIES[k] for k in gap['related_categories'])+'.')
+        for i,item in enumerate(items):
+            display=item['value'] or item['kind'].replace('_',' ').capitalize()+': '+item['status'].replace('_',' ').capitalize()
+            multiline(display,'    ')
+            lines.append('      ['+item['status']+'; '+item['polarity']+'; '+safe(origins.get(f'{category}:{i}','origin not recorded'))+']')
+            if item['value'] and item['note']:multiline(item['note'],'      ')
     summary=document['summary']
-    lines.extend(['','Proposed incident summary - unverified ('+summary['status']+')',
-                  safe(summary['text']) if summary['text'] else 'Not provided; no summary was fabricated.'])
+    lines.extend(['','Proposed incident summary - unverified ('+summary['status']+')'])
+    multiline(summary['text'] or 'Not provided; no summary was fabricated.')
+    for check in assessment['summary_checks']:
+        if check['rule']=='possible_summary_entity_omission':
+            lines.append('Summary review: possible omission of '+CATEGORIES[check['category']]+'.')
+        else:lines.append('Summary review: check coverage of '+CATEGORIES[check['category']]+'.')
+    if assessment['source_coverage'] and not assessment['source_coverage'].get('complete'):
+        lines.append('Extraction coverage incomplete: not all source text was exposed to AI.')
     lines.append('Source support is not verification. Missing fields are not negative observations.')
     return '\n'.join(lines)
 
@@ -177,16 +213,30 @@ def render(value):
 def review(value,read):
     """Bounded edits to a proposal; caller alone persists explicit acceptance."""
     from forensic_assistant.briefing_workflow import read_answer
-    document=copy.deepcopy(value['document'])
+    document=copy.deepcopy(value['document']);original=copy.deepcopy(value.get('original_provenance',{}))
     for _ in range(48):
-        print(render({**value,'document':document}))
-        choice=read_answer(read,'Accept, correct, add, reject-summary, or finish? [finish]: ').strip().lower()
+        print(render({**value,'document':document,'original_provenance':original}))
+        choice=read_answer(read,'Accept, correct, move, add, reject-summary, or finish? [finish]: ').strip().lower()
         if choice in ('','finish'):return None
         if choice=='accept':
             check(document)
             if document['summary']['status']=='proposed':document['summary']['status']='accepted'
-            return envelope(document,value.get('original_provenance'))
+            original['acceptance']='accepted_for_use_not_verified'
+            return envelope(document,original)
         if choice=='reject-summary':document['summary']['status']='rejected';continue
+        if choice=='move':
+            from .briefing_review import move_metadata
+            source=read_answer(read,'Current category key: ').strip()
+            number=read_answer(read,'Item number (1-based): ').strip()
+            target=read_answer(read,'Destination category key: ').strip()
+            if source not in CATEGORIES or target not in CATEGORIES or source==target or not number.isdecimal() or not 1<=int(number)<=len(document['categories'][source]):
+                print('Invalid category move; proposal preserved.');continue
+            index=int(number)-1;trial=copy.deepcopy(document)
+            trial['categories'][target].append(trial['categories'][source].pop(index))
+            try:check(trial)
+            except ValueError:print('Invalid category move; proposal preserved.');continue
+            move_metadata(original,source,index,target,len(trial['categories'][target])-1)
+            document=trial;continue
         if choice not in ('correct','add'):continue
         print('Categories: '+', '.join(CATEGORIES)+', summary')
         category=read_answer(read,'Category key (or summary): ').strip()
@@ -197,6 +247,8 @@ def review(value,read):
             try:check(trial)
             except ValueError:print('Invalid summary; previous proposal preserved.');continue
             document=trial
+            original.setdefault('classification_origins',{})['summary']='analyst_summary'
+            original.setdefault('references',{}).pop('summary',None)
             continue
         if category not in CATEGORIES:
             print('Categories: '+', '.join(CATEGORIES));continue
@@ -217,6 +269,9 @@ def review(value,read):
         try:check(trial)
         except ValueError:print('Invalid item; previous proposal preserved.');continue
         document=trial
+        key=f'{category}:{index}'
+        original.setdefault('classification_origins',{})[key]='analyst_correction' if choice=='correct' else 'analyst_addition'
+        original.setdefault('references',{}).pop(key,None)
     raise ValueError('Briefing review step bound reached; no acceptance saved.')
 
 
