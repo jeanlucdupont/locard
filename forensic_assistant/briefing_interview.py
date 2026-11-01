@@ -167,6 +167,7 @@ def decision(client,current,session,metrics):
     started=time.perf_counter();metrics['calls']+=1
     try:raw=client.complete(messages,SCHEMA)
     finally:metrics['model_seconds']+=time.perf_counter()-started
+    metrics.pop('repetition_basis',None)
     result=loads(raw,max_bytes=MAX_RESPONSE);validate(result,SCHEMA)
     assessment=information(current,session)
     metrics['information_assessment']=assessment
@@ -179,9 +180,14 @@ def decision(client,current,session,metrics):
     if result['action']=='ask':
         question=result['question']
         if question.count('?')!=1 or not question.endswith('?') or any(ord(c)<32 for c in question):raise ValueError('invalid_question')
-        if result['topic'] in covered_topics(current,session) or sum(t['topic']==result['topic'] for t in session['turns'])>=2:
+        if result['topic'] in covered_topics(current,session):
+            metrics['repetition_basis']='topic_already_supplied_or_declined'
+            raise ValueError('repeated_question')
+        if sum(t['topic']==result['topic'] for t in session['turns'])>=2:
+            metrics['repetition_basis']='topic_question_limit'
             raise ValueError('repeated_question')
         if any(SequenceMatcher(None,question.casefold(),t['question'].casefold()).ratio()>=.8 for t in session['turns']):
+            metrics['repetition_basis']='similar_question_text'
             raise ValueError('repeated_question')
         if re.search(r'(?i)\b(verified|confirmed|evidence shows|execute|run this|SQL)\b',question):
             raise ValueError('unsafe_question')
@@ -271,7 +277,9 @@ def interview(current,read,*,client_factory=None,metrics=None,details=False):
                 metrics['termination_reason']='decision_budget'
                 print('Interview question budget reached; you may add information or finish.')
                 readiness_message(information(old,session))
-            finished=True;question='Would you like to add anything else? (done to review)';origin='locard';topic='uncertainty'
+            metrics['information_assessment']=information(old,session)
+            print('Added. Type done to review and save, or provide another detail.')
+            finished=True;question='Additional details, or done to review?';origin='locard';topic='uncertainty'
             continue
         try:
             if client is None:
@@ -284,10 +292,12 @@ def interview(current,read,*,client_factory=None,metrics=None,details=False):
             category,recoverable=failure_category(exc)
             metrics['termination_reason']=category
             metrics.setdefault('diagnostics',[]).append({'category':category,'calls':metrics['calls'],
-                'request_bytes':metrics['request_bytes'][-1] if metrics['request_bytes'] else 0})
+                'request_bytes':metrics['request_bytes'][-1] if metrics['request_bytes'] else 0,
+                **({'repetition_basis':metrics['repetition_basis']} if category=='repeated_question' and 'repetition_basis' in metrics else {})})
             if details:
                 print('Interview diagnostic: '+category+'; model decisions '+str(metrics['calls'])+
                       '; last request bytes '+str(metrics['diagnostics'][-1]['request_bytes']))
+                if category=='repeated_question':print('Repetition check: '+metrics.get('repetition_basis','not_recorded'))
             replacement=fallback(old,session) if recoverable and metrics['calls']<MAX_CALLS and metrics['model_seconds']<MAX_MODEL_SECONDS and len(session['turns'])<8 else None
             if replacement:
                 print('The AI question was not usable. I can ask one relevant follow-up instead.')
@@ -302,9 +312,13 @@ def interview(current,read,*,client_factory=None,metrics=None,details=False):
         if result['action']=='finish':
             metrics['termination_reason']='model_finish_after_gap_check'
             readiness_message(information(old,session))
-            finished=True;question='Would you like to add anything else? (done to review)';origin='locard';topic='uncertainty'
+            metrics['information_assessment']=information(old,session)
+            print('Added. Type done to review and save, or provide another detail.')
+            finished=True;question='Additional details, or done to review?';origin='locard';topic='uncertainty'
         else:
             question=result['question'];origin='ai';topic=result['topic']
+    if len(session['turns'])>=8:
+        print('The bounded interview entry limit is reached. Reviewing all collected statements now.')
     if not any(t['answer_status']=='answered' for t in session['turns']):
         print('No analyst statements collected; briefing unchanged.')
         return None

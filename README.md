@@ -2843,3 +2843,38 @@ its decisions to provider log entries. The precise historical rejection cannot b
 proven. The confirmed defect was the catch-all exception path disabling further
 AI questioning; 6.79 introduces specific diagnostics and bounded recovery without
 assuming a budget problem or weakening canonical response validation.
+
+### Narrative indicators and bounded interview additions (6.80)
+
+IP candidates must pass `ipaddress` validation before becoming leads; clock times
+and malformed addresses are not shown as IP addresses. Approximate clock references
+remain separate, preserving source spans and no inferred timezone or authorized
+search window. Date/time discovery still requires explicit scope arguments.
+
+Windows path parsing recognizes quoted paths and conservative file-extension/prose
+boundaries. It preserves directory/file spaces and excludes trailing sentence prose.
+Unclear unquoted paths remain ambiguous and cannot become exact path searches; quote
+an intended literal path when its boundary is unclear. This is a bounded narrative
+parser, not a complete Windows filename grammar. Quoted and parenthesized filenames
+retain their full wording, including spaces; bracketed names and `.wsc` are supported.
+Nested filename/domain/activity matches inside recognized paths or filenames are
+suppressed. ProgramData is no longer an activity keyword. Source text is unchanged;
+corrected extraction can produce different derived lead IDs, requiring fresh review.
+Historical briefing revisions and forensic evidence IDs are not rewritten.
+
+Discovery rechecks address syntax and full path boundaries in addition to existing
+classification, approval and temporal-scope safeguards. Invalid/ambiguous parsing is
+not evidence that an artifact is absent.
+
+After AI decisions are exhausted, Locard announces the limit once, accepts bounded
+additional statements, updates deterministic hints, and uses a short addition/review
+prompt. It makes no further model calls. The existing eight conversational responses
+and twelve total turns still apply; reaching the entry bound explicitly opens review.
+Use `--edit` or a subsequent supplement interview for further content.
+
+The earlier repeated-question diagnostics cannot establish whether the model used
+similar wording or triggered a broader topic guard: question text was not retained.
+The checks remain enabled. `briefing --interview --details` now distinguishes a
+supplied/declined topic, the per-topic question limit, and similar question wording.
+No raw rejected question is printed or logged. Conversation history already includes
+AI and fallback questions; no stale-request or duplicate-request defect was proven.

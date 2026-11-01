@@ -49,24 +49,43 @@ def extract_inputs(inputs):
         ('windows_path', r'(?:[A-Za-z]:\\|\\\\)[^\r\n"<>|?*]{1,240}'),
         ('registry_path', r'(?i)\b(?:HKLM|HKCU|HKCR|HKU|HKCC|HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER)\\[^\s"<>]{1,240}'),
         ('hash', r'\b(?:[a-fA-F0-9]{64}|[a-fA-F0-9]{40}|[a-fA-F0-9]{32})\b'),
-        ('ipv4', r'(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])'),
-        ('ipv6', r'(?<![\w:])[a-fA-F0-9:]*:[a-fA-F0-9:]+(?![\w:])'),
+        ('ipv4', r'(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.\d)'),
+        ('ipv6', r'(?<![\w:.])[a-fA-F0-9:.]*:[a-fA-F0-9:.]+(?![\w:.])'),
         ('filename', r'(?i)\b[\w-][\w.-]{0,180}\.(?:exe|ps1|bat|cmd|lnk|zip|docx?|xlsx?|pdf|dll|js|vbs|msi)\b'),
         ('domain', r'(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b'),
         ('hostname', r'\b[A-Za-z][A-Za-z0-9]{1,30}-[A-Za-z0-9-]{2,40}\b'),
         ('username', r'(?i)\b(?:user(?:name)?(?: named)?|account)\s*[:=]?\s+([A-Za-z][\w.-]*(?: [A-Z][a-z]+)?)'),
         ('partial', r'\b\d{1,3}\.\d{1,3}\.(?!\d)'),
-        ('term', r'(?i)\b(?:PowerShell|WMI|Defender|ProgramData)\b'),
+        ('term', r'(?i)\b(?:PowerShell|WMI|Defender)\b'),
         ('context', r'(?i)\b(?:[\w-]+\s+){0,3}(?:score sheet|downloaded document|shortcut file)\b'),
-        ('ambiguous_time', r'(?i)\b(?:\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:UTC|CST|EST|PST))?|that morning|shortly afterward)\b'),
+        ('ambiguous_time', r'(?i)\b(?:\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM))?(?:\s*(?:UTC|CST|EST|PST))?|that morning|shortly afterward)\b'),
     ]
+    from .briefing_boundaries import candidates, contained, SpanIndex
     for source, narrative in inputs.items():
+        paths,files=candidates(narrative)
+        occupied=SpanIndex(paths+files)
+        valid_v6=[]
+        for candidate in re.finditer(dict(patterns)['ipv6'],narrative):
+            try:
+                if ipaddress.ip_address(candidate.group().rstrip('.')).version==6:
+                    valid_v6.append((candidate.start(),candidate.end()-(len(candidate.group())-len(candidate.group().rstrip('.')))))
+            except ValueError:pass
         for kind, pattern in patterns:
-            for match in re.finditer(pattern, narrative):
+            matches=paths if kind=='windows_path' else files if kind=='filename' else re.finditer(pattern,narrative)
+            for match in matches:
                 a,b = match.span(1) if kind in ('event_id','username') else match.span()
-                original = narrative[a:b]; normalized = original; classification = 'exact'
+                if kind=='ipv6':b-=len(narrative[a:b])-len(narrative[a:b].rstrip('.'))
+                if kind in ('ambiguous_time','ipv4') and any(x<=a and b<=y for x,y in valid_v6):continue
+                if kind in ('domain','hostname','term','context','ipv4','ipv6') and contained(a,b,occupied):continue
+                original = narrative[a:b]; normalized = original; classification = getattr(match,'classification','exact')
                 if kind in ('term','context','partial'): classification = 'search_term' if kind != 'partial' else 'partial'
-                if kind in ('ambiguous_time','username','hostname'): classification = 'contextual'
+                if kind in ('username','hostname'): classification = 'contextual'
+                if kind=='ambiguous_time':
+                    classification='approximate'
+                    clock=re.fullmatch(r'(\d{1,2}):(\d{2})(?::(\d{2}))?(.*)',original)
+                    if clock and int(clock[1])<24 and int(clock[2])<60 and (clock[3] is None or int(clock[3])<60):
+                        normalized=f'{int(clock[1]):02}:{clock[2]}'+(':'+clock[3] if clock[3] else '')+clock[4]
+                    elif clock:classification='invalid'
                 try:
                     if kind.startswith('ipv'):
                         normalized = str(ipaddress.ip_address(original))
@@ -87,10 +106,12 @@ def extract_inputs(inputs):
                         # Unquoted paths with spaces are deliberately ambiguous; no guessed boundary.
                         from forensic_assistant.artifacts.paths import normalize_path
                         normalized = normalize_path(original)['normalized']
-                        if ' ' in original and (not a or narrative[a-1] != '"'): classification = 'ambiguous'
+                        classification=match.classification
                     elif kind in ('domain','filename','hash','hostname'): normalized = original.casefold()
-                except (ValueError, KeyError): classification = 'invalid'
-                if kind == 'domain' and re.search(r'\.(exe|ps1|bat|cmd|lnk|zip|docx?|xlsx?|pdf|dll|js|vbs|msi)$', original, re.I):
+                except (ValueError, KeyError):
+                    if kind.startswith('ipv'):continue
+                    classification = 'invalid'
+                if kind == 'domain' and re.search(r'\.(exe|ps1|bat|cmd|lnk|zip|docx?|xlsx?|pdf|dll|js|vbs|msi|wsc)$', original, re.I):
                     continue  # Filename ambiguity is already represented, not a network indicator.
                 before = narrative[max(0,a-120):a].split('\n')[-1]
                 before = re.split(r'[.!?;]', before)[-1]
@@ -102,6 +123,9 @@ def extract_inputs(inputs):
                     leads[key] = dict(id=identity, type=kind, normalized=normalized,
                         classification=classification, negated=negative, origin='analyst',
                         verification='UNVERIFIED ANALYST INPUT', occurrences=[])
+                    if kind=='ambiguous_time':leads[key]['uncertainty']='Local/approximate time reference; no date or timezone inferred and no search window authorized.'
+                    if kind=='windows_path' and a and narrative[a-1] in ('"',"'"):
+                        leads[key]['boundary_quoted']=True
                 if len(leads[key]['occurrences']) < 16:
                     leads[key]['occurrences'].append(dict(source=source, start=a, end=b, original=original))
                 else: limited = True
@@ -250,6 +274,19 @@ def query_for(lead, artifact, start, end):
     if lead['negated'] or lead['classification'] in ('invalid','ambiguous','partial'):
         return None
     kind=lead['type']; value=lead['occurrences'][0]['original']; filters={}
+    if kind in ('ipv4','ipv6'):
+        try:
+            address=ipaddress.ip_address(value)
+            if address.version != (4 if kind=='ipv4' else 6) or str(address)!=lead['normalized']:return None
+        except ValueError:return None
+    if kind=='windows_path':
+        from .briefing_boundaries import candidates
+        paths,_=candidates(value)
+        # Bare values from quoted source paths may contain spaces; preserve the
+        # original quotation context when checking that full boundary again.
+        quoted=lead.get('boundary_quoted',False)
+        if quoted:paths,_=candidates(chr(34)+value+chr(34))
+        if not paths or paths[0].classification!='exact' or paths[0].end-paths[0].start!=len(value):return None
     if artifact=='evtx':
         if kind=='event_id': filters={'event_id':lead['normalized']}
         elif kind in ('ipv4','ipv6'): filters={'ip':lead['normalized']}

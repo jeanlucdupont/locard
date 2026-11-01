@@ -4,7 +4,7 @@ from forensic_assistant.interactive.console import safe
 
 LABELS = {'filename': 'Script or file', 'windows_path': 'File path', 'username': 'User',
           'hostname': 'Host', 'ipv4': 'IP address', 'ipv6': 'IP address', 'domain': 'Domain',
-          'date': 'Time reference', 'timestamp': 'Time reference', 'term': 'Reported activity',
+          'ambiguous_time': 'Approximate time reference', 'date': 'Time reference', 'timestamp': 'Time reference', 'term': 'Reported activity',
           'context': 'Reported context', 'event_id': 'Event ID', 'hash': 'File hash',
           'registry_path': 'Registry path'}
 

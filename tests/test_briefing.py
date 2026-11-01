@@ -19,7 +19,7 @@ def test_literals_spans_normalization_and_duplicates():
         for span in lead['occurrences']:
             assert text[span['start']:span['end']]==span['original']
     file=next(r for r in p['leads'] if r['type']=='filename')
-    assert len(file['occurrences'])==3
+    assert len(file['occurrences'])==2  # A filename within a full path is not a separate lead.
     assert next(r for r in p['leads'] if r['type']=='date')['normalized']=='2026-09-30'
     assert 'scope' not in p
 
