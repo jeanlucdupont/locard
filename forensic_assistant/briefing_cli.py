@@ -57,7 +57,7 @@ def run(args):
             if read is None:raise ValueError('Briefing changes require interactive confirmation.')
             if args.interview:
                 from forensic_assistant.briefing_interview import interview
-                value=interview(current,read)
+                value=interview(current,read,details=args.details)
             elif args.wizard:
                 value=workflow.wizard(current,read)
             elif args.edit:

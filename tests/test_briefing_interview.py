@@ -71,7 +71,7 @@ def test_failure_keeps_answers_sanitized(failure,capsys):
     result,fake,_=run(['Suspicious activity','done','save'],[failure])
     assert result['interviews'][0]['turns'][0]['answer']=='Suspicious activity'
     output=capsys.readouterr().out
-    assert 'unavailable or rejected' in output and 'SECRET' not in output and len(fake.calls)==1
+    assert ('AI questioning has stopped' in output or 'AI question was not usable' in output) and 'SECRET' not in output and len(fake.calls)==1
 
 
 def test_review_correction_no_more_calls():

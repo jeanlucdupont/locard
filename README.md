@@ -2810,3 +2810,36 @@ objective. The pasted transcript did not include the model decision or full stop
 diagnostics, so it cannot conclusively distinguish finish from rejection/failure.
 Two ordinary decision calls would not exhaust the old five-call budget. No claim is
 made that synthetic tests establish live model question quality.
+
+### Interview recovery and partial answers (6.79)
+
+One rejected question no longer disables the entire interview. For a rejected,
+repeated, malformed or truncated response, Locard may ask one deterministic
+recovery question about an unasked search gap. This is used only on failure;
+normal questioning remains model-selected. After the analyst answers or skips,
+AI may resume with the changed conversation. No identical automatic request retry
+is made. Transport/configuration failures and exhausted limits stop model requests
+but preserve the interview for review/save. Six decision calls, 180 seconds of
+accumulated model-call time, eight conversational answers, twelve total turns and
+all existing byte/token limits remain unchanged.
+
+`briefing --interview --details` displays sanitized interview failure categories,
+request byte counts and decision counts. Categories distinguish response structure,
+question rejection/repetition, output truncation, provider failure, context/time
+bounds and authorization. No exception text, raw response or narrative is included
+in these diagnostic lines. They are not persisted; provider diagnostics remain in
+the existing private provider log. Default output explains recovery or stopping in
+plain language. Original answers still appear in the analyst's explicit review.
+
+Partial answers retain both supplied hints and explicit unknown details. An unknown
+alert wording followed by a reported path does not discard the path or manufacture
+alert wording. A date and “morning” remain analyst text, not an inferred UTC time.
+The summary separates saveability, available unverified search hints, additional
+useful information, and the reason questioning stops. It never automatically searches.
+
+Diagnosis: the available latest provider entries showed successful structured
+validation, but the old interview did not record the local rejection rule or tie
+its decisions to provider log entries. The precise historical rejection cannot be
+proven. The confirmed defect was the catch-all exception path disabling further
+AI questioning; 6.79 introduces specific diagnostics and bounded recovery without
+assuming a budget problem or weakening canonical response validation.

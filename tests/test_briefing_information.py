@@ -82,5 +82,5 @@ def test_invalid_finish_never_claims_ready(capsys):
     result,_,metrics=run(['Something happened.','done','save'],[finish()])
     output=capsys.readouterr().out
     assert 'Useful search details remain unresolved' in output
-    assert metrics['termination_reason']=='response_or_budget_rejected'
+    assert metrics['termination_reason']=='premature_finish'
     assert 'enough reported context for an initial assessment' not in output

@@ -83,16 +83,18 @@ def information(current, session):
     inputs.update({str(i+1):t['answer'] for i,t in enumerate(session['turns'])
                    if i+1 not in superseded and t['answer_status']=='answered' and t['answer'].lstrip('\ufeff').strip()})
     states={topic:{'state':'not_yet_asked','sources':[]} for topic in TOPICS}
+    unknown_details={}
     asked={t['topic'] for t in session['turns']}
     for topic in asked:states[topic]['state']='asked_unresolved'
     for i,turn in enumerate(session['turns'],1):
         if i in superseded:continue
         if turn['answer_status']=='skipped':states[turn['topic']]={'state':'deferred','sources':[str(i)]}
-        elif re.fullmatch(r"(?is)\s*(?:I (?:do not|don't) know(?:.*)?|unknown|not sure(?:.*)?|I am not sure(?:.*)?)\s*[.!]?",turn['answer']):
+        elif re.fullmatch(r"(?is)\s*(?:(?:I|We) (?:do not|don't) know(?:.*)?|unknown|not sure(?:.*)?|I am not sure(?:.*)?)\s*[.!]?",turn['answer']):
             unknown_topic=turn['topic']
             for candidate,pattern in (('systems',r'(?i)computer|device|machine|hostname'),('time',r'(?i)date|time|when'),('indicators',r'(?i)filename|file name|document name')):
-                if re.search(pattern,turn['answer']):unknown_topic=candidate;break
+                if re.search(pattern,re.split(r'[.!?\n]',turn['answer'],maxsplit=1)[0]):unknown_topic=candidate;break
             states[unknown_topic]={'state':'explicitly_unknown','sources':[str(i)]}
+            unknown_details[unknown_topic]=[str(i)]
     mapping={'date':'time','timestamp':'time','hostname':'systems','username':'people',
              'filename':'indicators','windows_path':'indicators','hash':'indicators',
              'ipv4':'indicators','ipv6':'indicators','domain':'indicators','event_id':'alerts'}
@@ -102,7 +104,7 @@ def information(current, session):
             topic=mapping.get(lead['type'])
             if lead['type']=='term':topic='alerts' if lead['normalized'].casefold()=='defender' else 'activity'
             if topic and not lead['negated'] and lead['classification'] not in ('invalid','partial','ambiguous'):
-                states[topic]={'state':'supplied_hint','sources':list(dict.fromkeys(o['source'] for o in lead['occurrences']))}
+                states[topic]={'state':'partially_supplied' if topic in unknown_details else 'supplied_hint','sources':list(dict.fromkeys(o['source'] for o in lead['occurrences']))}
     for field,topic in {'when':'time','people':'people','systems':'systems','objectives':'objective',
                         'incident':'incident','indicators':'indicators','activities':'activity','alerts':'alerts','uncertainty':'uncertainty'}.items():
         if current['answers'][field].strip():states[topic]={'state':'supplied_hint','sources':['field:'+field]}
@@ -110,7 +112,9 @@ def information(current, session):
     # The model still receives original text for semantic assessment.
     priority=['time','systems','indicators','discovery','objective']
     gaps=[topic for topic in priority if states[topic]['state'] in ('not_yet_asked','asked_unresolved')]
-    return {'topics':states,'search_anchor_gaps':gaps,
+    return {'topics':states,'search_anchor_gaps':gaps,'explicit_unknown_details':unknown_details,
+            'initial_discovery_possible':any(states[t]['state'] in ('supplied_hint','partially_supplied') for t in ('time','systems','indicators','people')),
+            'timestamp_caution':'Dates and approximate periods do not establish an exact time or timezone.',
             'ai_question_topics_unconfirmed':sorted({t['topic'] for t in session['turns'] if t['question_origin']=='ai' and states[t['topic']]['state']=='asked_unresolved'}),
             'briefing_can_be_saved':bool(inputs),
             'discovery_readiness':'limited' if gaps else 'search_hints_available_not_verified',
@@ -118,9 +122,10 @@ def information(current, session):
 
 
 def covered_topics(current, session):
-    return sorted(topic for topic,value in information(current,session)['topics'].items()
-                  if value['state'] in ('explicitly_unknown','deferred') or
-                  (value['state']=='supplied_hint' and topic in ('time','systems','people','indicators')))
+    assessment=information(current,session)
+    return sorted(topic for topic,value in assessment['topics'].items()
+                  if topic in assessment['explicit_unknown_details'] or value['state'] in ('explicitly_unknown','deferred') or
+                  (value['state'] in ('supplied_hint','partially_supplied') and topic in ('time','systems','people','indicators')))
 
 
 def readiness_message(assessment):
@@ -130,6 +135,9 @@ def readiness_message(assessment):
     labels={'time':'incident date or approximate time','systems':'affected device',
             'indicators':'identifying file or indicator details','discovery':'origin or discovery circumstances',
             'objective':'what the analyst wants to establish'}
+    if assessment['initial_discovery_possible']:
+        supplied=[label for topic,label in labels.items() if assessment['topics'][topic]['state'] in ('supplied_hint','partially_supplied')]
+        print('Reported search hints are available'+(': '+', '.join(supplied) if supplied else '')+'. No evidence has been verified.')
     gaps=assessment['search_anchor_gaps']
     if gaps:
         print('The briefing can be saved. Useful search details remain unresolved: '+', '.join(labels[t] for t in gaps)+'.')
@@ -185,7 +193,42 @@ def decision(client,current,session,metrics):
     return result
 
 
-def interview(current,read,*,client_factory=None,metrics=None):
+
+def failure_category(exc):
+    """Allowlisted labels only; never return exception messages or response data."""
+    from forensic_assistant.ai.provider_diagnostics import ProviderFailure
+    if isinstance(exc,ProviderFailure):
+        if exc.category=='output_truncated':return 'output_truncated',True
+        if exc.category in ('structured_validation','structured_validation_failed','response_parse','response_parse_failed','response_envelope_failed'):
+            return 'provider_response_invalid',True
+        return 'provider_failure',False
+    if isinstance(exc,ValueError):
+        reason=str(exc)
+        if reason in ('context_limit','time_limit','cloud_not_acknowledged'):return reason,False
+        if reason in ('invalid_question','repeated_question','unsafe_question','unsupported_question_literal','premature_finish'):
+            return reason,True
+        return 'structured_response_invalid',True
+    return 'provider_failure',False
+
+
+def fallback(current,session):
+    """Recovery only: one unasked useful topic, never a normal questionnaire."""
+    assessment=information(current,session)
+    asked={t['topic'] for t in session['turns']}
+    questions={'time':'Do you know approximately when this happened?',
+               'systems':'Which device or environment was involved?',
+               'indicators':'Do you know a filename or other identifier associated with the incident?',
+               'discovery':'How was the suspicious material or activity first encountered?',
+               'objective':'What would you like the investigation to establish?'}
+    for topic in assessment['search_anchor_gaps']:
+        if topic not in asked and assessment['topics'][topic]['state']=='not_yet_asked':
+            question=questions[topic]
+            if all(SequenceMatcher(None,question.casefold(),t['question'].casefold()).ratio()<.8 for t in session['turns']):
+                return topic,question
+    return None
+
+
+def interview(current,read,*,client_factory=None,metrics=None,details=False):
     from forensic_assistant.briefing_store import content, now
     metrics=metrics if metrics is not None else {}
     metrics.update(calls=0,request_bytes=[],model_seconds=0.0,assembly_seconds=0.0,storage_bytes=0)
@@ -238,8 +281,21 @@ def interview(current,read,*,client_factory=None,metrics=None):
                 client=client_factory()
             result=decision(client,old,session,metrics)
         except Exception as exc:
-            metrics['termination_reason']='response_or_budget_rejected' if isinstance(exc,ValueError) else 'provider_unavailable'
-            print('AI follow-up unavailable or rejected. Your answers remain available; add information or type done to review.')
+            category,recoverable=failure_category(exc)
+            metrics['termination_reason']=category
+            metrics.setdefault('diagnostics',[]).append({'category':category,'calls':metrics['calls'],
+                'request_bytes':metrics['request_bytes'][-1] if metrics['request_bytes'] else 0})
+            if details:
+                print('Interview diagnostic: '+category+'; model decisions '+str(metrics['calls'])+
+                      '; last request bytes '+str(metrics['diagnostics'][-1]['request_bytes']))
+            replacement=fallback(old,session) if recoverable and metrics['calls']<MAX_CALLS and metrics['model_seconds']<MAX_MODEL_SECONDS and len(session['turns'])<8 else None
+            if replacement:
+                print('The AI question was not usable. I can ask one relevant follow-up instead.')
+                topic,question=replacement;origin='locard'
+                metrics['fallbacks']=metrics.get('fallbacks',0)+1
+                continue
+            print('AI questioning has stopped: '+('the interview limit was reached.' if category.endswith('limit') or metrics['calls']>=MAX_CALLS or metrics['model_seconds']>=MAX_MODEL_SECONDS else 'the provider is unavailable.' if not recoverable else 'no suitable new question is available.')+
+                  ' Your answers are retained; type done to review, or add information.')
             readiness_message(information(old,session))
             unavailable=True;question='Would you like to add anything else? (done to review)';origin='locard';topic='uncertainty'
             continue
