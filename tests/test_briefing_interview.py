@@ -95,8 +95,8 @@ def test_context_and_call_limits():
     old=current();old['narrative']='x'*13000
     result,fake,metrics=run(['supplement','Suspicious activity','done','save'],[],old)
     assert not fake.calls and metrics['calls']==0 and metrics['request_bytes'][0]>interview.MAX_CONTEXT
-    topics=['time','people','systems','alerts','objective']
-    questions=['When did it happen?','Who was involved?','Which systems were involved?','Were any alerts reported?','What do you want to establish?']
+    topics=['time','people','systems','alerts','objective','discovery']
+    questions=['When did it happen?','Who was involved?','Which systems were involved?','Were any alerts reported?','What do you want to establish?','How was the incident noticed?']
     result,fake,metrics=run(['Initial description']+['unknown']*7+['save'],[ask(t,q) for t,q in zip(topics,questions)])
     assert len(fake.calls)==interview.MAX_CALLS and len(result['interviews'][0]['turns'])==8
 
@@ -173,7 +173,7 @@ def test_interview_wire_budget_and_validation(provider,monkeypatch):
 
 
 def test_budget_exhaustion_before_request_and_response_bound():
-    fake=Fake([finish()]);metrics={'request_bytes':[],'calls':0,'model_seconds':150}
+    fake=Fake([finish()]);metrics={'request_bytes':[],'calls':0,'model_seconds':interview.MAX_MODEL_SECONDS}
     session={'id':'a'*32,'created':store.now(),'purpose':'supplement','turns':[]}
     with pytest.raises(ValueError,match='time_limit'):interview.decision(fake,current(),session,metrics)
     assert not fake.calls

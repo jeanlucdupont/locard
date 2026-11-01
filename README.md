@@ -2727,10 +2727,10 @@ also identifies supplied dates, hosts and users to avoid requesting them again.
 Semantic relevance and recognition of all paraphrases remain model limitations.
 A finish proposal is advisory: the analyst may add more information or finish.
 
-Limits: five follow-up model decisions, eight conversational responses, twelve
+Limits: six follow-up model decisions, eight conversational responses, twelve
 turns including review corrections, 4 KiB per response, 240 bytes per question,
 12,000 serialized request bytes and 4 KiB accepted response bytes. Requests use
-30-second backend timeouts; no further decision starts after 150 seconds of
+30-second backend timeouts; no further decision starts after 180 seconds of
 accumulated model-call time. Existing backend startup/compatibility checks and
 cleanup retain their own bounds and can add overhead; this is not a hard wall-clock
 interview deadline. Analyst thinking time is not timed out. The existing 1,024-token
@@ -2771,3 +2771,42 @@ Save, correct, full review, or cancel? [cancel]: save
 
 No automatic analysis or discovery follows saving. Use `briefing --show`, then
 `briefing --analyze --deterministic` or `briefing --analyze` explicitly.
+
+### Evidence-oriented interview assessment (6.78)
+
+Briefing sufficiency and search readiness are distinct. An analyst can save a sparse
+briefing at any time. Missing dates, device identifiers or filenames do not prove
+absence and do not establish that discovery will fail. No automatic search follows.
+
+The controller now distinguishes supplied search hints, explicit unknowns, deferred
+questions, unasked topics and asked-but-unresolved topics. An AI question is not a
+supplied fact. Off-topic responses remain intact; asking an objective question no
+longer marks the objective supplied when the answer instead describes an alert.
+Existing deterministic extraction supplies dates, host/user names and indicators;
+these are conservative hints, not semantic completeness or confidence scores.
+
+The model sees this assessment plus original context, and prioritizes useful search
+anchors for the particular incident. It is instructed to seek origin and alert
+details without assuming that an alert blocked the activity happening at the time.
+A Defender product mention is only a hint and does not close the alert-details topic.
+No questions or ordering are hardcoded beyond the initial and optional-addition
+prompts. A model finish proposal cannot declare readiness while date/device/indicator
+anchors remain unaddressed: its valid proposed follow-up is offered instead. Invalid
+or unsafe proposals fail safely, explain remaining gaps and permit review/save.
+Explicit unknowns and skips do not trigger repeated questioning. Near-duplicate
+questions remain rejected; unresolved topics permit at most two distinct questions.
+
+Six decisions (previously five), with at most 180 seconds accumulated model-call
+time before another request, accommodate one additional search-oriented follow-up.
+The eight conversational responses, twelve turns including corrections, response
+and context byte limits, provider output tokens and investigation budgets remain
+unchanged. Stop diagnostics distinguish guarded rejection, provider failure, model
+finish after the gap check, and decision-budget exhaustion; no raw model response
+is exposed. Broad semantic relevance still requires live manual acceptance.
+
+Diagnosis of the supplied 6.77 example: the code unconditionally accepted finish,
+considered asked topics covered, and encouraged completion after description plus
+objective. The pasted transcript did not include the model decision or full stopping
+diagnostics, so it cannot conclusively distinguish finish from rejection/failure.
+Two ordinary decision calls would not exhaust the old five-call budget. No claim is
+made that synthetic tests establish live model question quality.
