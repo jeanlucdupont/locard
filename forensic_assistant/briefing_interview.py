@@ -99,12 +99,17 @@ def information(current, session):
              'filename':'indicators','windows_path':'indicators','hash':'indicators',
              'ipv4':'indicators','ipv6':'indicators','domain':'indicators','event_id':'alerts'}
     if inputs:
-        packet=extract_inputs(inputs)
+        from .briefing_entities import source_questions
+        questions=source_questions(current)
+        questions.update({str(i+1):t['question'] for i,t in enumerate(session['turns'])})
+        packet=extract_inputs(inputs,questions=questions)
         for lead in packet['leads']:
             topic=mapping.get(lead['type'])
             if lead['type']=='term':topic='alerts' if lead['normalized'].casefold()=='defender' else 'activity'
             if topic and not lead['negated'] and lead['classification'] not in ('invalid','partial','ambiguous'):
                 states[topic]={'state':'partially_supplied' if topic in unknown_details else 'supplied_hint','sources':list(dict.fromkeys(o['source'] for o in lead['occurrences']))}
+    # No semantic completion claims from regex over prose. The bounded interview
+    # model receives the original answers; saved analysis classifies semantics.
     for field,topic in {'when':'time','people':'people','systems':'systems','objectives':'objective',
                         'incident':'incident','indicators':'indicators','activities':'activity','alerts':'alerts','uncertainty':'uncertainty'}.items():
         if current['answers'][field].strip():states[topic]={'state':'supplied_hint','sources':['field:'+field]}
@@ -118,6 +123,7 @@ def information(current, session):
             'ai_question_topics_unconfirmed':sorted({t['topic'] for t in session['turns'] if t['question_origin']=='ai' and states[t['topic']]['state']=='asked_unresolved'}),
             'briefing_can_be_saved':bool(inputs),
             'discovery_readiness':'limited' if gaps else 'search_hints_available_not_verified',
+            'semantic_assessment':'not_performed_by_deterministic_readiness',
             'caution':'Supplied hints are not complete answers or verified evidence. Asked-unresolved topics may remain unanswered; do not repeatedly rephrase them.'}
 
 
@@ -140,8 +146,8 @@ def readiness_message(assessment):
         print('Reported search hints are available'+(': '+', '.join(supplied) if supplied else '')+'. No evidence has been verified.')
     gaps=assessment['search_anchor_gaps']
     if gaps:
-        print('The briefing can be saved. Useful search details remain unresolved: '+', '.join(labels[t] for t in gaps)+'.')
-        print('These gaps do not prove absence or prevent investigation; you may skip them or finish now.')
+        print('The briefing can be saved. Details not established by technical extraction (may already be described in prose): '+', '.join(labels[t] for t in gaps)+'.')
+        print('This is not a semantic completeness assessment. You may skip these topics or finish now.')
     else:print('The briefing can be saved; available search hints still require evidence assessment.')
 
 
@@ -332,7 +338,8 @@ def interview(current,read,*,client_factory=None,metrics=None,details=False):
         from forensic_assistant import briefing
         inputs={f'interview:{session["id"]}:{i+1}':t['answer'] for i,t in enumerate(session['turns']) if t['answer_status']=='answered' and t['answer'].lstrip('\ufeff').strip()}
         if inputs:
-            extracted=briefing.extract_inputs(inputs)
+            from .briefing_entities import source_questions
+            extracted=briefing.extract_inputs(inputs,questions=source_questions({'interviews':[session]}))
             print('Deterministically extracted leads (unverified analyst input):')
             from forensic_assistant.briefing_report import LABELS
             for lead in extracted['leads'][:16]:print('  '+LABELS.get(lead['type'],'Context')+': '+safe(lead['occurrences'][0]['original']))

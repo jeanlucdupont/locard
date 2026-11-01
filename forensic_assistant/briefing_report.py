@@ -29,14 +29,28 @@ def render(packet):
             elif source == 'narrative':lines.append('  Narrative:')
             elif source != 'original':lines.append('  Analyst correction:')
             paragraph(text)
-    lines.extend(['', 'Key leads'])
     leads = {lead['id']: lead for lead in packet['leads']}
-    for number, lead in enumerate(leads.values(), 1):
+    remaining=[lead for lead in leads.values() if not lead.get('semantic_candidates')]
+    if remaining or not packet.get('ai_candidates'):
+        lines.extend(['', 'Additional technical leads' if packet.get('ai_candidates') else 'Key leads'])
+    for number, lead in enumerate(remaining, 1):
         paragraph(f"{number}. {lead['occurrences'][0]['original']} — {LABELS.get(lead['type'], 'Lead')}")
-        if lead['negated'] or lead['classification'] in ('partial', 'invalid', 'ambiguous'):
+        if lead.get('conflicted') or lead['negated'] or lead['classification'] in ('partial', 'invalid', 'ambiguous'):
             paragraph('Not eligible for discovery: negated or incomplete/ambiguous input.')
-    if not leads:
+    if not leads and not packet.get('ai_candidates'):
         paragraph('No supported leads extracted.')
+    semantic_groups=[('People',('person','account')),('Systems',('hostname',)),
+                     ('Files',('filename','windows_path','registry_path')),('Network indicators',('domain','ipv4','ipv6')),
+                     ('Time references',('date','timestamp','ambiguous_time','timezone')),
+                     ('Reported activity',('activity','alert','origin','relationship')),
+                     ('Investigative objectives',('objective',)),('Unresolved',('unknown',))]
+    for heading,kinds in semantic_groups:
+        candidates=[c for c in packet.get('ai_candidates',[]) if c['type'] in kinds]
+        if candidates:lines.extend(['',heading+' — AI classification of unverified analyst input'])
+        for candidate in candidates:
+            paragraph(candidate['literal']+' — '+candidate['description'])
+            paragraph('Uncertainty: '+candidate['uncertainty'])
+            if candidate['polarity']!='reported':paragraph('Analyst reference: '+candidate['polarity'])
     categories = [('Questions to investigate', ('question',)),
                   ('Possible explanations — tentative', ('hypothesis', 'alternative')),
                   ('AI descriptions of reported activity — unverified', ('reported_activity',)),
@@ -59,6 +73,7 @@ def render(packet):
     lines.extend(['', 'Status'])
     status = packet.get('ai_status', 'not_requested')
     accepted = len(packet['ai_items'])
+    if packet.get('ai_candidates'):paragraph(str(len(packet['ai_candidates']))+' source-supported semantic candidates; no forensic findings established.')
     rejected = len(packet.get('ai_error', {}).get('rejected_items', []))
     if status == 'partial':
         paragraph(f'AI interpretation partially accepted: {accepted} interpretations accepted; {rejected} rejected by validation.')
@@ -70,6 +85,8 @@ def render(packet):
         paragraph('AI interpretation skipped; input could not be included within its bounds.')
     else:
         paragraph('Deterministic extraction only; no AI interpretation requested.')
+    if status in ('success','partial') and not packet.get('ai_candidates'):
+        paragraph('No semantic candidates accepted; technical leads and any accepted interpretations remain available.')
     # Technical rejection messages remain intact in the packet and detailed view.
     notes = [n for n in packet['limitations'] if not n.startswith('AI interpretation failed:')]
     notes.extend(n for n in packet['conflicts'] if not n.startswith('AI item rejected:'))
@@ -124,8 +141,8 @@ def render(packet):
     paragraph('Use --details for exact lead IDs, source references, evidence IDs and diagnostics; --json preserves the structured packet.')
     paragraph('To approve a lead, rerun the SAME briefing input and corrections with:')
     if packet.get('saved_briefing'):
-        paragraph('For saved content: briefing --analyze --deterministic --revision '+str(packet['saved_briefing']['revision'])+' plus the approval options below.')
-    eligible = next((lead for lead in sorted(leads.values(), key=lambda lead: lead['type'] not in ('filename', 'windows_path', 'domain', 'ipv4', 'event_id')) if not lead['negated'] and lead['classification'] not in ('partial', 'invalid', 'ambiguous')), None)
+        paragraph('For saved content: briefing --analyze --revision '+str(packet['saved_briefing']['revision'])+' plus the approval options below.')
+    eligible = next((lead for lead in sorted(leads.values(), key=lambda lead: lead['type'] not in ('filename', 'windows_path', 'domain', 'ipv4', 'event_id')) if not lead.get('conflicted') and not lead['negated'] and lead['classification'] not in ('partial', 'invalid', 'ambiguous')), None)
     if eligible:
         suffix = (' --artifact ' + discovery['artifact'] + ' --start ' + discovery['start'] + ' --end ' + discovery['end']) if discovery else ' --artifact <family> --start <ISO-time-with-zone> --end <ISO-time-with-zone>'
         paragraph('--discover --approve ' + eligible['id'] + suffix)

@@ -18,10 +18,15 @@ def test_actual_openai_request_preserves_shape_and_canonical():
     before=copy.deepcopy(b.SCHEMA);messages=[{'role':'user','content':'synthetic'}]
     result=capabilities.configure({'messages':messages},'openai',b.SCHEMA)
     wire=result['response_format']['json_schema']['schema']
-    assert wire==without_unique(before) and b.SCHEMA==before
+    expected=without_unique(before)
+    expected['properties']['candidates']={'anyOf':[expected['properties']['candidates'],{'type':'null'}]}
+    expected['required']=['items','candidates']
+    assert wire==expected and b.SCHEMA==before
     assert result['messages']==messages and 'proposal' not in wire['properties']
     nested={'type':'array','items':{'type':'object','required':['nested'],'properties':{'nested':before}},'uniqueItems':True}
-    assert openai_schema._wire(nested)==without_unique(nested)
+    nested_expected=without_unique(nested)
+    nested_expected['items']['properties']['nested']=expected
+    assert openai_schema._wire(nested)==nested_expected
     for provider in ('anthropic','gemini','xai','deepseek'):
         assert openai_schema.request_schema(provider,b.SCHEMA) is b.SCHEMA
     assert openai_schema.request_schema('openai',{'type':'object'})=={'type':'object'}

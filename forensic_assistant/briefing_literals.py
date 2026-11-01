@@ -13,7 +13,7 @@ def literals(text):
     result = set()
     if not text.lstrip('\ufeff').strip():
         return result
-    for lead in extract(text)['leads']:
+    for lead in extract(text,semantic_hints=True)['leads']:
         kind = lead['type']
         if kind not in TECHNICAL:
             continue
@@ -33,6 +33,15 @@ def literals(text):
             if kind in ('windows_path','registry_path') and not before.endswith(('"',"'",'`')):
                 value=value.rstrip('.,;!?')
             result.add((kind,value))
+    # Reconciliation is stricter than discovery: explicit model attribution or
+    # quotation of an ambiguous label must not escape source support checks
+    # merely because conservative lead extraction declines to search for it.
+    for match in re.finditer(r'(?i)\b(?:host(?:name)?|computer|machine|server)(?:\s+named)?\s*[:=]?\s+["\x27`]?([a-z][a-z0-9-]{1,62})', text):
+        if match[1].casefold() in CONCEPTS:result.add(('hostname',match[1].casefold()))
+    for match in re.finditer(r'["\x27`]([A-Za-z][A-Za-z0-9]*-[A-Za-z0-9-]+)["\x27`]',text):
+        result.add(('hostname',match[1].casefold()))
+    for match in re.finditer(r'(?i)\b(?:user named|username|account)\s*[:=]?\s+([a-z][\w.-]*)',text):
+        if match[1].casefold()=='activity':result.add(('username',match[1]))
     # Preserve source extraction/lead IDs; supplement only literal reconciliation.
     for match in re.finditer(r'(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.\d)',text):
         try: result.add(('ipv4',str(ipaddress.ip_address(match.group()))))

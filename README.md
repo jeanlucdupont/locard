@@ -2878,3 +2878,51 @@ The checks remain enabled. `briefing --interview --details` now distinguishes a
 supplied/declined topic, the per-topic question limit, and similar question wording.
 No raw rejected question is printed or logged. Conversation history already includes
 AI and fallback questions; no stale-request or duplicate-request defect was proven.
+
+
+### AI-assisted semantic briefing analysis (6.82)
+
+`briefing --analyze` reuses the configured, authorized provider for **one bounded
+structured response** containing interpretations and up to 24 typed candidates.
+It does not add an extraction request after each interview answer. People,
+reported accounts, systems, activities, alerts, delivery context, objectives,
+unknowns and relationships are model classifications of unverified analyst input.
+A person's name is not an authenticated Windows account; a reported launch is
+not evidence proving execution.
+
+Each candidate contains `type`, `literal`, `source_ids`, `description`, `polarity`
+(`reported`, `negated`, or `uncertain`), and `uncertainty`. The model supplies no
+offsets or normalized identifiers. Locard finds the exact literal inside contiguous
+cited source units, records original source spans, validates technical syntax, and
+computes normalization itself. Unknown references, invented or invalid technical
+values, and unsupported technical descriptions are rejected. Generic investigative
+hypotheses do not need verbatim phrasing. Duplicate classifications merge source
+references; opposing assertions remain visible and conflicting leads are not
+eligible for discovery. Different semantic classifications remain unverified.
+
+`briefing --analyze --deterministic` remains model-free. Its reduced semantic
+coverage is explicit: technical strings and explicitly labeled hosts remain useful,
+but bare machine-like strings and personal names in prose are not promoted into
+entity leads. Original analyst text remains available. Interview readiness is
+labeled as a technical assessment; it does not claim to understand all supplied
+prose. Use AI analysis or analyst review for semantic completeness.
+
+Human output groups accepted candidates under People, Systems, Files, Network
+indicators, Time references, Reported activity, Investigative objectives and
+Unresolved. `--details` and `--json` retain source IDs, spans, validation outcomes,
+polarity and diagnostics. Exact source support proves provenance, not truth or
+semantic entailment. Existing saved revisions and case identity remain unchanged.
+
+Candidate IDs (`C-...`) are context identifiers, **not approval IDs**. Only an
+eligible lead ID (`L-...`), explicit artifact family and authorized time window can
+be approved through the existing `--discover --approve` workflow. Analysis never
+runs searches automatically. For AI-only leads, repeat AI analysis of the same
+saved revision when approving; deterministic-only reanalysis cannot recreate an
+AI-only classification. If the approved ID is absent, discovery refuses it.
+
+Existing provider bounds remain unchanged: 5,600-byte assembled briefing messages,
+4,096 OpenAI output tokens, 128 KiB OpenAI response parsing, and the existing
+16 KiB non-OpenAI parsing bound. A large maximum-size candidate response can exceed
+these bounds. Oversize/truncated responses fail with diagnostics, never silent
+slicing. Input-unit coverage and reaching the candidate bound are reported.
+No live-provider fit or extraction quality is claimed by synthetic tests.

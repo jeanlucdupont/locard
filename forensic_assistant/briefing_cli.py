@@ -71,7 +71,8 @@ def run(args):
             if revision is None:raise ValueError('No saved briefing. Use briefing --interview or --edit first.')
             if args.discover and args.revision != revision['revision']:
                 raise ValueError('Review current briefing and explicitly supply its --revision for discovery.')
-            packet=briefing.extract_inputs(sources(revision))
+            from .briefing_entities import source_questions
+            packet=briefing.extract_inputs(sources(revision),questions=source_questions(revision['content']))
             packet['saved_briefing']={k:revision[k] for k in ('revision','digest','modified')}
             packet['saved_briefing']['source_identity']=store.identity
             packet['interview_provenance']=revision['content'].get('interviews',[])
@@ -129,6 +130,16 @@ def render_details(packet):
         lines.append('  '+safe(lead['id'])+'  '+safe(lead['type'])+': '+safe(span['original']))
         lines.append('    '+safe(lead['classification'])+(' / negated: not eligible for search' if lead['negated'] else '')+
                      ' | '+safe(span['source'])+':'+str(span['start'])+'..'+str(span['end']))
+    if packet.get('ai_candidates'):
+        lines.extend(['','AI semantic candidates - source-supported, unverified'])
+        for candidate in packet['ai_candidates']:
+            lines.append('  '+safe(candidate['id'])+' '+safe(candidate['type'])+': '+safe(candidate['literal']))
+            lines.append('    '+safe(candidate['description']))
+            lines.append('    Sources: '+safe(', '.join(candidate['source_ids'])))
+            lines.append('    Validation: '+safe(candidate['technical_validation'])+'; polarity: '+safe(candidate['polarity']))
+            for span in candidate['occurrences']:
+                lines.append('    '+safe(span['source'])+':'+str(span['start'])+'..'+str(span['end']))
+            lines.append('    Uncertainty: '+safe(candidate['uncertainty']))
     if packet['ai_items']:
         lines.extend(['','AI interpretations — unverified, not findings'])
         for item in packet['ai_items']:

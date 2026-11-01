@@ -30,7 +30,7 @@ def test_sparse_observed_off_topic_answer_and_finish_guard(capsys):
 
 
 @pytest.mark.parametrize('text,topic',[
- ('2026-10-20','time'),('HOST-123','systems'),('invoice.pdf','indicators')])
+ ('2026-10-20','time'),('Host: HOST-123','systems'),('invoice.pdf','indicators')])
 def test_supplied_anchors(text,topic):
     info=module.information(current(),session(('incident','Tell me what happened?',text)))
     assert info['topics'][topic]['state']=='supplied_hint' and topic not in info['search_anchor_gaps']
@@ -52,7 +52,7 @@ def test_skip_and_unrelated_answer():
 
 
 def test_multiple_details_can_finish_without_further_question(capsys):
-    result,fake,metrics=run(['On 2026-10-20 HOST-123 opened invoice.pdf; determine its origin.','done','save'],[finish()])
+    result,fake,metrics=run(['On 2026-10-20 host HOST-123 opened invoice.pdf; determine its origin.','done','save'],[finish()])
     assert len(fake.calls)==1 and metrics['termination_reason']=='model_finish_after_gap_check'
     assert 'briefing can be saved' in capsys.readouterr().out
 
@@ -81,6 +81,6 @@ def test_repeated_equivalent_question_rejected():
 def test_invalid_finish_never_claims_ready(capsys):
     result,_,metrics=run(['Something happened.','done','save'],[finish()])
     output=capsys.readouterr().out
-    assert 'Useful search details remain unresolved' in output
+    assert 'Details not established by technical extraction' in output
     assert metrics['termination_reason']=='premature_finish'
     assert 'enough reported context for an initial assessment' not in output

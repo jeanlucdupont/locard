@@ -101,7 +101,7 @@ def test_split_occurrence_requires_complete_cited_coverage():
 
 
 def test_contract_version_legacy_rejection_and_wire_shape():
-    p=b.extract('sample.exe');assert p['interpretation_contract']==2 and p['format']==1
+    p=b.extract('sample.exe');assert p['interpretation_contract']==3 and p['format']==1
     legacy=dict(category='hypothesis',start=0,end=10,quote='sample.exe',text='sample.exe',basis='inferred',entity_ids=[],uncertainty='Unverified')
     b.interpret(p,Fake({'items':[legacy]}));assert p['ai_status']=='failed'
     wire=request_schema('openai',b.SCHEMA)

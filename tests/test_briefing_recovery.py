@@ -8,7 +8,7 @@ from test_briefing_information import session
 
 FIRST='Callie Wade tried to print a PDF game worksheet, but it was blocked, so she logged out.'
 DATE='It in the morning. September 30, 2026.'
-HOST='It was Dell laptop. BWP-8292456'
+HOST='It was Dell laptop. Hostname: BWP-8292456'
 ALERT="We don't know. She just logged out when she saw the message. Defender said it blocked:\nC:\\ProgramData\\baje.ps1"
 
 
@@ -20,6 +20,7 @@ def test_partial_answer_retains_anchors_and_unknown_details():
     assert all(a['topics'][t]['state']=='supplied_hint' for t in ('time','systems','indicators'))
     assert a['initial_discovery_possible'] and a['briefing_can_be_saved']
     assert 'exact time or timezone' in a['timestamp_caution']
+    assert a['semantic_assessment']=='not_performed_by_deterministic_readiness'
     assert m.fallback(current(),s)[0]=='discovery'
     assert 'alerts' in m.covered_topics(current(),s)
 
@@ -27,14 +28,15 @@ def test_partial_answer_retains_anchors_and_unknown_details():
 def test_reproduction_rejection_fallback_then_continuation(capsys):
     results=[ask('time','When did this happen?'),ask('systems','Which device was involved?'),
              ask('alerts','What did the message say?'),ask('time','When did this happen?'),
-             ask('objective','What would you like to establish?'),finish()]
-    result,fake,metrics=run([FIRST,DATE,HOST,ALERT,'It arrived by email.','Determine whether anything executed.','done','save'],results)
+             ask('uncertainty','What remains unclear?'),finish()]
+    result,fake,metrics=run([FIRST,DATE,HOST,ALERT,'Determine whether anything executed.','The execution outcome remains unclear.','done','save'],results)
     assert len(fake.calls)==6 and metrics['fallbacks']==1
     turns=result['interviews'][0]['turns']
     assert turns[3]['answer']==ALERT
     assert turns[4]['question_origin']=='locard' and turns[4]['topic']=='discovery'
     assert turns[5]['question_origin']=='ai'
     assert 'How was the suspicious material or activity first encountered?' in capsys.readouterr().out
+    assert metrics['diagnostics'][0]['category']=='repeated_question'
     requests=[json.dumps(c[0],sort_keys=True) for c in fake.calls]
     assert len(requests)==len(set(requests))
 

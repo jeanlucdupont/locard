@@ -74,7 +74,15 @@ def response(provider,text,canonical):
     from .provider_diagnostics import ProviderFailure
     wire=request_schema(provider,canonical)
     if provider == 'openai' and briefing(canonical):
-        # Same object shape; enforce all canonical constraints omitted on the wire.
+        # Optional candidate extraction is nullable on OpenAI's strict wire.
+        # Remove only null optional fields, then enforce canonical uniqueness.
+        try:value=json.loads(text)
+        except (ValueError,TypeError):
+            validate(text,canonical)
+            raise AssertionError('unreachable')
+        if isinstance(value,dict) and value.get('candidates','absent') is None:
+            validate(text,wire)
+            text=json.dumps(_decode(value,canonical),ensure_ascii=True)
         validate(text,canonical)
         return text
     if wire is canonical:
