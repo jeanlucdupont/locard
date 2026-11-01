@@ -162,6 +162,14 @@ def build(packet):
     if proposed:
         document['summary']={'text':proposed['text']+'\nUncertainty: '+proposed['uncertainty'],'status':'proposed','statement':proposed['source_text']}
         refs['summary']={'source_ids':proposed['source_ids']};origins['summary']='ai_summary'
+    from .briefing_completion import summary_diagnostic,synthesize
+    summary_state=summary_diagnostic(packet)
+    if not document['summary']['text'] and document['summary']['status']=='not_provided':
+        fallback=synthesize(document,CATEGORIES)
+        if fallback:
+            document['summary']=fallback['document'];refs['summary']=fallback['references']
+            origins['summary']='deterministic_synthesis'
+            summary_state.update(fallback='deterministic_synthesis',included=fallback['included'],total=fallback['total'])
     check(document)
     # Retain prior source inventories: old entry references must remain resolvable.
     original['inputs']={**original.get('inputs',{}),**packet['inputs']}
@@ -169,7 +177,9 @@ def build(packet):
     units.update({u['id']:u for u in packet.get('source_units',[])})
     original['source_units']=list(units.values())
     original['review_diagnostics']={'rejected_items':copy.deepcopy(packet.get('ai_error',{}).get('rejected_items',[])),
-                                  'source_coverage':packet.get('ai_source_coverage'), 'normalizations':normalizations}
+                                  'source_coverage':packet.get('ai_source_coverage'), 'normalizations':normalizations,
+                                  'summary':summary_state,
+                                  'narrative_retained':bool(packet.get('source_narrative_retained') or any(packet['inputs'].get(k) for k in ('original','narrative')) or original.get('review_diagnostics',{}).get('narrative_retained'))}
     return {'document':document,'original_provenance':original,'accepted':False,
              'coverage':packet.get('semantic_coverage','limited_deterministic_technical_only')}
 
@@ -177,6 +187,7 @@ def build(packet):
 def render(value):
     from forensic_assistant.interactive.console import safe
     from .briefing_review import assess
+    from .briefing_completion import unknown_label
     document=value['document'];original=value.get('original_provenance',{})
     assessment=assess(document,original.get('review_diagnostics'))
     origins=original.get('classification_origins',{})
@@ -188,17 +199,26 @@ def render(value):
         lines.append('  '+label)
         items=document['categories'][category];gap=assessment['categories'][category]
         if not items:
-            lines.append('    Not provided in this representation (extraction may have omitted it).')
-            if gap['state']=='validation_rejected':lines.append('    Candidate rejected during validation; review source and --details.')
-            elif gap['state'] in ('assigned_elsewhere','possible_classification_gap'):
+            if category=='incident' and original.get('review_diagnostics',{}).get('narrative_retained'):
+                lines.append('    Original analyst narrative retained; no separate incident entry extracted.')
+            elif gap['state']=='assigned_elsewhere':
+                lines.append('    Related information represented under '+', '.join(CATEGORIES[k] for k in gap['related_categories'])+'; duplication is not required.')
+            else:lines.append('    Not provided in this representation (extraction may have omitted it).')
+            if gap['state']=='validation_rejected':
+                lines.append('    Candidate rejected during validation: '+', '.join(gap['rejection_rules'])+'.')
+            elif gap['state']=='possible_classification_gap':
                 lines.append('    Possible classification gap; review '+', '.join(CATEGORIES[k] for k in gap['related_categories'])+'.')
         for i,item in enumerate(items):
-            display=item['value'] or item['kind'].replace('_',' ').capitalize()+': '+item['status'].replace('_',' ').capitalize()
+            display=item['value'] or unknown_label(item)+': '+item['status'].replace('_',' ').capitalize()
             multiline(display,'    ')
             lines.append('      ['+item['status']+'; '+item['polarity']+'; '+safe(origins.get(f'{category}:{i}','origin not recorded'))+']')
             if item['value'] and item['note']:multiline(item['note'],'      ')
     summary=document['summary']
-    lines.extend(['','Proposed incident summary - unverified ('+summary['status']+')'])
+    heading='Deterministic synthesis of analyst-reported entries - not an AI conclusion' if origins.get('summary')=='deterministic_synthesis' else 'Proposed incident summary - unverified'
+    lines.extend(['',heading+' ('+summary['status']+')'])
+    diagnostic=original.get('review_diagnostics',{}).get('summary',{})
+    if diagnostic and diagnostic['state']!='accepted':
+        lines.append('AI summary: '+safe(diagnostic['state'])+' ('+safe(diagnostic['stage'])+').')
     multiline(summary['text'] or 'Not provided; no summary was fabricated.')
     for check in assessment['summary_checks']:
         if check['rule']=='possible_summary_entity_omission':

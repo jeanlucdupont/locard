@@ -70,3 +70,20 @@ def unsupported(text, inputs, units):
     for source,start,end in groups:
         allowed.update(literals(inputs[source][start:end]))
     return literals(text)-allowed
+
+
+
+def supported_person_text(text, inputs, units, people):
+    """Resolve only the legacy username collision for an exact reported full name.
+
+    A person declaration is not an account declaration. Never exempt account
+    attribution, other names, or technical identifiers from the existing checks.
+    """
+    missing=unsupported(text,inputs,units)
+    if re.search(r'(?i)\b(?:account|username)\b',text):return missing
+    from .briefing_entities import PERSON
+    from .briefing_semantics import occurrences
+    for name in people:
+        if re.fullmatch(PERSON,name) and occurrences(name,units,inputs):
+            missing.discard(('username',name))
+    return missing

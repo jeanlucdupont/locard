@@ -84,6 +84,7 @@ def run(args):
             if current.get('canonical'):
                 packet['accepted_canonical']=current['canonical']['document']
                 packet['accepted_canonical_provenance']=current['canonical']['original_provenance']
+            packet['source_narrative_retained']=bool(current.get('narrative'))
             packet['saved_briefing']={k:revision[k] for k in ('revision','digest','modified')}
             packet['saved_briefing']['source_identity']=store.identity
             packet['interview_provenance']=revision['content'].get('interviews',[])
@@ -188,11 +189,15 @@ def render_details(packet):
         for rejection in error.get('rejected_items',[]):
             lines.append('  '+safe(rejection.get('component','Item'))+' '+str(rejection['item_index'])+': '+safe(rejection['rule']))
             if rejection.get('candidate_type'):lines.append('    Type: '+safe(rejection['candidate_type']))
+            for field in ('category','stage','source_references','literal_support','technical_validation'):
+                if rejection.get(field):lines.append('    '+field+': '+safe(rejection[field]))
             if rejection.get('literal_types'):
                 lines.append('    Unsupported literal types: '+safe(', '.join(rejection['literal_types']))+
                              ' ('+str(rejection['unsupported_count'])+')')
         for entry in error.get('validation',{}).get('errors',[]):
             lines.append('  '+safe(entry['canonical_path'])+': '+safe(entry['validator_keyword']))
+    if packet.get('summary_diagnostic'):
+        lines.append('  Summary diagnostic: '+safe(json.dumps(packet['summary_diagnostic'],sort_keys=True)))
     discovery=packet.get('discovery')
     if discovery:
         lines.extend(['','Approved deterministic discovery'])

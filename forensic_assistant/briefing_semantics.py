@@ -118,7 +118,7 @@ def reconcile(packet, candidates, units):
         kind=candidate['type'];value=candidate['literal']
         if len(cited)!=len(candidate['source_ids']):rule='unknown_source_id'
         elif not spans:rule='unsupported_candidate_literal'
-        if (kind=='person' and candidate.get('category')=='account') or (kind=='account' and candidate.get('category')=='person'):rule='incompatible_candidate_category'
+        if rule is None and ((kind=='person' and candidate.get('category')=='account') or (kind=='account' and candidate.get('category')=='person')):rule='incompatible_candidate_category'
         if spans and kind in TECHNICAL:
             # Reject a substring cut out of a longer technical token, or a known
             # complete quoted path/filename. Spaces still require model review.
@@ -132,13 +132,19 @@ def reconcile(packet, candidates, units):
                     if any(c.start<=a and b<=c.end and (a,b)!=(c.start,c.end) for c in paths+files):
                         rule=rule or 'incomplete_candidate_literal'
         unspecified=candidate.get('status') in ('unknown','not_provided','not_applicable')
-        try:normalized=technical(kind,value) if kind in TECHNICAL and not unspecified else value
-        except ValueError:rule=rule or 'invalid_technical_value';normalized=value
-        from .briefing_literals import unsupported,claims_proof
-        if rule is None and (claims_proof(candidate['description']) or unsupported(candidate['description'],packet['inputs'],cited)):
+        technical_outcome='not_applicable'
+        try:
+            normalized=technical(kind,value) if kind in TECHNICAL and not unspecified else value
+            if kind in TECHNICAL and not unspecified:technical_outcome='passed'
+        except ValueError:
+            rule=rule or 'invalid_technical_value';normalized=value;technical_outcome='failed'
+        from .briefing_literals import supported_person_text,claims_proof
+        if rule is None and (claims_proof(candidate['description']) or supported_person_text(candidate['description'],packet['inputs'],cited,[value] if kind=='person' else [])):
             rule='unsupported_candidate_description'
         if rule:
-            rejected.append({'item_index':index,'rule':rule,'component':'candidate','candidate_type':kind,'category':candidate.get('category')})
+            rejected.append({'item_index':index,'rule':rule,'component':'candidate','candidate_type':kind,'category':candidate.get('category'),
+                'stage':'candidate_reconciliation','source_references':'valid' if len(cited)==len(candidate['source_ids']) else 'invalid',
+                'literal_support':'supported' if spans else 'unsupported','technical_validation':technical_outcome})
             continue
         key=(kind,str(normalized),candidate['polarity'])
         if key in seen:

@@ -64,3 +64,23 @@ def local_rule(exc, parsing=False):
         if str(exc).endswith(suffix):
             return rule
     return 'canonical_contract'
+
+
+
+def structural_entries(value, schema):
+    """Bounded, schema-owned labels only; do not echo arbitrary keys or values."""
+    from .investigation_ai.contracts import validate
+    if not isinstance(value,dict):return []
+    candidates=value.get('candidates');out=[]
+    item_schema=schema['properties']['candidates']['items']
+    if isinstance(candidates,list):
+        for i,item in enumerate(candidates[:24]):
+            try:validate(item,item_schema)
+            except ValueError as exc:
+                category=item.get('category') if isinstance(item,dict) else None
+                if category not in item_schema['properties']['category']['enum']:category=None
+                out.append({'component':'candidate','item_index':i,'category':category,
+                            'stage':'structured_validation','rule':local_rule(exc),
+                            'source_references':'not_evaluated','literal_support':'not_evaluated',
+                            'technical_validation':'not_evaluated'})
+    return out

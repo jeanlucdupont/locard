@@ -3062,3 +3062,54 @@ be reconstructed from displayed output. Development validation uses fake provide
 and a synthetic reconstruction of the supplied incident facts, not a captured case
 transcript or a claim of improved live-model quality. Manual acceptance remains
 required; no extra provider request is made to repair omissions.
+
+
+### Briefing completion and summary diagnostics (6.85)
+
+A narrow person-validation correction resolves the legacy literal scanner's
+`username` classification of descriptions such as “User Callie Wade” when that
+exact full name is already a source-supported `person` candidate. It does not
+accept invented names, infer an account, or exempt explicit account/username
+attribution or other technical literals from validation. Person identity and
+semantic meaning remain unverified; source support is not proof.
+
+The single interpretation call requests a summary even for sparse input. Missing
+summary diagnostics distinguish omitted/empty output, structural failure, source
+validation failure, unsupported claims, unavailable responses and a validated
+summary missing before assembly. Structural candidate errors are reported without
+mislabeling an otherwise valid summary as invalid. Candidate diagnostics include
+index, category, validation stage, fixed rule, source-reference/literal support
+and technical-validation outcome. Default output contains no raw response or
+rejected text. `--json` exposes the current packet; accepted canonical revisions
+retain review diagnostics. Historical analysis records still contain status only:
+`--details` reruns analysis rather than recovering a prior provider response.
+
+When no summary was accepted/generated and no existing summary is retained or
+explicitly rejected, Locard can create a **deterministic synthesis of
+analyst-reported entries**. This is a bounded list of complete canonical values,
+with their category, status and polarity, not an AI conclusion or forensic
+finding. It establishes no sequence or causation. It reports the number of entries
+included, retains source statements and entry references, and preserves the
+1,200-character summary / 2,000-character source-statement bounds. Long entries
+are omitted whole rather than truncated into misleading paths or identifiers.
+With no usable entries, no synthesis is fabricated. The analyst may correct or
+reject it before accepting the briefing. No extra provider request is made.
+
+Generic unknown entries display “Timezone: Unknown” or “Account: Unknown” only
+when the retained statement explicitly says that subject is unknown; otherwise
+they display “Unspecified information: Unknown”. Related values under another
+valid category are not labeled absent or duplicated merely to fill a field.
+Saved original narratives remain available even when there is no separate
+Incident description candidate; the report states this explicitly.
+
+Editable JSON format 1, schema/template, source IDs, revision storage and evidence
+schema remain unchanged. No historical revision is rewritten. Provider budgets,
+read-only evidence access, consent and search approvals are unchanged.
+
+The exact 6.84 live response was not available for retrospective diagnosis. The
+person/username collision is reproducible with a fake provider but is not proof
+that it caused that particular live rejection. Missing/null summaries were allowed
+by the optional wire contract; other rejection causes now have explicit metadata.
+Tests use a synthetic reconstruction of the supplied incident facts, not the
+verbatim current case-14 narrative. Live-model quality remains subject to manual
+acceptance.
