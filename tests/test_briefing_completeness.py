@@ -31,7 +31,7 @@ def analyze(text, specs, summary=None):
     return packet,c.build(packet)
 
 
-def test_acceptance_reconstruction_and_typed_normalization():
+def test_acceptance_reconstruction_and_proposed_category_retention():
     specs=[('person','Callie Wade','person','provided'),('hostname','BWP-8292456','systems','provided'),
         ('activity','attempted to print a PDF game worksheet','user_experience','provided'),
         ('timezone','timezone unknown','when','unknown'),
@@ -41,15 +41,15 @@ def test_acceptance_reconstruction_and_typed_normalization():
     packet,result=analyze(NARRATIVE,specs,'Reported activity remains unverified.')
     assert packet['ai_status']=='success',packet.get('ai_error')
     assert packet['ai_source_coverage']['complete']
-    doc=result['document'];assert doc['categories']['alerts'][0]['value']=='blocked by Defender'
-    assert not doc['categories']['response']
+    doc=result['document'];assert doc['categories']['response'][0]['value']=='blocked by Defender'
+    assert not doc['categories']['alerts']
     assert doc['categories']['origin'] and doc['categories']['user_experience']
     assert packet['inputs']['original']==NARRATIVE
     text=c.render(result)
     assert 'Timezone: Unknown' in text and '\\nUncertainty:' not in text
     assert 'Summary review: possible omission of Person.' in text
     assert 'Summary review: possible omission of Systems.' in text
-    assert result['original_provenance']['references']['alerts:0']['category_normalization']['from']=='response'
+    assert result['original_provenance']['review_diagnostics']['normalizations']==[]
     assert not packet.get('discovery')
 
 

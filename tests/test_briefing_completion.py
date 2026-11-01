@@ -29,13 +29,11 @@ def test_ordinary_sentence_person_description_collision_fixed():
 @pytest.mark.parametrize('description',['Account Callie Wade','Account cwade','User Jane Doe','Host invented-999'])
 def test_person_does_not_authorize_account_or_other_identifiers(description):
     p=interpret('Callie Wade attempted to print a worksheet.',description=description)
-    assert not p['ai_candidates']
-    rejection=p['ai_error']['rejected_items'][0]
-    assert rejection['source_references']=='valid'
-    assert rejection['literal_support']=='supported'
-    assert rejection['technical_validation']=='not_applicable'
-    assert rejection['rule']=='unsupported_candidate_description'
-    assert description not in json.dumps(rejection)
+    assert p['ai_candidates'][0]['literal']=='Callie Wade'
+    flags=p['ai_candidates'][0]['narrative_review']
+    assert flags and flags[0]['rule']=='possible_identifier_mismatch'
+    assert not [v for v in p['leads'] if v['type'] in ('username','hostname')]
+    assert description not in json.dumps(flags)
 
 
 def test_unsupported_person_and_source_stay_rejected():
@@ -72,15 +70,18 @@ def test_missing_empty_and_invalid_summaries(summary,expected):
 
 @pytest.mark.parametrize('text,source,state',[
     ('Reported sample.ps1','unknown','failed_source_validation'),
-    ('invented.exe executed','valid','unsupported_claims'),
-    ('Event ID 1121 proves execution','valid','unsupported_claims')])
+    ('invented.exe executed','valid','accepted'),
+    ('Event ID 1121 proves execution','valid','accepted')])
 def test_summary_rejections_never_leak_into_fallback(text,source,state):
     p=b.extract('Reported sample.ps1 and Event ID 1121.')
     b.interpret(p,Fake({'items':[],'summary':{'text':text,'source_ids':[p['source_units'][0]['id']] if source=='valid' else ['unknown'], 'uncertainty':'Unverified'}}))
     result=c.build(p)
     assert result['original_provenance']['review_diagnostics']['summary']['state']==state
-    assert 'invented.exe' not in result['document']['summary']['text']
-    assert 'proves execution' not in result['document']['summary']['text']
+    if source=='valid':
+        assert p['proposed_summary']['narrative_review']
+        assert text in result['document']['summary']['text']
+    else:assert result['original_provenance']['excluded_summary']['rule']=='unknown_summary_source'
+    assert not any('invented.exe' in str(v) for v in p['leads'])
 
 
 def test_good_summary_person_support_and_no_fallback():

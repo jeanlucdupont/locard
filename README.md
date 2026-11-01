@@ -3113,3 +3113,66 @@ by the optional wire contract; other rejection causes now have explicit metadata
 Tests use a synthetic reconstruction of the supplied incident facts, not the
 verbatim current case-14 narrative. Live-model quality remains subject to manual
 acceptance.
+
+
+### Analyst-controlled briefing semantics (6.86)
+
+**AI proposes, the analyst decides, and forensic evidence verifies.** This release
+supersedes the automatic category normalization and narrative-rejection behavior
+in the earlier 6.84/6.85 notes. The AI's proposed category is retained, including
+an imperfect assignment. Category does not change the entry's concrete type:
+a `person` filed under Account does not become an authenticated account or an
+account-search lead. All 18 categories remain optional.
+
+Concrete candidates still require valid exposed source IDs, exact contiguous
+source support, existing boundary checks and technical syntax validation where
+applicable. Unsupported/invalid candidates are retained as **excluded
+suggestions**, not canonical values or search inputs. Review them with `--json`,
+correct/add an explicit analyst assertion, or `reject` an `excluded` item. Accepting
+the whole briefing does not activate excluded suggestions. A structurally invalid
+response remains rejected; this change does not relax the provider schema.
+
+Explanations and summaries are editable, unverified narrative drafts. Ordinary
+paraphrases no longer discard a source-supported person/system/activity/objective.
+The existing lexical scanner provides advisory `possible_identifier_mismatch`
+flags, not a semantic decision. It can flag ordinary prose (for example, parsing
+“hostname of” as a hostname). Known proof-claim patterns also produce a review
+flag. These checks do not establish semantic faithfulness, authentication,
+attribution, chronology or causality. No new deterministic semantic validator or
+AI self-validation call was introduced. The analyst owns those decisions.
+
+Description/uncertainty text, summary text and excluded suggestions never supply
+search values. Canonical reanalysis uses retained source statements, excluding the
+summary; notes and suggestions are not re-extracted as approved inputs. Existing
+explicit discovery approvals and forensic evidence-grounding controls are
+unchanged. An analyst who adds/corrects an entry supplies a new unverified analyst
+assertion, not a forensic finding.
+
+Summary references still must identify exposed source units. `failed_source_validation`
+specifically means an unknown/unexposed summary source ID; it does not mean the
+summary failed to quote the narrative verbatim. Such a draft is displayed as an
+excluded summary, with no valid provenance invented for it. A summary with valid
+references can be reviewed even when lexical or proof-claim flags are present;
+acceptance never verifies it. `correct` / `summary` permits replacement and
+`reject-summary` rejects the draft. No additional provider call is made.
+
+The bounded deterministic fallback now uses separate, quoted sentences when
+person/system context and reported activity/objectives are available. It never
+joins facts into a causal or chronological chain. Otherwise it retains a field
+inventory with an explicit limitation. Source/size bounds, polarity, uncertainty,
+entry references and included/omitted counts are preserved.
+
+Review supports `accept`, `correct`, `move`, `add`, `reject`, `reject-summary`,
+and `finish`. `reject` selects a category and 1-based item number (or `excluded`),
+while `move` preserves the source references. Only acceptance saves a revision.
+Original responses, prior revisions and derived-origin labels remain intact.
+Editable JSON format 1 and the evidence schema have not changed. Structured
+excluded suggestions/review flags are retained in accepted briefing provenance,
+not raw provider-response logs. Historical revisions are not rewritten.
+
+Diagnosis: the old `unsupported_candidate_description` combined a narrow proof
+claim check with a set difference from the technical-literal scanner. That scanner
+could misread explanatory phrases as identifiers. The exact live rejected text
+was not retained, so no particular phrase is asserted to have caused that run.
+Validation uses synthetic facts and fake providers; live narrative quality and
+semantic faithfulness require manual acceptance.

@@ -111,6 +111,7 @@ def technical(kind,value):
 
 def reconcile(packet, candidates, units):
     exposed={u['id']:u for u in units};rejected=[];accepted=[];seen={}
+    packet['candidate_review']=[]
     for index,candidate in enumerate(candidates):
         rule=None
         cited=[exposed[s] for s in candidate['source_ids'] if s in exposed]
@@ -118,7 +119,6 @@ def reconcile(packet, candidates, units):
         kind=candidate['type'];value=candidate['literal']
         if len(cited)!=len(candidate['source_ids']):rule='unknown_source_id'
         elif not spans:rule='unsupported_candidate_literal'
-        if rule is None and ((kind=='person' and candidate.get('category')=='account') or (kind=='account' and candidate.get('category')=='person')):rule='incompatible_candidate_category'
         if spans and kind in TECHNICAL:
             # Reject a substring cut out of a longer technical token, or a known
             # complete quoted path/filename. Spaces still require model review.
@@ -138,14 +138,14 @@ def reconcile(packet, candidates, units):
             if kind in TECHNICAL and not unspecified:technical_outcome='passed'
         except ValueError:
             rule=rule or 'invalid_technical_value';normalized=value;technical_outcome='failed'
-        from .briefing_literals import supported_person_text,claims_proof
-        if rule is None and (claims_proof(candidate['description']) or supported_person_text(candidate['description'],packet['inputs'],cited,[value] if kind=='person' else [])):
-            rule='unsupported_candidate_description'
         if rule:
             rejected.append({'item_index':index,'rule':rule,'component':'candidate','candidate_type':kind,'category':candidate.get('category'),
                 'stage':'candidate_reconciliation','source_references':'valid' if len(cited)==len(candidate['source_ids']) else 'invalid',
                 'literal_support':'supported' if spans else 'unsupported','technical_validation':technical_outcome})
+            packet['candidate_review'].append({'candidate':dict(candidate),'diagnostic':dict(rejected[-1]),'search_eligible':False})
             continue
+        from .briefing_literals import narrative_review
+        flags=narrative_review(candidate['description']+' '+candidate['uncertainty'],packet['inputs'],cited,[value] if kind=='person' else [])
         key=(kind,str(normalized),candidate['polarity'])
         if key in seen:
             prior=seen[key]
@@ -159,7 +159,7 @@ def reconcile(packet, candidates, units):
         entry={**candidate,'id':identity,'normalized':normalized,'occurrences':spans,
                'origin':'ai_semantic_classification','verification':'UNVERIFIED ANALYST INPUT',
                'technical_validation':'passed' if kind in TECHNICAL and not unspecified else 'not_applicable',
-               'semantic_entailment':'not_verified'}
+               'semantic_entailment':'not_verified','narrative_review':flags}
         accepted.append(entry);seen[key]=entry
         if kind not in TECHNICAL or unspecified:continue
         # Names/accounts, local times and timezones are context, not search filters.

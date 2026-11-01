@@ -177,12 +177,12 @@ SYSTEM = (
     'never generate offsets, source IDs, normalized values or invented technical identifiers. '
     'Preserve full filenames/paths and their spaces without surrounding prose. '
     'Personal names are not authenticated accounts; hyphenated adjectives are not hosts. '
-    'Classify supplied information across relevant categories, not just entities and objectives. '
+    'Propose categories for analyst review; imperfect classification is not verification. '
     'Use sparse entries; categories are not mandatory and no entry should be invented to fill a gap. '
     'Unknown timezone/account: use type timezone/account, status unknown, the exact statement and a concise '
     'description naming the unknown aspect; never infer UTC or put prose in a technical value. '
     'Use reported/negated/uncertain polarity; preserve corrections, conflicting claims and uncertainty. '
-    'Security-product blocking belongs to alerts, not human response actions. '
+    'Prefer alerts for product blocking; the analyst decides category and meaning. '
     'A website alone is not a delivery source; distinguish reported delivery from mere observation. '
     'Summary: concisely retain supplied people, affected systems, initial user experience, suspicious '
     'activity, objectives and significant uncertainty. Do not impose a sequence or causation not '
@@ -191,10 +191,10 @@ SYSTEM = (
     'Items: reported_activity is an unverified report; hypothesis/alternative/question/ambiguity are '
     'inferences or issues to investigate. Explicit basis is only for directly reported activity; '
     'other categories are inferred. Use entity_ids only from supplied deterministic lead IDs. '
-    'Source references prove provenance only, not truth or semantic entailment. Interview questions '
+    'Descriptions/summary are unverified drafts, not search values or findings. Citations show provenance only. Interview questions '
     'are context, not analyst assertions. Original answers and correction links remain distinct. '
     'Avoid duplicates, including source/entity IDs. Prioritize concise candidates and summary over '
-    'repeated interpretations within 24 candidates and 12 items. No extra call or retry is available. '
+    'repeated interpretations within 24 candidates and 12 items. No extra call. '
     'Category meanings: '+ '; '.join(key+': '+value for key,value in CATEGORY_DEFINITIONS.items())
 )
 
@@ -226,6 +226,7 @@ def _interpret(packet, client):
     from forensic_assistant.briefing_diagnostics import fail, provider_failure, local_rule
     from .briefing_sources import supports
     packet.pop('proposed_summary',None)
+    packet.pop('summary_review',None)
     packet['summary_diagnostic']={'state':'not_generated','stage':'provider_request'}
     units=[]
     def messages_for(selected):
@@ -288,16 +289,17 @@ def _interpret(packet, client):
     rejections=reconcile(packet,value.get('candidates') or [],units)
     summary=value.get('summary')
     if summary:
-        from .briefing_literals import supported_person_text,claims_proof
+        from .briefing_literals import narrative_review
         cited=[exposed[sid] for sid in summary['source_ids'] if sid in exposed]
         rule=None
         if len(cited)!=len(summary['source_ids']):rule='unknown_summary_source'
-        elif supported_person_text(summary['text']+' '+summary['uncertainty'],packet['inputs'],cited,[c['literal'] for c in packet.get('ai_candidates',[]) if c['type']=='person']) or claims_proof(summary['text']) or claims_proof(summary['uncertainty']):rule='unsupported_summary'
         if rule:
             rejections.append({'item_index':0,'rule':rule,'component':'summary'})
+            packet['summary_review']={'summary':dict(summary),'rule':rule,'search_eligible':False}
             packet['summary_diagnostic']={'state':'failed_source_validation' if rule=='unknown_summary_source' else 'unsupported_claims','stage':'summary_validation','rule':rule}
         else:
-            packet['proposed_summary']={**summary,'source_text':''.join(u['text'] for u in cited),'verification':'UNVERIFIED AI SUMMARY'}
+            packet['proposed_summary']={**summary,'source_text':''.join(u['text'] for u in cited),'verification':'UNVERIFIED AI SUMMARY',
+                'narrative_review':narrative_review(summary['text']+' '+summary['uncertainty'],packet['inputs'],cited,[c['literal'] for c in packet.get('ai_candidates',[]) if c['type']=='person'])}
             packet['summary_diagnostic']={'state':'accepted','stage':'summary_validation'}
     packet['metrics']['ai_candidate_count']=len(value.get('candidates') or [])
     if len(value.get('candidates') or [])==MAX_CANDIDATES:

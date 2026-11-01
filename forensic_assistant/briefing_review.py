@@ -21,12 +21,8 @@ CATEGORY_DEFINITIONS = {
 
 
 def category(candidate, fallback):
-    """Normalize only a typed semantic conflict, not a guessed narrative meaning."""
-    selected=candidate.get('category') or fallback
-    target={'alert':'alerts','origin':'origin','objective':'objectives'}.get(candidate['type'])
-    if target and selected!=target:
-        return target,{'from':selected,'to':target,'basis':'candidate_type','type':candidate['type']}
-    return selected,None
+    """Categories are analyst-reviewable proposals, not truth assertions."""
+    return candidate.get('category') or fallback,None
 
 
 def assess(document, diagnostics=None):
@@ -82,3 +78,18 @@ def move_metadata(original,source,index,target,new_index):
         original[name]=shifted
     original.setdefault('category_reviews',[]).append({'from':source,'to':target,'item_index':new_index,
                                                      'decision':'analyst_category_change_not_value_verification'})
+
+
+
+def remove_metadata(original,category,index):
+    """Remove an item without attaching its references to the next item."""
+    for name in ('references','classification_origins'):
+        mapping=original.get(name,{})
+        result={}
+        for key,value in mapping.items():
+            if key==f'{category}:{index}':continue
+            parts=key.rsplit(':',1)
+            if len(parts)==2 and parts[0]==category and parts[1].isdigit() and int(parts[1])>index:
+                key=f'{category}:{int(parts[1])-1}'
+            result[key]=value
+        original[name]=result

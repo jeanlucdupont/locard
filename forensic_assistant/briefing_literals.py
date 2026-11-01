@@ -87,3 +87,17 @@ def supported_person_text(text, inputs, units, people):
         if re.fullmatch(PERSON,name) and occurrences(name,units,inputs):
             missing.discard(('username',name))
     return missing
+
+
+
+def narrative_review(text, inputs, units, people=()):
+    """Advisory flags only. Lexical matching cannot validate semantic faithfulness.
+
+    This text never supplies discovery values. Concrete candidate validation and
+    the explicit search approval path remain responsible for search eligibility.
+    """
+    missing=supported_person_text(text,inputs,units,people)
+    flags=[]
+    if missing:flags.append({'rule':'possible_identifier_mismatch','literal_types':sorted({kind for kind,value in missing})})
+    if claims_proof(text):flags.append({'rule':'unverified_proof_claim'})
+    return flags

@@ -122,7 +122,7 @@ def build(packet):
         relevant=sorted((cited[sid] for sid in candidate['source_ids'] if sid in cited and cited[sid]['source']==span['source'] and cited[sid]['start']<span['end'] and cited[sid]['end']>span['start']),key=lambda u:u['start'])
         statement=''.join(u['text'] for u in relevant)
         item={'status':status,'value':candidate['literal'] if status not in ('unknown','not_provided','not_applicable') else '',
-              'kind':candidate['type'],'statement':statement,'polarity':candidate['polarity'],'note':candidate['description']+' '+candidate['uncertainty']}
+              'kind':candidate['type'],'statement':statement,'polarity':candidate['polarity'],'note':'AI explanation (unverified): '+candidate['description']+' '+candidate['uncertainty']}
         if len(item['note'])>1000:raise ValueError('Canonical note bound exceeded.')
         if present(category,item):
             if candidate.get('lead_id'):used.add(candidate['lead_id'])
@@ -133,6 +133,7 @@ def build(packet):
         document['categories'][category].append(item)
         key=f'{category}:{len(document["categories"][category])-1}'
         refs[key]={k:candidate[k] for k in ('source_ids','occurrences')}
+        refs[key]['narrative_review']=copy.deepcopy(candidate.get('narrative_review',[]))
         origins[key]='ai_classification'
         if normalized:
             refs[key]['category_normalization']=normalized
@@ -161,7 +162,7 @@ def build(packet):
     proposed=packet.get('proposed_summary')
     if proposed:
         document['summary']={'text':proposed['text']+'\nUncertainty: '+proposed['uncertainty'],'status':'proposed','statement':proposed['source_text']}
-        refs['summary']={'source_ids':proposed['source_ids']};origins['summary']='ai_summary'
+        refs['summary']={'source_ids':proposed['source_ids'],'narrative_review':copy.deepcopy(proposed.get('narrative_review',[]))};origins['summary']='ai_summary'
     from .briefing_completion import summary_diagnostic,synthesize
     summary_state=summary_diagnostic(packet)
     if not document['summary']['text'] and document['summary']['status']=='not_provided':
@@ -176,6 +177,8 @@ def build(packet):
     units={u['id']:u for u in original.get('source_units',[])}
     units.update({u['id']:u for u in packet.get('source_units',[])})
     original['source_units']=list(units.values())
+    original['excluded_suggestions']=copy.deepcopy(packet.get('candidate_review',[]))
+    if packet.get('summary_review'):original['excluded_summary']=copy.deepcopy(packet['summary_review'])
     original['review_diagnostics']={'rejected_items':copy.deepcopy(packet.get('ai_error',{}).get('rejected_items',[])),
                                   'source_coverage':packet.get('ai_source_coverage'), 'normalizations':normalizations,
                                   'summary':summary_state,
@@ -211,8 +214,10 @@ def render(value):
         for i,item in enumerate(items):
             display=item['value'] or unknown_label(item)+': '+item['status'].replace('_',' ').capitalize()
             multiline(display,'    ')
-            lines.append('      ['+item['status']+'; '+item['polarity']+'; '+safe(origins.get(f'{category}:{i}','origin not recorded'))+']')
+            lines.append('      ['+item['kind']+'; '+item['status']+'; '+item['polarity']+'; '+safe(origins.get(f'{category}:{i}','origin not recorded'))+']')
             if item['value'] and item['note']:multiline(item['note'],'      ')
+            for flag in original.get('references',{}).get(f'{category}:{i}',{}).get('narrative_review',[]):
+                lines.append('      Explanation review: '+safe(flag['rule'])+'; not a verified conclusion.')
     summary=document['summary']
     heading='Deterministic synthesis of analyst-reported entries - not an AI conclusion' if origins.get('summary')=='deterministic_synthesis' else 'Proposed incident summary - unverified'
     lines.extend(['',heading+' ('+summary['status']+')'])
@@ -220,6 +225,17 @@ def render(value):
     if diagnostic and diagnostic['state']!='accepted':
         lines.append('AI summary: '+safe(diagnostic['state'])+' ('+safe(diagnostic['stage'])+').')
     multiline(summary['text'] or 'Not provided; no summary was fabricated.')
+    for flag in original.get('references',{}).get('summary',{}).get('narrative_review',[]):
+        lines.append('Draft review: '+safe(flag['rule'])+'; not a verified conclusion.')
+    for i,suggestion in enumerate(original.get('excluded_suggestions',[])):
+        if suggestion.get('dismissed'):continue
+        candidate=suggestion['candidate']
+        lines.append('Excluded suggestion '+str(i+1)+' (not accepted briefing or search input): '+safe(candidate['type'])+' / '+safe(candidate.get('category') or 'unspecified'))
+        multiline(candidate['literal'],'  ')
+        lines.append('  '+safe(suggestion['diagnostic']['rule'])+'. Correct/add your own assertion or reject excluded item.')
+    if original.get('excluded_summary'):
+        lines.append('Excluded AI summary draft: invalid source references; not accepted briefing or search input.')
+        multiline(original['excluded_summary']['summary']['text'],'  ')
     for check in assessment['summary_checks']:
         if check['rule']=='possible_summary_entity_omission':
             lines.append('Summary review: possible omission of '+CATEGORIES[check['category']]+'.')
@@ -227,6 +243,7 @@ def render(value):
     if assessment['source_coverage'] and not assessment['source_coverage'].get('complete'):
         lines.append('Extraction coverage incomplete: not all source text was exposed to AI.')
     lines.append('Source support is not verification. Missing fields are not negative observations.')
+    lines.append('Analyst review determines meaning, attribution, chronology and causality. Briefing acceptance is not forensic verification.')
     return '\n'.join(lines)
 
 
@@ -236,14 +253,27 @@ def review(value,read):
     document=copy.deepcopy(value['document']);original=copy.deepcopy(value.get('original_provenance',{}))
     for _ in range(48):
         print(render({**value,'document':document,'original_provenance':original}))
-        choice=read_answer(read,'Accept, correct, move, add, reject-summary, or finish? [finish]: ').strip().lower()
+        choice=read_answer(read,'Accept, correct, move, add, reject, reject-summary, or finish? [finish]: ').strip().lower()
         if choice in ('','finish'):return None
         if choice=='accept':
             check(document)
             if document['summary']['status']=='proposed':document['summary']['status']='accepted'
             original['acceptance']='accepted_for_use_not_verified'
             return envelope(document,original)
-        if choice=='reject-summary':document['summary']['status']='rejected';continue
+        if choice=='reject-summary':
+            document['summary']['status']='rejected';original.pop('excluded_summary',None);continue
+        if choice=='reject':
+            from .briefing_review import remove_metadata
+            category=read_answer(read,'Category key (or excluded): ').strip()
+            number=read_answer(read,'Item number (1-based): ').strip()
+            items=original.get('excluded_suggestions',[]) if category=='excluded' else document['categories'].get(category,[])
+            if not number.isdecimal() or not 1<=int(number)<=len(items):
+                print('Invalid item number; proposal preserved.');continue
+            index=int(number)-1
+            if category=='excluded':items[index]['dismissed']=True
+            else:
+                items.pop(index);remove_metadata(original,category,index)
+            continue
         if choice=='move':
             from .briefing_review import move_metadata
             source=read_answer(read,'Current category key: ').strip()
@@ -269,6 +299,7 @@ def review(value,read):
             document=trial
             original.setdefault('classification_origins',{})['summary']='analyst_summary'
             original.setdefault('references',{}).pop('summary',None)
+            original.pop('excluded_summary',None)
             continue
         if category not in CATEGORIES:
             print('Categories: '+', '.join(CATEGORIES));continue

@@ -47,8 +47,9 @@ def test_ai_omissions_explicit_and_summary_validated():
     p=b.extract(text)
     b.interpret(p,Fake({'items':[],'summary':{'text':'invented.exe executed.',
         'source_ids':[p['source_units'][0]['id']],'uncertainty':'Unknown'}}))
-    assert not c.build(p)['document']['summary']['text']
-    assert any(r['rule']=='unsupported_summary' for r in p['ai_error']['rejected_items'])
+    assert c.build(p)['document']['summary']['text'].startswith('invented.exe')
+    assert p['proposed_summary']['narrative_review'][0]['rule']=='possible_identifier_mismatch'
+    assert not any('invented.exe' in str(lead) for lead in p['leads'])
 
 
 @pytest.mark.parametrize('value',['a','an','per-user','type-library'])

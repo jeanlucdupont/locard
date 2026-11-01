@@ -26,6 +26,12 @@ def synthesize(document, labels):
     """Quote complete entries; preserve status, polarity, source and size bounds."""
     lines=['Analyst-reported entries; not verified. No sequence or causation inferred.']
     statements=[];entries=[]
+    prose=bool((document['categories']['person'] or document['categories']['systems']) and
+               any(document['categories'][key] for key in ('user_experience','user_actions','activity','objectives')))
+    introductions={'person':'The briefing names', 'systems':'The briefing identifies a system',
+        'when':'Reported time information is', 'user_experience':'The reported user experience is',
+        'user_actions':'Reported user activity is', 'activity':'The briefing reports activity',
+        'alerts':'The reported security alert or action is', 'objectives':'The investigation objective is'}
     count=sum(len(v) for v in document['categories'].values())
     # Put people, host, time and experience ahead of long indicator inventories.
     order=('person','systems','when','incident','user_experience','user_actions',
@@ -35,10 +41,13 @@ def synthesize(document, labels):
         for index,item in enumerate(document['categories'][category]):
             value=item['value'] or unknown_label(item)+': '+item['status'].replace('_',' ')
             line=labels[category]+' ['+item['status']+'; '+item['polarity']+']: '+value
+            if prose:
+                line=introductions.get(category,'The briefing lists '+labels[category].lower())+': "'+value+'" ['+item['status']+'; '+item['polarity']+'].'
             sources=statements if item['statement'] in statements else statements+[item['statement']]
             if len('\n'.join(lines+[line]))>1050 or len('\n'.join(sources))>2000:continue
             lines.append(line);statements=sources;entries.append(f'{category}:{index}')
     if not entries:return None
+    if not prose:lines.append('Field inventory only; no coherent narrative synthesized.')
     lines.append(f'Included {len(entries)} of {count} entries. Review all categories and original statements.')
-    return {'document':{'text':'\n'.join(lines),'statement':'\n'.join(statements),'status':'proposed'},
+    return {'document':{'text':(' ' if prose else '\n').join(lines),'statement':'\n'.join(statements),'status':'proposed'},
             'references':{'entries':entries},'included':len(entries),'total':count}
