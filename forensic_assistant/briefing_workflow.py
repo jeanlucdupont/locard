@@ -27,6 +27,9 @@ def view(state):
 
 def render(value):
     if value.get('message'):return value['message']
+    if value['revision']['content'].get('canonical'):
+        from .briefing_canonical import render as render_canonical
+        return render_canonical({'document':value['revision']['content']['canonical']['document'],'accepted':True})+'\nBriefing revision: '+str(value['revision']['revision'])+'\nOriginal responses retained; --json exposes revision provenance.'
     revision=value['revision']; lines=['Incident briefing — analyst assertions, not evidence','']
     for key,label in FIELDS.items():
         text=revision['content']['answers'][key]
@@ -109,7 +112,7 @@ def edit(store, current, read):
                 if len(raw)>32768:raise ValueError('Editor content exceeds 32 KiB; briefing unchanged.')
                 try:text=raw.decode('utf-8')
                 except UnicodeError:raise ValueError('Editor must save UTF-8; briefing unchanged.') from None
-                return content(current['answers'],text,current.get('interviews'))
+                return content(current['answers'],text,current.get('interviews'),current.get('canonical') if text==current['narrative'] else None)
         finally:
             # Do not recursively delete editor-created files or follow redirects.
             try:

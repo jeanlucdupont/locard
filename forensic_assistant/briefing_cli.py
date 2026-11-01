@@ -13,6 +13,8 @@ def configure(commands):
     source.add_argument('--text',dest='briefing_text',help='Short inline analyst narrative; use --file for paragraphs')
     for action in ('interview', 'wizard', 'show', 'edit', 'analyze'):
         source.add_argument('--'+action, action='store_true', help=('Recommended adaptive briefing interview' if action=='interview' else 'Legacy questionnaire' if action=='wizard' else 'Use the selected case briefing: '+action))
+    source.add_argument('--import-json',help='Import editable canonical briefing JSON after confirmation')
+    source.add_argument('--export-json',help='Export accepted canonical briefing or an empty template; no overwrite')
     p.add_argument('--save',action='store_true',help='Explicitly import --file/--text as saved narrative after confirmation')
     p.add_argument('--deterministic',action='store_true',help='Analyze saved briefing without AI')
     p.add_argument('--revision',type=int,help='Required current briefing revision for saved-briefing discovery approval')
@@ -29,6 +31,11 @@ def configure(commands):
 
 
 def run(args):
+    if getattr(args,'import_json',None) or getattr(args,'export_json',None):
+        if any((args.ai,args.allow_cloud,args.save,args.deterministic,args.discover,args.approve,args.artifact,args.start,args.end,args.revision,args.briefing_correction)):
+            raise ValueError('JSON exchange cannot combine with analysis or search options.')
+        from .briefing_canonical import exchange
+        return exchange(args)
     saved = any(getattr(args, name, False) for name in ('interview','wizard','show','edit','analyze'))
     writing = args.interview or args.wizard or args.edit or args.save
     if args.deterministic and (not args.analyze or args.ai):
@@ -71,8 +78,10 @@ def run(args):
             if revision is None:raise ValueError('No saved briefing. Use briefing --interview or --edit first.')
             if args.discover and args.revision != revision['revision']:
                 raise ValueError('Review current briefing and explicitly supply its --revision for discovery.')
+            if current.get('canonical') and not sources(revision):return workflow.view(state)
             from .briefing_entities import source_questions
             packet=briefing.extract_inputs(sources(revision),questions=source_questions(revision['content']))
+            if current.get('canonical'):packet['accepted_canonical']=current['canonical']['document']
             packet['saved_briefing']={k:revision[k] for k in ('revision','digest','modified')}
             packet['saved_briefing']['source_identity']=store.identity
             packet['interview_provenance']=revision['content'].get('interviews',[])
@@ -115,9 +124,20 @@ def run(args):
         briefing.discover(packet,args.db,args.approve,args.artifact,args.start,args.end)
     elif args.approve or args.artifact or args.start or args.end:
         raise ValueError('Search options require --discover; review this briefing first.')
+    from .briefing_canonical import build,review
+    packet['canonical']=build(packet)
     if args.analyze:
         store.record_analysis(revision,packet)
-        packet['limitations'].append('Only analysis revision/status metadata is saved; this result packet is not cached. Export explicitly if needed.')
+        packet['limitations'].append('A proposed canonical briefing is saved only after explicit analyst acceptance.')
+        read=getattr(args,'_confirm',None)
+        if read is not None and not args.json and not args.details and not args.discover:
+            accepted=review(packet['canonical'],read)
+            if accepted is not None:
+                import copy
+                value=copy.deepcopy(current);value['canonical']=accepted
+                saved_state=store.save(value,revision['digest'])
+                packet['canonical']={'document':accepted['document'],'accepted':True,'original_provenance':accepted['original_provenance']}
+                packet['accepted_revision']=saved_state['revisions'][-1]['revision']
     return packet
 
 
@@ -164,7 +184,8 @@ def render_details(packet):
         for field,value in error.get('envelope',{}).items():
             lines.append('  '+safe(field)+': '+safe(str(value)))
         for rejection in error.get('rejected_items',[]):
-            lines.append('  Item '+str(rejection['item_index'])+': '+safe(rejection['rule']))
+            lines.append('  '+safe(rejection.get('component','Item'))+' '+str(rejection['item_index'])+': '+safe(rejection['rule']))
+            if rejection.get('candidate_type'):lines.append('    Type: '+safe(rejection['candidate_type']))
             if rejection.get('literal_types'):
                 lines.append('    Unsupported literal types: '+safe(', '.join(rejection['literal_types']))+
                              ' ('+str(rejection['unsupported_count'])+')')

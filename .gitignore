@@ -207,3 +207,7 @@ report-bundles/
 # Analyst briefing sidecars and private editor scratch directories
 *.briefing/
 .briefing-edit-*/
+
+# Exact source-only canonical briefing documentation templates; no analyst data.
+!/docs/briefing-template.json
+!/docs/briefing-canonical-schema.json

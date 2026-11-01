@@ -19,8 +19,13 @@ def test_actual_openai_request_preserves_shape_and_canonical():
     result=capabilities.configure({'messages':messages},'openai',b.SCHEMA)
     wire=result['response_format']['json_schema']['schema']
     expected=without_unique(before)
-    expected['properties']['candidates']={'anyOf':[expected['properties']['candidates'],{'type':'null'}]}
-    expected['required']=['items','candidates']
+    candidate=expected['properties']['candidates']['items']
+    for key in ('category','status'):
+        candidate['properties'][key]={'anyOf':[candidate['properties'][key],{'type':'null'}]}
+    candidate['required']=list(candidate['properties'])
+    for key in ('candidates','summary'):
+        expected['properties'][key]={'anyOf':[expected['properties'][key],{'type':'null'}]}
+    expected['required']=['items','candidates','summary']
     assert wire==expected and b.SCHEMA==before
     assert result['messages']==messages and 'proposal' not in wire['properties']
     nested={'type':'array','items':{'type':'object','required':['nested'],'properties':{'nested':before}},'uniqueItems':True}

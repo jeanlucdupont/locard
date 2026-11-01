@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "categories": {
+    "incident": [],
+    "when": [],
+    "person": [],
+    "account": [],
+    "systems": [],
+    "user_experience": [],
+    "user_actions": [],
+    "files": [],
+    "websites": [],
+    "origin": [],
+    "activity": [],
+    "alerts": [],
+    "indicators": [],
+    "scope": [],
+    "response": [],
+    "records": [],
+    "objectives": [],
+    "context": []
+  },
+  "summary": {
+    "text": "",
+    "status": "not_provided",
+    "statement": ""
+  }
+}

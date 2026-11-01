@@ -8,7 +8,7 @@ PERSON = NAME + r"(?: " + NAME + r"){1,3}"
 ACCOUNT = r"[A-Za-z][\w.-]{0,63}\\[A-Za-z][\w.-]{0,63}|[A-Za-z][\w.-]{0,63}@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}"
 HOST = r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?"
 LABEL = r"(?i:hostname|host|computer|machine|workstation|device|laptop|server)"
-PROSE = {'per-user', 'type-library', 'follow-on', 'follow-up', 'command-line',
+PROSE = {'a', 'an', 'per-user', 'type-library', 'follow-on', 'follow-up', 'command-line',
          'process-creation', 'read-only', 'unknown', 'unavailable', 'affected',
          'was', 'is', 'named', 'the', 'not', 'reported', 'it', 'this', 'that', 'which', 'name', 'broken', 'involved', 'compromised', 'infected',
          'offline', 'online', 'running'}

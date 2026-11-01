@@ -2926,3 +2926,95 @@ Existing provider bounds remain unchanged: 5,600-byte assembled briefing message
 these bounds. Oversize/truncated responses fail with diagnostics, never silent
 slicing. Input-unit coverage and reaching the candidate bound are reported.
 No live-provider fit or extraction quality is claimed by synthetic tests.
+
+
+### Canonical case briefing (6.83)
+
+Normal `briefing --analyze` output now presents one proposed canonical document,
+including collected information, explicit unknowns, approximation, conflicts,
+ambiguity and missing categories. A missing category means no accepted value was
+extracted into this representation; the model may have omitted supplied prose.
+It is never a negative forensic observation. Analyst statements and AI summaries
+remain unverified. Person and account are separate categories.
+
+The categories are incident, when, person, account, systems, user_experience,
+user_actions, files, websites, origin, activity, alerts, indicators, scope,
+response, records, objectives and context. Each holds zero or more entries with:
+
+- `status`: provided, approximate, unknown, not_provided, not_applicable,
+  conflicting, or ambiguous;
+- `value`: an exact analyst literal (empty for unknown/missing/inapplicable);
+- `kind`: the technical or semantic type, e.g. person, account, hostname,
+  filename, windows_path, url, domain, ipv4, date, date_range, timezone, activity,
+  objective, or unknown;
+- `statement`: the actual analyst statement supporting the value;
+- `polarity`: reported, negated, or uncertain;
+- `note`: explanatory unverified context.
+
+The JSON [template](docs/briefing-template.json) contains all categories. The
+[structural schema](docs/briefing-canonical-schema.json) documents the closed
+format. Import additionally validates technical syntax, exact literal support,
+uncertainty/value consistency, 48 total entries, 24 per category, 64 KiB document
+size and bounded provenance. ISO date ranges use `YYYY-MM-DD to YYYY-MM-DD`;
+these never imply UTC or authorize a search window. Other approximate descriptions
+can remain contextual `activity` entries in the When category.
+
+For example, a Files entry may be:
+
+```json
+{
+  "status": "provided", "value": "sample.ps1", "kind": "filename",
+  "statement": "The analyst reported sample.ps1.",
+  "polarity": "reported", "note": "Reported script; execution unverified."
+}
+```
+
+An unknown timezone instead has `kind: "timezone"`, `status: "unknown"`, an empty
+`value`, and a statement such as `Timezone unknown`. Do not substitute UTC.
+
+In an interactive saved-briefing analysis, choose `accept`, `correct`, `add`,
+`reject-summary`, or `finish`. Corrections select a category and item number;
+summary corrections use category `summary`. Nothing requires filling all gaps.
+Only `accept` creates a revision containing the accepted canonical document.
+`finish` preserves the previous accepted representation. Analysis status metadata
+may still be recorded. `--details` and `--json` remain non-prompting diagnostic
+views and do not implicitly accept a proposal. Transient `--file`/`--text`
+analysis remains unsaved: use the existing confirmed `--save` import and then
+`--analyze` for persistent review.
+
+```text
+briefing --analyze
+briefing --show
+briefing --export-json C:\tmp\incident.json
+briefing --import-json C:\tmp\incident-edited.json
+```
+
+Export writes a clean editable document, without internal revisions, hashes,
+source IDs or search approvals. If no accepted document exists, it exports an
+empty template. Export never overwrites an existing file or a protected case
+input/SQLite sidecar. Import validates and previews the entire document and asks
+for confirmation before replacing the accepted representation. Previous revisions
+and original narrative/interview responses remain intact. Never edit internal
+`state.json` directly. JSON cannot supply forensic-search authorization flags.
+
+The existing `.briefing/state.json` revision store remains format 1 with an
+optional validated `canonical` content member. Existing revisions load unchanged;
+older software may reject revisions with the new member rather than interpret
+them. No evidence-schema migration occurs. New original-text edits/interviews
+require renewed canonical review; an unchanged editor round-trip retains approval.
+Accepted canonical entries survive deterministic reanalysis. Accepted entries'
+statements are the analysis sources; original responses remain separately stored.
+
+AI analysis still uses one response. Contract 4 extends sparse candidates with
+optional category/status and an optional source-supported proposed summary.
+Locard resolves source spans, generates canonical fields and missing markers, and
+retains original proposal provenance separately from later analyst corrections.
+Source support is not semantic entailment or proof. Proposed summary rejection
+is retained explicitly and does not create evidence. No discovery follows review.
+
+Provider output limits remain unchanged. Sparse populated entries avoid emitting
+18 empty category objects through the model. Exact input coverage, output bytes
+and safe rejection categories remain available through `--details`/`--json`.
+Large maximum-size responses can still exceed the local 16 KiB response limit or
+OpenAI's 4,096-token generation limit; they fail closed rather than silently
+truncate fields. No live-provider fit or extraction-quality guarantee is implied.

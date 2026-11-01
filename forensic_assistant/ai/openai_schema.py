@@ -74,13 +74,18 @@ def response(provider,text,canonical):
     from .provider_diagnostics import ProviderFailure
     wire=request_schema(provider,canonical)
     if provider == 'openai' and briefing(canonical):
-        # Optional candidate extraction is nullable on OpenAI's strict wire.
-        # Remove only null optional fields, then enforce canonical uniqueness.
+        # Recursively remove only optional null fields from strict OpenAI output.
+        # Canonical validation (including uniqueness) remains mandatory.
         try:value=json.loads(text)
         except (ValueError,TypeError):
             validate(text,canonical)
             raise AssertionError('unreachable')
-        if isinstance(value,dict) and value.get('candidates','absent') is None:
+        def has_null_optional(value,schema):
+            if schema.get('type')=='object' and isinstance(value,dict):
+                return any((v is None and k not in schema['required']) or has_null_optional(v,schema['properties'].get(k,{})) for k,v in value.items())
+            if schema.get('type')=='array' and isinstance(value,list):return any(has_null_optional(v,schema['items']) for v in value)
+            return False
+        if has_null_optional(value,canonical):
             validate(text,wire)
             text=json.dumps(_decode(value,canonical),ensure_ascii=True)
         validate(text,canonical)

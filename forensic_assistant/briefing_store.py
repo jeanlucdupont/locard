@@ -24,7 +24,7 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=True, sort_keys=True).encode()).hexdigest()
 
 
-def content(answers, narrative, interviews=None):
+def content(answers, narrative, interviews=None, canonical=None):
     if type(answers) is not dict or set(answers) != set(FIELDS):
         raise ValueError('Invalid briefing answer fields.')
     values = [*answers.values(), narrative]
@@ -35,7 +35,10 @@ def content(answers, narrative, interviews=None):
         raise ValueError('Invalid briefing text.')
     if any(len(v.encode('utf-8')) > 32768 for v in values) or sum(len(v.encode('utf-8')) for v in values) > 40960:
         raise ValueError('Briefing content exceeds 32 KiB per field / 40 KiB total.')
-    return {'answers': dict(answers), 'narrative': narrative, **({'interviews': interviews} if interviews is not None else {})}
+    if canonical is not None:
+        from .briefing_canonical import check_envelope
+        check_envelope(canonical)
+    return {'answers': dict(answers), 'narrative': narrative, **({'interviews': interviews} if interviews is not None else {}), **({'canonical':canonical} if canonical is not None else {})}
 
 
 class Store:
@@ -86,7 +89,7 @@ class Store:
                     raise ValueError('Invalid briefing timestamp.')
                 datetime.fromisoformat(revision['modified'])
                 c = revision['content']
-                if type(c) is not dict or set(c) not in ({'answers','narrative'}, {'answers','narrative','interviews'}) or content(c['answers'], c['narrative'], c.get('interviews')) != c or digest(c) != revision['digest']:
+                if type(c) is not dict or set(c) not in ({'answers','narrative'}, {'answers','narrative','interviews'}, {'answers','narrative','canonical'}, {'answers','narrative','interviews','canonical'}) or content(c['answers'], c['narrative'], c.get('interviews'), c.get('canonical')) != c or digest(c) != revision['digest']:
                     raise ValueError('Briefing content digest mismatch.')
             if type(state['analyses']) is not list or len(state['analyses']) > 100:
                 raise ValueError('Invalid briefing analysis metadata.')
@@ -129,7 +132,7 @@ class Store:
             if os.path.exists(name):os.unlink(name)
 
     def save(self, value, expected):
-        content(value['answers'], value['narrative'], value.get('interviews'))
+        if content(value['answers'], value['narrative'], value.get('interviews'),value.get('canonical'))!=value:raise ValueError('Invalid briefing content fields.')
         # Optimistic revision check prevents overwriting changes made while editing.
         with self.locked():
             state = self.load() if self.path.exists() else None
@@ -154,6 +157,8 @@ class Store:
 
 def sources(revision):
     c = revision['content']
+    if c.get('canonical'):
+        return {k:v for k,v in c['canonical']['provenance']['inputs'].items() if k!='canonical:summary' and v.strip()}
     return {**{f"interview:{session['id']}:{i+1}":turn['answer']
                for session in c.get('interviews',[]) for i,turn in enumerate(session['turns'])
                if turn['answer_status']=='answered' and turn['answer'].lstrip('\ufeff').strip()},

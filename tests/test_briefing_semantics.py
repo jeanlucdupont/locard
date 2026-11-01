@@ -119,7 +119,7 @@ def test_provider_failure_preserves_technical_fallback():
 def test_openai_optional_candidates_decode_and_canonical_unique():
     wire=request_schema('openai',b.SCHEMA)
     assert 'uniqueItems' not in json.dumps(wire)
-    assert json.loads(response('openai',json.dumps({'items':[],'candidates':None}),b.SCHEMA))=={'items':[]}
+    assert json.loads(response('openai',json.dumps({'items':[],'candidates':None,'summary':None}),b.SCHEMA))=={'items':[]}
     p=b.extract('sample.ps1');c=candidate(p,'filename','sample.ps1')
     from forensic_assistant.ai.provider_diagnostics import ProviderFailure
     with pytest.raises(ProviderFailure):response('openai',json.dumps({'items':[],'candidates':[c,c]}),b.SCHEMA)

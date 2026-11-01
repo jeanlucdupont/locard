@@ -10,6 +10,12 @@ LABELS = {'filename': 'Script or file', 'windows_path': 'File path', 'username':
 
 
 def render(packet):
+    if packet.get('canonical') and not packet.get('discovery'):
+        from .briefing_canonical import render as render_canonical
+        text=render_canonical(packet['canonical'])
+        if packet.get('ai_error'):text+='\nAI validation: '+packet['ai_error']['category']+'; '+str(len(packet['ai_error'].get('rejected_items',[])))+' rejected entries. Use --details for safe rejection diagnostics.'
+        text+='\n'+'\n'.join(safe(note) for note in packet['limitations'])
+        return text+'\nNo forensic evidence searched. Review does not authorize discovery.'
     lines = ['Case briefing — unverified analyst input']
     def paragraph(value, indent='  '):
         for original_line in str(value).splitlines():

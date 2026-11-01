@@ -1,0 +1,1566 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "categories": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "incident": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "when": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "person": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "account": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "systems": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "user_experience": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "user_actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "websites": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "origin": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "activity": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "alerts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "indicators": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "response": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "objectives": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "context": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "provided",
+                  "approximate",
+                  "unknown",
+                  "not_provided",
+                  "not_applicable",
+                  "conflicting",
+                  "ambiguous"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "hostname",
+                  "filename",
+                  "windows_path",
+                  "registry_path",
+                  "domain",
+                  "url",
+                  "ipv4",
+                  "ipv6",
+                  "hash",
+                  "date",
+                  "date_range",
+                  "timestamp",
+                  "ambiguous_time",
+                  "timezone",
+                  "event_id",
+                  "person",
+                  "activity",
+                  "alert",
+                  "origin",
+                  "objective",
+                  "unknown",
+                  "relationship"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "note": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 1000
+              },
+              "polarity": {
+                "type": "string",
+                "enum": [
+                  "reported",
+                  "negated",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value",
+              "kind",
+              "statement",
+              "note",
+              "polarity"
+            ]
+          },
+          "maxItems": 24,
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "incident",
+        "when",
+        "person",
+        "account",
+        "systems",
+        "user_experience",
+        "user_actions",
+        "files",
+        "websites",
+        "origin",
+        "activity",
+        "alerts",
+        "indicators",
+        "scope",
+        "response",
+        "records",
+        "objectives",
+        "context"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1200
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "accepted",
+            "rejected",
+            "not_provided"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "text",
+        "status",
+        "statement"
+      ]
+    }
+  },
+  "required": [
+    "format",
+    "categories",
+    "summary"
+  ]
+}

@@ -9,12 +9,14 @@ import re
 from forensic_assistant.investigation_ai.contracts import obj, array, string, enumeration
 
 TECHNICAL = ('account','hostname','filename','windows_path','registry_path','domain',
-             'ipv4','ipv6','hash','date','timestamp','ambiguous_time','timezone','event_id')
+             'url','ipv4','ipv6','hash','date','date_range','timestamp','ambiguous_time','timezone','event_id')
 SEMANTIC = ('person','activity','alert','origin','objective','unknown','relationship')
 CANDIDATE = obj({'type':enumeration(*(TECHNICAL+SEMANTIC)),
                  'literal':string(500), 'source_ids':array(string(48),6,1),
                  'description':string(300), 'polarity':enumeration('reported','negated','uncertain'),
-                 'uncertainty':string(300)},
+                 'uncertainty':string(300),
+                 'category':enumeration('incident','when','person','account','systems','user_experience','user_actions','files','websites','origin','activity','alerts','indicators','scope','response','records','objectives','context'),
+                 'status':enumeration('provided','approximate','unknown','not_provided','not_applicable','conflicting','ambiguous')},
                 ('type','literal','source_ids','description','polarity','uncertainty'))
 MAX_CANDIDATES=24
 
@@ -41,6 +43,16 @@ def technical(kind,value):
     """Validate a whole supplied value; never guess its boundary in prose."""
     if any(ord(c)<32 for c in value) or len(value.encode('utf-8'))>1024:
         raise ValueError('invalid_technical_value')
+    if kind=='url':
+        from urllib.parse import urlsplit
+        parsed=urlsplit(value)
+        parsed.port  # Validate an explicit port without making a request.
+        if parsed.scheme not in ('http','https') or not parsed.hostname or any(c.isspace() for c in value):raise ValueError('invalid_technical_value')
+        try:ipaddress.ip_address(parsed.hostname)
+        except ValueError:
+            from .briefing_entities import valid_host
+            if not valid_host(parsed.hostname):raise ValueError('invalid_technical_value')
+        return value
     if kind in ('ipv4','ipv6'):
         address=ipaddress.ip_address(value)
         if address.version!=int(kind[-1]):raise ValueError('invalid_technical_value')
@@ -76,7 +88,13 @@ def technical(kind,value):
     if kind=='timestamp':
         from .retrieval.queries import required_time
         return required_time(value)
+    if kind=='date_range':
+        from datetime import date
+        match=re.fullmatch(r'(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})',value)
+        if not match or date.fromisoformat(match[1])>date.fromisoformat(match[2]):raise ValueError('invalid_technical_value')
+        return value
     if kind=='date':
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}|[A-Za-z]+ \d{1,2},? \d{4}',value):raise ValueError('invalid_technical_value')
         from .retrieval.temporal_scope import resolve
         parsed=resolve('on '+value)
         if parsed.get('kind')!='explicit':raise ValueError('invalid_technical_value')
@@ -100,6 +118,7 @@ def reconcile(packet, candidates, units):
         kind=candidate['type'];value=candidate['literal']
         if len(cited)!=len(candidate['source_ids']):rule='unknown_source_id'
         elif not spans:rule='unsupported_candidate_literal'
+        if (kind=='person' and candidate.get('category')=='account') or (kind=='account' and candidate.get('category')=='person'):rule='incompatible_candidate_category'
         if spans and kind in TECHNICAL:
             # Reject a substring cut out of a longer technical token, or a known
             # complete quoted path/filename. Spaces still require model review.
@@ -112,13 +131,14 @@ def reconcile(packet, candidates, units):
                     paths,files=boundaries(text)
                     if any(c.start<=a and b<=c.end and (a,b)!=(c.start,c.end) for c in paths+files):
                         rule=rule or 'incomplete_candidate_literal'
-        try:normalized=technical(kind,value) if kind in TECHNICAL else value
+        unspecified=candidate.get('status') in ('unknown','not_provided','not_applicable')
+        try:normalized=technical(kind,value) if kind in TECHNICAL and not unspecified else value
         except ValueError:rule=rule or 'invalid_technical_value';normalized=value
         from .briefing_literals import unsupported,claims_proof
         if rule is None and (claims_proof(candidate['description']) or unsupported(candidate['description'],packet['inputs'],cited)):
             rule='unsupported_candidate_description'
         if rule:
-            rejected.append({'item_index':index,'rule':rule,'component':'candidate'})
+            rejected.append({'item_index':index,'rule':rule,'component':'candidate','candidate_type':kind,'category':candidate.get('category')})
             continue
         key=(kind,str(normalized),candidate['polarity'])
         if key in seen:
@@ -132,10 +152,10 @@ def reconcile(packet, candidates, units):
         identity='C-'+hashlib.sha256(json.dumps(key).encode()).hexdigest()[:12]
         entry={**candidate,'id':identity,'normalized':normalized,'occurrences':spans,
                'origin':'ai_semantic_classification','verification':'UNVERIFIED ANALYST INPUT',
-               'technical_validation':'passed' if kind in TECHNICAL else 'not_applicable',
+               'technical_validation':'passed' if kind in TECHNICAL and not unspecified else 'not_applicable',
                'semantic_entailment':'not_verified'}
         accepted.append(entry);seen[key]=entry
-        if kind not in TECHNICAL:continue
+        if kind not in TECHNICAL or unspecified:continue
         # Names/accounts, local times and timezones are context, not search filters.
         target='username' if kind=='account' else kind
         negated=candidate['polarity']=='negated'
@@ -144,7 +164,7 @@ def reconcile(packet, candidates, units):
             before=packet['inputs'][span['source']][max(0,span['start']-120):span['start']]
             before=re.split(r'[.!?;\n]',before)[-1]
             negated=negated or bool(re.search(r'(?i)\b(?:not|ruled out|exclude|ignore)\b',before))
-        classification='ambiguous' if candidate['polarity']=='uncertain' else 'exact'
+        classification='ambiguous' if candidate['polarity']=='uncertain' or candidate.get('status') in ('ambiguous','conflicting') else 'exact'
         if kind in ('account','date','timestamp','ambiguous_time','timezone'):classification='contextual'
         matching=next((r for r in packet['leads'] if r['type']==target and str(r['normalized'])==str(normalized) and r['negated']==negated and r['classification'] not in ('invalid','partial','ambiguous') and classification!='ambiguous'),None)
         if matching:
