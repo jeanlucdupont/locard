@@ -23,6 +23,11 @@ def test_actual_openai_request_preserves_shape_and_canonical():
     for key in ('category','status'):
         candidate['properties'][key]={'anyOf':[candidate['properties'][key],{'type':'null'}]}
     candidate['required']=list(candidate['properties'])
+    summary=expected['properties']['summary']
+    summary['properties']['source_ids']={'anyOf':[summary['properties']['source_ids'],{'type':'null'}]}
+    summary['required']=list(summary['properties'])
+    assert before['properties']['candidates']['items']['properties']['source_ids']['minItems']==1
+    assert before['properties']['summary']['properties']['source_ids']['minItems']==0
     for key in ('candidates','summary'):
         expected['properties'][key]={'anyOf':[expected['properties'][key],{'type':'null'}]}
     expected['required']=['items','candidates','summary']

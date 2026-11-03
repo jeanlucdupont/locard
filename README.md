@@ -3223,3 +3223,68 @@ person/system names remain advisory, not proof of semantic absence.
 Editable JSON format 1, historical saved briefings, evidence schemas and grounding
 are unchanged. Tests use synthetic inputs and fake providers; manual acceptance
 is required for live narrative quality. No raw provider responses are persisted.
+
+
+### Analyst-controlled summary review (6.88)
+
+A readable, structurally valid AI summary is now the primary review draft even
+when its references are unresolved. Locard does not silently replace it with a
+deterministic inventory. The summary records separate editorial and provenance
+states: pending/accepted/rejected/omitted, and validated references/missing
+references/unresolved references. Valid references prove only that the IDs were
+exposed to the model, not semantic accuracy or forensic truth.
+
+The old `failed_source_validation` path checked exact ID membership in the exposed
+source inventory. New detailed diagnostics distinguish an unknown ID from a known
+but unexposed ID and from missing references. Missing/empty summary references are
+allowed as review-only drafts by briefing interpretation contract 5; concrete
+candidate and interpretation-item references remain strict. Malformed reference
+structures still fail structural validation. An ID alone cannot establish whether
+an unknown ID came from another case, an old revision or invention. The original
+live response was not retained, so its precise failure cannot be reconstructed.
+
+Use `accept-summary` to approve the current summary editorially, `correct` then
+`summary` to replace it, `reject-summary` to reject it, or `omit-summary` to continue
+without one. The final `accept` saves the briefing revision. When provenance is
+unresolved, both summary approval and whole-briefing acceptance require an explicit
+`[y/N]` acknowledgment. Declining keeps the proposal open for correction, rejection
+or omission. `finish`/cancellation saves no acceptance. Valid drafts need no extra
+provenance acknowledgment. Adding missing objectives/categories still uses `add`;
+all 18 categories remain optional.
+
+The revision retains the original AI draft, its reference outcomes, analyst edits,
+editorial decision and acknowledgment. Acceptance never repairs an ID or changes
+its validation status. Invalid IDs are kept only as declared AI reference metadata,
+not validated source references. An unvalidated summary's required document
+`statement` is a clearly labeled provenance-limitation annotation; it does not
+pretend to be the original analyst narrative. Corrected text is labeled analyst
+input, while the original AI provenance status remains recorded separately.
+Original narrative and earlier revisions remain intact. Deterministic fallback is
+used only when no usable AI draft exists; an explicitly omitted summary remains
+omitted on deterministic reanalysis.
+
+Summary text, edits, provenance annotations and AI reference metadata remain
+excluded from evidence-search inputs. A whole-briefing acceptance cannot make a
+summary's invented identifier into a search lead. Concrete-value validation,
+explicit discovery approvals and forensic grounding are unchanged.
+
+**JSON exchange:** canonical documents and case-associated storage remain format 1.
+Exports with summary-review history use an explicit format-2 wrapper containing
+`document` and `summary_review`, described by
+[the review exchange schema](docs/briefing-review-exchange-schema.json).
+The wrapper preserves original draft text, edited text, editorial outcome and
+reported provenance status. Source IDs are deliberately not exported as portable
+verified citations. Existing format-1 files and the existing empty template remain
+supported. Importing format 2 retains its declared history but sets current
+provenance to `not_validated_import`; it requires fresh acknowledgment before
+accepting an active summary, even if the file claims earlier approval or valid
+references. Imports cannot certify provenance. The 64-KiB exchange bound and atomic
+no-overwrite export remain enforced. Older versions can reject format 2 cleanly;
+no evidence database migration or transcript change is involved.
+
+Default output shows the readable draft and its editorial/provenance status.
+Reference IDs and detailed failure categories remain in `--details`/`--json`.
+`--details` performs a new analysis; `briefing --show --json` inspects a saved
+revision. No additional provider call repairs a draft. Synthetic/fake-provider
+tests cannot establish live narrative quality; the analyst remains responsible
+for reviewing the briefing's meaning and uncertainty.

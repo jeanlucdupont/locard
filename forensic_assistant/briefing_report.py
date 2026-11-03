@@ -13,8 +13,13 @@ def render(packet):
     if packet.get('canonical') and not packet.get('discovery'):
         from .briefing_canonical import render as render_canonical
         text=render_canonical(packet['canonical'])
-        if packet.get('ai_error'):text+='\nAI validation: '+packet['ai_error']['category']+'; '+str(len(packet['ai_error'].get('rejected_items',[])))+' rejected entries. Use --details for safe rejection diagnostics.'
-        text+='\n'+'\n'.join(safe(note) for note in packet['limitations'])
+        if packet.get('ai_error'):
+            rejected=packet['ai_error'].get('rejected_items',[])
+            if packet.get('summary_editorial') and rejected and all(v.get('component')=='summary' for v in rejected):
+                text+='\nAI summary provenance limitation retained; editorial approval does not validate references.'
+            else:text+='\nAI validation: '+packet['ai_error']['category']+'; '+str(len(rejected))+' rejected entries. Use --details for safe rejection diagnostics.'
+        summary_only=bool(packet.get('summary_editorial') and packet.get('ai_error',{}).get('rejected_items') and all(v.get('component')=='summary' for v in packet['ai_error']['rejected_items']))
+        text+='\n'+'\n'.join(safe(note) for note in packet['limitations'] if not (summary_only and note.startswith('AI interpretation failed:')))
         return text+'\nNo forensic evidence searched. Review does not authorize discovery.'
     lines = ['Case briefing — unverified analyst input']
     def paragraph(value, indent='  '):

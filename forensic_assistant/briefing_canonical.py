@@ -159,13 +159,23 @@ def build(packet):
             'note':'Deterministically validated technical reference; semantic role unverified.'})
         key=f'{category}:{len(document["categories"][category])-1}'
         refs[key]={'occurrences':lead['occurrences']};origins[key]='deterministic_reference'
+    from .briefing_summary_review import LIMITED_STATEMENT
+    if packet.get('summary_editorial'):
+        original['summary_editorial']=copy.deepcopy(packet['summary_editorial'])
+        original.pop('excluded_summary',None)
     proposed=packet.get('proposed_summary')
     if proposed:
         document['summary']={'text':proposed['text']+'\nUncertainty: '+proposed['uncertainty'],'status':'proposed','statement':proposed['source_text']}
         refs['summary']={'source_ids':proposed['source_ids'],'narrative_review':copy.deepcopy(proposed.get('narrative_review',[]))};origins['summary']='ai_summary'
+    elif packet.get('summary_editorial'):
+        draft=packet['summary_editorial']['original_draft']
+        document['summary']={'text':draft['text']+'\nUncertainty: '+draft['uncertainty'],
+                             'statement':LIMITED_STATEMENT,'status':'proposed'}
+        refs['summary']={'provenance_limitation':'unresolved_model_references'}
+        origins['summary']='ai_summary'
     from .briefing_completion import summary_diagnostic,synthesize
     summary_state=summary_diagnostic(packet)
-    if not document['summary']['text'] and document['summary']['status']=='not_provided':
+    if not document['summary']['text'] and document['summary']['status']=='not_provided' and original.get('summary_editorial',{}).get('decision')!='omitted':
         fallback=synthesize(document,CATEGORIES)
         if fallback:
             document['summary']=fallback['document'];refs['summary']=fallback['references']
@@ -178,7 +188,7 @@ def build(packet):
     units.update({u['id']:u for u in packet.get('source_units',[])})
     original['source_units']=list(units.values())
     original['excluded_suggestions']=copy.deepcopy(packet.get('candidate_review',[]))
-    if packet.get('summary_review'):original['excluded_summary']=copy.deepcopy(packet['summary_review'])
+    if packet.get('summary_review') and not packet.get('summary_editorial'):original['excluded_summary']=copy.deepcopy(packet['summary_review'])
     original['review_diagnostics']={'rejected_items':copy.deepcopy(packet.get('ai_error',{}).get('rejected_items',[])),
                                   'source_coverage':packet.get('ai_source_coverage'), 'normalizations':normalizations,
                                   'summary':summary_state,
@@ -223,11 +233,18 @@ def render(value):
     heading='Deterministic synthesis of analyst-reported entries - not an AI conclusion' if origins.get('summary')=='deterministic_synthesis' else 'Proposed incident summary - unverified'
     lines.extend(['',heading+' ('+summary['status']+')'])
     diagnostic=original.get('review_diagnostics',{}).get('summary',{})
-    if diagnostic and diagnostic['state']!='accepted':
+    editorial=original.get('summary_editorial')
+    if diagnostic and diagnostic['state']!='accepted' and not editorial:
         lines.append('AI summary: '+safe(diagnostic['state'])+' ('+safe(diagnostic['stage'])+').')
     if diagnostic.get('completeness')=='possible_length_boundary_cutoff' and origins.get('summary')=='ai_summary':
         lines.append('Possibly incomplete AI draft at the summary length limit. Text preserved unchanged; correct or reject before acceptance.')
     multiline(summary['text'] or 'Not provided; no summary was fabricated.')
+    if editorial:
+        decision=editorial['decision'];status=editorial['source_validation']['status']
+        lines.append('Editorial status: '+('Analyst-approved briefing summary; unverified.' if decision=='accepted' else 'Requires analyst review.' if decision=='pending' else safe(decision)+'.'))
+        if editorial.get('editor')=='analyst':lines.append('Text corrected by analyst; original AI reference status retained below.')
+        lines.append('Original AI source references: '+('validated against exposed units; semantic accuracy still requires review.' if status=='validated_references' else 'not fully validated; editorial acceptance does not validate them.'))
+        if decision=='pending':lines.append('Options: accept-summary, correct (summary), reject-summary, omit-summary.')
     for flag in original.get('references',{}).get('summary',{}).get('narrative_review',[]):
         if flag.get('visibility')=='details':continue
         lines.append('Draft review: '+safe(flag['rule'])+'; not a verified conclusion.')
@@ -258,15 +275,26 @@ def review(value,read):
     document=copy.deepcopy(value['document']);original=copy.deepcopy(value.get('original_provenance',{}))
     for _ in range(48):
         print(render({**value,'document':document,'original_provenance':original}))
-        choice=read_answer(read,'Accept, correct, move, add, reject, reject-summary, or finish? [finish]: ').strip().lower()
+        choice=read_answer(read,'Accept, accept-summary, correct, move, add, reject, reject-summary, omit-summary, or finish? [finish]: ').strip().lower()
         if choice in ('','finish'):return None
-        if choice=='accept':
+        if choice in ('accept','accept-summary'):
+            from .briefing_summary_review import approve
+            editorial=original.get('summary_editorial')
+            if document['summary']['text'] and document['summary']['status']!='rejected' and editorial:
+                if not approve(editorial,read):
+                    print('Summary not accepted. Correct, reject, or omit it before accepting the briefing.');continue
+            if choice=='accept-summary':
+                if document['summary']['status']=='proposed':document['summary']['status']='accepted'
+                continue
             check(document)
             if document['summary']['status']=='proposed':document['summary']['status']='accepted'
             original['acceptance']='accepted_for_use_not_verified'
             return envelope(document,original)
-        if choice=='reject-summary':
-            document['summary']['status']='rejected';original.pop('excluded_summary',None);continue
+        if choice in ('reject-summary','omit-summary'):
+            if choice=='reject-summary':document['summary']['status']='rejected'
+            else:document['summary']={'text':'','statement':'','status':'not_provided'}
+            if original.get('summary_editorial'):original['summary_editorial']['decision']='rejected' if choice=='reject-summary' else 'omitted'
+            original.pop('excluded_summary',None);continue
         if choice=='reject':
             from .briefing_review import remove_metadata
             category=read_answer(read,'Category key (or excluded): ').strip()
@@ -302,6 +330,8 @@ def review(value,read):
             try:check(trial)
             except ValueError:print('Invalid summary; previous proposal preserved.');continue
             document=trial
+            if original.get('summary_editorial'):
+                original['summary_editorial'].update(decision='pending',edited_text=text,editor='analyst',acknowledged_unvalidated=False)
             original.setdefault('classification_origins',{})['summary']='analyst_summary'
             original.setdefault('references',{}).pop('summary',None)
             original.pop('excluded_summary',None)
@@ -344,6 +374,10 @@ def exchange(args):
     current=revision['content'] if revision else content(dict.fromkeys(FIELDS,''),'')
     if args.export_json:
         document=current.get('canonical',{}).get('document') or empty()
+        from .briefing_summary_review import export_document
+        exported=export_document(document,current.get('canonical',{}).get('original_provenance',{}))
+        payload=json.dumps(exported,ensure_ascii=False,indent=2).encode('utf-8')
+        if len(payload)>MAX_DOCUMENT:raise ValueError('Briefing export exceeds 64 KiB.')
         target=local_path(Path(args.export_json).absolute())
         from .output import validate_destination
         if target.is_relative_to(store.root):raise ValueError('Export cannot target internal briefing storage.')
@@ -353,7 +387,7 @@ def exchange(args):
             fd,name=tempfile.mkstemp(prefix='.briefing-export-',dir=target.parent)
             try:
                 with os.fdopen(fd,'wb') as stream:
-                    stream.write(json.dumps(document,ensure_ascii=False,indent=2).encode('utf-8'));stream.flush();os.fsync(stream.fileno())
+                    stream.write(payload);stream.flush();os.fsync(stream.fileno())
                 validate_destination(target,args)
                 os.link(name,target)
             finally:
@@ -363,11 +397,15 @@ def exchange(args):
     if not path.is_file() or path.stat().st_nlink!=1:raise ValueError('Import requires a regular, non-linked file.')
     with path.open('rb') as stream:raw=stream.read(MAX_DOCUMENT+1)
     if len(raw)>MAX_DOCUMENT:raise ValueError('Briefing import exceeds 64 KiB.')
-    document=loads(raw.decode('utf-8-sig'),max_bytes=MAX_DOCUMENT);check(document)
+    from .briefing_summary_review import import_document,approve
+    document,imported=import_document(loads(raw.decode('utf-8-sig'),max_bytes=MAX_DOCUMENT))
     read=getattr(args,'_confirm',None)
     if read is None:raise ValueError('Briefing import requires interactive confirmation.')
-    print(render({'document':document,'accepted':False}))
+    print(render({'document':document,'accepted':False,'original_provenance':imported}))
     if read_answer(read,'Replace accepted briefing with this unverified analyst document? [y/N]: ').strip().lower() not in ('y','yes'):
         return {'kind':'saved_briefing','message':'Import cancelled; saved briefing unchanged.'}
-    value=copy.deepcopy(current);value['canonical']=envelope(document)
+    if imported.get('summary_editorial') and document['summary']['text'] and document['summary']['status']!='rejected':
+        if not approve(imported['summary_editorial'],read):return {'kind':'saved_briefing','message':'Import cancelled; summary provenance not acknowledged.'}
+        if document['summary']['status']=='proposed':document['summary']['status']='accepted'
+    value=copy.deepcopy(current);value['canonical']=envelope(document,imported)
     return view(store.save(value,revision['digest'] if revision else None))

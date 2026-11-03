@@ -211,3 +211,5 @@ report-bundles/
 # Exact source-only canonical briefing documentation templates; no analyst data.
 !/docs/briefing-template.json
 !/docs/briefing-canonical-schema.json
+
+!/docs/briefing-review-exchange-schema.json

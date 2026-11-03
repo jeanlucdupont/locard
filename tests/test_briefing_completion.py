@@ -80,7 +80,7 @@ def test_summary_rejections_never_leak_into_fallback(text,source,state):
     if source=='valid':
         assert p['proposed_summary']['narrative_review']
         assert text in result['document']['summary']['text']
-    else:assert result['original_provenance']['excluded_summary']['rule']=='unknown_summary_source'
+    else:assert result['original_provenance']['summary_editorial']['source_validation']['status']=='unresolved_references'
     assert not any('invented.exe' in str(v) for v in p['leads'])
 
 

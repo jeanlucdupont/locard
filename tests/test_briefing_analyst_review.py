@@ -76,7 +76,8 @@ def test_summary_multisource_synthesis_and_invalid_source_separate():
  assert p['summary_diagnostic']['state']=='failed_source_validation'
  assert 'proposed_summary' not in p
  assert p['summary_review']['search_eligible'] is False
- assert 'Excluded AI summary' in c.render(c.build(p))
+ assert 'not fully validated' in c.render(c.build(p))
+ assert c.build(p)['original_provenance']['summary_editorial']['decision']=='pending'
 
 
 def test_category_move_reject_and_revision_preserve_original(store):
