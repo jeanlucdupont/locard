@@ -3176,3 +3176,50 @@ could misread explanatory phrases as identifiers. The exact live rejected text
 was not retained, so no particular phrase is asserted to have caused that run.
 Validation uses synthetic facts and fake providers; live narrative quality and
 semantic faithfulness require manual acceptance.
+
+
+### Briefing summary and review readability (6.87)
+
+The 6.86 acceptance output ended mid-sentence at exactly the 700-byte summary
+limit. Static inspection and fake-provider tests found no clipping in parsing,
+validation, assembly, persistence or rendering: oversized text is rejected, not
+sliced. Without that run's original provider response, model-side generation
+cannot be confirmed. This does not establish an output-token exhaustion problem.
+
+The prompt now asks for complete, concise sentences within the existing limit,
+shortening rather than cutting a sentence and retaining uncertainty. Limits are
+unchanged (700-byte AI summary text, 300-byte uncertainty, 1,200-character
+canonical summary). A draft at the byte boundary without terminal punctuation
+gets a **possibly incomplete** notice. Its text and source are preserved, and the
+analyst can correct or reject it. This is a boundary hint, not grammatical or
+semantic validation. No sentence is repaired, removed or automatically completed.
+Over-limit summaries receive an explicit `omitted_over_limit` /
+`summary_size_limit` diagnostic when available at local validation; the existing
+structural rejection remains fail-closed. Provider-side rejection can occur
+before Locard receives the response text. No repair request or model-budget
+increase is introduced.
+
+Normal presentation no longer shows weak lexical identifier warnings triggered
+solely by bare prose labels such as “account identity” or “device identity”. The
+flags remain in JSON and `--details`. Concrete-looking values (paths, domains,
+IPs, machine-style names, account syntax, quoted or explicit key-value labels)
+still get normal review notices. These are advisory signals, not a new linguistic
+validator: names or ambiguous labels without such syntax may need detailed review.
+Strict concrete-candidate validation, search eligibility and explicit approval
+are unchanged.
+
+An excluded, source-supported natural-language time phrase is described as a
+phrase that is unsuitable for an exact technical time field. If its unchanged
+numeric token is already present with the same polarity, the report says so.
+The original phrase, rejection rule and provenance remain retained; AM/PM,
+timezone and exact timestamps are never inferred. Unsupported phrases keep their
+original rejection warning. No numeric normalization or new search input occurs.
+
+User-experience and objective coverage notices were unconditional reminders,
+not detected omissions. They are replaced by one neutral instruction to review
+accuracy, coverage and uncertainty. Existing possible-omission notices for exact
+person/system names remain advisory, not proof of semantic absence.
+
+Editable JSON format 1, historical saved briefings, evidence schemas and grounding
+are unchanged. Tests use synthetic inputs and fake providers; manual acceptance
+is required for live narrative quality. No raw provider responses are persisted.

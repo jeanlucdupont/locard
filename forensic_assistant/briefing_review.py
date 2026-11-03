@@ -54,9 +54,7 @@ def assess(document, diagnostics=None):
             missing=[i for i,item in enumerate(categories[key]) if item['value'] and item['polarity']!='negated'
                      and item['status'] in ('provided','approximate') and item['value'].casefold() not in text]
             if missing:checks.append({'rule':'possible_summary_entity_omission','category':key,'item_indexes':missing})
-        if categories['user_experience'] or categories['user_actions']:
-            checks.append({'rule':'review_summary_experience','category':'user_experience'})
-        if categories['objectives']:checks.append({'rule':'review_summary_objectives','category':'objectives'})
+        checks.append({'rule':'analyst_summary_review'})
     return {'categories':result,'summary_checks':checks,
             'source_coverage':diagnostics.get('source_coverage'),
             'normalizations':diagnostics.get('normalizations',[]),

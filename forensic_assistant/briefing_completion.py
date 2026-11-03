@@ -51,3 +51,27 @@ def synthesize(document, labels):
     lines.append(f'Included {len(entries)} of {count} entries. Review all categories and original statements.')
     return {'document':{'text':(' ' if prose else '\n').join(lines),'statement':'\n'.join(statements),'status':'proposed'},
             'references':{'entries':entries},'included':len(entries),'total':count}
+
+
+
+def boundary_summary(text, limit):
+    """A presentation hint at the known byte bound, not a sentence validator."""
+    return len(text.encode('utf-8'))>=limit and not text.rstrip().endswith(('.', '!', '?', '…', '"', "'", '”', '’'))
+
+
+def time_phrase_note(suggestion, document):
+    """Explain an exact supported phrase without converting it to an exact time."""
+    candidate=suggestion['candidate'];diagnostic=suggestion['diagnostic']
+    if (candidate['type']!='ambiguous_time' or diagnostic.get('rule')!='invalid_technical_value'
+        or diagnostic.get('literal_support')!='supported' or diagnostic.get('source_references')!='valid'):
+        return None
+    from .briefing_semantics import technical
+    # Compare complete numeric tokens; don't equate 09:30 with 9:30 or infer AM/PM.
+    tokens=re.findall(r'(?<![\w:])\d{1,2}:\d{2}(?::\d{2})?(?![\w:])',candidate['literal'])
+    for items in document['categories'].values():
+        for item in items:
+            if item['kind']=='ambiguous_time' and item['value'] in tokens and item['polarity']==candidate['polarity']:
+                try:technical('ambiguous_time',item['value'])
+                except ValueError:continue
+                return 'Source-supported time phrase; its numeric time is already listed. AM/PM and timezone are not inferred. Original phrase remains excluded from technical search inputs.'
+    return 'Source-supported time phrase, not a valid exact time value. Retained for review; no timezone or exact timestamp inferred.'

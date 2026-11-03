@@ -190,7 +190,7 @@ def build(packet):
 def render(value):
     from forensic_assistant.interactive.console import safe
     from .briefing_review import assess
-    from .briefing_completion import unknown_label
+    from .briefing_completion import unknown_label,time_phrase_note
     document=value['document'];original=value.get('original_provenance',{})
     assessment=assess(document,original.get('review_diagnostics'))
     origins=original.get('classification_origins',{})
@@ -217,6 +217,7 @@ def render(value):
             lines.append('      ['+item['kind']+'; '+item['status']+'; '+item['polarity']+'; '+safe(origins.get(f'{category}:{i}','origin not recorded'))+']')
             if item['value'] and item['note']:multiline(item['note'],'      ')
             for flag in original.get('references',{}).get(f'{category}:{i}',{}).get('narrative_review',[]):
+                if flag.get('visibility')=='details':continue
                 lines.append('      Explanation review: '+safe(flag['rule'])+'; not a verified conclusion.')
     summary=document['summary']
     heading='Deterministic synthesis of analyst-reported entries - not an AI conclusion' if origins.get('summary')=='deterministic_synthesis' else 'Proposed incident summary - unverified'
@@ -224,22 +225,26 @@ def render(value):
     diagnostic=original.get('review_diagnostics',{}).get('summary',{})
     if diagnostic and diagnostic['state']!='accepted':
         lines.append('AI summary: '+safe(diagnostic['state'])+' ('+safe(diagnostic['stage'])+').')
+    if diagnostic.get('completeness')=='possible_length_boundary_cutoff' and origins.get('summary')=='ai_summary':
+        lines.append('Possibly incomplete AI draft at the summary length limit. Text preserved unchanged; correct or reject before acceptance.')
     multiline(summary['text'] or 'Not provided; no summary was fabricated.')
     for flag in original.get('references',{}).get('summary',{}).get('narrative_review',[]):
+        if flag.get('visibility')=='details':continue
         lines.append('Draft review: '+safe(flag['rule'])+'; not a verified conclusion.')
     for i,suggestion in enumerate(original.get('excluded_suggestions',[])):
         if suggestion.get('dismissed'):continue
         candidate=suggestion['candidate']
         lines.append('Excluded suggestion '+str(i+1)+' (not accepted briefing or search input): '+safe(candidate['type'])+' / '+safe(candidate.get('category') or 'unspecified'))
         multiline(candidate['literal'],'  ')
-        lines.append('  '+safe(suggestion['diagnostic']['rule'])+'. Correct/add your own assertion or reject excluded item.')
+        note=time_phrase_note(suggestion,document)
+        lines.append('  '+(note or safe(suggestion['diagnostic']['rule'])+'. Correct/add your own assertion or reject excluded item.'))
     if original.get('excluded_summary'):
         lines.append('Excluded AI summary draft: invalid source references; not accepted briefing or search input.')
         multiline(original['excluded_summary']['summary']['text'],'  ')
     for check in assessment['summary_checks']:
         if check['rule']=='possible_summary_entity_omission':
             lines.append('Summary review: possible omission of '+CATEGORIES[check['category']]+'.')
-        else:lines.append('Summary review: check coverage of '+CATEGORIES[check['category']]+'.')
+        else:lines.append('Review the draft for accuracy, coverage and uncertainty; semantic completeness is for the analyst to decide.')
     if assessment['source_coverage'] and not assessment['source_coverage'].get('complete'):
         lines.append('Extraction coverage incomplete: not all source text was exposed to AI.')
     lines.append('Source support is not verification. Missing fields are not negative observations.')

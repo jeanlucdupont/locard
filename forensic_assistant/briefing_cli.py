@@ -163,6 +163,7 @@ def render_details(packet):
             for span in candidate['occurrences']:
                 lines.append('    '+safe(span['source'])+':'+str(span['start'])+'..'+str(span['end']))
             lines.append('    Uncertainty: '+safe(candidate['uncertainty']))
+            for flag in candidate.get('narrative_review',[]):lines.append('    Narrative review (advisory): '+safe(json.dumps(flag,sort_keys=True)))
     if packet['ai_items']:
         lines.extend(['','AI interpretations — unverified, not findings'])
         for item in packet['ai_items']:
@@ -196,6 +197,8 @@ def render_details(packet):
                              ' ('+str(rejection['unsupported_count'])+')')
         for entry in error.get('validation',{}).get('errors',[]):
             lines.append('  '+safe(entry['canonical_path'])+': '+safe(entry['validator_keyword']))
+    for flag in packet.get('proposed_summary',{}).get('narrative_review',[]):
+        lines.append('  Summary narrative review (advisory): '+safe(json.dumps(flag,sort_keys=True)))
     if packet.get('summary_diagnostic'):
         lines.append('  Summary diagnostic: '+safe(json.dumps(packet['summary_diagnostic'],sort_keys=True)))
     discovery=packet.get('discovery')

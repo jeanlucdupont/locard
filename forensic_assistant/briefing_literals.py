@@ -98,6 +98,17 @@ def narrative_review(text, inputs, units, people=()):
     """
     missing=supported_person_text(text,inputs,units,people)
     flags=[]
-    if missing:flags.append({'rule':'possible_identifier_mismatch','literal_types':sorted({kind for kind,value in missing})})
+    # Bare prose labels are weak signals (e.g. 'Account identity'). Keep them
+    # inspectable, but reserve normal-output warnings for concrete-looking values
+    # or explicit quoted/key-value identifiers. This never changes eligibility.
+    def prominent(kind,value):
+        if kind not in ('hostname','username'):return True
+        if any(char.isdigit() or char in r'\/@._-' for char in value.rstrip('.,;!?')):return True
+        escaped=re.escape(value)
+        return bool(re.search(r'[\"\'`]' + escaped + r'[\"\'`]',text,re.I) or
+                    re.search(r'(?i)\b(?:host(?:name)?|computer|username|account)\s*[:=]\s*'+escaped+r'(?!\w)',text))
+    for visibility,values in (('normal',{(k,v) for k,v in missing if prominent(k,v)}),
+                              ('details',{(k,v) for k,v in missing if not prominent(k,v)})):
+        if values:flags.append({'rule':'possible_identifier_mismatch','literal_types':sorted({kind for kind,value in values}),'visibility':visibility})
     if claims_proof(text):flags.append({'rule':'unverified_proof_claim'})
     return flags
