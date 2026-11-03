@@ -10,6 +10,9 @@ LABELS = {'filename': 'Script or file', 'windows_path': 'File path', 'username':
 
 
 def render(packet):
+    if packet.get('discovery', {}).get('artifact') == 'all':
+        from .briefing_discovery import render as cross_render
+        return cross_render(packet)
     if packet.get('canonical') and not packet.get('discovery'):
         from .briefing_canonical import render as render_canonical
         text=render_canonical(packet['canonical'])

@@ -3288,3 +3288,52 @@ Reference IDs and detailed failure categories remain in `--details`/`--json`.
 revision. No additional provider call repairs a draft. Synthetic/fake-provider
 tests cannot establish live narrative quality; the analyst remains responsible
 for reviewing the briefing's meaning and uncertainty.
+
+### Cross-artifact briefing discovery (6.89)
+
+`briefing --analyze --deterministic --revision N --discover --approve LEAD_ID
+--artifact all --start ISO_TIME --end ISO_TIME` searches available ingested
+families using existing deterministic retrieval. Review the current saved
+briefing first; use its current revision and exact lead IDs. The window must be
+explicit and at most 24 hours. Summary acceptance does not authorize searches
+or make an analyst statement a forensic finding.
+
+| Lead type | Supported routes in `all` |
+|---|---|
+| Filename / Windows path | EVTX retained content; MFT and Prefetch normalized objects; Registry extracted path objects; Browser download paths |
+| Domain | EVTX retained content; Browser URLs and download URL chains |
+| Event ID | EVTX event ID |
+| IP address | EVTX source/destination IP |
+| Hostname | EVTX existing host/context filter |
+| Registry path | Registry exact key path |
+| Hash / activity term | EVTX retained content |
+| Contextual phrase | Browser page title |
+
+Other combinations are explicitly unsupported. Registry object search is not
+an arbitrary Registry value-data scan; Prefetch path references are not proof
+that a referenced file executed. Existing exact/substring and case semantics
+remain those of the underlying query helpers. Domain/filename substring hits
+may require disambiguation. Timestamp scopes are artifact-specific: inherited
+Registry key times and filesystem times do not establish execution times.
+Records lacking an eligible timestamp cannot match a bounded time window.
+
+Budgets remain aggregate: at most six approved leads, **six queries total**,
+ten primary matches per query (at most 60 returned matches), 90 seconds total,
+15 seconds per query, and 192 KiB for returned evidence projections. EVTX content
+search additionally retains its 1,000-candidate, five-second, 8 MiB payload bounds.
+No new AI requests are made by discovery. Availability uses indexed existence
+probes within the same supervised read-only transaction as the searches.
+Queries run round-robin across approved leads, with eligible families ordered
+EVTX, MFT, Prefetch, Registry, Browser. This prevents one lead consuming every
+query slot; it does **not** guarantee every combination will be searched.
+
+Results group by lead then family, showing stable evidence IDs, source references,
+recorded timestamps, matching fields/excerpts and limitations. Statuses distinguish
+`match`, `no_match`, `unavailable`, `unsupported`, `failed`, `truncated`, and
+`not_searched`. Unavailable means no ingested records of that family in the case,
+not merely no records in the requested window. Truncated searches can still
+return matches. `--json` retains coverage and EVTX continuation metadata.
+Neither no matches nor incomplete coverage establishes absence. Reduce the
+approved lead set, select a family explicitly, or narrow the window to inspect
+coverage omitted by budgets. Single-family discovery retains its previous routing
+and presentation. Canonical format 1 and exchange format 2 are unchanged.

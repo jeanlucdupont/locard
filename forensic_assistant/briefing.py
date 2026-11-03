@@ -345,7 +345,7 @@ def _interpret(packet, client):
             packet['ai_status']='partial'
 
 
-def query_for(lead, artifact, start, end):
+def query_for(lead, artifact, start, end, *, cross=False):
     window(start,end,source='explicit command options')
     if lead.get('conflicted') or lead['negated'] or lead['classification'] in ('invalid','ambiguous','partial'):
         return None
@@ -379,6 +379,8 @@ def query_for(lead, artifact, start, end):
         elif kind in ('filename','windows_path','domain','hash','term'): filters={'evtx_text':value}
     elif artifact in ('mft','prefetch') and kind in ('filename','windows_path'):
         filters={'path':value}
+    elif cross and artifact=='registry' and kind in ('filename','windows_path'):
+        filters={'path':value}
     elif artifact=='registry' and kind=='registry_path': filters={'registry_key':value}
     elif artifact=='browser':
         if kind in ('filename','windows_path'): filters={'download_path_contains':value}
@@ -396,7 +398,7 @@ def validate_query(args):
     if not set(args)<=allowed or len(set(args)-{'artifact','start','end','limit'})!=1:
         raise ValueError('Invalid briefing filter')
     filters = {'evtx': {'event_id','ip','hostname','evtx_text'}, 'mft': {'path'},
-               'prefetch': {'path'}, 'registry': {'registry_key'},
+               'prefetch': {'path'}, 'registry': {'registry_key','path'},
                'browser': {'download_path_contains','url_contains','title_contains'}}
     if not (set(args)-{'artifact','start','end','limit'}) <= filters[args['artifact']]:
         raise ValueError('Filter is not supported for this artifact')
@@ -408,12 +410,15 @@ def validate_query(args):
         raise ValueError('Invalid Event ID')
 
 
-def execute_query(db,args):
+def execute_query(db,args, *, cross=False):
     validate_query(args)
     from forensic_assistant.retrieval.evidence import EvidenceQueries
     from forensic_assistant.investigation_ai.tools import envelope
     raw=EvidenceQueries(db).search(**args).as_dict()
     result=envelope(db,'briefing_search',raw,limit=10)
+    if cross:
+        from .briefing_discovery import matches
+        result['matches']=matches(raw,args)
     # Ordinary queries count matches, not examined candidates. Never invent a scan count.
     result['coverage']={'candidate_count':raw.get('content_search',{}).get('examined'),
         'matching_total':raw.get('total'), 'returned':len(result['records']),
@@ -426,6 +431,9 @@ def discover(packet, case_path, approved, artifact, start, end, *, worker_factor
         raise ValueError('Approve one to six distinct lead IDs explicitly.')
     by_id={r['id']:r for r in packet['leads']}
     if not set(approved)<=by_id.keys():raise ValueError('Unknown approved lead ID; review this briefing first.')
+    if artifact=='all':
+        from .briefing_discovery import discover_all
+        return discover_all(packet,case_path,approved,start,end,worker_factory=worker_factory)
     plans=[];unmapped=[];seen=set()
     for identity in approved:
         q=query_for(by_id[identity],artifact,start,end)

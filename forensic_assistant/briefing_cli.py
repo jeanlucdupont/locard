@@ -23,7 +23,7 @@ def configure(commands):
     p.add_argument('--allow-cloud',action='store_true',help='Legacy disclosure flag; unnecessary after provider configuration acknowledgment')
     p.add_argument('--discover',action='store_true',help='Execute approved lead lookups; requires --approve, --artifact, --start and --end')
     p.add_argument('--approve',action='append',default=[],metavar='LEAD_ID',help='Approve exactly this reviewed lead; repeat for at most six leads')
-    p.add_argument('--artifact',choices=briefing.ARTIFACTS,help='Search only this explicitly selected artifact family')
+    p.add_argument('--artifact',choices=(*briefing.ARTIFACTS,'all'),help='Search one family or all available families (six queries total; review unsearched coverage)')
     p.add_argument('--start',help='Authorized search start with UTC/offset; never inferred from narrative')
     p.add_argument('--end',help='Authorized search end with UTC/offset; maximum 24-hour window')
     p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
@@ -145,6 +145,9 @@ def run(args):
 
 
 def render_details(packet):
+    if packet.get('discovery', {}).get('artifact') == 'all':
+        from .briefing_discovery import render as cross_render
+        return cross_render(packet)
     lines=['Case briefing analysis — unverified analyst input', 'New analysis for this invocation; --details does not load earlier AI responses.', '', 'Explicit indicators and contextual leads']
     if packet.get('ai_status') in ('success','partial','skipped'):
         lines.insert(1,'AI interpretation: '+packet['ai_status']+' ('+str(len(packet['ai_items']))+' accepted items)')

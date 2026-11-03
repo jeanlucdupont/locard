@@ -113,11 +113,14 @@ def serve():
                                     result = (tools.envelope(db, 'briefing_initial', {'records': []})
                                               if config.get('_briefing_initial') else
                                               tools.initial(db, request['question'], {**tool_config, '_profile': profile}, model))
+                                    if config.get('_briefing_all'):
+                                        from forensic_assistant.briefing_discovery import available
+                                        result['available_artifacts'] = available(db)
                                 elif op == 'check':
                                     result = {'checked': True}
                                 elif op == 'briefing_search' and config.get('_briefing_initial'):
                                     from forensic_assistant.briefing import execute_query
-                                    result = execute_query(db, request['arguments'])
+                                    result = execute_query(db, request['arguments'], cross=bool(config.get('_briefing_all')))
                                 else:
                                     result = tools.execute(
                                         db,
