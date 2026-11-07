@@ -303,6 +303,9 @@ def execute(db, name, args, config, model=None):
     return envelope(db, name, raw, limit)
 
 def initial(db, question, config, model=None):
+    if config.get('_assessment_handoff') is not None:
+        from forensic_assistant.assessment_handoff import hydrate
+        return hydrate(db, config['_assessment_handoff'])
     from forensic_assistant.semantic.hybrid import retrieve
     from forensic_assistant.retrieval.temporal_scope import resolve
     import re

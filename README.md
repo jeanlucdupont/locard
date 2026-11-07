@@ -3475,3 +3475,45 @@ revision may supply this display-only context; the assessment is not rewritten.
 Reported incident time and authorized UTC scope remain distinct. An unspecified
 timezone is never inferred. Normal progress is throttled; `--details` retains
 per-query messages. Discovery budgets, scheduling and approval remain unchanged.
+
+
+### Investigate a saved assessment (6.93)
+
+```text
+briefing --investigate
+briefing --investigate ASSESSMENT_ID --question "What supports the reported sequence? Inspect E2."
+briefing --investigate ASSESSMENT_ID --start 2026-09-30T00:00:00Z --end 2026-09-30T23:59:59Z
+```
+
+Omitting the ID selects the latest saved assessment; omitting `--question` prompts
+for the first question. `E1`, `[E2]`, etc. use the selected assessment's sorted-ID
+citation map, not global evidence identifiers. Unknown citations are rejected.
+The analyst must confirm the displayed window and initial read-only verification.
+A different window requires both bounds and fresh confirmation. Reported clocks
+with unknown timezones are never interpreted as that authorized UTC window.
+
+This invokes the existing supervised AI investigation controller. Initial retrieval
+rechecks up to 12 distinct assessment references (explicit citations first) in its
+current read-only transaction, requiring a timestamp within the authorized window.
+It discloses current identities only. Full evidence details use the existing
+`show_evidence` tool with per-call approval, normal EventData projection and
+unchanged grounding. Missing or out-of-scope/undated records are not substituted
+with historical data. Retained timestamp/context changes are recorded; matching
+those projections is not a whole-record or whole-database equality guarantee.
+
+Briefing text, leads and preliminary chronology are unverified historical context,
+never grounding inputs. The exact referenced briefing revision is used when
+available; an older/missing revision is flagged. Context and references can be
+omitted by the unchanged 5,600-byte model prompt budget, with explicit limitations.
+The 8-step, 6-tool-call, 300-second investigation defaults remain unchanged.
+Incomplete coverage and uncertain source/host relationships remain limitations.
+No additional initial discovery searches run automatically.
+
+New transcripts retain the originating assessment ID, digest, briefing revision,
+authorization, selected references and revalidation outcomes. Historical sidecars
+are not rewritten. `ai-history show INVESTIGATION_ID` reviews the transcript;
+current read-view transcripts retain the existing restrictions on exact-state
+replay and fingerprint-backed report import. `--details`/`--json` on the briefing
+command expose the investigation result. This release supports one first question
+per invocation, not a persistent multi-question conversation. A separate invocation
+starts a new bounded read view and requires authorization again.

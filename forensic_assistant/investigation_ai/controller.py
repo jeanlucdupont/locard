@@ -59,6 +59,15 @@ def _run(
     state = State(budget)
     from forensic_assistant.retrieval.temporal_scope import resolve, validate_proposal
     state.scope = resolve(question, config.get('date_hint'))
+    handoff = config.get('_assessment_handoff')
+    if handoff is not None:
+        from forensic_assistant.assessment_handoff import validate
+        validate(handoff, config['case_path'])
+        if approval is None or question != handoff['question']:
+            raise ValueError('Assessment handoff requires its approved question and tool approvals')
+        state.scope = handoff['scope']
+        state.handoff = handoff
+        for limitation in handoff['limitations']:state.limit(limitation)
     rules = [r.rule_id for r in available_rules()]
     config = {**config, 'rule_ids': rules}
     from forensic_assistant.ai.backend import backend
@@ -77,7 +86,8 @@ def _run(
                 'rule_ids': rules,
                 'dry_run': dry_run,
                 'date_hint': config.get('date_hint'),
-                'temporal_scope': state.scope
+                'temporal_scope': state.scope,
+                **({'assessment_origin': handoff} if handoff is not None else {})
             },
             investigation_id=investigation_id
         )
@@ -156,6 +166,8 @@ def _run(
         observed_state = response.get('evidence_state')
         if observed_state is not None:
             validate_evidence_state(observed_state)
+            if handoff is not None and observed_state['file_identity'] != {k:handoff['case'][k] for k in ('device','inode')}:
+                raise WorkerError('EVIDENCE_STATE_CHANGED')
             if response.get('fingerprint') is not None or (evidence_state is not None and observed_state != evidence_state):
                 raise WorkerError('EVIDENCE_STATE_CHANGED')
             evidence_state = observed_state
