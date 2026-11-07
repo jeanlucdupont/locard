@@ -3359,3 +3359,93 @@ budgets. Continuations are not persistent snapshots across invocations; case cha
 can affect subsequent pages. If no cursor is available after a timeout, narrow the
 window or approved lead set. Six queries remain the aggregate ceiling, so many
 leads still require separate explicitly approved invocations.
+
+### Initial case assessment (6.91)
+
+After reviewing and accepting the canonical briefing, run:
+
+```text
+briefing --assess
+```
+
+Locard requests explicit start/end timestamps (at most 24 hours) if not supplied
+with `--start` and `--end`. Approximate narrative times retain their original
+meaning; an unknown timezone is never silently converted to UTC. The displayed
+plan identifies the case, current briefing revision, objectives, eligible leads,
+available artifact families, excluded entries, supported coverage and limits.
+You may exclude individual lead IDs, then approve the remaining plan once.
+Declining performs no evidence searches and creates no assessment workspace.
+Inventory reads before approval are metadata-only.
+
+Assessment is deterministic and model-free. Accepted, affirmative, syntactically
+validated technical values supply exact search leads. Accepted activity values
+may supply contextual EVTX search terms. Summary prose, excluded suggestions,
+negated, ambiguous, conflicting or approximate entries do not supply exact
+search inputs. The original accepted briefing is not rewritten by assessment.
+
+The controller reuses the supervised read-only worker, existing search adapters,
+indexed object-basename candidates and EVTX EventData continuation. Indexed
+lookups run first. Each eligible lead/family gets its first lookup before further
+pages; continuation then proceeds round-robin. Duplicate evidence IDs are grouped,
+retaining per-lead matches, source/host context and timestamp meanings. This does
+not establish file identity, execution or causal relationships. Defender blocking
+interpretation retains the established read-time interpretation rather than
+claiming successful execution or complete prevention.
+
+The initial assessment policy is separate from manual discovery:
+
+| Bound | Initial limit |
+|---|---:|
+| Selected leads | 12 |
+| Aggregate wall time | 300 seconds, including worker startup and checkpoints |
+| Query attempts | 120 |
+| Reported EVTX/object candidates | 100,000 |
+| Distinct retained evidence IDs | 500 |
+| Returned projection bytes | 2 MiB |
+| Primary matches per query | 10 (unchanged) |
+| Supervisor time per query | 15 seconds (unchanged) |
+| Saved assessment envelope | 4 MiB |
+| Assessment history | 50 files; no automatic deletion |
+| Displayed chronological observations | 2,000; truncation is explicit |
+
+The 6.90 measurements showed cheap indexed lookups and fast bounded EVTX pages.
+120 attempts allow a first pass over up to 60 lead/family combinations plus
+continuation; five minutes accommodates slower cases. These are ceilings, not
+coverage guarantees. Existing five-second/1,000-candidate object and EVTX page
+limits remain unchanged. Other SQL scan counts are not measurable through those
+adapters; they retain query/deadline bounds and show candidate counts as
+unreported. Progress is printed before queries and after completed pages, using
+observed counts and elapsed time. A silent page is still bounded by its watchdog.
+
+Assessments are stored in the private `<case.db>.assessments` directory, separate
+from evidence and briefing revisions. Each assessment has an identity, plan and
+approval digest, bounded evidence projections, coverage, cursors, metrics and
+read-view identity. Checkpoints use the existing directory guards, private
+creation, exclusive write lock, fsync and atomic replacement mechanism.
+A JSON checksum detects content inconsistency; it does not prove forensic truth
+or authenticate the analyst. Treat the directory as sensitive derived work product.
+
+```text
+briefing --assessment-show
+briefing --assessment-history
+briefing --assessment-show ASSESSMENT_ID
+briefing --assessment-resume
+```
+
+Review performs no searches or provider requests. `--json` exposes the structured
+assessment; normal output already includes exact evidence IDs and provenance.
+New assessments require interactive plan confirmation; there is no unattended
+approval bypass. Resume rechecks the briefing digest and approved routes, displays
+the original bounded plan and requests fresh approval. Because equality with a
+closed SQLite read view cannot be established cheaply, resume creates a linked
+**new pass**, restarts approved searches, and never merges old evidence or cursors
+with the new read view. Unavailable families from the earlier authorization are
+not silently added. After a briefing change, use a new `--assess` plan instead.
+
+Saved assessments always describe historical read views. Current evidence
+freshness is **unknown**, without whole-case hashing. An older briefing revision
+is explicitly marked during review. `COMPLETE` concerns the requested supported
+bounded searches, not the completeness of a forensic examination;
+`COMPLETE_WITH_LIMITATIONS`, `CANCELLED` and `FAILED` retain partial results.
+A `RUNNING` checkpoint is not evidence that a background task is still running.
+No background continuation or AI narrative synthesis is implemented in this release.

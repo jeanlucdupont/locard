@@ -13,6 +13,10 @@ def configure(commands):
     source.add_argument('--text',dest='briefing_text',help='Short inline analyst narrative; use --file for paragraphs')
     for action in ('interview', 'wizard', 'show', 'edit', 'analyze'):
         source.add_argument('--'+action, action='store_true', help=('Recommended adaptive briefing interview' if action=='interview' else 'Legacy questionnaire' if action=='wizard' else 'Use the selected case briefing: '+action))
+    source.add_argument('--assess',action='store_true',help='Plan, approve and save deterministic initial case assessment')
+    source.add_argument('--assessment-show',nargs='?',const='latest',metavar='ID',help='Review a saved assessment (default: latest)')
+    source.add_argument('--assessment-history',action='store_true',help='List saved assessments')
+    source.add_argument('--assessment-resume',nargs='?',const='latest',metavar='ID',help='Reauthorize an earlier plan in a separate fresh read view')
     source.add_argument('--import-json',help='Import editable canonical briefing JSON after confirmation')
     source.add_argument('--export-json',help='Export accepted canonical briefing or an empty template; no overwrite')
     p.add_argument('--save',action='store_true',help='Explicitly import --file/--text as saved narrative after confirmation')
@@ -32,6 +36,9 @@ def configure(commands):
 
 
 def run(args):
+    if args.assess or args.assessment_show or args.assessment_history or args.assessment_resume:
+        from .assessment_cli import run as assessment_run
+        return assessment_run(args)
     if getattr(args,'import_json',None) or getattr(args,'export_json',None):
         if any((args.ai,args.allow_cloud,args.save,args.deterministic,args.discover,args.approve,args.artifact,args.start,args.end,args.revision,args.briefing_correction,args.discovery_after)):
             raise ValueError('JSON exchange cannot combine with analysis or search options.')
@@ -230,6 +237,9 @@ def render_details(packet):
 
 
 def render(packet, *, details=False):
+    if packet.get('kind') in ('case_assessment','assessment_history'):
+        from .assessment import render as render_assessment
+        return render_assessment(packet,details=details)
     if packet.get('kind') == 'saved_briefing':
         from forensic_assistant.briefing_workflow import render as saved_render
         return saved_render(packet)
