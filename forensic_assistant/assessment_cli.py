@@ -28,6 +28,12 @@ def run(args, *, worker_factory=None):
         else:previous=store.load(selected)
     if args.assessment_show:
         previous['briefing_stale']=not revision or revision['digest']!=previous['plan']['digest']
+        if not args.json and 'editorial_summary' not in previous['plan'] and state:
+            original=next((r for r in state['revisions'] if r['digest']==previous['plan']['digest']),None)
+            if original and original['content'].get('canonical'):
+                summary=original['content']['canonical']['document']['summary']
+                if summary['status']=='accepted':
+                    previous['briefing_report_context']={'editorial_summary':summary['text']}
         return previous
     if not revision or not revision['content'].get('canonical'):
         raise ValueError('Accept a structured briefing before assessment')
@@ -37,8 +43,8 @@ def run(args, *, worker_factory=None):
     def display(text):print(text,file=stream,flush=True)
     from .interactive.console import safe
     display('Reported time remains analyst input; an unknown timezone is not converted to UTC.')
-    for item in revision['content']['canonical']['document']['categories']['when']:
-        display(safe(item['statement']+' ('+item['status']+')'))
+    from .assessment_display import reported_time,Progress
+    for line in reported_time(revision['content']['canonical']['document']['categories']['when']):display(line)
     if previous:
         if previous['plan']['digest']!=revision['digest']:raise ValueError('Briefing changed; start a new --assess plan')
         if args.start or args.end:raise ValueError('Resume retains the previously approved time scope')
@@ -75,4 +81,6 @@ def run(args, *, worker_factory=None):
     if not current or current['revisions'][-1]['digest']!=revision['digest']:
         raise ValueError('Briefing changed during approval; no searches executed')
     store.check_case()
-    return a.execute(p,store,worker_factory=worker_factory,progress=display,parent=previous['id'] if previous else None)
+    progress=Progress(stream,details=args.details)
+    try:return a.execute(p,store,worker_factory=worker_factory,progress=progress,parent=previous['id'] if previous else None)
+    finally:progress.finish()

@@ -91,8 +91,8 @@ def test_assessment_persists_evidence_timeline_no_model(case,monkeypatch):
     assert p['authorization']['plan_digest']==a.digest(p['plan'])
     saved=AssessmentStore(case).load(p['id']);assert saved==p
     text=a.render(saved)
-    assert 'not prove file identity' in text or 'not file identity' in text or 'Basename candidate' in text
-    assert 'execution' in text and 'not confirm the whole narrative' in text
+    assert 'Basename equality does not establish the same underlying file' in text
+    assert 'execution' in text and 'does not confirm the narrative' in text
     assert case.read_bytes()==before
     shown=cli.run(arguments(case,'--assessment-show'),worker_factory=lambda c:pytest.fail('review executes'))
     assert shown['id']==p['id'] and not shown['briefing_stale']

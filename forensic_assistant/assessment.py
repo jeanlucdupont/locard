@@ -64,6 +64,7 @@ def plan(revision,case,available,start,end):
                              candidate_count_known=True,evidence_ids=[],cursor=None,seen_cursors=[],coverage={},limitations=[]))
     return dict(case=case,revision=revision['revision'],digest=revision['digest'],start=start,end=end,
                 objectives=[r['value'] for r in document['categories']['objectives'] if r['value']],
+                **({'editorial_summary':document['summary']['text']} if document['summary']['status']=='accepted' else {}),
                 reported_times=copy.deepcopy(document['categories']['when']),
                 leads=list(leads.values()),excluded=excluded,rows=rows,policy=dict(POLICY))
 
@@ -71,8 +72,12 @@ def plan(revision,case,available,start,end):
 def plan_text(p):
     lines=['INITIAL CASE ASSESSMENT — proposed read-only discovery',f"Case: {p['case']['path']}",
            f"Briefing revision: {p['revision']}",'Investigation objectives:']
-    lines += ['  '+v for v in p['objectives']] or ['  Not supplied']
-    lines += ['Reported time (not converted to UTC):']+[f"  {r['statement']} ({r['status']})" for r in p['reported_times']]
+    lines += ['  '+v for v in p['objectives']] or ['  Structured objectives unavailable.']
+    if p.get('editorial_summary'):
+        from .assessment_display import prose
+        lines += ['  Accepted editorial summary (unverified context, not structured objectives): '+prose(p['editorial_summary'])]
+    from .assessment_display import reported_time
+    lines += reported_time(p['reported_times'])
     lines += ['Authorized window: '+p['start']+' to '+p['end'], 'Proposed discovery:']
     for lead in p['leads']:
         families=[r['artifact'] for r in p['rows'] if r['lead_id']==lead['id'] and r['status']=='not_searched']
@@ -107,6 +112,10 @@ def execute(p,store,*,worker_factory=ForensicWorker,progress=lambda text:None,pa
             'Historical read view only: current evidence equality is not established.',
             'Candidate counts cover instrumented EVTX/object searches; other SQL scan counts are not reported.'])
     if parent:result['warnings'].append('New read view: approved searches restarted; prior observations/cursors are not merged.')
+    def notify(text):
+        result['metrics']['elapsed_seconds']=time.monotonic()-started
+        if hasattr(progress,'assessment_update'):progress.assessment_update(text,result)
+        else:progress(text)
     store.save_assessment(result)
     eligible=[r for r in rows if r['status']=='not_searched']
     order={lead['id']:i for i,lead in enumerate(p['leads'])}
@@ -133,7 +142,7 @@ def execute(p,store,*,worker_factory=ForensicWorker,progress=lambda text:None,pa
                     query['object_after' if 'object_basename' in query else 'evtx_after']=row['cursor']
                 m['queries']+=1
                 row['status']='incomplete'
-                progress(f"{row['artifact']} Searching — query {m['queries']}; {time.monotonic()-started:.1f}s elapsed")
+                notify(f"{row['artifact']} Searching — query {m['queries']}; {time.monotonic()-started:.1f}s elapsed")
                 activity.event('BRIEFING_LOOKUP','pending',lead_id=row['lead_id'],artifact=row['artifact'])
                 try:
                     reply=worker.call('briefing_search',query,seconds=min(POLICY['query_seconds'],remaining))
@@ -141,7 +150,7 @@ def execute(p,store,*,worker_factory=ForensicWorker,progress=lambda text:None,pa
                     payload=reply['result']
                 except WorkerError:
                     row['status']='failed';row['limitations'].append('Lookup failed; no absence conclusion.')
-                    progress(f"{row['artifact']} failed — observed counts retained; no absence conclusion")
+                    notify(f"{row['artifact']} failed — observed counts retained; no absence conclusion")
                     activity.event('BRIEFING_LOOKUP','failure',lead_id=row['lead_id'],artifact=row['artifact'])
                     check=worker.call('check',seconds=min(5,max(.001,remaining)))
                     if check.get('evidence_state')!=result['evidence_state']:raise WorkerError('Read view changed')
@@ -162,7 +171,8 @@ def execute(p,store,*,worker_factory=ForensicWorker,progress=lambda text:None,pa
                     if eid not in result['records']:
                         compact=exposed.get(eid,{})
                         result['records'][eid]=dict(artifact=row['artifact'],match=match,lead_ids=[],
-                            source_context=compact.get('source_context',{}),matched_fields_by_lead={},relations='No causal relationship inferred')
+                            source_context=compact.get('source_context',{}),
+                            presentation={k:compact[k] for k in ('artifact_type','kind','provider','event_id','process_name','browser_product','profile','truncated_fields') if k in compact},matched_fields_by_lead={},relations='No causal relationship inferred')
                         for interpretation in interpretations(compact).values():
                             result['interpretations'].append(dict(evidence_id=eid,**interpretation))
                     record=result['records'][eid]
@@ -178,7 +188,7 @@ def execute(p,store,*,worker_factory=ForensicWorker,progress=lambda text:None,pa
                     row['limitations'].append('Repeated continuation stopped')
                 else:row['cursor']=None
                 m['elapsed_seconds']=time.monotonic()-started
-                progress(f"{row['artifact']} {row['status']} — {row['candidates'] if row['candidate_count_known'] else 'unreported'} candidates examined; {len(row['evidence_ids'])} matching records; {m['elapsed_seconds']:.1f}s elapsed")
+                notify(f"{row['artifact']} {row['status']} — {row['candidates'] if row['candidate_count_known'] else 'unreported'} candidates examined; {len(row['evidence_ids'])} matching records; {m['elapsed_seconds']:.1f}s elapsed")
                 activity.event('BRIEFING_LOOKUP','success',lead_id=row['lead_id'],artifact=row['artifact'],returned_count=len(payload.get('matches',[])))
                 store.save_assessment(result)
             check=worker.call('check',seconds=5)
@@ -201,32 +211,5 @@ def render(result,details=False):
     if result.get('message'):return result['message']
     if result['kind']=='assessment_history':
         return '\n'.join(safe(f"{r['id']}  {r['created']}  {r['status']}  briefing revision {r['revision']}") for r in result['assessments']) or 'No saved assessments.'
-    p=result['plan'];lines=['INITIAL CASE ASSESSMENT — preliminary, deterministic',
-        'Assessment: '+result['id'],f"Briefing revision: {p['revision']}; status: {result['status']}",
-        'Completion concerns this bounded discovery pass, not completeness of the examination.',
-        *(['Saved RUNNING checkpoint; completion and current process activity are unconfirmed.'] if result['status']=='RUNNING' else []),
-        'Analyst-reported objectives (not findings):',*['  '+v for v in p['objectives']], 'Evidence discovered:']
-    leads={r['id']:r['occurrences'][0]['original'] for r in p['leads']}
-    for eid,record in result['records'].items():
-        lines += ['  '+record['artifact']+' '+eid,'    Lead(s): '+', '.join(leads[i] for i in record['lead_ids']),
-                  '    Source: '+record['match']['source_file'],
-                  '    Host/source context (may be analyst supplied): '+json.dumps(record['source_context'],ensure_ascii=True)]
-        lines += ['    '+lead_id+' '+f['field']+': '+str(f['value']) for lead_id,fields in record['matched_fields_by_lead'].items() for f in fields]
-        lines += ['    '+n for n in record['match']['limitations']]
-    lines+=['Preliminary chronology — timestamp meanings retained; no causal ordering inferred:']
-    for t in result['timeline']:
-        lines.append('  '+t['timestamp_utc']+' '+t['artifact']+' '+str(t.get('slot'))+' ('+str(t.get('meaning'))+') '+t['evidence_id'])
-    lines+=['Deterministic interpretations:']
-    lines += ['  '+str(r.get('text',''))+' ['+r['evidence_id']+']' for r in result['interpretations']]
-    lines+=['Claims not yet established: execution, delivery chain, compromise and causality require further evidence.',
-            'Alternative explanations: basename matches can refer to different files; a reference need not mean execution.',
-            'Search coverage:']
-    for row in result['rows']:
-        lines.append(f"  {row['lead_id']} {row['artifact']}: {row['status']}; {row['pages']} pages; {row['candidates'] if row['candidate_count_known'] else 'unreported'} candidates; {len(row['evidence_ids'])} matches")
-        lines += ['    '+n for n in row['limitations']]
-    lines += result['warnings']
-    if result.get('briefing_stale'):lines.append('Based on an older briefing revision.')
-    lines += ['Current evidence freshness: UNKNOWN; saved read-view equality is not established.',
-              'Next: inspect the listed evidence IDs with show; test execution using process events or executable-run records.',
-              'Metrics: '+json.dumps(result['metrics'],sort_keys=True)]
-    return '\n'.join(safe(line) for line in lines)
+    from .assessment_display import render as display
+    return display(result,details=details)

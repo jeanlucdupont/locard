@@ -3433,7 +3433,8 @@ briefing --assessment-resume
 ```
 
 Review performs no searches or provider requests. `--json` exposes the structured
-assessment; normal output already includes exact evidence IDs and provenance.
+assessment. Normal output summarizes matching records with short citations;
+`--details` maps those citations to full evidence IDs, provenance and saved projections.
 New assessments require interactive plan confirmation; there is no unattended
 approval bypass. Resume rechecks the briefing digest and approved routes, displays
 the original bounded plan and requests fresh approval. Because equality with a
@@ -3449,3 +3450,28 @@ bounded searches, not the completeness of a forensic examination;
 `COMPLETE_WITH_LIMITATIONS`, `CANCELLED` and `FAILED` retain partial results.
 A `RUNNING` checkpoint is not evidence that a background task is still running.
 No background continuation or AI narrative synthesis is implemented in this release.
+
+
+### Human-readable initial assessments (6.92)
+
+The default assessment groups distinct records by artifact family, associates them
+with approved indicators, and shows a concise UTC chronology. It separates
+completion of the bounded discovery pass from incomplete search coverage and
+from a completed forensic investigation. MFT creation metadata, Prefetch file
+references and recorded Defender blocking actions retain their distinct meanings;
+matching basenames or nearby timestamps do not establish execution or causation.
+
+Use `briefing --assessment-show [ID] --details` for full saved fields, timestamp
+sets, source context, coverage and continuation metadata. `--json` remains the
+machine-readable view. Review does not search evidence or call a model.
+Historical assessments cannot supply labels they did not retain: for example,
+browser product or Prefetch executable names may be unavailable. New assessments
+retain these labels when already present in the retrieved projection. Per-page
+raw responses are not reconstructed; saved query rows contain aggregate coverage.
+
+Accepted editorial summaries are shown as unverified context, separately from
+structured objectives. For historical assessments the exact referenced briefing
+revision may supply this display-only context; the assessment is not rewritten.
+Reported incident time and authorized UTC scope remain distinct. An unspecified
+timezone is never inferred. Normal progress is throttled; `--details` retains
+per-query messages. Discovery budgets, scheduling and approval remain unchanged.
