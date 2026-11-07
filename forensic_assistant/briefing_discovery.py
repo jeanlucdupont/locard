@@ -1,4 +1,6 @@
 """Bounded cross-family briefing discovery; analyst leads are never findings."""
+import base64
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -15,12 +17,14 @@ def available(db):
 def matches(raw, args):
     """Attach bounded original matching values, separately from supporting records."""
     from .artifacts.paths import normalize_path
-    key = next(k for k in args if k not in ('artifact', 'start', 'end', 'limit'))
+    key = next(k for k in args if k not in ('artifact', 'start', 'end', 'limit', 'object_after', 'evtx_after'))
     value = args[key]
     output = []
     for record in raw['records'][:10]:
         fields = []
-        if key == 'evtx_text':
+        if key == 'object_basename':
+            fields=[dict(field='objects.'+o['role'],slot=o['slot'],value=o['original']) for o in record.get('discovery_objects', [])]
+        elif key == 'evtx_text':
             fields = [dict(field=m['name'], value=m['excerpt'], ordinal=m['ordinal'],
                            truncated=m['truncated'], basis=m['basis'])
                       for m in record.get('content_matches', [])]
@@ -56,9 +60,11 @@ def matches(raw, args):
                 if observed is not None:
                     fields.append(dict(field='context.hostname (attributed context)', value=observed))
         notes = ['A match is not proof of execution, compromise, causality, or maliciousness.']
+        if key == 'object_basename':
+            notes.append('Basename candidate only; directory, volume, host and file identity require comparison. Prefetch references do not prove execution of the referenced file.')
         if not fields:
             notes.append('Matching value is outside the bounded record projection; inspect the evidence record and query predicate.')
-        if len(fields) > 8 or record.get('objects_truncated') or record.get('content_matches_truncated'):
+        if len(fields) > 8 or record.get('objects_truncated') or record.get('content_matches_truncated') or record.get('discovery_objects_truncated'):
             notes.append('Matching-field projection is truncated.')
         for field in fields[:8]:
             text = str(field['value'])
@@ -73,11 +79,19 @@ def matches(raw, args):
     return output
 
 
-def discover_all(packet, case_path, approved, start, end, *, worker_factory=None):
+def discover_all(packet, case_path, approved, start, end, *, worker_factory=None, continuation=None):
     from . import briefing as b, activity
     from .investigation_ai.runner import ForensicWorker, WorkerError
     b.window(start, end, source='approved briefing window')
     leads = {lead['id']: lead for lead in packet['leads']}
+    binding=hashlib.sha256(json.dumps([str(Path(case_path).absolute()),packet.get('saved_briefing'),start,end],sort_keys=True).encode()).hexdigest()
+    resumed=None
+    if continuation:
+        try:
+            if len(approved)!=1 or len(continuation)>8192:raise ValueError()
+            resumed=json.loads(base64.b64decode(continuation,altchars=b'-_',validate=True))
+            if not isinstance(resumed,list) or len(resumed)!=4 or resumed[0]!=binding or resumed[1]!=approved[0] or resumed[2] not in b.ARTIFACTS or not isinstance(resumed[3],str):raise ValueError()
+        except (ValueError,TypeError,UnicodeError):raise ValueError('Invalid discovery continuation for this approval/revision/window') from None
     rows = [dict(lead_id=identity, indicator=leads[identity]['occurrences'][0]['original'],
                  artifact=family, status='not_searched', reason='aggregate_budget', matches=[])
             for identity in approved for family in b.ARTIFACTS]
@@ -101,16 +115,25 @@ def discover_all(packet, case_path, approved, start, end, *, worker_factory=None
                     row.update(status='unavailable', reason='No ingested records in this family')
                 elif q is None:
                     row.update(status='unsupported', reason='No eligible deterministic mapping')
+                elif resumed and row['artifact']!=resumed[2]:
+                    row['reason']='outside explicit continuation scope'
                 else:
+                    if resumed:
+                        if 'object_basename' in q:q['object_after']=resumed[3]
+                        elif 'evtx_text' in q:q['evtx_after']=resumed[3]
+                        else:raise ValueError('This route has no continuation')
                     plans.append((row, q))
-            # One first route per lead before each lead's second route. Stable family order.
+            # Cheap indexed object candidates first, then other lookups, EVTX content last.
+            # Round-robin leads within each cost tier; presentation keeps family order.
+            plans.sort(key=lambda item: (0 if 'object_basename' in item[1] else 2 if 'evtx_text' in item[1] else 1))
             ranks = {}
             ranked = []
             for row, q in plans:
                 rank = ranks.get(row['lead_id'], 0)
                 ranks[row['lead_id']] = rank + 1
-                ranked.append((rank, approved.index(row['lead_id']), row, q))
-            plans = [(row,q) for _,_,row,q in sorted(ranked, key=lambda item: item[:2])]
+                tier=0 if 'object_basename' in q else 2 if 'evtx_text' in q else 1
+                ranked.append((tier,rank, approved.index(row['lead_id']), row, q))
+            plans = [(row,q) for _,_,_,row,q in sorted(ranked, key=lambda item: item[:3])]
             for row, q in plans:
                 if attempted >= b.MAX_SEARCHES or time.monotonic()-started >= 85:
                     break
@@ -119,22 +142,31 @@ def discover_all(packet, case_path, approved, start, end, *, worker_factory=None
                 at = time.perf_counter()
                 try:
                     result = worker.call('briefing_search', q, seconds=min(15, 85-(time.monotonic()-started)))['result']
-                except WorkerError:
-                    row.update(status='failed', reason='Bounded lookup failed or timed out')
+                except WorkerError as exc:
+                    row.update(status='failed', reason='Bounded lookup failed or timed out',
+                               failure_category='timeout' if exc.timed_out else 'worker_error', elapsed_seconds=time.perf_counter()-at)
                     activity.event('BRIEFING_LOOKUP','failure',lead_id=row['lead_id'],artifact=row['artifact'])
-                    break
+                    # Continue only if the SAME pinned read view is still valid. A killed
+                    # worker or lost transaction stops safely; never mix fresh snapshots.
+                    try:worker.call('check',seconds=min(5,max(.001,85-(time.monotonic()-started))))
+                    except WorkerError:break
+                    continue
                 # Count both projections in the emitted packet conservatively.
                 size = len(json.dumps(result,ensure_ascii=True).encode()) * 2
                 if total_bytes + size > 192*1024:
                     row.update(status='truncated', reason='Aggregate payload bound; result omitted')
                     break
                 total_bytes += size
-                content = result.get('content_search', {})
+                content = result.get('object_search', result.get('content_search', {}))
                 truncated = (result['coverage'].get('matching_total', 0) or 0) > len(result.get('matches', [])) or content.get('complete') is False or content.get('has_more') or content.get('truncated')
                 row.update(status='truncated' if truncated else 'match' if result.get('matches') else 'no_match',
                            reason='Bounded lookup; timestamp meanings are artifact-specific',
                            matches=result.get('matches', []), limitations=result.get('limitations', []),
-                           coverage=result['coverage'], content_search=content)
+                           coverage=result['coverage'], search_coverage=content,
+                           content_search=result.get('content_search',{}))
+                cursor=content.get('next_cursor')
+                if cursor:
+                    row['continuation']=base64.urlsafe_b64encode(json.dumps([binding,row['lead_id'],row['artifact'],cursor]).encode()).decode()
                 d['queries'].append(dict(lead_id=row['lead_id'],arguments=q,result=result,elapsed_seconds=time.perf_counter()-at))
                 activity.event('BRIEFING_LOOKUP','success',lead_id=row['lead_id'],artifact=row['artifact'],returned_count=len(row['matches']))
             try:
@@ -183,6 +215,8 @@ def render(packet):
                     lines.append('    '+safe(field['field'])+': '+safe(field['value'])+(' [truncated]' if field['truncated'] else ''))
                 for note in match['limitations']:
                     lines.append('    '+safe(note))
+            if row.get('continuation'):
+                lines.append('    Resume this lead with the same revision/window and --artifact all --discovery-after '+row['continuation'])
             for note in row.get('limitations', []):
                 lines.append('    '+safe(note))
     lines.append('\nTotals: '+', '.join(str(n)+' '+status for status,n in d['counts'].items()))

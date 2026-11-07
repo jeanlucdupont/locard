@@ -386,6 +386,9 @@ def query_for(lead, artifact, start, end, *, cross=False):
         if kind in ('filename','windows_path'): filters={'download_path_contains':value}
         elif kind=='domain': filters={'url_contains':value}
         elif kind=='context': filters={'title_contains':value}
+    if cross and artifact in ('mft','prefetch','registry','browser') and kind in ('filename','windows_path') and filters:
+        from .artifacts.paths import normalize_path
+        filters={'object_basename':normalize_path(value)['basename']}
     if not filters or len(str(next(iter(filters.values()))).encode())>256:return None
     return dict(artifact=artifact,start=start,end=end,limit=10,**filters)
 
@@ -394,17 +397,19 @@ def validate_query(args):
     if type(args) is not dict or args.get('artifact') not in ARTIFACTS or args.get('limit')!=10:
         raise ValueError('Invalid briefing query')
     allowed={'artifact','start','end','limit','event_id','ip','hostname','evtx_text','path',
-             'registry_key','download_path_contains','url_contains','title_contains'}
-    if not set(args)<=allowed or len(set(args)-{'artifact','start','end','limit'})!=1:
+             'registry_key','download_path_contains','url_contains','title_contains','object_basename','object_after','evtx_after'}
+    if not set(args)<=allowed or len(set(args)-{'artifact','start','end','limit','object_after','evtx_after'})!=1:
         raise ValueError('Invalid briefing filter')
-    filters = {'evtx': {'event_id','ip','hostname','evtx_text'}, 'mft': {'path'},
-               'prefetch': {'path'}, 'registry': {'registry_key','path'},
-               'browser': {'download_path_contains','url_contains','title_contains'}}
-    if not (set(args)-{'artifact','start','end','limit'}) <= filters[args['artifact']]:
+    filters = {'evtx': {'event_id','ip','hostname','evtx_text'}, 'mft': {'path','object_basename'},
+               'prefetch': {'path','object_basename'}, 'registry': {'registry_key','path','object_basename'},
+               'browser': {'download_path_contains','url_contains','title_contains','object_basename'}}
+    if not (set(args)-{'artifact','start','end','limit','object_after','evtx_after'}) <= filters[args['artifact']]:
         raise ValueError('Filter is not supported for this artifact')
+    if 'object_after' in args and 'object_basename' not in args or 'evtx_after' in args and 'evtx_text' not in args:
+        raise ValueError('Continuation requires its original search filter')
     window(args['start'],args['end'],source='approved briefing window')
     for key,value in args.items():
-        if key not in ('event_id','limit') and (type(value) is not str or len(value.encode())>256):raise ValueError('Invalid briefing value')
+        if key not in ('event_id','limit') and (type(value) is not str or len(value.encode())>(2048 if key in ('object_after','evtx_after') else 256)):raise ValueError('Invalid briefing value')
     if 'evtx_text' in args and args['artifact']!='evtx':raise ValueError('EVTX filter requires EVTX')
     if 'event_id' in args and (type(args['event_id']) is not int or not 0<=args['event_id']<=65535):
         raise ValueError('Invalid Event ID')
@@ -419,21 +424,25 @@ def execute_query(db,args, *, cross=False):
     if cross:
         from .briefing_discovery import matches
         result['matches']=matches(raw,args)
+        if 'object_search' in raw:result['object_search']=raw['object_search']
     # Ordinary queries count matches, not examined candidates. Never invent a scan count.
-    result['coverage']={'candidate_count':raw.get('content_search',{}).get('examined'),
+    result['coverage']={'candidate_count':raw.get('object_search',raw.get('content_search',{})).get('examined'),
         'matching_total':raw.get('total'), 'returned':len(result['records']),
         'note':'Bounded lookup only; no-match is not proof of absence. Timestamp meanings remain artifact-specific.'}
+    if cross:
+        result['coverage']['matching_total_is_lower_bound']=raw.get('total_is_lower_bound',False)
     return result
 
 
-def discover(packet, case_path, approved, artifact, start, end, *, worker_factory=None):
+def discover(packet, case_path, approved, artifact, start, end, *, worker_factory=None, continuation=None):
     if not approved or len(approved)>MAX_SEARCHES or len(set(approved))!=len(approved):
         raise ValueError('Approve one to six distinct lead IDs explicitly.')
     by_id={r['id']:r for r in packet['leads']}
     if not set(approved)<=by_id.keys():raise ValueError('Unknown approved lead ID; review this briefing first.')
     if artifact=='all':
         from .briefing_discovery import discover_all
-        return discover_all(packet,case_path,approved,start,end,worker_factory=worker_factory)
+        return discover_all(packet,case_path,approved,start,end,worker_factory=worker_factory, continuation=continuation)
+    if continuation:raise ValueError("Continuation requires --artifact all")
     plans=[];unmapped=[];seen=set()
     for identity in approved:
         q=query_for(by_id[identity],artifact,start,end)

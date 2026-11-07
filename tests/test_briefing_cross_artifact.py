@@ -203,7 +203,7 @@ def test_time_budget_stops_before_second_lookup(monkeypatch):
     with closing(connect(':memory:')) as db:
         add(db);artifact(db,'mft');p=run(db,worker=Slow(db))
         assert p['metrics']['attempted_searches']==1
-        assert next(r for r in p['discovery']['outcomes'] if r['artifact']=='mft')['status']=='not_searched'
+        assert next(r for r in p['discovery']['outcomes'] if r['artifact']=='evtx')['status']=='not_searched'
 
 
 def test_summary_editorial_and_narratives_unchanged():

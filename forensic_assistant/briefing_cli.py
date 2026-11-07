@@ -24,6 +24,7 @@ def configure(commands):
     p.add_argument('--discover',action='store_true',help='Execute approved lead lookups; requires --approve, --artifact, --start and --end')
     p.add_argument('--approve',action='append',default=[],metavar='LEAD_ID',help='Approve exactly this reviewed lead; repeat for at most six leads')
     p.add_argument('--artifact',choices=(*briefing.ARTIFACTS,'all'),help='Search one family or all available families (six queries total; review unsearched coverage)')
+    p.add_argument('--discovery-after',help='Resume one explicitly approved lead/family using its discovery continuation token')
     p.add_argument('--start',help='Authorized search start with UTC/offset; never inferred from narrative')
     p.add_argument('--end',help='Authorized search end with UTC/offset; maximum 24-hour window')
     p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
@@ -32,10 +33,12 @@ def configure(commands):
 
 def run(args):
     if getattr(args,'import_json',None) or getattr(args,'export_json',None):
-        if any((args.ai,args.allow_cloud,args.save,args.deterministic,args.discover,args.approve,args.artifact,args.start,args.end,args.revision,args.briefing_correction)):
+        if any((args.ai,args.allow_cloud,args.save,args.deterministic,args.discover,args.approve,args.artifact,args.start,args.end,args.revision,args.briefing_correction,args.discovery_after)):
             raise ValueError('JSON exchange cannot combine with analysis or search options.')
         from .briefing_canonical import exchange
         return exchange(args)
+    if args.discovery_after and (not args.discover or args.artifact!='all' or len(args.approve)!=1):
+        raise ValueError('--discovery-after requires --discover --artifact all and one approved lead')
     saved = any(getattr(args, name, False) for name in ('interview','wizard','show','edit','analyze'))
     writing = args.interview or args.wizard or args.edit or args.save
     if args.deterministic and (not args.analyze or args.ai):
@@ -124,7 +127,7 @@ def run(args):
     if args.discover:
         if not all((args.approve,args.artifact,args.start,args.end)):
             raise ValueError('Discovery requires reviewed --approve IDs, --artifact, --start and --end.')
-        briefing.discover(packet,args.db,args.approve,args.artifact,args.start,args.end)
+        briefing.discover(packet,args.db,args.approve,args.artifact,args.start,args.end,**({'continuation':args.discovery_after} if args.discovery_after else {}))
     elif args.approve or args.artifact or args.start or args.end:
         raise ValueError('Search options require --discover; review this briefing first.')
     from .briefing_canonical import build,review

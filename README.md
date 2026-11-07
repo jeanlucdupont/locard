@@ -3289,7 +3289,7 @@ revision. No additional provider call repairs a draft. Synthetic/fake-provider
 tests cannot establish live narrative quality; the analyst remains responsible
 for reviewing the briefing's meaning and uncertainty.
 
-### Cross-artifact briefing discovery (6.89)
+### Cross-artifact briefing discovery (6.90)
 
 `briefing --analyze --deterministic --revision N --discover --approve LEAD_ID
 --artifact all --start ISO_TIME --end ISO_TIME` searches available ingested
@@ -3300,7 +3300,7 @@ or make an analyst statement a forensic finding.
 
 | Lead type | Supported routes in `all` |
 |---|---|
-| Filename / Windows path | EVTX retained content; MFT and Prefetch normalized objects; Registry extracted path objects; Browser download paths |
+| Filename / Windows path | EVTX retained content; MFT, Prefetch, Registry and Browser indexed object-basename candidates |
 | Domain | EVTX retained content; Browser URLs and download URL chains |
 | Event ID | EVTX event ID |
 | IP address | EVTX source/destination IP |
@@ -3323,9 +3323,11 @@ ten primary matches per query (at most 60 returned matches), 90 seconds total,
 search additionally retains its 1,000-candidate, five-second, 8 MiB payload bounds.
 No new AI requests are made by discovery. Availability uses indexed existence
 probes within the same supervised read-only transaction as the searches.
-Queries run round-robin across approved leads, with eligible families ordered
-EVTX, MFT, Prefetch, Registry, Browser. This prevents one lead consuming every
-query slot; it does **not** guarantee every combination will be searched.
+Indexed object searches run first, other supported lookups next, and broad EVTX
+content searches last. Within each tier, leads receive round-robin turns. This
+does **not** guarantee every combination will be searched. A failed lookup does
+not stop later searches if the same pinned read transaction still validates; a
+terminated worker or lost read view stops safely without switching evidence states.
 
 Results group by lead then family, showing stable evidence IDs, source references,
 recorded timestamps, matching fields/excerpts and limitations. Statuses distinguish
@@ -3337,3 +3339,23 @@ Neither no matches nor incomplete coverage establishes absence. Reduce the
 approved lead set, select a family explicitly, or narrow the window to inspect
 coverage omitted by budgets. Single-family discovery retains its previous routing
 and presentation. Canonical format 1 and exchange format 2 are unchanged.
+
+For an approved filename or Windows path, `all` derives a basename using existing
+path normalization and probes `object_basename`. Matching slots are grouped by
+unique evidence ID, then checked against the authorized timestamp window. There
+is no window-wide count query. At most 1,000 unique object candidates and five
+seconds are examined per lookup; the supervisor retains its 15-second limit.
+Original path variants and slot roles remain visible. Basename equality does not
+establish identical files, volumes, or hosts; short-name aliases are not inferred.
+Prefetch references do not prove that the referenced file executed. Single-family
+full-path search semantics are unchanged.
+
+Incomplete EVTX or object coverage may include a `continuation` token. To resume,
+repeat the same saved briefing revision, timestamps and **one** approved lead with
+`--artifact all --discovery-after TOKEN`. Only the indicated family continues;
+other families are marked outside the continuation scope. Tokens are scoped to
+the case identity, query and briefing revision. Each invocation retains the same
+budgets. Continuations are not persistent snapshots across invocations; case changes
+can affect subsequent pages. If no cursor is available after a timeout, narrow the
+window or approved lead set. Six queries remain the aggregate ceiling, so many
+leads still require separate explicitly approved invocations.

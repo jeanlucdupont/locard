@@ -368,6 +368,11 @@ class EvidenceQueries:
         require_complete=False,
         **filters
     ):
+        if filters.get('object_basename') is not None:
+            if timeline or nearest_to or exclude_time or require_complete or offset or raw:
+                raise ValueError('Object discovery requires bounded explicit search')
+            from .object_discovery import search
+            return search(self,start=start,end=end,limit=limit,**filters)
         if filters.get('evtx_text') is not None:
             if timeline or nearest_to or exclude_time or require_complete:
                 raise ValueError('EVTX content search is only available through explicit search')
