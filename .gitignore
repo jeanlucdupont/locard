@@ -205,6 +205,7 @@ report-bundles/
 !/docs/LOCARD_6_74_LITERALS.md
 !/docs/LOCARD_6_105_FACTUAL_CLAUSES.md
 !/docs/LOCARD_6_106_RELATIONSHIPS.md
+!/docs/LOCARD_6_107_QUESTION_ASSESSMENT.md
 
 # Analyst briefing sidecars and private editor scratch directories
 *.briefing/

@@ -285,10 +285,16 @@ def main():
     parser.add_argument('root', help='Directory containing saved investigation directories')
     parser.add_argument('identity', help='Original 32-character investigation ID (directory name)')
     parser.add_argument('--json', action='store_true', help='Print structured clauses and support lineage')
-    parser.add_argument('--relationships', action='store_true', help='Inspect S2 typed relationships and recorded-value chronology')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--relationships', action='store_true', help='Inspect S2 typed relationships and recorded-value chronology')
+    mode.add_argument('--assessment', action='store_true', help='Inspect S3 deterministic assessment of the saved original question')
     args = parser.parse_args()
     try:
-        if args.relationships:
+        if args.assessment:
+            from . import question_assessment
+            result = question_assessment.reconstruct(args.root, args.identity)
+            print(encoded(result) if args.json else question_assessment.render(result))
+        elif args.relationships:
             from . import relationships
             result = relationships.reconstruct(args.root, args.identity)
             print(encoded(result) if args.json else relationships.render(result))
