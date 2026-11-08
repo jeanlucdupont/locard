@@ -23,6 +23,7 @@ def run(args):
         from .ai.backend import backend
         from .terminal_activity import ActivityIndicator
         def authorize_envelope(grant):
+            indicator.stop()  # Never animate concurrently with approval input.
             print('Autonomous Stage A authorization',file=stream)
             print('  Case: '+safe(grant['case']),file=stream)
             print('  Question: '+safe(grant['objective']),file=stream)

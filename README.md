@@ -3790,3 +3790,14 @@ Stage A journals explicitly. Durable restart and report adapters remain later st
 
 The legacy command without `--autonomous` preserves its approval and execution behavior.
 No evidence schema, normalization, ingestion or database-writing behavior changes.
+
+Stage A startup hardening (6.103): the execution clock and grant expire 300 seconds
+after approval, including assessment revalidation, journal creation, provider and
+worker initialization, and read-view establishment. Cleanup has a separate five-second
+ceiling. Startup phase labels and content-free `startup_diagnostic` result metadata
+identify the last reached phase, whether the supervisor confirmed a valid read view, and whether
+cleanup was confirmed. A timeout before view establishment claims no successful
+retrieval or analysis. Cancellation is supervised. If an OS process launch or cleanup
+cannot be confirmed, Locard raises `CLEANUP_LIMITATION` rather than safely-return-to-shell
+success; a late child cannot pass an expired or cancelled startup gate. This does not guarantee
+recovery from an unresponsive Windows kernel or establish the cause of a previous hang.

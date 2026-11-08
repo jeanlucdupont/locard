@@ -9,6 +9,13 @@ from .terminal import Palette, capable, enabled, replace_progress_line
 FRAMES = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 PHASES = {
     'preparing': 'Preparing investigation...',
+    'supervisor_start': 'Starting supervised investigation...',
+    'authorization_validation': 'Checking investigation authorization...',
+    'handoff_validation': 'Revalidating approved assessment and briefing...',
+    'provider_init': 'Initializing approved AI provider...',
+    'audit_init': 'Initializing investigation activity record...',
+    'transcript_init': 'Creating derived investigation journal...',
+    'worker_start': 'Starting read-only forensic worker...',
     'semantic_fingerprint': 'Verifying semantic index against retained evidence...',
     'view_validation': 'Checking investigation read view...',
     'read_transaction': 'Establishing consistent investigation view...',

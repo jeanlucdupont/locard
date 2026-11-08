@@ -9,7 +9,7 @@ import uuid
 
 from . import contracts, disclosure, autonomous_policy as policy
 from .state import State, Budget, encoded
-from .transcript import Transcript, digest, load
+from .transcript import Transcript, digest, load, validate_evidence_state
 from .runner import ForensicWorker
 from .narrative import build
 
@@ -46,14 +46,17 @@ def prepare(handoff, assessment, client):
 
 def start(handoff,assessment,client,confirm,*,status=None):
     grant,hints=prepare(handoff,assessment,client)
-    if confirm(deepcopy(grant)) is not True:return None
-    from forensic_assistant.assessment_handoff import authorize,validate as validate_handoff
-    validate_handoff(authorize(handoff,lambda _:True),grant['case'])
-    grant.update(id=uuid.uuid4().hex,issued=time.time());grant['expires']=grant['issued']+300
-    policy.validate(grant,grant['case'])
     from .supervision import run as supervised
-    return supervised({'case_path':grant['case'],'semantic_enabled':False,'_stage_a':grant,'_stage_a_hints':hints},
-        grant['objective'],grant['case']+'.investigations',client=client,budget=Budget(),status=status)
+    from forensic_assistant.ai.backend import ModelBackend
+    # Capture cached provider configuration before approval; never probe here.
+    descriptor=client.descriptor() if isinstance(client,ModelBackend) else None
+    if confirm(deepcopy(grant)) is not True:return None
+    started=time.monotonic()
+    grant.update(id=uuid.uuid4().hex,issued=time.time());grant['expires']=grant['issued']+300
+    from forensic_assistant.assessment_handoff import authorize
+    return supervised({'case_path':grant['case'],'semantic_enabled':False,'_stage_a':grant,'_stage_a_hints':hints,
+        '_stage_a_handoff':authorize(handoff,lambda _:True),'_stage_a_started':started,'_stage_a_deadline':started+300},
+        grant['objective'],grant['case']+'.investigations',client=client,budget=Budget(),status=status,prepared_backend=descriptor)
 
 
 def choose(pending,hints,previous):
@@ -100,16 +103,23 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     from forensic_assistant.ai.output_budget import final_output
     from forensic_assistant.ai.backend import model_operation
     from forensic_assistant.llm.client import LLMError
+    status=config.get('_status') or (lambda _:None)
+    status('authorization_validation')
     grant=config['_stage_a'];policy.validate(grant,config['case_path'])
+    if config.get('_stage_a_handoff') is not None:
+        status('handoff_validation')
+        from forensic_assistant.assessment_handoff import validate as validate_handoff
+        validate_handoff(config['_stage_a_handoff'],config['case_path'])
+        policy.validate(grant,config['case_path'])
     if dry_run or approval is not None or question!=grant['objective']:raise ValueError('Invalid Stage A invocation')
     if client is None or client.provider_name!=grant['provider'] or client.model_name!=grant['model']:raise ValueError('PROVIDER_SCOPE_CHANGED')
     budget=budget or Budget()
     if budget!=Budget():raise ValueError('Stage A uses the approved fixed limits')
-    deadline=min(config.get('_deadline',float('inf')),time.monotonic()+300)
+    deadline=min(config.get('_deadline',float('inf')),config.get('_stage_a_deadline',float('inf')),time.monotonic()+300)
     state=State(budget);state.compact_final=True;state.finalization_requested=True
     state.scope={'kind':'explicit','start':grant['start'],'end':grant['end']}
     identity=config.get('_investigation_id') or uuid.uuid4().hex
-    status=config.get('_status') or (lambda _:None)
+    status('transcript_init')
     transcript=Transcript(root,dict(engine=ENGINE,authorization=grant,question=question,budgets=asdict(budget),
         evidence_fingerprint=None,rule_ids=[],schema=5),investigation_id=identity)
     deltas=[];pending=set(grant['evidence_ids']);requests=0;view=None;worker=None;stop='AUTHORIZED_PLAN_EXHAUSTED';sizes=[];usage=[];phase='operation'
@@ -119,11 +129,18 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         if time.monotonic()>=deadline:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
         if client.provider_name!=grant['provider'] or client.model_name!=grant['model']:raise ValueError('PROVIDER_SCOPE_CHANGED')
     try:
+        guard();status('audit_init')
         activity.event('INVESTIGATION_START',required=True,investigation_id=identity)
-        worker_config={k:v for k,v in config.items() if k not in ('_execution_clock','_startup_complete','_approval_clock_managed','_stage_a_checkpoint','_stage_a_hints')}
+        guard();status('worker_start')
+        worker_config={k:v for k,v in config.items() if k not in ('_execution_clock','_startup_complete','_approval_clock_managed','_stage_a_checkpoint','_stage_a_hints','_stage_a_handoff')}
         worker=worker_factory({**worker_config,'_transaction_view':True,'semantic_enabled':False,'_deadline':deadline})
+        guard();status('read_transaction')
         initial=worker.call('initial',question=question,seconds=remaining())
-        view=initial['evidence_state'];transcript.manifest['evidence_state']=view
+        guard()
+        view=validate_evidence_state(initial['evidence_state'])
+        if initial.get('database_changes')!=0 or initial.get('fingerprint') is not None:
+            raise ValueError('READ_VIEW_INCONSISTENT')
+        transcript.manifest['evidence_state']=view
         transcript.manifest['schema']=initial.get('schema',5)
         transcript.append('initial',initial)
         if config.get('_startup_complete'):config['_startup_complete']()

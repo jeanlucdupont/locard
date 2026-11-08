@@ -256,6 +256,11 @@ def render(result, palette=None, *, dry_run=False, details=False):
                         '  '+safe(termination_label(result)),
                       '  Validated batches: '+str(result.get('validated_batches',0)),
                       '  Execution completion is not forensic completeness.'])
+        diagnostic=result.get('startup_diagnostic')
+        if diagnostic and result.get('termination')!='AUTHORIZED_PLAN_EXHAUSTED':
+            lines.extend(['  Last phase: '+safe(diagnostic['last_phase']),
+                          '  Supervisor-confirmed read view: '+str(diagnostic['read_view_established']),
+                          '  Cleanup confirmed: '+str(diagnostic['cleanup_confirmed'])])
         if findings.get('hypotheses'):
             lines.extend(['',palette('heading','Model-proposed hypotheses — unverified')])
             for hypothesis in findings['hypotheses']:
