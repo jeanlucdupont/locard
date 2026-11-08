@@ -3571,3 +3571,25 @@ EVTX content search now records separate skipped-reason counts for payload-byte,
 XML-byte, field-count, and invalid-EventData conditions. Reasons can overlap for
 one candidate; `skipped` remains the candidate count. Search bounds and rejection
 behavior are unchanged. Historical combined counts cannot be split retrospectively.
+
+
+### Investigation rejection diagnostics (6.96)
+
+Rejected model responses are retained in the existing private investigation
+transcript before termination. They are labeled **unvalidated, not evidence or
+findings**. Capture is secret-redacted and bounded to 16 KiB UTF-8 text and
+32 KiB serialized text; truncation/redaction flags and original/captured hashes
+make that distinction explicit. These sidecars can contain sensitive case data
+and rejected model assertions. Normal terminal output never displays the capture.
+
+Structural failures retain schema paths, array indices, expected/actual types,
+and missing required fields. Observed-reference failures distinguish unknown
+IDs from undisclosed fields and retain the submitted pointer, observation index,
+and disclosure-step linkage. These diagnostics do not alter acceptance rules.
+Legacy transcripts without this additive diagnostic object remain readable;
+missing historical model responses cannot be recovered from hashes.
+
+The final-only turn prioritizes current evidence over historical assessment
+context and identity-only hints. Its original question, authorized scope, search
+coverage, and 5,600-byte ceiling remain in force. There is still one final-only
+opportunity with no tools or automatic response-repair retry.

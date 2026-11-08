@@ -474,6 +474,8 @@ def _run(
                                 rejected[key] = value[key]
                 except ValueError:
                     pass
+                from .rejection import rejected_response
+                capture = rejected_response(raw, exc, state)
                 transcript.append(
                     'rejected',
                     {
@@ -482,6 +484,7 @@ def _run(
                         'reason': str(exc)[:300],
                         'diagnostic': rejected_diagnostic,
                         'request': rejected,
+                        'rejected_response': capture,
                         'response_sha256': hashlib.sha256(raw.encode()).hexdigest()
                     }
                 )
@@ -492,7 +495,11 @@ def _run(
                     termination = 'USER_SCOPE_REACHED'
                     break
                 if state.finalization_requested:
-                    state.limit('Final-only response failed structural or grounding validation; no additional retry or lookup was allowed.')
+                    failure_kind = ('evidence-reference validation' if capture['reference_failure'] else
+                                    'grounding validation' if validation_stage == 'final_grounding' else
+                                    'response parsing' if validation_stage == 'proposal_parsing' else 'structural validation')
+                    state.limit('Final-only response failed ' + failure_kind + '; no additional retry or lookup was allowed.')
+                    state.limit('Validation reason: ' + rejected_diagnostic['reason'])
                     termination = 'FINALIZATION_FAILED'
                     break
                 if state.rejected >= budget.rejections:

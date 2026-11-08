@@ -28,6 +28,7 @@ FIXED = frozenset((
     'Use a full ISO timestamp with Z or an explicit UTC offset',
     'Process anchor required', 'Successful logon anchor required',
     'Observed finding references an unexposed evidence field',
+    'Interpretation was not exposed or is not a recognized derivation',
     'Supporting evidence was not exposed', 'Relationship was not exposed',
     'Relationship lacks disclosed support', 'Detection was not exposed',
     'Detection lacks disclosed support', 'Hypothesis cites undisclosed evidence',
@@ -75,7 +76,7 @@ def diagnostic(identity, step, number, decoded, stage, error):
         allowed = {'request', 'action', 'answer', 'tool', 'arguments', 'reason'} | _keys(FINAL)
         for _, schema in TOOLS.values():
             allowed.update(_keys(schema))
-        parts = re.sub(r'\[\]', '', path).split('.')
+        parts = re.sub(r'\[\d*\]', '', path).split('.')
         if separator and detail in SCHEMA_ERRORS and all(p in allowed for p in parts):
             reason = path + ': ' + detail
             if 'arguments' in parts or (action == 'tool' and len(parts) > 1 and parts[1] not in ('action', 'tool', 'reason')):
@@ -93,3 +94,40 @@ def diagnostic(identity, step, number, decoded, stage, error):
                   category=category, stage=stage, reason=reason[:300])
     LOG.debug('investigate-ai proposal diagnostic %s', result)
     return result
+
+
+
+def rejected_response(raw, error, state):
+    """Private transcript only: bounded, secret-redacted, never accepted findings.
+
+    The existing raw-response SHA-256 outside this object identifies the original.
+    Sanitization can change text; its digest is separately identified here.
+    """
+    from forensic_assistant.ai.raw_diagnostics import sanitize
+    from .state import encoded
+    import hashlib
+    text = sanitize(raw)  # Model transport already bounds responses.
+    raw_bytes = text.encode('utf-8', errors='replace')
+    text = raw_bytes[:16384].decode('utf-8', errors='ignore')
+    # Bound serialized bytes too (control characters/ASCII escaping can expand).
+    while len(encoded(text).encode()) > 32768:
+        text = text[:len(text)//2]
+    detail = getattr(error, 'reference_detail', {})
+    return {
+        'contract': 'rejected-response-v1',
+        'classification': 'UNVALIDATED MODEL OUTPUT; NOT EVIDENCE OR FINDINGS',
+        'text': text,
+        'original_bytes': len(raw.encode('utf-8')),
+        'truncated': len(text.encode('utf-8')) < len(raw_bytes),
+        'redacted': raw != raw_bytes.decode('utf-8'),
+        'captured_sha256': hashlib.sha256(text.encode('utf-8')).hexdigest(),
+        'structural_failure': getattr(error, 'validation_detail', {}),
+        'reference_failure': {k: sanitize(v) if isinstance(v, str) else v for k, v in detail.items()},
+        'disclosure': {
+            'step': state.steps,
+            'latest_evidence_count': len(state.last_disclosed),
+            'ledger_evidence_count': len(state.exposed),
+            'prompt_bytes': state.prompt_diagnostics.get('prompt_bytes'),
+            'exposure_event_step': state.steps,
+        },
+    }

@@ -184,6 +184,22 @@ FINAL = obj(
 )
 
 def validate(value, schema, path='request'):
+    try:
+        _validate(value, schema, path)
+    except ValueError as exc:
+        if not hasattr(exc, 'validation_detail'):
+            exc.validation_detail = {
+                'validation_path': path,
+                'constraint': str(exc).partition(': ')[2],
+                'expected_type': schema['type'],
+                'actual_type': type(value).__name__,
+                **({'missing_fields': sorted(set(schema['required']) - value.keys())}
+                   if type(value) is dict and schema['type'] == 'object' else {}),
+            }
+        raise
+
+
+def _validate(value, schema, path='request'):
     kind = schema['type']
     types = {'object': dict, 'array': list, 'string': str, 'integer': int}
     if type(value) is not types[kind]:
@@ -200,8 +216,8 @@ def validate(value, schema, path='request'):
             raise ValueError(path + ': invalid item count')
         if len({json.dumps(v, sort_keys=True) for v in value}) != len(value):
             raise ValueError(path + ': duplicate items')
-        for item in value:
-            validate(item, schema['items'], path + '[]')
+        for index, item in enumerate(value):
+            validate(item, schema['items'], path + f'[{index}]')
     elif kind == 'string':
         if '\x00' in value or not value.strip() or len(value.encode('utf-8')) > schema.get('maxLength', 1024):
             raise ValueError(path + ': invalid string length/content')
