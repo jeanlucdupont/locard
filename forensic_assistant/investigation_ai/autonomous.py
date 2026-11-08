@@ -227,7 +227,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     return result
 
 
-def reconstruct(root,identity):
+def reconstruct(root,identity, *, _on_validated=None):
     """Inspect validated recorded deltas, not resume or assert current-case equality."""
     manifest,events=load(root,identity)
     if manifest.get('engine')!=ENGINE:raise ValueError('Not a Stage A transcript')
@@ -247,5 +247,7 @@ def reconstruct(root,identity):
             contracts.request(encoded(d['proposal']),[])
             if state.render(d['proposal']['answer'])!=d['findings']:raise ValueError('Invalid recorded delta grounding')
             if d['based_on']!=(deltas[-1]['id'] if deltas else None):raise ValueError('Invalid delta chain')
+            if _on_validated is not None:
+                _on_validated(state, d, exposure)
             deltas.append(d)
     return dict(recorded_not_revalidated=True,validated_batches=len(deltas),findings=merge_findings(deltas))
