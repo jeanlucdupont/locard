@@ -59,7 +59,9 @@ def test_interpretation_requires_recognized_exposure_and_not_arbitrary_text():
     a['interpretations'] = record['interpretation_ids']
     state.exposed[record['id']]['defender_asr']['action'] = 'execution succeeded'
     with pytest.raises(ValueError, match='Interpretation'): state.render(a)
-    with pytest.raises(ValueError, match='unexposed'): state.render(answer(record, ['/defender_asr/action']))
+    with pytest.raises(ValueError, match='visible metadata') as failure:
+        state.render(answer(record, ['/defender_asr/action']))
+    assert failure.value.reference_detail['code'] == 'non_observation_field'
 
 
 def test_completeness_cannot_be_self_certified():

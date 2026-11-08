@@ -33,15 +33,15 @@ class Budget:
             if type(value) is not int or not 1 <= value <= ceilings[key]:
                 raise ValueError('Invalid investigation budget: ' + key)
 
-def fields(value, prefix=''):
-    """JSON pointers refer to precisely the displayed value, never hidden raw data."""
+def fields(value, prefix='', *, include_metadata=False):
+    """Eligible scalar pointers; include_metadata is for visibility diagnostics only."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if key not in ('id', 'supporting_evidence_ids', 'truncated_fields', 'retrieval_basis', 'source_context', 'defender_asr', 'interpretation_ids', 'coverage_notes', 'event_data_limitations'):
-                yield from fields(item, prefix + '/' + key.replace('~', '~0').replace('/', '~1'))
+            if include_metadata or key not in ('id', 'supporting_evidence_ids', 'truncated_fields', 'retrieval_basis', 'source_context', 'defender_asr', 'interpretation_ids', 'coverage_notes', 'event_data_limitations'):
+                yield from fields(item, prefix + '/' + key.replace('~', '~0').replace('/', '~1'), include_metadata=include_metadata)
     elif isinstance(value, list):
         for i, item in enumerate(value):
-            yield from fields(item, prefix + '/' + str(i))
+            yield from fields(item, prefix + '/' + str(i), include_metadata=include_metadata)
     elif value is not None:
         yield prefix, value
 
@@ -352,12 +352,17 @@ class State:
         for index, item in enumerate(answer['observed']):
             record = self.exposed.get(item['evidence_id'])
             if record is None or item['field'] not in dict(fields(record)):
-                raise GroundingReferenceError('Observed finding references an unexposed evidence field',
-                    code='unknown_evidence_id' if record is None else 'undisclosed_field',
+                visible = item['field'] in dict(fields(record, include_metadata=True))
+                latest = self.last_disclosed.get(item['evidence_id'], {})
+                raise GroundingReferenceError(
+                    'Observed finding references visible metadata, not an observation-eligible field' if visible else
+                    'Observed finding references an unexposed evidence field',
+                    code='unknown_evidence_id' if record is None else 'non_observation_field' if visible else 'undisclosed_field',
                     validation_path=f'answer.observed[{index}]', evidence_id=item['evidence_id'],
                     field=item['field'], evidence_disclosed=record is not None,
-                    field_disclosed=False, in_latest_prompt=item['field'] in dict(fields(
-                        self.last_disclosed.get(item['evidence_id'], {}))))
+                    field_disclosed=False, in_latest_prompt=item['field'] in dict(fields(latest)),
+                    observation_eligible=False, visible_in_exposure_ledger=visible,
+                    visible_in_latest_prompt=item['field'] in dict(fields(latest, include_metadata=True)))
             ids = [record['id']] + record.get('supporting_evidence_ids', [])
             if not set(ids) <= self.exposed.keys():
                 raise ValueError('Supporting evidence was not exposed')

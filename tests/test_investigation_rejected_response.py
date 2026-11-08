@@ -37,9 +37,12 @@ def test_rejected_final_persisted_before_termination(saved, tmp_path, mode):
     assert events[-1]['kind'] == 'terminal' and event['sequence'] < events[-1]['sequence']
     detail = capture['reference_failure']
     if mode in ('field', 'identity', 'derived'):
-        assert detail['code'] == ('unknown_evidence_id' if mode == 'identity' else 'undisclosed_field')
+        assert detail['code'] == ('unknown_evidence_id' if mode == 'identity' else 'non_observation_field' if mode == 'derived' else 'undisclosed_field')
         assert detail['validation_path'] == 'answer.observed[0]'
         assert not detail['field_disclosed']
+        assert not detail['observation_eligible']
+        assert detail['visible_in_exposure_ledger'] == (mode == 'derived')
+        assert detail['visible_in_latest_prompt'] == (mode == 'derived')
         assert detail['evidence_disclosed'] == (mode != 'identity')
     else:
         assert not detail and event['data']['diagnostic']['category'] == 'MALFORMED_PROPOSAL'

@@ -28,6 +28,7 @@ FIXED = frozenset((
     'Use a full ISO timestamp with Z or an explicit UTC offset',
     'Process anchor required', 'Successful logon anchor required',
     'Observed finding references an unexposed evidence field',
+    'Observed finding references visible metadata, not an observation-eligible field',
     'Interpretation was not exposed or is not a recognized derivation',
     'Supporting evidence was not exposed', 'Relationship was not exposed',
     'Relationship lacks disclosed support', 'Detection was not exposed',

@@ -60,7 +60,9 @@ def test_full_pipeline_existing_case_null_normalization_and_grounding(db):
     assert 'baje.ps1' in finding['reported_value'] and finding['recorded_field']['name']=='Target Commandline'
     for field in ('/raw_xml','/defender_asr/action'):
         answer['observed'][0]['field']=field
-        with pytest.raises(ValueError,match='unexposed'): state.render(answer)
+        with pytest.raises(ValueError,match='visible metadata' if field.startswith('/defender_asr/') else 'unexposed') as failure:
+            state.render(answer)
+        assert failure.value.reference_detail['code'] == ('non_observation_field' if field.startswith('/defender_asr/') else 'undisclosed_field')
     shown=tools.execute(db,'show_evidence',{'evidence_id':eid},{'known_ids':[eid]})['records'][0]
     assert shown['defender_asr']['action']=='recorded ASR block'
     assert db.total_changes==before

@@ -162,7 +162,14 @@ def validate_output(result):
                 raise ValueError('Forensic object has missing supporting evidence')
 FINAL = obj(
     {
-        'observed': array(obj({'evidence_id': string(160), 'field': string(256)}, ('evidence_id', 'field')), 12),
+        'observed': array(obj({'evidence_id': string(160), 'field': {**string(256), 'description': (
+            'Exact disclosed original scalar JSON pointer. Use the full evidence_id, never assessment E1/E2 aliases. '
+            'For original_event_data use /original_event_data/N/value where N is the displayed array position, '
+            'NOT the original ordinal or field name; retain holes and distinguish duplicate names. '
+            'source_context is provenance, not an observed fact. defender_asr is derived: cite its exposed '
+            'interpretation_ids in interpretations, never /defender_asr fields in observed. '
+            'Other metadata (id, supporting_evidence_ids, truncated_fields, retrieval_basis, interpretation_ids, '
+            'coverage_notes, event_data_limitations) is not observation-eligible. Omitted fields are unavailable.')}}, ('evidence_id', 'field')), 12),
         'interpretations': array(string(80), 4),
         'answer_status': enumeration('answered', 'partial', 'unresolved'),
         'relationships': array(string(80), 3),

@@ -3610,3 +3610,21 @@ grounding still apply. No automatic truncation retry is added. Truncation during
 finalization is identified explicitly, with payload-free requested-limit, usage,
 finish-reason and validation-stage diagnostics retained in the transcript when
 available. Rejected response capture remains separate from accepted findings.
+
+### Observation citation contract (6.98)
+
+Investigation response schemas now explicitly distinguish original scalar
+observations from visible provenance and derived interpretation metadata.
+`source_context` is not an observation; recognized Defender derivations must use
+exposed `interpretation_ids`. Original EventData pointers use the displayed array
+position, not the original ordinal or field name. No aliases or automatic
+corrections are accepted.
+
+Rejection diagnostics distinguish `non_observation_field` from
+`undisclosed_field` and `unknown_evidence_id`. Additive visibility flags record
+physical presence in the latest prompt and cumulative exposure ledger separately
+from observation eligibility. Legacy `field_disclosed`/`in_latest_prompt` flags
+retain their observation-eligible meaning. Diagnostics remain bounded transcript
+data, not findings; normal output does not expose raw rejected responses.
+Grounding rules, approvals, budgets and the single final-only opportunity are
+unchanged. Live model adherence requires manual acceptance.
