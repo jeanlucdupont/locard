@@ -3707,3 +3707,26 @@ Prefetch, forged citations/values/qualifiers, retained exposure, tuple decoding,
 partial coverage and historical adapters. Live answer quality still requires analyst
 acceptance; fitting observations into a prompt does not guarantee the model selects
 all relevant findings or proves the proposed attack sequence.
+
+
+### Final-answer hypothesis length guidance (6.101)
+
+The hypothesis statement limit remains 400 **UTF-8 bytes**, and each alternative
+remains bounded to 200 UTF-8 bytes. JSON Schema `maxLength` measures characters;
+therefore provider schema acceptance alone does not establish local validity.
+Model-facing descriptions now explicitly communicate the byte limit, nonblank/NUL
+restrictions and the need to leave a margin for Unicode. Locard does not truncate,
+rewrite or silently discard an invalid hypothesis. The existing local validator
+and current-request evidence grounding remain authoritative.
+
+Rejected-response structural diagnostics now include character and UTF-8 byte
+counts, the byte limit, and blank/NUL flags without copying the rejected text into
+those measurements. Existing private bounded response capture remains unchanged.
+No retry, token increase, additional lookup or compact allocator change is added.
+A valid hypothesis remains an unverified proposal, not an observed fact.
+
+Synthetic tests reproduce a 400-character/402-byte rejection and cover valid and
+invalid boundaries, provider adaptation, citation checks and final-only handling.
+Live compliance still requires manual acceptance. Accepted hypotheses remain in
+structured findings/transcripts; the existing human renderer does not display
+hypothesis statements. That presentation limitation is unchanged by this fix.

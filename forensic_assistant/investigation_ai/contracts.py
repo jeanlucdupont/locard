@@ -177,9 +177,15 @@ FINAL = obj(
         'hypotheses': array(
             obj(
                 {
-                    'statement': string(400),
+                    'statement': {**string(400), 'description': (
+                        'Unverified hypothesis, not an observation. Write a concise nonblank statement '
+                        'of at most 400 UTF-8 bytes, not 400 characters. Non-ASCII characters consume '
+                        'multiple bytes; leave a margin. NUL characters are forbidden. Preserve uncertainty '
+                        'and exact technical identifiers; do not invent or abbreviate evidence citations.')},
                     'evidence_ids': array(string(160), 8, 1),
-                    'alternatives': array(string(200), 3)
+                    'alternatives': array({**string(200), 'description': (
+                        'Nonblank alternative explanation, at most 200 UTF-8 bytes (not characters); '
+                        'no NUL characters. At least one alternative is required for a hypothesis.')}, 3)
                 },
                 ('statement', 'evidence_ids', 'alternatives')
             ),
@@ -203,6 +209,13 @@ def validate(value, schema, path='request'):
                 **({'missing_fields': sorted(set(schema['required']) - value.keys())}
                    if type(value) is dict and schema['type'] == 'object' else {}),
             }
+        # Safe measurements only: never include rejected forensic text here.
+        if type(value) is str and schema.get('type') == 'string':
+            exc.validation_detail.update(
+                characters=len(value), utf8_bytes=len(value.encode('utf-8')),
+                maximum_utf8_bytes=schema.get('maxLength', 1024),
+                blank=not value.strip(), contains_nul='\x00' in value,
+            )
         raise
 
 

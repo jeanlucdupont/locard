@@ -55,8 +55,17 @@ def test_wire_subset_and_canonical_unchanged(browser):
     assert p['schema_profile']['optional_property_count']==49
     assert p['provider_schema_profile']['optional_property_count']==0
     assert p['provider_schema_profile']['nesting_depth']<=10
+    def property_names(node):
+        if isinstance(node,dict):
+            yield from node.get('properties',{})
+            for value in node.values():yield from property_names(value)
+        elif isinstance(node,list):
+            for value in node:yield from property_names(value)
+    # Descriptions may name forbidden fields to explain their rejection.
+    # They must never become model-output properties.
+    names=set(property_names(wire))
     for key in ('evidence_fingerprint','metrics','audit','source_context','transcript'):
-        assert key not in json.dumps(wire)
+        assert key not in names
 
 
 @pytest.mark.parametrize('name',list(contracts.TOOLS))
