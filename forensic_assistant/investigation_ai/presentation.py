@@ -93,6 +93,10 @@ def source_dependency(row):
 
 def termination_label(result):
     code = result.get('termination')
+    if code == 'MODEL_FAILURE':
+        failure = result.get('provider_failure', {})
+        if failure.get('final_only') is True and failure.get('category') == 'output_truncated':
+            return 'Final AI response truncated at the configured output-token limit.'
     if code == 'BUDGET_EXHAUSTED':
         # This code covers several budgets. Only call it a step limit when the
         # deterministic path has no competing limit/error reason.

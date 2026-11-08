@@ -137,7 +137,7 @@ def safe_metadata(value):
     detail = safe(value.get('validation_diagnostics'))
     if detail: result['validation_diagnostics'] = detail
     tokens = value.get('max_output_tokens')
-    if type(tokens) is int and 1 <= tokens <= 1024: result['max_output_tokens'] = tokens
+    if type(tokens) is int and 1 <= tokens <= 4096: result['max_output_tokens'] = tokens
     code = value.get('http_status')
     if type(code) is int and 100 <= code <= 599: result['http_status'] = code
     for key in ('provider_code', 'provider_type'):

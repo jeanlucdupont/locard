@@ -17,11 +17,12 @@ def safe(value):
     }.items():
         if type(value.get(key)) is str and value[key] in allowed:
             result[key] = value[key]
-    for key in ('tool_calls_present','function_call_present','content_bytes_capped'):
+    for key in ('tool_calls_present','function_call_present','content_bytes_capped','envelope_received'):
         if type(value.get(key)) is bool:
             result[key] = value[key]
     from forensic_assistant.briefing import OPENAI_OUTPUT_TOKENS
-    for key, maximum in (('content_bytes',LIMIT+1),('output_token_limit',OPENAI_OUTPUT_TOKENS)):
+    for key, maximum in (('content_bytes',LIMIT+1),('output_token_limit',max(4096,OPENAI_OUTPUT_TOKENS)),
+                         ('prompt_tokens',10000000),('completion_tokens',10000000),('total_tokens',10000000)):
         if type(value.get(key)) is int and 0 <= value[key] <= maximum:
             result[key] = value[key]
     return result
@@ -30,8 +31,10 @@ def safe(value):
 def content(result, kwargs):
     from .provider_diagnostics import ProviderFailure
     detail = {'json_parse':'not_attempted', 'canonical_validation':'not_attempted'}
-    if type(kwargs.get('max_tokens')) is int:
-        detail['output_token_limit'] = kwargs['max_tokens']
+    limit = kwargs.get('max_completion_tokens', kwargs.get('max_tokens'))
+    if type(limit) is int:
+        detail['output_token_limit'] = limit
+    detail['envelope_received'] = result is not None
 
     def reject(rule):
         raise ProviderFailure('output_truncated' if rule=='output_truncated' else 'response_envelope_failed',
@@ -39,6 +42,11 @@ def content(result, kwargs):
 
     missing = object()
     try:
+        usage = getattr(result, 'usage', None)
+        for name in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
+            value = getattr(usage, name, None)
+            if type(value) is int and 0 <= value <= 10000000:
+                detail[name] = value
         choices = getattr(result,'choices',missing)
         if choices is missing or choices is None or choices == []:
             reject('missing_response_message')

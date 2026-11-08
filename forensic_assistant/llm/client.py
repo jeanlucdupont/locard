@@ -37,7 +37,9 @@ class LocalClient:
         connection = http.client.HTTPConnection(self.host, self.port, timeout=self.timeout)
         self.last_metadata = {}
         from forensic_assistant.ai import local_diagnostics as diagnostic
-        detail={'requested_output_tokens':1024}
+        from forensic_assistant.ai.output_budget import output_tokens
+        allowance = output_tokens()
+        detail={'requested_output_tokens':allowance}
         category='server_request_failed'
         transport = []
         def expire():
@@ -57,7 +59,7 @@ class LocalClient:
                 "messages": messages,
                 "temperature": 0.2,
                 "top_p": 0.95,
-                "max_tokens": 1024,
+                "max_tokens": allowance,
                 "stream": False,
                 "chat_template_kwargs": {"enable_thinking": False},
                 "response_format": ({
@@ -106,10 +108,14 @@ class LocalClient:
             usage=decoded.get('usage',{})
             if type(usage) is dict:
                 detail.update({k:v for k,v in usage.items() if k in ('prompt_tokens','completion_tokens','total_tokens') and type(v) is int and 0<=v<=10000000})
-            if 'prompt_tokens' in detail:detail['prompt_plus_output_budget']=detail['prompt_tokens']+1024
+            if 'prompt_tokens' in detail:detail['prompt_plus_output_budget']=detail['prompt_tokens']+allowance
             if choice.get("finish_reason") == "length":
                 category='output_truncated'
-                raise LLMError("Model answer exceeded its output budget; narrow the question")
+                from forensic_assistant.ai.provider_diagnostics import ProviderFailure
+                raise ProviderFailure('output_truncated', 'response_envelope', metadata={
+                    'response_envelope': {'finish_reason':'length', 'output_token_limit':allowance,
+                        'json_parse':'not_attempted', 'canonical_validation':'not_attempted',
+                        'envelope_received':True, **{k:detail[k] for k in ('prompt_tokens','completion_tokens','total_tokens') if k in detail}}})
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
                 raise LLMError("Local model returned an empty answer")

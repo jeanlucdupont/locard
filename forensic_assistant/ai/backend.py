@@ -252,7 +252,8 @@ class ModelBackend:
         env[variable] = settings.key(self.provider_name)
         env.update(LITELLM_LOCAL_MODEL_COST_MAP='True', LITELLM_TELEMETRY='False', DO_NOT_TRACK='1')
         from . import raw_diagnostics
-        request = dict(provider=self.provider_name, model=self.model_name, messages=messages,
+        from .output_budget import FINAL_ONLY
+        request = dict(final_only=FINAL_ONLY.get(), provider=self.provider_name, model=self.model_name, messages=messages,
                        schema=schema, timeout=timeout, handshake=handshake, raw_diagnostics=raw_diagnostics.enabled)
         process = subprocess.Popen([sys.executable, '-B', '-m', 'forensic_assistant.ai.cloud_worker'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,

@@ -16,7 +16,9 @@ def request_kwargs(request):
     from .capabilities import CAPABILITIES, configure
     route = CAPABILITIES[provider].route
     from .openai_schema import investigation, briefing
-    output_tokens = 1024
+    from .output_budget import ORDINARY_OUTPUT_TOKENS, FINAL_OUTPUT_TOKENS
+    final_only = request.get('final_only') is True and request.get('handshake') is not True
+    output_tokens = FINAL_OUTPUT_TOKENS if final_only else ORDINARY_OUTPUT_TOKENS
     if provider == 'openai' and request.get('handshake') is not True and briefing(request.get('schema')):
         from forensic_assistant.briefing import OPENAI_OUTPUT_TOKENS
         output_tokens = OPENAI_OUTPUT_TOKENS
@@ -28,6 +30,8 @@ def request_kwargs(request):
                   custom_llm_provider=route, api_key=os.environ[PROVIDERS[provider][1]],
                   messages=request['messages'], stream=False, max_tokens=probe_tokens if request.get('handshake') is True else output_tokens,
                   timeout=request['timeout'], num_retries=0, drop_params=False)
+    if provider == 'openai' and final_only:
+        kwargs['max_completion_tokens'] = kwargs.pop('max_tokens')
     return configure(kwargs, provider, request.get('schema'))
 
 

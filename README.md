@@ -3593,3 +3593,20 @@ The final-only turn prioritizes current evidence over historical assessment
 context and identity-only hints. Its original question, authorized scope, search
 coverage, and 5,600-byte ceiling remain in force. There is still one final-only
 opportunity with no tools or automatic response-repair retry.
+
+
+### Final-only output allowance (6.97)
+
+The single final-only investigation request now has a 4,096-token output
+allowance. Ordinary investigation proposals retain 1,024 tokens; readiness probes
+and the separate briefing allowance are unchanged. OpenAI final-only Chat
+Completions use `max_completion_tokens`; other adapters and local inference use
+`max_tokens`. The OpenAI completion limit includes reasoning as well as visible
+output, so 4,096 tokens does not guarantee completion for every model/question.
+
+This is independent of the unchanged 5,600-byte input prompt ceiling. Execution
+time, steps, approvals, tool limits, response-size bounds, strict structure and
+grounding still apply. No automatic truncation retry is added. Truncation during
+finalization is identified explicitly, with payload-free requested-limit, usage,
+finish-reason and validation-stage diagnostics retained in the transcript when
+available. Rejected response capture remains separate from accepted findings.

@@ -16,6 +16,7 @@ from .lifecycle import CleanupError
 from .state import State, Budget, encoded
 from .transcript import Transcript, digest, validate_evidence_state
 from forensic_assistant import activity
+from forensic_assistant.ai.output_budget import FINAL_OUTPUT_TOKENS, ORDINARY_OUTPUT_TOKENS
 
 def validate_anchor(state, name, args, rules):
     if name == 'detections' and args['rule_id'] not in rules:
@@ -104,6 +105,7 @@ def _run(
     termination = 'INSUFFICIENT_EVIDENCE'
     feedback = ''
     model_metadata = []
+    provider_failure = None
     tool_time = model_time = 0.0
     timeout_cause = None
     prompt_sizes = []
@@ -225,7 +227,8 @@ def _run(
                         'prompt_bytes': size,
                         'prompt_sha256': digest(messages),
                         'tools': names,
-                        'diagnostics': state.prompt_diagnostics
+                        'diagnostics': state.prompt_diagnostics,
+                        'requested_output_tokens': FINAL_OUTPUT_TOKENS if state.finalization_requested else ORDINARY_OUTPUT_TOKENS
                     }
                 )
                 state.disclose(exposed)
@@ -247,9 +250,25 @@ def _run(
             model_started = time.monotonic()
             try:
                 from forensic_assistant.ai.backend import model_operation
-                with profile.phase('model_request'), model_operation('investigation'):
+                from forensic_assistant.ai.output_budget import final_output
+                with profile.phase('model_request'), model_operation('investigation'), final_output(state.finalization_requested):
                     raw = client.complete(messages, grammar)
             except (LLMError, OSError, ValueError) as exc:
+                from forensic_assistant.ai.provider_diagnostics import safe_metadata, category_name
+                from forensic_assistant.ai.backend import redact
+                failure = {
+                    'operation': 'investigation', 'final_only': state.finalization_requested,
+                    'provider': redact(str(getattr(client, 'provider_name', 'unknown')))[:40],
+                    'model': redact(str(getattr(client, 'model_name', 'unknown')))[:160],
+                    'category': category_name(getattr(exc, 'category', 'provider_failure')),
+                    'requested_output_tokens': FINAL_OUTPUT_TOKENS if state.finalization_requested else ORDINARY_OUTPUT_TOKENS,
+                    'grounding_validation': 'not_attempted',
+                    **safe_metadata(getattr(exc, 'metadata', {})),
+                }
+                provider_failure = failure
+                transcript.append('rejected', {'step': state.steps, 'reason': 'Model response failure', 'provider_failure': failure})
+                if state.finalization_requested and getattr(exc, 'category', None) == 'output_truncated':
+                    state.limit('Final AI response truncated at the configured output-token limit; no retry was attempted.')
                 if remaining() <= 0:
                     timeout_cause = 'execution_budget_exhausted'
                 elif getattr(exc, 'category', None) == 'timeout' or 'timed out' in str(exc).lower():
@@ -591,6 +610,7 @@ def _run(
         'state': state.summary(),
         'dry_run_proposal': proposed_action,
         'model_metadata': model_metadata,
+        **({'provider_failure': provider_failure} if provider_failure is not None else {}),
         'metrics': {
             **clock.metrics(),
             'timeout_cause': timeout_cause,
