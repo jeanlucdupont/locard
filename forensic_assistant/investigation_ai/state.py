@@ -100,6 +100,11 @@ class State:
         self.seen_fields = set()
         self.disclosed_fields = set()
         self.progress = {}
+        self.compact_final = False
+        self.compact_allowed = {}
+        self.last_compact = None
+        self.latest_compact_fields = set()
+        self.historically_visible = set()
 
     def ingest(self, result, *, operation=None):
         if result.get('plan', {}).get('assessment_revalidation') is not None:
@@ -185,6 +190,9 @@ class State:
         return names
 
     def prompt(self, question, names, rules, feedback=''):
+        if self.compact_final and self.finalization_requested:
+            from .disclosure import prompt
+            return prompt(self, question)
         # The JSON schema travels as a separately bounded grammar, not as chat text.
         completed = list(dict.fromkeys(entry['operation'] for entry in self.path if entry['operation'] != 'initial'))[-9:]
         system = SYSTEM
@@ -339,9 +347,38 @@ class State:
             {'role': 'user', 'content': encoded(packet)}
         ], deepcopy(data), size()
 
+    def field_eligible(self, eid, pointer):
+        return eid not in self.compact_allowed or pointer in self.compact_allowed[eid]
+
+    def field_visible(self, eid, pointer, *, latest=False):
+        if latest and self.last_compact is not None:
+            return (eid,pointer) in self.latest_compact_fields
+        if eid in self.compact_allowed:
+            return pointer in self.compact_allowed[eid] or (eid,pointer) in self.historically_visible
+        return pointer in dict(fields((self.last_disclosed if latest else self.exposed).get(eid,{}), include_metadata=True))
+
+    def observation_fields(self, record):
+        return ((p,v) for p,v in fields(record) if self.field_eligible(record.get('id'),p))
+
+    def rendering_fields(self, record):
+        return ((p,v) for p,v in self.observation_fields(record)
+                if self.last_compact is None or (record['id'],p) in self.latest_compact_fields)
+
+    def interpretation_visible_now(self, identity):
+        return self.last_compact is None or any(
+            item['id']==identity for group in self.last_compact['records'] for item in group['interpretations'])
+
     def disclose(self, data):
+        if 'contract' in data:
+            from .disclosure import disclose
+            return disclose(data, self)
         import hashlib
+        self.last_compact = None
         for record in data['records']:
+            for pointer,value in fields(record, include_metadata=True):
+                if len(self.historically_visible)<20000:self.historically_visible.add((record['id'],pointer))
+            if record['id'] in self.compact_allowed:
+                self.compact_allowed[record['id']].update(dict(fields(record)))
             for pointer, value in fields(record):
                 if len(self.disclosed_fields) < 20000:
                     self.disclosed_fields.add(hashlib.sha256(encoded([record['id'], pointer, value]).encode()).digest())
@@ -354,6 +391,8 @@ class State:
 
     def render(self, answer):
         validate(answer, FINAL, 'answer')
+        if self.last_compact is not None and (answer['relationships'] or answer['detections']):
+            raise ValueError('Relationship or detection not represented in compact request')
         output = {
             'observed': [],
             'deterministically_correlated': [],
@@ -369,7 +408,7 @@ class State:
             available = {}
             for record in self.exposed.values():
                 for identity, value in interpretations(record).items():
-                    if identity in record.get('interpretation_ids', []):
+                    if identity in record.get('interpretation_ids', []) and self.interpretation_visible_now(identity):
                         available[identity] = value
             output['interpretations'] = []
             for index, identity in enumerate(answer['interpretations']):
@@ -378,20 +417,22 @@ class State:
                         code='unsupported_interpretation', validation_path=f'answer.interpretations[{index}]',
                         interpretation_id=identity)
                 output['interpretations'].append(deepcopy(available[identity]))
+        from .disclosure import descriptor
         for index, item in enumerate(answer['observed']):
             record = self.exposed.get(item['evidence_id'])
-            if record is None or item['field'] not in dict(fields(record)):
-                visible = item['field'] in dict(fields(record, include_metadata=True))
+            if record is None or item['field'] not in dict(self.rendering_fields(record)):
+                visible = self.field_visible(item['evidence_id'], item['field'])
+                metadata = record is not None and item['field'].split('/')[1] in ('source_context','defender_asr','interpretation_ids')
                 latest = self.last_disclosed.get(item['evidence_id'], {})
                 raise GroundingReferenceError(
-                    'Observed finding references visible metadata, not an observation-eligible field' if visible else
+                    'Observed finding references visible metadata, not an observation-eligible field' if visible or metadata else
                     'Observed finding references an unexposed evidence field',
-                    code='unknown_evidence_id' if record is None else 'non_observation_field' if visible else 'undisclosed_field',
+                    code='unknown_evidence_id' if record is None else 'non_observation_field' if visible or metadata else 'undisclosed_field',
                     validation_path=f'answer.observed[{index}]', evidence_id=item['evidence_id'],
                     field=item['field'], evidence_disclosed=record is not None,
-                    field_disclosed=False, in_latest_prompt=item['field'] in dict(fields(latest)),
+                    field_disclosed=False, in_latest_prompt=self.field_visible(item['evidence_id'],item['field'],latest=True),
                     observation_eligible=False, visible_in_exposure_ledger=visible,
-                    visible_in_latest_prompt=item['field'] in dict(fields(latest, include_metadata=True)))
+                    visible_in_latest_prompt=self.field_visible(item['evidence_id'],item['field'],latest=True))
             ids = [record['id']] + record.get('supporting_evidence_ids', [])
             if not set(ids) <= self.exposed.keys():
                 raise ValueError('Supporting evidence was not exposed')
@@ -402,9 +443,10 @@ class State:
                 original_field = {k: entry[k] for k in ('name', 'ordinal', 'truncated') if k in entry}
             output['observed'].append({
                 **({'recorded_field': original_field} if original_field is not None else {}),
+                **({'semantic_label': descriptor(record,item['field'],dict(self.rendering_fields(record))[item['field']])['label']} if record['id'] in self.compact_allowed else {}),
                 'classification': 'OBSERVED',
                 'field': item['field'],
-                'reported_value': dict(fields(record))[item['field']],
+                'reported_value': dict(self.rendering_fields(record))[item['field']],
                 'evidence_ids': ids,
                 'qualifier': 'Reported field; not proof of execution, attribution, intent or causation',
                 'truncated_fields': record.get('truncated_fields', []),
@@ -437,7 +479,9 @@ class State:
             detection['caution'] = 'Not proof of compromise'
             output['detections'].append(detection)
         for hypothesis in answer['hypotheses']:
-            if not set(hypothesis['evidence_ids']) <= self.exposed.keys():
+            eligible_ids = ({r['id'] for r in self.last_compact['records']}
+                            if self.last_compact is not None else self.exposed.keys())
+            if not set(hypothesis['evidence_ids']) <= eligible_ids:
                 raise ValueError('Hypothesis cites undisclosed evidence')
             if not hypothesis['alternatives']:
                 raise ValueError('Hypothesis requires an alternative explanation')
@@ -466,7 +510,7 @@ class State:
         from .conclusions import interpretations
         candidates = []
         for eid, record in self.exposed.items():
-            available = dict(fields(record))
+            available = dict(self.rendering_fields(record))
             preferred = ['/event_id', '/timestamp_utc', '/process_name', '/command_line',
                          '/parent_process_name', '/parent_command_line', '/url', '/target_path',
                          '/current_path', '/executable', '/hostname']
@@ -479,7 +523,7 @@ class State:
                 chosen = [key for key in available if key not in ('/kind', '/source_type', '/artifact_type')][:1]
             candidates.append((eid, chosen))
             derived += [identity for identity in interpretations(record)
-                        if identity in record.get('interpretation_ids', [])]
+                        if identity in record.get('interpretation_ids', []) and self.interpretation_visible_now(identity)]
         # Round-robin across records rather than fill the bound with one record.
         for index in range(12):
             for eid, choices in candidates:
@@ -491,6 +535,10 @@ class State:
     def summary(self):
         return {
             'steps': self.steps,
+            'current_prompt_fields': [{'evidence_id':eid,'field':pointer} for eid,pointer in sorted(self.latest_compact_fields)] if self.last_compact else [],
+            'disclosed_interpretation_ids': sorted({identity for record in self.exposed.values() for identity in record.get('interpretation_ids', [])}),
+            'current_prompt_ids': sorted(r['id'] for r in self.last_compact['records']) if self.last_compact else sorted(self.last_disclosed),
+            'eligible_disclosed_ids': sorted(eid for eid,r in self.exposed.items() if any(p not in ('/kind','/source_type','/artifact_type') for p,v in self.observation_fields(r))),
             'inspected_ids': sorted(self.inspected),
             'disclosed_field_count': len(self.disclosed_fields),
             'inspected_artifact_families': sorted({eid.split(':', 1)[0].lower() for eid in self.inspected}),

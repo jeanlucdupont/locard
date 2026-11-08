@@ -58,6 +58,7 @@ def _run(
     profile = Profile(lambda: clock.deadline)
     startup_complete = False
     state = State(budget)
+    state.compact_final = True
     from forensic_assistant.retrieval.temporal_scope import resolve, validate_proposal
     state.scope = resolve(question, config.get('date_hint'))
     handoff = config.get('_assessment_handoff')
@@ -212,6 +213,8 @@ def _run(
             if remaining() <= 0:
                 termination = 'BUDGET_EXHAUSTED'
                 break
+            if state.accepted >= budget.calls:
+                state.finalization_requested = True
             names = [] if state.finalization_requested else state.applicable(semantic_available, rules)
             status('exposure')
             with profile.phase('exposure'):

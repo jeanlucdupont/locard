@@ -3668,3 +3668,42 @@ All prompts remain bounded to 5,600 bytes. The projection can omit fields or
 records under pressure; limitations remain visible and a PARTIAL result is
 expected when coverage is insufficient. Inspection is not verification or a
 guarantee that every retrieved field was shown to the model.
+
+
+### Compact final investigation disclosure (6.100)
+
+Final-only model requests use `compact-disclosure-v1` / `tuples-v1` within the
+unchanged 5,600-byte prompt budget. A field-order legend accompanies exact evidence
+IDs, original pointers and values, readable semantic labels, source-provenance
+references, and truncation metadata. This transport projection has no independent
+evidence authority: current observations must match approved retrieved results;
+retained observations must match the exposure ledger. Deterministic interpretations
+retain their derivation IDs and qualifications separately from original observations.
+Defender ASR blocking remains a recorded block, not proof of successful execution.
+
+Selection favors question-term matches and complementary original observations,
+then uses deterministic evidence-ID ordering; there are no artifact-family quotas
+or recency preference. At most 12 observations and four interpretations fit the
+existing final-answer bounds. Values are never shortened to make them fit. Larger
+values, qualifiers or more records can still force omissions. The final-only request
+also applies when the tool-call allowance is exhausted, within the existing step,
+time and output-token budgets; it cannot authorize another lookup.
+
+Final compact citations must be represented in that request, not merely present
+in historical exposure. Coverage separately records inspected records, cumulative
+eligible disclosures, final-prompt identities/fields, narrative representation and
+omissions. Omission does not establish irrelevance or absence. Semantic labels do
+not replace technical citations; `--details` and `--json` retain original references.
+
+Replay and the report transcript adapter validate the compact contract against
+retrieval/exposure before rendering. Hash-chain integrity alone is not grounding.
+Historical non-compact transcripts retain their old projection rules. Existing
+read-view replay/report-import restrictions and report-import rejection of derived
+interpretations remain in force; this release does not broaden those compatibility
+contracts. No schema migration, evidence rewrite or extra summary-model call occurs.
+
+Focused synthetic validation covers six records across Browser, EVTX, MFT and
+Prefetch, forged citations/values/qualifiers, retained exposure, tuple decoding,
+partial coverage and historical adapters. Live answer quality still requires analyst
+acceptance; fitting observations into a prompt does not guarantee the model selects
+all relevant findings or proves the proposed attack sequence.

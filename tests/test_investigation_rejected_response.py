@@ -42,7 +42,7 @@ def test_rejected_final_persisted_before_termination(saved, tmp_path, mode):
         assert not detail['field_disclosed']
         assert not detail['observation_eligible']
         assert detail['visible_in_exposure_ledger'] == (mode == 'derived')
-        assert detail['visible_in_latest_prompt'] == (mode == 'derived')
+        assert not detail['visible_in_latest_prompt']
         assert detail['evidence_disclosed'] == (mode != 'identity')
     else:
         assert not detail and event['data']['diagnostic']['category'] == 'MALFORMED_PROPOSAL'

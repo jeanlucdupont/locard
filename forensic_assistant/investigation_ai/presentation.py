@@ -186,8 +186,14 @@ def render(result, palette=None, *, dry_run=False, details=False):
         coverage = narrative['coverage']
         lines.extend(['', palette('heading', 'Supporting evidence'),
                       '  Approved detail lookups inspected ' + str(coverage['inspected_records']) + ' records across: ' + (', '.join(coverage['inspected_families']) or 'none') + '.',
+                      '  Records with eligible disclosures: ' + str(coverage['eligible_disclosed_records']) + '; in final prompt: ' + str(coverage['final_prompt_records']) + '; represented in findings: ' + str(len(coverage['represented_record_ids'])) + '.',
+                      '  Inspected but not represented: ' + str(len(coverage['inspected_not_represented'])) + '; without eligible disclosure: ' + str(len(coverage['inspected_without_eligible_disclosure'])) + '.',
+                      '  Prompt observations not selected: ' + str(len(coverage['prompt_observations_not_selected'])) + '; disclosed interpretations not selected: ' + str(len(coverage['disclosed_interpretations_not_selected'])) + '.',
+                      '  Previously disclosed records absent from final prompt: ' + str(len(coverage['disclosed_not_in_final_prompt'])) + '. Omission does not mean irrelevant.',
                       '  Known records without a separate detail lookup: ' + str(coverage['known_records_without_detail_lookup']) + '.',
                       '  Full IDs, exact fields and provenance remain in --details or --json.'])
+    if concise and (coverage['inspected_not_represented'] or coverage['prompt_observations_not_selected'] or coverage['disclosed_interpretations_not_selected']):
+        caveats.append('Some inspected or disclosed material is not represented in the answer. Its relevance was not ruled out; the investigation question remains incompletely addressed.')
     for title, key in [('Observed evidence', 'observed'),
                        ('Deterministic relationships', 'deterministically_correlated'),
                        ('Corroborated evidence', 'corroborated'),

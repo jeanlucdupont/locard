@@ -13,15 +13,21 @@ def answer(messages):
     packet = json.loads(messages[1]['content'])
     assert packet['controller']['final_only']
     assert packet['controller']['tools'] == []
-    assert len(packet['controller']['completed_lookups']) + packet['controller'].get('completed_summaries_omitted', 0) == 4
-    assert packet['controller']['completed_lookups'][-1]['coverage']['skipped'] == 13
-    record = next(r for r in packet['UNTRUSTED FORENSIC EVIDENCE']['records'] if r.get('event_id') == 1121)
-    index = next(i for i, v in enumerate(record['original_event_data']) if v.get('name') == 'Target Commandline')
-    return {'action': 'final', 'answer': {
-        'observed': [{'evidence_id': record['id'], 'field': f'/original_event_data/{index}/value'}],
-        'relationships': [], 'detections': [], 'hypotheses': [],
-        'interpretations': record['interpretation_ids'], 'answer_status': 'partial',
-        'unknowns': ['Successful execution remains unresolved; search coverage is incomplete.']}}
+    data=packet['UNTRUSTED FORENSIC EVIDENCE']
+    assert packet['controller']['evtx_content_search']['skipped'] == 13
+    if data.get('encoding'):
+        from forensic_assistant.investigation_ai.disclosure import decode
+        data=decode(data)
+    record=next(r for r in data['records'] if r['id'].startswith('EVTX:'))
+    if data.get('contract'):
+        pointer=next(i['field']['pointer'] for i in record['observations'] if i['field']['semantic'].get('name')=='Target Commandline')
+        derived=[i['id'] for i in record['interpretations']]
+    else:
+        index=next(i for i,v in enumerate(record['original_event_data']) if v.get('name')=='Target Commandline')
+        pointer=f'/original_event_data/{index}/value';derived=record['interpretation_ids']
+    return {'action':'final','answer':{'observed':[{'evidence_id':record['id'],'field':pointer}],
+        'relationships':[],'detections':[],'hypotheses':[],'interpretations':derived,'answer_status':'partial',
+        'unknowns':['Successful execution remains unresolved; search coverage is incomplete.']}}
 
 
 def run_sequence(saved, tmp_path, last=answer, budget=None):
@@ -69,7 +75,7 @@ def test_live_shape_finalizes_once(saved, tmp_path):
     assert len(manifest['tool_calls']) == 4
     assert sum(e['kind'] == 'validated_final' for e in events) == 1
     assert 'does not establish successful target execution' in result['findings']['interpretations'][0]['text']
-    assert len(json.loads(client.calls[-1][1]['content'])['UNTRUSTED FORENSIC EVIDENCE']['records']) == 5
+    assert len(json.loads(client.calls[-1][1]['content'])['UNTRUSTED FORENSIC EVIDENCE']['records']) == 1
 
 
 @pytest.mark.parametrize('mode', ['unsupported', 'tool', 'malformed', 'refusal', 'transport'])

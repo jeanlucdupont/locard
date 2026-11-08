@@ -30,6 +30,7 @@ def build(findings, state):
             stamp = stamps[int(match[1])]
             if stamp.get('utc') == value:
                 label = str(stamp.get('type') or label)
+        label = row.get('semantic_label', label)
         if field in ('/target_path', '/current_path'):
             label = 'download path'
         if field.startswith('/url_chain/'):
@@ -55,12 +56,27 @@ def build(findings, state):
         sections.append({'title': title, 'evidence_id': eid, 'sentences': group['sentences'], 'caution': caution})
     derived = [{'text': item['text'], 'interpretation': i, 'evidence_ids': item['evidence_ids']}
                for i, item in enumerate(findings.get('interpretations', []))]
+    selected_fields={(row['evidence_ids'][0],row['field']) for row in findings.get('observed', []) if row.get('evidence_ids')}
+    selected_interpretations={row['interpretation_id'] for row in findings.get('interpretations', [])}
+    represented = {eid for row in findings.get('observed', []) for eid in row.get('evidence_ids', [])} | {eid for row in findings.get('interpretations', []) for eid in row.get('evidence_ids', [])}
+    inspected = set(state.get('inspected_ids', []))
+    disclosed = set(state.get('eligible_disclosed_ids', []))
+    prompt_ids = set(state.get('current_prompt_ids', []))
     remaining = set(state.get('retrieved_ids', [])) - set(state.get('inspected_ids', []))
     families = sorted({eid.split(':', 1)[0].lower() for eid in remaining})
     return {'contract': 'grounded-narrative-v1', 'records': sections, 'interpretations': derived,
             'relationship_caution': 'Field observations alone do not establish that one event caused another, or that matching paths identify the same file.',
             'coverage': {'inspected_records': len(state.get('inspected_ids', [])),
                          'inspected_families': state.get('inspected_artifact_families', []),
-                         'known_records_without_detail_lookup': len(remaining)},
+                         'known_records_without_detail_lookup': len(remaining),
+                         'represented_record_ids': sorted(represented),
+                         'inspected_not_represented': sorted(inspected-represented),
+                         'inspected_without_eligible_disclosure': sorted(inspected-disclosed),
+                         'disclosed_not_in_final_prompt': sorted(disclosed-prompt_ids),
+                         'eligible_disclosed_records': len(disclosed),
+                         'final_prompt_records': len(prompt_ids),
+                         'prompt_observations_not_selected': [row for row in state.get('current_prompt_fields', []) if (row['evidence_id'],row['field']) not in selected_fields],
+                         'disclosed_interpretations_not_selected': sorted(set(state.get('disclosed_interpretation_ids', []))-selected_interpretations),
+                         'relevance_of_omissions': 'Not evaluated; omission does not mean irrelevant'},
             'next_steps': [('Consider remaining known records in ' + ', '.join(families) + ' if relevant to the question; each lookup requires approval.' if families else 'Review whether further authorized evidence retrieval is needed; no completeness claim is made.'),
                            'Use independent execution evidence to test execution hypotheses; treat incomplete searches as unresolved.']}

@@ -117,6 +117,10 @@ def load(root, investigation_id):
                 if not initialized or pending:
                     raise ValueError('Invalid exposure sequence')
                 disclosed = data['content']
+                if 'contract' in disclosed:
+                    state.disclose(disclosed)
+                    exposures.append(disclosed)
+                    continue
                 if set(disclosed) != {'records', 'relationships', 'detections'}:
                     raise ValueError('Invalid exposure')
                 for section, key in [

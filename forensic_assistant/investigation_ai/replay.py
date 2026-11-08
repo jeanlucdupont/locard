@@ -72,6 +72,9 @@ def replay(config, root, investigation_id):
                     if not initialized:
                         raise ValueError('Exposure before initial retrieval')
                     disclosed = data['content']
+                    if 'contract' in disclosed:
+                        state.disclose(disclosed)
+                        continue
                     for record in disclosed['records']:
                         from .projection import is_record_projection
                         if not is_record_projection(record, state.records.get(record['id'])):

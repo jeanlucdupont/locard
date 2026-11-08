@@ -159,6 +159,11 @@ def load(root, investigation_id):
             stored = event.pop('hash')
             if event['sequence'] != i or event['previous'] != chain or digest(event) != stored:
                 raise ValueError('Transcript integrity check failed')
+            if event['kind'] == 'exposure' and 'contract' in event['data'].get('content', {}):
+                from .disclosure import CONTRACT
+                if (event['data']['content']['contract'] != CONTRACT
+                        or event['data']['content'].get('encoding') != 'tuples-v1'):
+                    raise ValueError('Unsupported disclosure contract')
             chain = stored
             event['hash'] = stored
             events.append(event)

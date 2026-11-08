@@ -81,7 +81,7 @@ def test_step_and_call_limits_include_retries(tmp_path):
         client = Scripted(actions)
         result = controller.run({}, 'Inspect', tmp_path, budget=budget, client=client,
                                 worker_factory=lambda _: worker)
-        assert result['termination'] == 'BUDGET_EXHAUSTED'
+        assert result['termination'] == ('FINALIZATION_FAILED' if expected else 'BUDGET_EXHAUSTED')
         assert len(client.calls) == 2
         assert result['state']['accepted_calls'] == expected
         assert len([n for n in worker.calls if n not in ('initial', 'check')]) == expected
