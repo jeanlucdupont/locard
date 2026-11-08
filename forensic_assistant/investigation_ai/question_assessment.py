@@ -113,7 +113,46 @@ def _direct_candidate(kind, args, clause):
     return False
 
 
-def _assess(question, investigation_id, state, *, check_limit=MAX_CHECKS):
+ARGUMENTS = {
+    'browser_download': ('value',), 'filesystem_path': ('value',),
+    'event_identifier': ('event_id',), 'defender_block': (),
+    'recorded_order': ('left', 'right'), 'recorded_field_equals': ('clause_id', 'value'),
+    'execution_outcome': ('value',), 'causal_sequence': ('cause', 'effect'), 'unmapped': (),
+}
+
+
+def validate_typed(kind, args):
+    """Closed S3 proposition vocabulary; does not validate analyst intent."""
+    if kind not in ARGUMENTS or type(args) is not dict or set(args) != set(ARGUMENTS[kind]):
+        raise ValueError('Invalid typed S3 arguments')
+    for key, value in args.items():
+        if key == 'event_id':
+            valid = type(value) is int and 0 <= value <= 99999
+        elif key in ('left', 'right', 'clause_id'):
+            valid = type(value) is str and re.fullmatch('[a-f0-9]{64}', value)
+        elif kind == 'recorded_field_equals' and key == 'value':
+            valid = value is None or type(value) in (str, int, bool)
+        else:
+            valid = type(value) is str
+        if not valid or len(encoded(value).encode('utf-8')) > MAX_QUESTION_BYTES:
+            raise ValueError('Invalid typed S3 argument value')
+
+
+def assess_typed(question, investigation_id, state, propositions, *, check_limit=MAX_CHECKS):
+    """Assess application-validated propositions; never aggregate them as original intent."""
+    if type(propositions) is not list or not 1 <= len(propositions) <= MAX_PROPOSITIONS:
+        raise ValueError('Invalid typed S3 proposition count')
+    for p in propositions:
+        if type(p) is not dict or set(p) != {'text', 'type', 'arguments'}:
+            raise ValueError('Invalid typed S3 proposition')
+        if type(p['text']) is not str or len(p['text'].encode('utf-8')) > MAX_QUESTION_BYTES:
+            raise ValueError('Invalid typed S3 source text')
+        validate_typed(p['type'], p['arguments'])
+    assessed = _assess(question, investigation_id, state, check_limit=check_limit, _typed=propositions)
+    return {'propositions': assessed['propositions'], 'metrics': assessed['metrics']}
+
+
+def _assess(question, investigation_id, state, *, check_limit=MAX_CHECKS, _typed=None):
     """Internal service over verified reconstruction, not an arbitrary JSON import."""
     if not isinstance(question, str) or not question or len(question.encode('utf-8')) > MAX_QUESTION_BYTES:
         raise ValueError('Invalid or oversized investigation question')
@@ -129,14 +168,15 @@ def _assess(question, investigation_id, state, *, check_limit=MAX_CHECKS):
                             if v['predicate'] == 'incompatible_recorded_field' and cid in v['endpoints'])
                  for cid in clauses}
     qid = digest([CONTRACT, investigation_id, question, state['factual']['evidence_state']])
-    parts = _parts(question)
+    parts = [p['text'] for p in _typed] if _typed is not None else _parts(question)
     mapping_limited = len(parts) > MAX_PROPOSITIONS
     if mapping_limited:
         # Never silently assess a prefix of an over-budget compound as the whole.
         parts = [question]
     rows, checks = [], 0
     for index, text in enumerate(parts):
-        kind, args = ('unmapped', {}) if mapping_limited else _map(text)
+        kind, args = ((_typed[index]['type'], _typed[index]['arguments']) if _typed is not None
+                      else (('unmapped', {}) if mapping_limited else _map(text)))
         row = dict(id=digest([qid, index, text, kind, RULES[kind], args]), text=text, type=kind, rule=RULES[kind],
                    arguments=args, status='NOT_ASSESSABLE', direct_clauses=[], direct_relationships=[],
                    contextual_clauses=sorted(clauses), contextual_relationships=sorted(relations),

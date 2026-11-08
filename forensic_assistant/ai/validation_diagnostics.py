@@ -15,7 +15,8 @@ def names():
             for v in node.get(key,[]):walk(v)
     from forensic_assistant.briefing import SCHEMA as BRIEFING_SCHEMA
     from forensic_assistant.briefing_interview import SCHEMA as INTERVIEW_SCHEMA
-    walk(schema(list(TOOLS)));walk(SCHEMA);walk(BRIEFING_SCHEMA);walk(INTERVIEW_SCHEMA)
+    from forensic_assistant.investigation_ai.decomposition import SCHEMA as DECOMPOSITION_SCHEMA
+    walk(schema(list(TOOLS)));walk(SCHEMA);walk(BRIEFING_SCHEMA);walk(INTERVIEW_SCHEMA);walk(DECOMPOSITION_SCHEMA)
     return result
 
 def path(parts):

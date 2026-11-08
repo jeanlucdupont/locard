@@ -261,7 +261,12 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         gate.set()
         reader = threading.Thread(target=receive, daemon=True)
         reader.start()
+        decomposition_deadline = None
+        s4 = isinstance(config.get('_stage_a'), dict) and config['_stage_a'].get('contract') == 'investigation-s4-authorization-v1'
         while clock.remaining() > 0:
+            if decomposition_deadline is not None and time.monotonic() >= decomposition_deadline:
+                reason = 'DECOMPOSITION_TIMEOUT'
+                break
             try:
                 message = messages.get(timeout=min(.05, max(.001, clock.remaining())))
             except queue.Empty:
@@ -277,6 +282,12 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                 continue
             if message['kind'] == 'status':
                 phase = message.get('phase')
+                if s4:
+                    if phase == 'decomposition':
+                        decomposition_deadline = min(deadline - 15, time.monotonic() + 30)
+                        current_phase = phase
+                    elif phase != 'decomposition':
+                        decomposition_deadline = None
                 if type(phase) is str and phase in PHASES | {'preparing', 'model', 'validation', 'operation', 'finalizing', 'approval'}:
                     current_phase = phase
                     LOG.debug('investigate-ai stage=%s elapsed=%.6f remaining=%.6f',phase,time.monotonic()-started,clock.remaining())
@@ -358,7 +369,8 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
             from .narrative import build
             result['narrative']=build(result['findings'],result['state'])
         if config.get('_stage_a'):
-            result['engine']='incremental-stage-a-v1'
+            result['engine']=('incremental-s4-a-v1' if config['_stage_a'].get('contract') == 'investigation-s4-authorization-v1'
+                              else 'incremental-stage-a-v1')
             result['startup_diagnostic']=dict(last_phase=current_phase,read_view_established=startup_complete,
                 elapsed_seconds=round(time.monotonic()-started,3),cleanup_confirmed=cleaned)
         recovery = context.Process(target=_recover, args=(request, result))

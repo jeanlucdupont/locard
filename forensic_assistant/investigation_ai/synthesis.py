@@ -288,9 +288,14 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--relationships', action='store_true', help='Inspect S2 typed relationships and recorded-value chronology')
     mode.add_argument('--assessment', action='store_true', help='Inspect S3 deterministic assessment of the saved original question')
+    mode.add_argument('--decomposition', action='store_true', help='Inspect recorded S4-A mappings and scoped assessments; never invokes AI')
     args = parser.parse_args()
     try:
-        if args.assessment:
+        if args.decomposition:
+            from . import decomposition
+            result = decomposition.reconstruct(args.root, args.identity)
+            print(encoded(result) if args.json else decomposition.render(result))
+        elif args.assessment:
             from . import question_assessment
             result = question_assessment.reconstruct(args.root, args.identity)
             print(encoded(result) if args.json else question_assessment.render(result))

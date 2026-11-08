@@ -3809,3 +3809,18 @@ deterministic narrative; hypotheses remain unverified. There is no separate fina
 synthesis request or global answer-completeness assessment. Finishing the authorized
 plan does not establish a complete forensic conclusion. The presentation correction
 does not change stored findings, grounding, request budgets or historical transcripts.
+
+### Opt-in question decomposition (S4-A)
+
+Add `--decompose` to a new `briefing --investigate --autonomous` run to authorize
+one question-only AI request proposing up to four scoped objectives. Its new grant
+allows six analysis requests plus one decomposition, zero organization requests,
+and no retries. The existing five-minute deadline, six lookups, 5,600-byte input
+and 1,024-token output limits remain; finalization receives a time reservation.
+
+Proposed intent stays provisional. Exact source spans do not establish semantic
+completeness. Registered typed objectives are assessed with existing deterministic
+S3 rules, while unknown roles, negation and unsupported objectives remain explicit.
+The original question and its separate deterministic assessment are preserved.
+Omitting `--decompose` preserves existing Stage A behavior. Recorded inspection
+never makes provider calls. See [S4-A contracts and manual acceptance](docs/LOCARD_6_108_DECOMPOSITION.md).

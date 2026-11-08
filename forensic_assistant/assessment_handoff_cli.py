@@ -24,7 +24,8 @@ def run(args):
         from .terminal_activity import ActivityIndicator
         def authorize_envelope(grant):
             indicator.stop()  # Never animate concurrently with approval input.
-            print('Autonomous Stage A authorization',file=stream)
+            s4 = grant.get('contract') == 'investigation-s4-authorization-v1'
+            print('Autonomous S4-A authorization' if s4 else 'Autonomous Stage A authorization',file=stream)
             print('  Case: '+safe(grant['case']),file=stream)
             print('  Question: '+safe(grant['objective']),file=stream)
             print('  Window: '+grant['start']+' to '+grant['end'],file=stream)
@@ -33,14 +34,21 @@ def run(args):
             print('  OpenAI model: '+safe(grant['model'])+'; authorized evidence will be sent to OpenAI.',file=stream)
             print('  Inspect only '+str(len(grant['evidence_ids']))+' listed assessment references; show_evidence only, no search.',file=stream)
             print('  Eligibility: any of the first 32 recorded timestamps in the window. Bounded full-record context, including other timestamps, is permitted.',file=stream)
-            print('  Limits: 6 AI requests, 6 lookups, 8 steps, 5 minutes; 5600 prompt bytes and 1024 output tokens per request.',file=stream)
+            if s4:
+                print('  Limits: 6 analysis + 1 question-only decomposition, 0 organization; 7 AI requests total.',file=stream)
+                print('  6 lookups, 8 steps, 5 minutes; 15 seconds reserved for finalization; decomposition at most 30 seconds.',file=stream)
+                print('  5600 prompt bytes and 1024 output tokens per request. No retries or allocation transfers.',file=stream)
+                print('  Proposed meaning remains unverified; scoped answers do not certify the original question answered.',file=stream)
+            else:
+                print('  Limits: 6 AI requests, 6 lookups, 8 steps, 5 minutes; 5600 prompt bytes and 1024 output tokens per request.',file=stream)
             print('  View established after approval; expires after 5 minutes. No restart continuation or automatic scope expansion.',file=stream)
             if args.details:
                 import json
                 print(json.dumps(grant,ensure_ascii=True,indent=2),file=stream)
             return read_answer(read,'Authorize this bounded autonomous investigation? [y/N] ').strip().casefold() in ('y','yes')
         with ActivityIndicator('Preparing investigation...',args=args) as indicator:
-            result=start(handoff,selected,backend(),authorize_envelope,status=indicator.phase)
+            extra = {'decompose':True} if getattr(args,'decompose',False) else {}
+            result=start(handoff,selected,backend(),authorize_envelope,status=indicator.phase,**extra)
         return {'kind':'assessment_investigation',**({'result':result} if result is not None else {'message':'Investigation cancelled; no evidence retrieved or model called.'})}
     def confirm(plan):
         print('Proposed investigation window: ' + plan['scope']['start'] + ' to ' + plan['scope']['end'], file=stream)

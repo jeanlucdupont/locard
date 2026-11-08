@@ -23,6 +23,11 @@ def briefing(schema):
     return type(schema) is dict and schema == SCHEMA
 
 
+def decomposition(schema):
+    from forensic_assistant.investigation_ai.decomposition import SCHEMA
+    return type(schema) is dict and schema == SCHEMA
+
+
 def _wire(node):
     result=copy.deepcopy(node)
     # Uniqueness is still mandatory in canonical validation after decoding.
@@ -38,7 +43,7 @@ def _wire(node):
 
 
 def request_schema(provider, canonical):
-    if provider == 'openai' and briefing(canonical):
+    if provider == 'openai' and (briefing(canonical) or decomposition(canonical)):
         return _wire(canonical)
     if provider!='openai' or not investigation(canonical):
         return canonical
@@ -73,7 +78,7 @@ def response(provider,text,canonical):
     from .response_contract import validate
     from .provider_diagnostics import ProviderFailure
     wire=request_schema(provider,canonical)
-    if provider == 'openai' and briefing(canonical):
+    if provider == 'openai' and (briefing(canonical) or decomposition(canonical)):
         # Recursively remove only optional null fields from strict OpenAI output.
         # Canonical validation (including uniqueness) remains mandatory.
         try:value=json.loads(text)

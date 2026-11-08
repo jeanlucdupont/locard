@@ -17,7 +17,7 @@ ENGINE='incremental-stage-a-v1'
 DELTA='analysis-delta-v1'
 
 
-def prepare(handoff, assessment, client):
+def prepare(handoff, assessment, client, *, decompose=False):
     if client.provider_name!='openai' or not client.config.get('cloud_acknowledged'):
         raise ValueError('Autonomous Stage A requires acknowledged OpenAI configuration')
     # Do not spend unaccounted compatibility requests inside a six-request grant.
@@ -36,16 +36,23 @@ def prepare(handoff, assessment, client):
         sources.update(current['source_ids']);families.add(eid.split(':')[0].lower())
         # Scheduling hints only: never put these historical values into model evidence.
         hints[eid]=encoded(record.get('match',{}))[:2048]
-    return dict(contract=policy.CONTRACT,case=str(path),file_identity=[info.st_dev,info.st_ino],
+    grant = dict(contract=policy.CONTRACT,case=str(path),file_identity=[info.st_dev,info.st_ino],
         objective=handoff['question'],assessment_id=handoff['assessment_id'],assessment_digest=handoff['assessment_digest'],
         provider=client.provider_name,model=client.model_name,source_ids=sorted(sources),families=sorted(families),
         evidence_ids=ids,tools=['show_evidence'],start=handoff['scope']['start'],end=handoff['scope']['end'],
         temporal_policy=policy.TEMPORAL,view_policy='pinned read transaction established after approval; no restart continuation',
-        limits=dict(requests=6,steps=8,seconds=300,records=200,prompt_bytes=5600,tool_calls=6,tool_seconds=45,output_tokens=1024)),hints
+        limits=dict(requests=6,steps=8,seconds=300,records=200,prompt_bytes=5600,tool_calls=6,tool_seconds=45,output_tokens=1024))
+    if decompose:
+        from .decomposition import messages
+        messages(grant['objective'])  # Reject oversized questions before approval.
+        grant['contract'] = policy.S4_CONTRACT
+        grant['limits']['requests'] = 7
+        grant['allocations'] = deepcopy(policy.S4_ALLOCATION)
+    return grant,hints
 
 
-def start(handoff,assessment,client,confirm,*,status=None):
-    grant,hints=prepare(handoff,assessment,client)
+def start(handoff,assessment,client,confirm,*,status=None,decompose=False):
+    grant,hints=prepare(handoff,assessment,client,decompose=decompose)
     from .supervision import run as supervised
     from forensic_assistant.ai.backend import ModelBackend
     # Capture cached provider configuration before approval; never probe here.
@@ -106,6 +113,13 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     status=config.get('_status') or (lambda _:None)
     status('authorization_validation')
     grant=config['_stage_a'];policy.validate(grant,config['case_path'])
+    from . import decomposition as decomposition_service
+    s4 = grant['contract'] == policy.S4_CONTRACT
+    engine = decomposition_service.ENGINE if s4 else ENGINE
+    decision = {'status':'not_attempted'}
+    decomposition_requests = 0
+    from .synthesis import _Reducer
+    reducer = _Reducer() if s4 else None
     if config.get('_stage_a_handoff') is not None:
         status('handoff_validation')
         from forensic_assistant.assessment_handoff import validate as validate_handoff
@@ -120,7 +134,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     state.scope={'kind':'explicit','start':grant['start'],'end':grant['end']}
     identity=config.get('_investigation_id') or uuid.uuid4().hex
     status('transcript_init')
-    transcript=Transcript(root,dict(engine=ENGINE,authorization=grant,question=question,budgets=asdict(budget),
+    transcript=Transcript(root,dict(engine=engine,authorization=grant,question=question,budgets=asdict(budget),
         evidence_fingerprint=None,rule_ids=[],schema=5),investigation_id=identity)
     deltas=[];pending=set(grant['evidence_ids']);requests=0;view=None;worker=None;stop='AUTHORIZED_PLAN_EXHAUSTED';sizes=[];usage=[];phase='operation'
     def remaining():return min(45,max(.001,deadline-time.monotonic()))
@@ -144,7 +158,25 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         transcript.manifest['schema']=initial.get('schema',5)
         transcript.append('initial',initial)
         if config.get('_startup_complete'):config['_startup_complete']()
+        if s4:
+            guard()
+            available = deadline - time.monotonic() - decomposition_service.RESERVE_SECONDS
+            if available <= 0:
+                raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
+            state.steps += 1
+            def charge_decomposition():
+                nonlocal decomposition_requests
+                decomposition_requests += 1
+                if decomposition_requests > 1:
+                    raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
+            status('decomposition')
+            decision = decomposition_service.execute(client,question,grant,transcript,guard,available,
+                charge=charge_decomposition,decision_store=decision)
+            status('operation')
         while pending and requests<6 and state.accepted<6 and state.steps<8:
+            if s4 and time.monotonic() >= deadline - decomposition_service.RESERVE_SECONDS:
+                stop = 'RESOURCE_BUDGET_EXHAUSTED'
+                break
             guard();state.steps+=1;phase='operation'
             previous=deltas[-1]['findings'] if deltas else {}
             eid=choose(pending,config.get('_stage_a_hints',{}),previous);args={'evidence_id':eid}
@@ -153,11 +185,14 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 based_on_delta=deltas[-1]['id'] if deltas else None))
             activity.event('TOOL_APPROVED',required=True,investigation_id=identity,tool_call_number=state.accepted+1,tool='show_evidence',arguments_sha256=digest(args),approval='configured_policy')
             state.requested+=1;state.accepted+=1;status('operation')
-            response=worker.call('show_evidence',args,known_ids=grant['evidence_ids'],seconds=remaining())
+            operation_seconds = min(remaining(), max(.001,deadline-time.monotonic()-15)) if s4 else remaining()
+            response=worker.call('show_evidence',args,known_ids=grant['evidence_ids'],seconds=operation_seconds)
             guard()
             if response.get('evidence_state')!=view or response.get('database_changes')!=0:raise ValueError('READ_VIEW_INCONSISTENT')
             contracts.validate_output(response['result'])
             if any(r['id'] not in grant['evidence_ids'] for r in response['result']['records']):raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
+            if s4 and any(r['id'] != eid for r in response['result']['records']):
+                raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
             for record in response['result']['records']:
                 source_ids=set(record.get('source_context',{}).get('source_ids',[]))
                 if not source_ids or not source_ids<=set(grant['source_ids']) or record.get('source_type') not in grant['families']:
@@ -168,9 +203,25 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             state.path.append({'operation':'show_evidence','evidence_id':eid})
             messages,exposure,size=packet(state,question,previous,eid);sizes.append(size)
             transcript.append('exposure',dict(content=exposure,prompt_bytes=size,prompt_sha256=digest(messages)))
-            state.disclose(exposure);guard();requests+=1;status('model');phase='provider'
+            state.disclose(exposure);guard()
+            if s4 and time.monotonic() >= deadline - decomposition_service.RESERVE_SECONDS:
+                stop = 'RESOURCE_BUDGET_EXHAUSTED'
+                break
+            status('model');phase='provider'
             # Use ordinary output allowance; no final synthesis request or hidden retry.
-            with model_operation('investigation'),final_output(False):raw=client.complete(messages,contracts.schema([]))
+            if s4:
+                transcript.append('analysis_request',dict(allocation='analysis',ordinal=requests+1,
+                    grant_id=grant['id'],output_tokens=1024))
+            requests+=1
+            old_timeout = getattr(client,'timeout',None)
+            if s4:
+                client.timeout = max(.001,min(old_timeout or 120,deadline-time.monotonic()-decomposition_service.RESERVE_SECONDS))
+            try:
+                with model_operation('investigation'),final_output(False):raw=client.complete(messages,contracts.schema([]))
+            finally:
+                if s4:
+                    if old_timeout is None:del client.timeout
+                    else:client.timeout=old_timeout
             guard();usage.append(deepcopy(getattr(client,'last_metadata',{}).get('usage') or None))
             try:
                 proposal=contracts.request(raw,[]);findings=state.render(proposal['answer'])
@@ -184,9 +235,11 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 counters=dict(ai_requests=requests,tool_calls=state.accepted),based_on=deltas[-1]['id'] if deltas else None)
             transcript.append('validated_delta',delta)  # Durable before scheduling next batch.
             deltas.append(delta)
+            if reducer is not None:
+                reducer.consume(state,delta,exposure)
             if config.get('_stage_a_checkpoint'):
                 config['_stage_a_checkpoint'](dict(findings=merge_findings(deltas),state=state.summary(),
-                    validated_batches=len(deltas),evidence_state=view,question=question,engine=ENGINE))
+                    validated_batches=len(deltas),evidence_state=view,question=question,engine=engine))
         if pending and stop=='AUTHORIZED_PLAN_EXHAUSTED':stop='RESOURCE_BUDGET_EXHAUSTED'
     except KeyboardInterrupt:stop='ANALYST_CANCELLED'
     except (OSError,ValueError,LLMError) as exc:
@@ -204,7 +257,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             try:worker.close()
             except (OSError,RuntimeError):stop='CLEANUP_LIMITATION'
     findings=merge_findings(deltas)
-    result=dict(engine=ENGINE,investigation_id=identity,question=question,termination=stop,primary_termination=primary_stop,findings=findings,
+    result=dict(engine=engine,investigation_id=identity,question=question,termination=stop,primary_termination=primary_stop,findings=findings,
         evidence_fingerprint=None,evidence_state=view,state=state.summary(),validated_batches=len(deltas),
         limitations=['Findings cover only this pinned read view. Plan completion is not forensic completeness.',
         'Only explicitly authorized assessment references were inspected; search is not enabled in Stage A.',
@@ -212,6 +265,19 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         'No restart continuation; hypotheses and unresolved questions remain unverified.'],
         metrics=dict(ai_requests=requests,prompt_bytes=sizes,usage=usage,usage_unknown=requests-sum(v is not None for v in usage)),
         answer_assessment=dict(status='PARTIAL',reason='Bounded assessed coverage; objective completeness is not independently established.'))
+    if s4:
+        from . import relationships
+        if decomposition_requests and decision['status'] == 'not_attempted':
+            decision = {'status':'interrupted'}
+        status('finalization')
+        state.steps += 1
+        result['state'] = state.summary()
+        result['question_decomposition'] = decomposition_service.assess(
+            question,identity,relationships._build(reducer.finish()),decision)
+        result['metrics'].update(analysis_requests=requests,decomposition_requests=decomposition_requests,
+            organization_requests=0,ai_requests=requests+decomposition_requests,
+            decomposition_usage=decision.get('usage'),
+            usage_unknown=result['metrics']['usage_unknown'] + int(bool(decomposition_requests) and decision.get('usage') is None))
     result['narrative']=build(findings,result['state'])
     cleanup_failure=None
     if stop=='CLEANUP_LIMITATION':
@@ -230,7 +296,10 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
 def reconstruct(root,identity, *, _on_validated=None):
     """Inspect validated recorded deltas, not resume or assert current-case equality."""
     manifest,events=load(root,identity)
-    if manifest.get('engine')!=ENGINE:raise ValueError('Not a Stage A transcript')
+    from . import decomposition
+    if manifest.get('engine') not in (ENGINE,decomposition.ENGINE):raise ValueError('Not a supported incremental transcript')
+    if manifest['engine'] == decomposition.ENGINE:
+        decomposition.validate_journal(manifest,events)
     state=State(Budget());deltas=[];exposure=None
     for event in events:
         d=event['data']

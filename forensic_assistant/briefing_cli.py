@@ -15,6 +15,7 @@ def configure(commands):
         source.add_argument('--'+action, action='store_true', help=('Recommended adaptive briefing interview' if action=='interview' else 'Legacy questionnaire' if action=='wizard' else 'Use the selected case briefing: '+action))
     source.add_argument('--investigate',nargs='?',const='latest',metavar='ASSESSMENT_ID',help='Investigate a saved assessment using the existing grounded AI controller')
     p.add_argument('--autonomous',action='store_true',help='Stage A: one scoped authorization, incremental read-only inspection of assessment references (OpenAI only)')
+    p.add_argument('--decompose',action='store_true',help='S4-A: explicitly authorize one question-only AI decomposition with --investigate --autonomous; proposed intent remains provisional')
     p.add_argument('--question',help='First assessment investigation question; otherwise prompted interactively')
     source.add_argument('--assess',action='store_true',help='Plan, approve and save deterministic initial case assessment')
     source.add_argument('--assessment-show',nargs='?',const='latest',metavar='ID',help='Review a saved assessment (default: latest)')
@@ -39,6 +40,8 @@ def configure(commands):
 
 
 def run(args):
+    if getattr(args,'decompose',False) and not (getattr(args,'autonomous',False) and getattr(args,'investigate',None)):
+        raise ValueError('--decompose requires briefing --investigate --autonomous')
     if getattr(args,'autonomous',False) and not getattr(args,'investigate',None):
         raise ValueError('--autonomous requires briefing --investigate')
     if getattr(args,'investigate',None):

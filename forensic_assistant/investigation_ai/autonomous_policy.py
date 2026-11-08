@@ -8,10 +8,17 @@ from forensic_assistant.database.browser import provenance
 from .contracts import EID
 
 CONTRACT = 'investigation-authorization-v1'
+S4_CONTRACT = 'investigation-s4-authorization-v1'
+S4_ALLOCATION = dict(analysis=6, decomposition=1, organization=0, total=7,
+                     finalization_reserve_seconds=15, decomposition_seconds=30)
 TEMPORAL = 'any retained timestamp in window; bounded full-record context permitted'
 
 
 def validate(grant, case):
+    if grant.get('contract') == S4_CONTRACT:
+        validate_s4_shape(grant)
+        # Reuse every existing source/time/tool check, without altering old grants.
+        grant = {**grant, 'contract': CONTRACT, 'limits': {**grant['limits'], 'requests': 6}}
     if grant.get('contract') != CONTRACT or grant.get('tools') != ['show_evidence']:
         raise ValueError('AUTHORIZATION_INVALID')
     path = Path(case).resolve(strict=True)
@@ -30,6 +37,15 @@ def validate(grant, case):
         raise ValueError('AUTHORIZATION_INVALID')
     low,high = time_ns(required_time(grant['start'])),time_ns(required_time(grant['end']))
     if not 0 <= high-low <= 86400*10**9:raise ValueError('AUTHORIZATION_INVALID')
+
+
+def validate_s4_shape(grant):
+    """Historical-safe shape check; no filesystem access or expiry renewal."""
+    if (grant.get('contract') != S4_CONTRACT or grant.get('allocations') != S4_ALLOCATION
+            or grant.get('limits') != dict(requests=7,steps=8,seconds=300,records=200,
+                prompt_bytes=5600,tool_calls=6,tool_seconds=45,output_tokens=1024)
+            or grant.get('tools') != ['show_evidence'] or grant.get('provider') != 'openai'):
+        raise ValueError('AUTHORIZATION_INVALID')
 
 
 def operation(grant, case, name, args):

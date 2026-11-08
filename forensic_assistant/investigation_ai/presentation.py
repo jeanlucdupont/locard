@@ -93,7 +93,7 @@ def source_dependency(row):
 
 def termination_label(result):
     code = result.get('termination')
-    if result.get('engine') == 'incremental-stage-a-v1':
+    if result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1'):
         labels = {
             'AUTHORIZED_PLAN_EXHAUSTED': 'All authorized assessment references were processed',
             'RESOURCE_BUDGET_EXHAUSTED': 'Authorized resource limit reached',
@@ -102,6 +102,7 @@ def termination_label(result):
             'ADDITIONAL_SCOPE_REQUIRED': 'Operation requires additional scope authorization',
             'PROVIDER_SCOPE_CHANGED': 'Authorized provider or model changed',
             'PROVIDER_FAILURE': 'AI provider request failed',
+            'DECOMPOSITION_TIMEOUT': 'Question decomposition exceeded its deadline; investigation stopped safely',
             'OPERATION_FAILURE': 'Authorized operation or disclosure preparation failed',
             'VALIDATION_FAILURE': 'AI batch failed validation; earlier accepted findings retained',
             'ANALYST_CANCELLED': 'Analyst cancelled the investigation',
@@ -167,7 +168,7 @@ def proposal_text(proposal, palette=None, *, introduction=False):
 def render(result, palette=None, *, dry_run=False, details=False):
     palette = palette or Palette()
     supported = result.get('termination') == 'ANSWER_SUPPORTED'
-    incremental = result.get('engine') == 'incremental-stage-a-v1'
+    incremental = result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1')
     findings = result.get('findings') or {}
     accumulated = incremental and bool(findings.get('observed') or findings.get('interpretations'))
     dry_run = dry_run or bool(result.get('dry_run_proposal'))
@@ -262,7 +263,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
             lines.extend(['  ' + safe(item['text']), '    Derivation: ' + safe(item['derivation_id'])])
             for eid in item['evidence_ids']:
                 lines.append('    Evidence: ' + palette('evidence_id', safe(eid)))
-    if result.get('engine') == 'incremental-stage-a-v1':
+    if result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1'):
         lines.extend(['', palette('heading','Incremental investigation status'),
                         '  '+safe(termination_label(result)),
                       '  Validated batches: '+str(result.get('validated_batches',0)),
@@ -336,4 +337,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
         lines.extend(['', palette('heading', 'Limitations'), *(palette('warning', '  - ' + safe(value)) for value in unique)])
     if concise:
         lines.extend(['', palette('heading', 'Suggested next steps'), *('  - ' + safe(v) for v in narrative['next_steps'])])
+    if result.get('question_decomposition'):
+        from .decomposition import render as render_decomposition
+        lines.extend(['', render_decomposition(result['question_decomposition'])])
     return '\n'.join(lines)

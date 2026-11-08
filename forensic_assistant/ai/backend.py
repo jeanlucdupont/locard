@@ -153,8 +153,8 @@ class ModelBackend:
         if len(payload) > 512 * 1024:
             raise LLMError('Model request exceeds the disclosure size limit')
         started = time.monotonic()
-        from .openai_schema import investigation
-        family_token = PREPARATION_FAMILY.set('investigation' if investigation(schema) else 'advisory')
+        from .openai_schema import investigation, decomposition
+        family_token = PREPARATION_FAMILY.set('investigation' if investigation(schema) or decomposition(schema) else 'advisory')
         try:
             self.prepare(STATUS.get())
         finally:
