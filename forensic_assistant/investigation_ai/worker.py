@@ -25,6 +25,7 @@ def serve():
     model = None
     index_identity = None
     view = None
+    autonomous_calls = 0
     integrity = dict(strategy='sqlite_read_view_v1', fingerprint_count=0,
                      fingerprint_seconds=0.0, transaction_seconds=0.0,
                      live_case_matches=None)
@@ -42,6 +43,14 @@ def serve():
                     response = {'ready': True, 'worker_pid': os.getpid()}
                 else:
                     op = request['operation']
+                    grant=config.get('_stage_a')
+                    if grant is not None and op!='check':
+                        from forensic_assistant.investigation_ai import autonomous_policy
+                        autonomous_policy.validate(grant,config['case_path'])
+                        if op!='initial':
+                            autonomous_policy.operation(grant,config['case_path'],op,request['arguments'])
+                            autonomous_calls+=1
+                            if autonomous_calls>6:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
                     if config.get('_briefing_initial') and op not in ('initial','briefing_search','check'):
                         raise ValueError('Operation outside approved briefing discovery surface')
                     def emit(value):
@@ -111,7 +120,7 @@ def serve():
                             with contextlib.redirect_stdout(sys.stderr):
                                 if op == 'initial':
                                     result = (tools.envelope(db, 'briefing_initial', {'records': []})
-                                              if config.get('_briefing_initial') else
+                                              if config.get('_briefing_initial') or grant is not None else
                                               tools.initial(db, request['question'], {**tool_config, '_profile': profile}, model))
                                     if config.get('_briefing_all'):
                                         from forensic_assistant.briefing_discovery import available
@@ -122,6 +131,8 @@ def serve():
                                     from forensic_assistant.briefing import execute_query
                                     result = execute_query(db, request['arguments'], cross=bool(config.get('_briefing_all')))
                                 else:
+                                    if grant is not None:
+                                        autonomous_policy.dispatch(db,grant,config['case_path'],op,request['arguments'])
                                     result = tools.execute(
                                         db,
                                         op,

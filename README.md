@@ -3730,3 +3730,63 @@ invalid boundaries, provider adaptation, citation checks and final-only handling
 Live compliance still requires manual acceptance. Accepted hypotheses remain in
 structured findings/transcripts; the existing human renderer does not display
 hypothesis statements. That presentation limitation is unchanged by this fix.
+### Opt-in autonomous incremental inspection (6.102 Stage A)
+
+```text
+briefing --investigate --autonomous --question "What evidence supports the reported activity?" --start 2026-09-30T00:00:00Z --end 2026-09-30T23:59:59Z
+```
+
+Stage A uses the configured, acknowledged OpenAI provider/model. Verify investigation
+compatibility first using the interactive startup compatibility check (`ai status`
+shows the cached result; there is no separate `ai check` command). The autonomous
+run will not perform unaccounted readiness probes. Other providers and the legacy
+per-lookup investigation path are unchanged.
+
+One initial prompt authorizes the displayed case, objective, explicit source IDs,
+artifact families, window, selected assessment references and provider disclosure.
+A record qualifies when one of its first 32 timestamps in stable slot order is inside
+the window. Its normal bounded details, including other timestamps, are explicitly
+authorized as context; they do not establish activity within the window. Sources
+are checked again in the pinned worker view before retrieving record content.
+Unknown/unapproved source membership, a missing/out-of-window record or a changed
+case identity fails closed. Multiple allowed sources remain attribution-ambiguous.
+
+The initial tool surface is **show_evidence only**, over at most 12 selected assessment
+references. Search is excluded because its current source restrictions are not sufficient
+for this authorization contract. This is bounded assessment-driven inspection, not
+unrestricted case discovery. Broader questions may require another assessment/run.
+
+Limits remain conservative: six AI requests and six lookups, eight steps, 300 seconds,
+200 retained records, 5,600 message-content bytes per request, 45-second tool deadlines,
+and 1,024 output tokens per analysis request. The existing separate provider schema/IPC
+bounds remain; the 5,600-byte measure retains the legacy message-content definition,
+not a claim about the complete HTTP envelope or model tokens. Missing usage is reported
+as unknown. No monetary guarantee, retries or final synthesis request is added.
+
+Each model final-action response is treated as one batch proposal, not a declaration
+that the whole investigation is complete. Locard validates its existing strict answer
+contract and records an application-owned `analysis-delta-v1` with exact disclosure/view
+bindings before scheduling another lookup. Accepted unresolved questions and observation
+values rank remaining historical discovery hints. These hints never enter the evidence
+ledger. Subsequent requests explicitly re-disclose earlier supporting evidence; omitted
+historical facts cannot authorize new factual claims. At most the current record and
+one previous support record are selected for a request. Unrepresentable support stops
+with partial findings rather than increasing the prompt budget.
+
+Cumulative accepted findings survive later model/validation failures. Original observations,
+qualified interpretations, unverified hypotheses/alternatives and model-proposed gaps
+remain separate. Plan exhaustion does not assert objective or forensic completeness.
+Sparse assessments may permit fewer than two useful batches; Locard does not manufacture
+extra evidence or repeat a lookup just to reach a batch count. Ctrl+C cancels the active
+run; the supervisor retains its last acknowledged, durably committed delta for partial
+output. Cleanup failures remain explicit. There is no detached service, issued reusable
+grant token, automatic renewal or restart continuation in Stage A.
+
+Journals use the existing guarded derived transcript directory, with an explicit engine
+contract. `ai-history show ID --json` inspects the recorded terminal state; it does not
+revalidate the case. The application reconstruction helper rechecks packet/delta grounding
+against recorded retrievals, not a live database. Legacy replay and report import refuse
+Stage A journals explicitly. Durable restart and report adapters remain later stages.
+
+The legacy command without `--autonomous` preserves its approval and execution behavior.
+No evidence schema, normalization, ingestion or database-writing behavior changes.

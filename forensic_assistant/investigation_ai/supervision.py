@@ -37,6 +37,8 @@ def _child(connection, gate, request):
     request['config']['_execution_clock'] = request['_execution_clock']
     request['config']['_approval_clock_managed'] = True
     request['config']['_startup_complete'] = lambda: connection.send_bytes(b'{"kind":"startup_complete"}')
+    if request['config'].get('_stage_a'):
+        request['config']['_stage_a_checkpoint'] = lambda value: connection.send_bytes(json.dumps({'kind':'stage_a_checkpoint','value':value}).encode())
     request['config']['_status'] = lambda phase: connection.send_bytes(json.dumps({'kind': 'status', 'phase': phase}).encode())
     from forensic_assistant.ai import raw_diagnostics
     raw_diagnostics.sink = lambda item: connection.send_bytes(json.dumps({'kind':'raw_diagnostic','entry':item}).encode())
@@ -147,7 +149,8 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     client = client or ModelBackend()
     if isinstance(client, ModelBackend) and client.provider_name != 'local':
         from forensic_assistant.ai.backend import STATUS
-        client.prepare(STATUS.get())  # Cloud certification precedes the forensic clock.
+        if not config.get('_stage_a'):
+            client.prepare(STATUS.get())  # Cloud certification precedes the forensic clock.
     started = time.monotonic()
     deadline = started + budget.seconds
     context = multiprocessing.get_context('spawn')
@@ -161,7 +164,8 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         from forensic_assistant.ai.backend import STATUS
         # Investigation dry-run still requests one model proposal; only tool
         # execution is suppressed. Its owner must also stay outside this job.
-        client.prepare(STATUS.get())
+        if not config.get('_stage_a'):
+            client.prepare(STATUS.get())
         descriptor = client.descriptor()
         from forensic_assistant.llm.client import endpoint_parts
         client.host, client.port = endpoint_parts(client.endpoint or 'http://127.0.0.1:8080')
@@ -178,6 +182,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     messages = queue.Queue(maxsize=4)
     job = None
     result = None
+    stage_a_checkpoint = None
     reason = 'WORKER_START_FAILURE'
     startup_complete = False
     child_cleanup_failed = False
@@ -205,6 +210,9 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
             except queue.Empty:
                 if not process.is_alive():
                     break
+                continue
+            if message['kind'] == 'stage_a_checkpoint' and request['config'].get('_stage_a'):
+                stage_a_checkpoint = message['value']
                 continue
             if message['kind'] == 'raw_diagnostic':
                 from forensic_assistant.ai import raw_diagnostics
@@ -276,6 +284,11 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                       state={'accepted_calls': None}, transcript_complete=False,
                       limitations=['Investigation interrupted; partial transcript is not a completed investigation.'],
                       metrics={**clock.metrics(), 'timeout_cause': ('final_integrity_timeout' if current_phase in ('final_fingerprint', 'fingerprint') and startup_complete else 'execution_budget_exhausted') if reason in ('MAX_SECONDS', 'STARTUP_TIMEOUT') else None})
+        if stage_a_checkpoint is not None:
+            result.update(stage_a_checkpoint)
+            result['limitations'].append('Previously committed Stage A deltas retained; no restart continuation.')
+            from .narrative import build
+            result['narrative']=build(result['findings'],result['state'])
         recovery = context.Process(target=_recover, args=(request, result))
         result['termination_recorded'] = False
         if cleaned and time.monotonic() < cleanup_deadline:

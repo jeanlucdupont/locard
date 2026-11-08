@@ -77,7 +77,9 @@ def test_steps_calls_model_failure_and_approval(tmp_path):
         budget=Budget(calls=1),
         client=Scripted([call, tool('process_tree', {'evidence_id': event['id']})])
     )
-    assert result['termination'] == 'BUDGET_EXHAUSTED' and result['state']['accepted_calls'] == 1
+    # At the call ceiling the existing engine requests a final-only answer;
+    # the scripted second tool proposal is invalid and must not execute.
+    assert result['termination'] == 'FINALIZATION_FAILED' and result['state']['accepted_calls'] == 1
     result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted([call]), approval=lambda p, t: False)
     assert result['termination'] == 'USER_REJECTED' and result['state']['accepted_calls'] == 0
     class Failed:

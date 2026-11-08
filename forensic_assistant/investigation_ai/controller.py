@@ -34,6 +34,9 @@ def validate_anchor(state, name, args, rules):
         raise ValueError('Successful logon anchor required')
 
 def run(config, question, transcript_root, **kwargs):
+    if '_stage_a' in config:
+        from .autonomous import run as incremental
+        return incremental(config, question, transcript_root, **kwargs)
     return _run({**config, '_transaction_view': True}, question, transcript_root, **kwargs)
 
 

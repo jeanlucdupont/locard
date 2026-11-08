@@ -14,6 +14,7 @@ def configure(commands):
     for action in ('interview', 'wizard', 'show', 'edit', 'analyze'):
         source.add_argument('--'+action, action='store_true', help=('Recommended adaptive briefing interview' if action=='interview' else 'Legacy questionnaire' if action=='wizard' else 'Use the selected case briefing: '+action))
     source.add_argument('--investigate',nargs='?',const='latest',metavar='ASSESSMENT_ID',help='Investigate a saved assessment using the existing grounded AI controller')
+    p.add_argument('--autonomous',action='store_true',help='Stage A: one scoped authorization, incremental read-only inspection of assessment references (OpenAI only)')
     p.add_argument('--question',help='First assessment investigation question; otherwise prompted interactively')
     source.add_argument('--assess',action='store_true',help='Plan, approve and save deterministic initial case assessment')
     source.add_argument('--assessment-show',nargs='?',const='latest',metavar='ID',help='Review a saved assessment (default: latest)')
@@ -38,6 +39,8 @@ def configure(commands):
 
 
 def run(args):
+    if getattr(args,'autonomous',False) and not getattr(args,'investigate',None):
+        raise ValueError('--autonomous requires briefing --investigate')
     if getattr(args,'investigate',None):
         from .assessment_handoff_cli import run
         return run(args)

@@ -9,6 +9,8 @@ import time
 
 def replay(config, root, investigation_id):
     manifest, events = load(root, investigation_id)
+    if manifest.get('engine'):
+        raise ValueError('Incremental journals support recorded inspection only, not legacy replay')
     if manifest.get('evidence_state') is not None:
         raise ValueError('Exact-state replay requires a fingerprint-backed transcript; this read-view transcript can only be inspected.')
     current = implementation()

@@ -93,6 +93,22 @@ def source_dependency(row):
 
 def termination_label(result):
     code = result.get('termination')
+    if result.get('engine') == 'incremental-stage-a-v1':
+        labels = {
+            'AUTHORIZED_PLAN_EXHAUSTED': 'All authorized assessment references were processed',
+            'RESOURCE_BUDGET_EXHAUSTED': 'Authorized resource limit reached',
+            'AUTHORIZATION_EXPIRED': 'Authorization expired',
+            'AUTHORIZATION_CASE_CHANGED': 'Authorized case identity changed',
+            'ADDITIONAL_SCOPE_REQUIRED': 'Operation requires additional scope authorization',
+            'PROVIDER_SCOPE_CHANGED': 'Authorized provider or model changed',
+            'PROVIDER_FAILURE': 'AI provider request failed',
+            'OPERATION_FAILURE': 'Authorized operation or disclosure preparation failed',
+            'VALIDATION_FAILURE': 'AI batch failed validation; earlier accepted findings retained',
+            'ANALYST_CANCELLED': 'Analyst cancelled the investigation',
+            'READ_VIEW_INCONSISTENT': 'Read-view validation failed',
+        }
+        if code in labels:
+            return labels[code]
     if code == 'MODEL_FAILURE':
         failure = result.get('provider_failure', {})
         if failure.get('final_only') is True and failure.get('category') == 'output_truncated':
@@ -235,6 +251,17 @@ def render(result, palette=None, *, dry_run=False, details=False):
             lines.extend(['  ' + safe(item['text']), '    Derivation: ' + safe(item['derivation_id'])])
             for eid in item['evidence_ids']:
                 lines.append('    Evidence: ' + palette('evidence_id', safe(eid)))
+    if result.get('engine') == 'incremental-stage-a-v1':
+        lines.extend(['', palette('heading','Incremental investigation status'),
+                        '  '+safe(termination_label(result)),
+                      '  Validated batches: '+str(result.get('validated_batches',0)),
+                      '  Execution completion is not forensic completeness.'])
+        if findings.get('hypotheses'):
+            lines.extend(['',palette('heading','Model-proposed hypotheses — unverified')])
+            for hypothesis in findings['hypotheses']:
+                lines.append('  '+safe(hypothesis['statement']))
+                lines.extend('    Alternative: '+safe(a) for a in hypothesis['alternatives'])
+                lines.extend('    Evidence: '+safe(eid) for eid in hypothesis['evidence_ids'])
     if findings.get('model_proposed_unknowns'):
         lines.extend(['', palette('heading', 'What remains unresolved — model-proposed, unverified' if concise else 'Model-proposed uncertainty (unverified)')])
         for unknown in findings['model_proposed_unknowns'][:3]:
