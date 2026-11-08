@@ -167,16 +167,26 @@ def proposal_text(proposal, palette=None, *, introduction=False):
 def render(result, palette=None, *, dry_run=False, details=False):
     palette = palette or Palette()
     supported = result.get('termination') == 'ANSWER_SUPPORTED'
+    incremental = result.get('engine') == 'incremental-stage-a-v1'
+    findings = result.get('findings') or {}
+    accumulated = incremental and bool(findings.get('observed') or findings.get('interpretations'))
     dry_run = dry_run or bool(result.get('dry_run_proposal'))
     lines = [palette('success' if supported else 'warning',
-                     'Investigation result' if supported else 'Investigation incomplete')]
+                     'Investigation result' if supported else 'Partial investigation findings' if accumulated else 'Investigation incomplete')]
     assessment = result.get('answer_assessment')
     if assessment:
         lines.extend(['', 'Answer status: ' + safe(assessment.get('status', 'UNRESOLVED')),
                       '  ' + safe(assessment.get('reason', 'Objective completeness is not established.'))])
     if result.get('answer_origin') == 'deterministic_disclosed_observations_only':
         lines += ['', 'No validated AI conclusion; observations below are deterministic selections from disclosed records.']
-    findings = result.get('findings') or {}
+    if incremental:
+        lines.extend(['', 'Incremental result',
+            ('  Accumulated validated findings: '+str(len(findings.get('observed',[])))+' observations and '+
+             str(len(findings.get('interpretations',[])))+' deterministic interpretations.' if accumulated else
+             '  No validated observations or deterministic interpretations were accumulated.'),
+            '  Each accepted batch was grounded against its own disclosed evidence; accumulated findings are retained below.',
+            '  No separate final synthesis was requested. A complete answer to the investigation question is not established.',
+            '  Model hypotheses remain unverified; citations do not prove causality or execution.'])
     caveats = list(result.get('limitations') or [])
     state = result.get('state') or {}
     caveats.extend(state.get('limitations') or [])
@@ -200,12 +210,13 @@ def render(result, palette=None, *, dry_run=False, details=False):
         if narrative['records']:
             lines.extend(['', palette('heading', 'Relationship between records'), '  ' + narrative['relationship_caution']])
         coverage = narrative['coverage']
+        prompt_label = 'last analysis-batch prompt' if incremental else 'final prompt'
         lines.extend(['', palette('heading', 'Supporting evidence'),
                       '  Approved detail lookups inspected ' + str(coverage['inspected_records']) + ' records across: ' + (', '.join(coverage['inspected_families']) or 'none') + '.',
-                      '  Records with eligible disclosures: ' + str(coverage['eligible_disclosed_records']) + '; in final prompt: ' + str(coverage['final_prompt_records']) + '; represented in findings: ' + str(len(coverage['represented_record_ids'])) + '.',
+                      '  Records with eligible disclosures: ' + str(coverage['eligible_disclosed_records']) + '; in '+prompt_label+': ' + str(coverage['final_prompt_records']) + '; represented in '+('accumulated ' if incremental else '')+'findings: ' + str(len(coverage['represented_record_ids'])) + '.',
                       '  Inspected but not represented: ' + str(len(coverage['inspected_not_represented'])) + '; without eligible disclosure: ' + str(len(coverage['inspected_without_eligible_disclosure'])) + '.',
                       '  Prompt observations not selected: ' + str(len(coverage['prompt_observations_not_selected'])) + '; disclosed interpretations not selected: ' + str(len(coverage['disclosed_interpretations_not_selected'])) + '.',
-                      '  Previously disclosed records absent from final prompt: ' + str(len(coverage['disclosed_not_in_final_prompt'])) + '. Omission does not mean irrelevant.',
+                      '  Previously disclosed records absent from '+prompt_label+': ' + str(len(coverage['disclosed_not_in_final_prompt'])) + '. Omission does not mean irrelevant.',
                       '  Known records without a separate detail lookup: ' + str(coverage['known_records_without_detail_lookup']) + '.',
                       '  Full IDs, exact fields and provenance remain in --details or --json.'])
     if concise and (coverage['inspected_not_represented'] or coverage['prompt_observations_not_selected'] or coverage['disclosed_interpretations_not_selected']):
@@ -300,7 +311,11 @@ def render(result, palette=None, *, dry_run=False, details=False):
         metrics = result.get('metrics') or {}
         if metrics.get('failed_lookup_tool'):
             lines.extend(['  Tool: ' + safe(metrics['failed_lookup_tool']), '  Reason: ' + safe(metrics.get('failed_lookup_reason', 'Lookup execution failed'))])
-        lines.append(palette('warning', '  No supported conclusion was produced.'))
+        if incremental:
+            lines.append(palette('warning', '  Accumulated partial findings are retained; no global conclusion is asserted.' if accumulated else
+                                 '  No validated factual findings were accumulated; any hypotheses remain unverified.'))
+        else:
+            lines.append(palette('warning', '  No supported conclusion was produced.'))
     # Render one integrity warning; suppress only duplicate controller check details.
     if integrity_warning:
         text = ('The live case changed during the investigation. Findings were not accepted against the changed case state.'

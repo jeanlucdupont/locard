@@ -3801,3 +3801,11 @@ retrieval or analysis. Cancellation is supervised. If an OS process launch or cl
 cannot be confirmed, Locard raises `CLEANUP_LIMITATION` rather than safely-return-to-shell
 success; a late child cannot pass an expired or cancelled startup gate. This does not guarantee
 recovery from an unresponsive Windows kernel or establish the cause of a previous hang.
+
+Stage A results (6.104): human-readable output distinguishes accumulated validated
+partial findings from the last analysis batch's bounded prompt. All accepted batches
+contribute their observations and deterministic interpretations to the existing
+deterministic narrative; hypotheses remain unverified. There is no separate final
+synthesis request or global answer-completeness assessment. Finishing the authorized
+plan does not establish a complete forensic conclusion. The presentation correction
+does not change stored findings, grounding, request budgets or historical transcripts.
