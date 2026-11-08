@@ -73,7 +73,8 @@ def replay(config, root, investigation_id):
                         raise ValueError('Exposure before initial retrieval')
                     disclosed = data['content']
                     for record in disclosed['records']:
-                        if record != state.records.get(record['id']):
+                        from .projection import is_record_projection
+                        if not is_record_projection(record, state.records.get(record['id'])):
                             raise ValueError('Transcript exposure is not a retrieved record')
                     for section, key in (('relationships', 'relationship_id'), ('detections', 'detection_id')):
                         for item in disclosed[section]:

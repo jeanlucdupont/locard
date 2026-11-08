@@ -224,10 +224,14 @@ def _run(
                         'content': exposed,
                         'prompt_bytes': size,
                         'prompt_sha256': digest(messages),
-                        'tools': names
+                        'tools': names,
+                        'diagnostics': state.prompt_diagnostics
                     }
                 )
                 state.disclose(exposed)
+            LOG.debug('turn=%s prompt_bytes=%s evidence_bytes=%s optional_omitted_bytes=%s disclosed_records=%s',
+                      state.steps,size,state.prompt_diagnostics['evidence_projection_bytes'],
+                      state.prompt_diagnostics['optional_context_bytes_omitted'],state.prompt_diagnostics['disclosed_records'])
             prompt_sizes.append(size)
             if remaining() <= 0:
                 termination = 'MAX_SECONDS'
@@ -281,6 +285,7 @@ def _run(
                 with profile.phase('validation'):
                     proposal = contracts.request(raw, names)
                 if proposal['action'] == 'final':
+                    state.answer_attempts += 1
                     validation_stage = 'final_grounding'
                     with profile.phase('validation'):
                         rendered = state.render(proposal['answer'])
@@ -312,7 +317,25 @@ def _run(
                     rejection_record(decoded, 'loop_validation', 'Repeated normalized tool call')
                     decision('rejected')
                     audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=name, reason='repeated_call')
+                    completed = state.completed_calls.get(normalized)
+                    recovery = bool(completed and state.duplicate_recoveries == 0 and step + 1 < budget.steps and not dry_run)
+                    call_metadata['duplicate'] = dict(classification='completed' if completed else 'not_completed',
+                        correction_available=recovery, completed_lookup_count=len(state.completed_calls),
+                        anchor_disclosed=args.get('evidence_id') in state.exposed,
+                        prompt_bytes=prompt_sizes[-1],
+                        retained_projection_disclosure=('not_anchor_lookup' if 'evidence_id' not in args else
+                            'none' if args['evidence_id'] not in state.last_disclosed else
+                            'full' if state.last_disclosed[args['evidence_id']]==state.records.get(args['evidence_id']) else 'partial'),
+                        upstream_truncation=bool(state.records.get(args.get('evidence_id'),{}).get('truncated_fields')))
                     transcript.append('loop_rejected', proposal)
+                    transcript._manifest()
+                    if recovery:
+                        state.duplicate_recoveries += 1
+                        feedback = {'status':'already completed','tool':name,
+                                    'reason':str(args.get('evidence_id','Identical normalized lookup')),
+                                    'correction':'No re-execution. Use disclosed evidence for a partial/unresolved final or a different authorized lookup. Only one correction.'}
+                        state.limit('One repeated successful lookup was rejected without re-execution; a bounded corrective model turn was allowed.')
+                        continue
                     termination = 'TOOL_LOOP'
                     break
                 if state.accepted >= budget.calls or (name == 'semantic_search' and state.semantic >= budget.semantic):
@@ -396,6 +419,8 @@ def _run(
                         'result_sha256': digest(response['result'])
                     }
                 )
+                if outcome in ('completed','completed_empty'):
+                    state.completed_calls[normalized] = {'tool':name,'evidence_id':args.get('evidence_id')}
                 new = state.ingest(response['result'])
                 state.path.append({
                     'operation': name,
@@ -520,6 +545,7 @@ def _run(
         integrity_reason = 'Execution budget exhausted before final verification' if remaining() <= 0 else 'Final verification not attempted under termination policy'
     if integrity.get('strategy') in ('private_sqlite_snapshot', 'read_only_transaction') and integrity.get('live_case_matches') is not True:
         state.limit('Live-case equality was not confirmed at completion; findings cover only the original consistent read view.')
+    model_final_validated = final is not None
     if final is None:
         final = state.partial()
     if remaining() <= 0:
@@ -536,6 +562,7 @@ def _run(
         'termination': termination,
         'findings': final,
         'answer_assessment': answer_assessment,
+        'answer_origin': 'validated_model_proposal' if model_final_validated else 'deterministic_disclosed_observations_only',
         'evidence_fingerprint': fingerprint,
         **({'evidence_state': evidence_state} if evidence_state is not None else {}),
         'derived_data': True,

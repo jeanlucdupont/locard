@@ -125,7 +125,9 @@ def load(root, investigation_id):
                     ('detections', 'detection_id')
                 ]:
                     for item in disclosed[section]:
-                        if item != getattr(state, section).get(item[key]):
+                        from forensic_assistant.investigation_ai.projection import is_record_projection
+                        original = getattr(state, section).get(item[key])
+                        if not (is_record_projection(item, original) if section=='records' else item==original):
                             raise ValueError('Exposure differs from retrieved data')
                 state.disclose(disclosed)
                 exposures.append(disclosed)

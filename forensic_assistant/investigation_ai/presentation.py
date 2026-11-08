@@ -153,6 +153,8 @@ def render(result, palette=None, *, dry_run=False):
     if assessment:
         lines.extend(['', 'Answer status: ' + safe(assessment.get('status', 'UNRESOLVED')),
                       '  ' + safe(assessment.get('reason', 'Objective completeness is not established.'))])
+    if result.get('answer_origin') == 'deterministic_disclosed_observations_only':
+        lines += ['', 'No validated AI conclusion; observations below are deterministic selections from disclosed records.']
     findings = result.get('findings') or {}
     caveats = list(result.get('limitations') or [])
     state = result.get('state') or {}

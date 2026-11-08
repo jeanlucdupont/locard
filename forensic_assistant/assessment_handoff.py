@@ -62,9 +62,13 @@ def prepare(case, identity, question, start=None, end=None):
                   'Historical assessment is not current evidence; live-case equality is unknown. Only retained timestamps/context are compared; other historical fields are not equality-verified.',
                   'Unknown or analyst-supplied host/source relationships are not independently established.',
                   'Reported incident time may have an unknown timezone; only the confirmed window authorizes searches.']
-    incomplete = sorted({r['artifact'] for r in assessment['rows'] if r['status'] not in ('match', 'no_match', 'not_applicable')})
+    coverage = {status: sorted({r['artifact'] for r in assessment['rows'] if r['status']==status})
+                for status in ('match','no_match','unsupported','unavailable','incomplete','failed','not_searched')}
+    incomplete = coverage['incomplete']
     if incomplete:
         limitations.append('Historical search coverage incomplete: ' + ', '.join(incomplete) + '; no absence conclusion.')
+    for status in ('unsupported','unavailable','failed','not_searched'):
+        if coverage[status]:limitations.append('Historical routes '+status+': '+', '.join(coverage[status])+'; not an absence conclusion.')
     if stale:
         limitations.append('Assessment references an older or unavailable briefing revision; no current revision is substituted.')
     if len(mapping) > len(selected):
@@ -84,7 +88,7 @@ def prepare(case, identity, question, start=None, end=None):
         hints.append({'ref':ref, 'id':eid, 'projection_digest':expected})
     return dict(case=assessment['case'], assessment_id=assessment['id'], assessment_digest=digest(assessment),
                 briefing_revision=plan['revision'], briefing_digest=plan['digest'], question=question,
-                scope=scope, hints=hints, historical=historical, limitations=limitations, incomplete_families=incomplete,
+                scope=scope, hints=hints, historical=historical, limitations=limitations, incomplete_families=incomplete, coverage_states=coverage,
                 briefing_stale=stale, latest_briefing_digest=state['revisions'][-1]['digest'] if state else None, context_is_unverified=True)
 
 

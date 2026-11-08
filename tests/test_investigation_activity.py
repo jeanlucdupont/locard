@@ -80,7 +80,7 @@ def test_repeat_still_stops(tmp_path, caplog):
     worker = RecordingWorker({})
     proposal = tool('show_evidence', {'evidence_id': EID})
     with caplog.at_level(logging.DEBUG, logger='forensic_assistant.investigation_ai'):
-        result = controller.run({}, 'Inspect', tmp_path, client=Scripted([proposal, proposal]),
+        result = controller.run({}, 'Inspect', tmp_path, client=Scripted([proposal, proposal, proposal]),
                                 worker_factory=lambda _: worker)
     assert result['termination'] == 'TOOL_LOOP'
     assert worker.calls.count('show_evidence') == 1

@@ -3517,3 +3517,31 @@ replay and fingerprint-backed report import. `--details`/`--json` on the briefin
 command expose the investigation result. This release supports one first question
 per invocation, not a persistent multi-question conversation. A separate invocation
 starts a new bounded read view and requires authorization again.
+
+
+### Assessment investigation context and duplicate correction (6.94)
+
+Current retrieved detail now takes priority over optional assessment hints and
+historical narrative within the unchanged 5,600-byte prompt ceiling. Bounded
+per-family projections select unchanged fields; original EventData indices,
+names, ordinals and truncation flags remain intact. Omitted fields cannot support
+observations. The ledger preserves only fields actually disclosed across turns.
+Source context and upstream truncation metadata are retained with each projection.
+
+A repeated successfully completed lookup is rejected without re-execution. At
+most one corrective model turn is allowed per investigation, within existing step
+and time limits. The model may give a grounded partial/unresolved answer or propose
+a different lookup under normal approval. A further duplicate terminates the run.
+Denial, failure and unresolved lookup handling are not retry authorization.
+
+The transcript retains non-payload prompt accounting and duplicate classification,
+answer attempts, grounding rejection counts and an explicit answer origin. When no
+AI conclusion is validated, deterministic observations from disclosed fields are
+labeled separately; they are not a manufactured model conclusion. Historical
+coverage distinguishes incomplete searches from unsupported, unavailable, failed
+and unsearched routes. No-match routes are not relabeled incomplete.
+
+Historical full-record transcript exposures remain compatible. New subset
+exposures must retain exact source values/array indices and provenance/truncation
+metadata; report/replay validation rejects invented fields or altered values.
+Existing read-view replay and report-import restrictions remain unchanged.

@@ -87,7 +87,7 @@ def test_loop_and_no_new_evidence(tmp_path):
     path = tmp_path / 'case.db'
     event = make_case(path)
     call = tool('show_evidence', {'evidence_id': event['id']})
-    result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted([call, call]))
+    result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted([call, call, call]))
     assert result['termination'] == 'TOOL_LOOP' and result['state']['accepted_calls'] == 1
     calls = [tool('search_evidence', {'process': name}) for name in ('missing1.exe', 'missing2.exe', 'missing3.exe')]
     result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted(calls))

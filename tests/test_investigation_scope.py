@@ -173,7 +173,11 @@ def test_budget_history_large_duplicates_and_exposure():
         messages, exposed, size = state.prompt(QUESTION, state.applicable(False, []), [], feedback)
         assert size == sum(len(m['content'].encode()) for m in messages) <= 5600
         assert eid in {r['id'] for r in exposed['records']} and 'historical' not in {r['id'] for r in exposed['records']}
-        assert exposed['records'][0] == state.records[eid]  # No silent evidence clipping.
+        from forensic_assistant.investigation_ai.projection import is_record_projection
+        assert is_record_projection(exposed['records'][0], state.records[eid])
+        if exposed['records'][0] != state.records[eid]:
+            assert state.prompt_diagnostics['projected_records'] > 0
+            assert any('omitted fields were not disclosed' in note for note in state.limits)
         assert json.loads(messages[1]['content'])['controller']['completed_tools'] == ['search_evidence']
         state.disclose(exposed)
         answer = observed(messages)['answer']
