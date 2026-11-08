@@ -3545,3 +3545,29 @@ Historical full-record transcript exposures remain compatible. New subset
 exposures must retain exact source values/array indices and provenance/truncation
 metadata; report/replay validation rejects invented fields or altered values.
 Existing read-view replay and report-import restrictions remain unchanged.
+
+
+### Bounded investigation finalization (6.95)
+
+After three lookups add no new evidence IDs, the controller now permits one
+final-only model response if its existing step/time budgets allow it. The model
+cannot request another lookup on that turn. A grounded partial or unresolved
+answer is valid; an invalid final response stops without another retry. Analyst
+denials, tool failures, authorization, and evidence grounding remain unchanged.
+
+Current field projections retain priority over optional historical prose.
+Bounded assessment identity hints and completed-search counts/coverage remain
+available; identities do not disclose record details. The prompt ceiling remains
+5,600 bytes. Empty, partial, or filename-specific searches do not establish
+non-execution.
+
+When no model answer validates, deterministic fallback selects meaningful
+**actually disclosed** fields and recognized interpretations, including Defender
+ASR blocking limitations. It is explicitly distinguished from an AI conclusion.
+An additive fallback-rendering contract preserves legacy transcript rendering;
+existing read-view report-import restrictions remain unchanged.
+
+EVTX content search now records separate skipped-reason counts for payload-byte,
+XML-byte, field-count, and invalid-EventData conditions. Reasons can overlap for
+one candidate; `skipped` remains the candidate count. Search bounds and rejection
+behavior are unchanged. Historical combined counts cannot be split retrospectively.

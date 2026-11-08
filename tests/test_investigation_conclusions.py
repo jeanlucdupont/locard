@@ -40,7 +40,7 @@ def test_more_than_three_original_observations_and_ordinals():
     assert len(result['observed']) == 8
     assert [r['recorded_field']['ordinal'] for r in result['observed'][2:]] == list(range(6))
     assert [r['reported_value'] for r in result['observed'][-2:]] == ['first', 'second']
-    assert 'objective-relevant' in SYSTEM and 'activity details over generic metadata' in SYSTEM
+    assert 'objective-relevant' in SYSTEM and 'favor activity details' in SYSTEM
     invalid = answer(record, [f'/field{i}' for i in range(13)])
     with pytest.raises(ValueError, match='item count'): state.render(invalid)
     with pytest.raises(ValueError, match='unexposed'): state.render(answer(record, ['/hidden']))

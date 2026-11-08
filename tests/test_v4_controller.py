@@ -90,8 +90,9 @@ def test_loop_and_no_new_evidence(tmp_path):
     result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted([call, call, call]))
     assert result['termination'] == 'TOOL_LOOP' and result['state']['accepted_calls'] == 1
     calls = [tool('search_evidence', {'process': name}) for name in ('missing1.exe', 'missing2.exe', 'missing3.exe')]
-    result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted(calls))
-    assert result['termination'] == 'NO_NEW_EVIDENCE' and result['state']['accepted_calls'] == 3
+    result = run(config(path), 'PowerShell', tmp_path / 'runs', client=Scripted([*calls, {'action': 'final', 'answer': {}}]))
+    assert result['termination'] == 'FINALIZATION_FAILED' and result['state']['accepted_calls'] == 3
+    assert result['state']['steps'] == 4 and result['state']['finalization_requested']
 
 def test_dry_run_has_one_model_request_no_iterative_execution(tmp_path):
     path = tmp_path / 'case.db'

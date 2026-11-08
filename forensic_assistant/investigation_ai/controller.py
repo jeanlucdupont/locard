@@ -210,7 +210,7 @@ def _run(
             if remaining() <= 0:
                 termination = 'BUDGET_EXHAUSTED'
                 break
-            names = state.applicable(semantic_available, rules)
+            names = [] if state.finalization_requested else state.applicable(semantic_available, rules)
             status('exposure')
             with profile.phase('exposure'):
                 messages, exposed, size = state.prompt(question, names, rules, feedback)
@@ -420,7 +420,11 @@ def _run(
                     }
                 )
                 if outcome in ('completed','completed_empty'):
-                    state.completed_calls[normalized] = {'tool':name,'evidence_id':args.get('evidence_id')}
+                    state.completed_calls[normalized] = {'tool': name, 'evidence_id': args.get('evidence_id'),
+                        'returned': response['result']['returned_count'],
+                        **({'query': {k: args[k] for k in ('artifact', 'event_id', 'evtx_text') if k in args},
+                            'coverage': {k: response['result']['content_search'][k] for k in ('complete', 'examined', 'skipped')}}
+                           if response['result'].get('content_search') is not None else {})}
                 new = state.ingest(response['result'])
                 state.path.append({
                     'operation': name,
@@ -432,6 +436,12 @@ def _run(
                 if unresolved:
                     feedback = 'Previous around lookup is unresolved: ' + '; '.join(response['result']['limitations']) + '. This is a limitation, not evidence. Do not repeat the identical lookup or broaden across hosts; choose another grounded allowed lookup or conclude unresolved.'
                 if state.no_new >= 3:
+                    if step + 1 < budget.steps and remaining() > 0:
+                        state.finalization_requested = True
+                        feedback = 'No new evidence IDs in three operations. Finalize once using disclosed fields only; no tools. State unresolved questions; empty/partial searches do not prove non-execution.'
+                        state.limit('No-new-evidence cutoff reached; one final-only model opportunity allowed within existing budgets.')
+                        continue
+                    state.limit('No-new-evidence cutoff reached without remaining budget for finalization.')
                     termination = 'NO_NEW_EVIDENCE'
                     break
                 if len(state.records) >= budget.records:
@@ -480,6 +490,10 @@ def _run(
                     audit('TOOL_REJECTED', 'failure', tool_call_number=call_number, tool=call_metadata['tool'])
                 if dry_run:
                     termination = 'USER_SCOPE_REACHED'
+                    break
+                if state.finalization_requested:
+                    state.limit('Final-only response failed structural or grounding validation; no additional retry or lookup was allowed.')
+                    termination = 'FINALIZATION_FAILED'
                     break
                 if state.rejected >= budget.rejections:
                     termination = 'TOO_MANY_REJECTIONS'
@@ -562,6 +576,7 @@ def _run(
         'termination': termination,
         'findings': final,
         'answer_assessment': answer_assessment,
+        'fallback_contract': 'disclosed-fields-v2',
         'answer_origin': 'validated_model_proposal' if model_final_validated else 'deterministic_disclosed_observations_only',
         'evidence_fingerprint': fingerprint,
         **({'evidence_state': evidence_state} if evidence_state is not None else {}),

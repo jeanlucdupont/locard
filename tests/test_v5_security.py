@@ -277,3 +277,33 @@ def test_hypothesis_has_no_implied_negative_or_factual_conclusion(tmp_path):
         html = (output / 'report.html').read_text()
         assert statement not in html.split('<h2>Conclusions</h2>')[1].split('</section>')[0]
         assert validate(output, case=case, transcript_root=root)['evidence_grounding'] == 'PASS'
+
+
+def test_fallback_contract_preserves_historical_rendering(tmp_path):
+    from forensic_assistant.reporting.transcripts import load
+    from forensic_assistant.investigation_ai.state import State, Budget
+    case = tmp_path / 'case.db'
+    make_case(case)
+    root = tmp_path / 'runs'
+    iid = run(config(case), 'PowerShell', root, client=Scripted([{'action':'invalid'}]*3))['investigation_id']
+    current = load(root, iid)
+    assert current['terminal']['fallback_contract'] == 'disclosed-fields-v2'
+    assert len(current['findings']['observed']) > 1
+    def legacy(events):
+        state = State(Budget())
+        for event in events:
+            if event['kind'] == 'exposure':
+                state.disclose(event['data']['content'])
+        events[-1]['data'].pop('fallback_contract')
+        events[-1]['data']['findings'] = state.partial(legacy=True)
+        return events
+    rehash_transcript(root / iid, legacy)
+    historical = load(root, iid)
+    assert len(historical['findings']['observed']) == 1
+    assert 'interpretations' not in historical['findings']
+    def invalid(events):
+        events[-1]['data']['fallback_contract'] = 'invented-contract'
+        return events
+    rehash_transcript(root / iid, invalid)
+    with pytest.raises(ValueError, match='fallback rendering contract'):
+        load(root, iid)

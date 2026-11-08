@@ -159,7 +159,12 @@ def load(root, investigation_id):
         terminal = events[-1]['data']
         if terminal['evidence_fingerprint'] != manifest['evidence_fingerprint'] or terminal['termination'] != manifest['status']:
             raise ValueError('Terminal state mismatch')
-        expected = final if final is not None else state.partial()
+        fallback = terminal.get('fallback_contract')
+        if fallback not in (None, 'disclosed-fields-v2'):
+            raise ValueError('Unsupported fallback rendering contract')
+        expected = final if final is not None else state.partial(legacy=fallback is None)
+        if expected.get('interpretations'):
+            raise ValueError('Report import of deterministic interpretations is not supported; use explicit evidence selection for a newly grounded report.')
         if terminal['findings'] != expected:
             raise ValueError('Terminal findings differ from controller rendering')
         if not initialized:

@@ -92,7 +92,7 @@ def test_model_sees_action_format_inputs_and_completed_tools_inside_budget():
     state.path = [{'operation': 'initial', 'new_records': 1}, {'operation': 'process_tree', 'new_records': 0}]
     messages, _, size = state.prompt('Inspect process relationships', ['process_tree', 'show_evidence'], [])
     controller = json.loads(messages[1]['content'])['controller']
-    assert 'tool or final JSON action matching the supplied schema' in messages[0]['content']
+    assert 'one schema-valid tool or final action' in messages[0]['content']
     assert 'evidence_id*' in controller['tool_inputs']['process_tree']
     assert controller['completed_tools'] == ['process_tree'] and size <= 5600
 

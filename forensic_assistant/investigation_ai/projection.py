@@ -36,6 +36,13 @@ def compact(record, budget):
         'prefetch':('executable','process_name','timestamps','referenced_files','run_count'),
         'registry':('hive','key','key_path','value_name','value_data','timestamps'),
     }.get(family,())
+    # Keep the qualified blocking interpretation before less informative leaves.
+    if 'defender_asr' in record and 'interpretation_ids' in record:
+        from .conclusions import interpretations
+        candidate = {**base, **{k: deepcopy(record[k]) for k in
+            ('event_id', 'provider', 'channel', 'defender_asr', 'interpretation_ids') if k in record}}
+        if size(candidate) <= budget and interpretations(candidate):
+            base = candidate
     for key in dict.fromkeys((*priorities,*record)):
         if key in base or key in ('defender_asr','interpretation_ids'):continue
         if key not in record:continue

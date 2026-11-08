@@ -98,6 +98,7 @@ def _search(query, *, evtx_text, evtx_match='contains', evtx_after=None, start=N
     timer.daemon = True
     records, notes = [], []
     examined = consumed = skipped = 0
+    skipped_reasons = dict(payload_byte_bound=0, xml_byte_bound=0, invalid_event_data=0, field_count_bound=0)
     last = after
     complete = False
     timer.start()
@@ -117,6 +118,8 @@ def _search(query, *, evtx_text, evtx_match='contains', evtx_after=None, start=N
                                (row['id'],)).fetchone()
             size = sizes['payload_bytes']
             if size > MAX_PAYLOAD or sizes['xml_bytes'] > 131072:
+                skipped_reasons['payload_byte_bound'] += int(size > MAX_PAYLOAD)
+                skipped_reasons['xml_byte_bound'] += int(sizes['xml_bytes'] > 131072)
                 examined += 1
                 skipped += 1
                 last = (row['timestamp_utc'], row['id'])
@@ -131,6 +134,9 @@ def _search(query, *, evtx_text, evtx_match='contains', evtx_after=None, start=N
             entries, issues = payload(data)
             if issues:
                 skipped += 1
+                skipped_reasons['field_count_bound'] += int('Original EventData field-count bound reached' in issues)
+                skipped_reasons['invalid_event_data'] += int(any(
+                    note != 'Original EventData field-count bound reached' for note in issues))
             matches = []
             for item in [dict(ordinal=None, name=k, value=data.get(k), basis='normalized_field') for k in NORMALIZED] + [dict(x, basis='original_event_data') for x in entries]:
                 value = item['value']
@@ -166,7 +172,7 @@ def _search(query, *, evtx_text, evtx_match='contains', evtx_after=None, start=N
         notes.append('No absence conclusion: only bounded candidates were examined; continue or narrow the filters')
     continuation = cursor(last, scope) if not complete and last is not None and last != after else None
     coverage = dict(complete=complete, continued=bool(after), examined=examined, skipped=skipped,
-                    payload_bytes=consumed, next_cursor=continuation,
+                    payload_bytes=consumed, next_cursor=continuation, skipped_reasons=skipped_reasons,
                     ordering='SystemTime, evidence ID', match=evtx_match,
                     case_consistency='Continuation requires unchanged case contents; no cross-command snapshot is implied')
     return ContentResult(records, limit, coverage, notes)

@@ -217,3 +217,19 @@ def test_large_event_still_exposes_relevant_original_field_within_prompt(db):
     assert 'original_event_data' in record['truncated_fields']
     assert len(json.dumps(record['original_event_data'],ensure_ascii=True).encode())<=1024
     assert len(json.dumps(record['content_matches'],ensure_ascii=True).encode())<=768
+
+
+def test_candidate_skip_reasons_preserve_bounds_and_malformed_rejection(db):
+    oversized = add(db, 1, data=[('Text', 'x'*33000 + 'baje.ps1')])
+    malformed = add(db, 2, data=[('Text', 'baje.ps1')])
+    xml_large = add(db, 3, data=[('Text', 'baje.ps1')])
+    db.execute('UPDATE events SET event_data_json=? WHERE id=?', ('not json', malformed))
+    db.execute('UPDATE events SET raw_xml=? WHERE id=?', ('x'*131073, xml_large))
+    db.commit()
+    before = db.total_changes
+    result = EvidenceQueries(db).search(**SCOPE, evtx_text='baje.ps1').as_dict()
+    assert not result['records'] and result['content_search']['skipped'] == 3
+    assert result['content_search']['skipped_reasons'] == dict(
+        payload_byte_bound=1, xml_byte_bound=1, invalid_event_data=1, field_count_bound=0)
+    assert not result['content_search']['complete'] and result['truncated']
+    assert db.total_changes == before
