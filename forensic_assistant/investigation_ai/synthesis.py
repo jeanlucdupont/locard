@@ -285,10 +285,16 @@ def main():
     parser.add_argument('root', help='Directory containing saved investigation directories')
     parser.add_argument('identity', help='Original 32-character investigation ID (directory name)')
     parser.add_argument('--json', action='store_true', help='Print structured clauses and support lineage')
+    parser.add_argument('--relationships', action='store_true', help='Inspect S2 typed relationships and recorded-value chronology')
     args = parser.parse_args()
     try:
-        result = reconstruct(args.root, args.identity)
-        print(encoded(result) if args.json else render(result))
+        if args.relationships:
+            from . import relationships
+            result = relationships.reconstruct(args.root, args.identity)
+            print(encoded(result) if args.json else relationships.render(result))
+        else:
+            result = reconstruct(args.root, args.identity)
+            print(encoded(result) if args.json else render(result))
     except (ValueError, OSError) as exc:
         parser.exit(1, 'Factual clause inspection failed: ' + type(exc).__name__ + '\n')
 
