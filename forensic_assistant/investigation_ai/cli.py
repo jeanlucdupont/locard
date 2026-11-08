@@ -12,6 +12,7 @@ from .transcript import load, implementation
 def configure(commands):
     p = commands.add_parser('investigate-ai', help=COMMANDS['investigate-ai'], description='Advanced / Diagnostic interface. Use ! <question> for normal interactive AI requests.')
     p.add_argument('question')
+    p.add_argument('--details', action='store_true', help='Show technical observations, full evidence IDs and provenance')
     p.add_argument('--endpoint', default=None, help='Advanced existing loopback endpoint; overrides configured provider for this invocation')
     p.add_argument('--date')
     p.add_argument('--max-steps', type=int, default=8)

@@ -84,13 +84,34 @@ def compact(record):
             result.setdefault('truncated_fields', []).append('source assertions')
     if record.get('source_type') == 'browser':
         detail = record.get('detail', {})
-        for key in ('browser_product', 'profile', 'context_id', 'url', 'title', 'target_path', 'current_path', 'full_path', 'state'):
+        for key in ('browser_product', 'profile', 'context_id', 'url', 'title', 'target_path', 'current_path', 'full_path', 'state', 'referrer'):
             if key in detail:
                 value = detail[key]
                 if isinstance(value, str) and len(value) > 220:
                     value = value[:220]
                     result.setdefault('truncated_fields', []).append(key)
                 result[key] = value
+        # Preserve chain identity; never substitute a historical URL or call a
+        # referrer the download source. Bounded prefix retains original indices.
+        chain = detail.get('url_chain', [])
+        if isinstance(chain, list):
+            result['url_chain'] = []
+            for entry in chain[:4]:
+                item = {k: entry[k] for k in ('chain_index', 'url') if k in entry}
+                if isinstance(item.get('url'), str) and len(item['url']) > 220:
+                    item['url'] = item['url'][:220]
+                    result.setdefault('truncated_fields', []).append('url_chain')
+                while (isinstance(item.get('url'), str) and item['url'] and
+                       len(json.dumps(result['url_chain'] + [item], ensure_ascii=True).encode()) > 1024):
+                    item['url'] = item['url'][:-1]
+                    if 'url_chain' not in result.get('truncated_fields', []):
+                        result.setdefault('truncated_fields', []).append('url_chain')
+                if len(json.dumps(result['url_chain'] + [item], ensure_ascii=True).encode()) > 1024:
+                    result.setdefault('truncated_fields', []).append('url_chain')
+                    break
+                result['url_chain'].append(item)
+            if len(chain) > 4:
+                result.setdefault('truncated_fields', []).append('url_chain')
     for stamp in result.get('timestamps', []):
         original = next(
             (t for t in record.get('timestamps', []) if t['timestamp_utc'] == stamp['utc'] and t['source'] == stamp['type']),

@@ -31,7 +31,7 @@ def compact(record, budget):
     family=record.get('source_type','evtx')
     priorities={
         'evtx':('event_id','timestamp_utc','provider','channel','original_event_data','process_name','command_line','parent_process_name','parent_command_line'),
-        'browser':('browser_product','url','target_path','current_path','timestamps','timestamp_utc','state'),
+        'browser':('browser_product','url','url_chain','target_path','current_path','timestamps','timestamp_utc','state'),
         'mft':('timestamps','objects','paths','filename','record_number','allocated'),
         'prefetch':('executable','process_name','timestamps','referenced_files','run_count'),
         'registry':('hive','key','key_path','value_name','value_data','timestamps'),

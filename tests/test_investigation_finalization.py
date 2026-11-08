@@ -13,7 +13,7 @@ def answer(messages):
     packet = json.loads(messages[1]['content'])
     assert packet['controller']['final_only']
     assert packet['controller']['tools'] == []
-    assert len(packet['controller']['completed_lookups']) == 3
+    assert len(packet['controller']['completed_lookups']) + packet['controller'].get('completed_summaries_omitted', 0) == 4
     assert packet['controller']['completed_lookups'][-1]['coverage']['skipped'] == 13
     record = next(r for r in packet['UNTRUSTED FORENSIC EVIDENCE']['records'] if r.get('event_id') == 1121)
     index = next(i for i, v in enumerate(record['original_event_data']) if v.get('name') == 'Target Commandline')
@@ -29,7 +29,7 @@ def run_sequence(saved, tmp_path, last=answer, budget=None):
     p = approved(saved)
     eid = next(e for e in assessment['records'] if e.startswith('EVTX'))
     actions = [tool('show_evidence', {'evidence_id': eid})]
-    for extra in ({}, {'event_id': 4104}):
+    for extra in ({}, {'event_id': 4103}, {'event_id': 4104}):
         actions.append(tool('search_evidence', dict(artifact='evtx', evtx_text='baje.ps1',
             hostname='synthetic-host', start=START, end=END, limit=20, **extra)))
     class EmptySearch(Worker):
@@ -51,9 +51,9 @@ def run_sequence(saved, tmp_path, last=answer, budget=None):
         tmp_path/'runs', client=client, worker_factory=make,
         approval=lambda *args: approvals.append(args) or True, budget=budget or Budget())
     assert case.read_bytes() == before
-    assert len(approvals) == 3
-    assert workers[0].calls == ['initial', 'show_evidence', 'search_evidence', 'search_evidence', 'check']
-    assert result['state']['accepted_calls'] == 3
+    assert len(approvals) == 4
+    assert workers[0].calls == ['initial', 'show_evidence', 'search_evidence', 'search_evidence', 'search_evidence', 'check']
+    assert result['state']['accepted_calls'] == 4
     assert max(result['metrics']['prompt_bytes']) <= 5600
     return result, client
 
@@ -64,9 +64,9 @@ def test_live_shape_finalizes_once(saved, tmp_path):
     assert result['state']['answer_attempts'] == 1
     assert result['answer_assessment']['status'] == 'PARTIAL'
     assert result['answer_origin'] == 'validated_model_proposal'
-    assert len(client.calls) == 4
+    assert len(client.calls) == 5
     manifest, events = load(tmp_path/'runs', result['investigation_id'])
-    assert len(manifest['tool_calls']) == 3
+    assert len(manifest['tool_calls']) == 4
     assert sum(e['kind'] == 'validated_final' for e in events) == 1
     assert 'does not establish successful target execution' in result['findings']['interpretations'][0]['text']
     assert len(json.loads(client.calls[-1][1]['content'])['UNTRUSTED FORENSIC EVIDENCE']['records']) == 5
@@ -88,7 +88,7 @@ def test_finalization_failure_is_bounded(saved, tmp_path, mode):
             value['answer'].update(observed=[], interpretations=[], answer_status='unresolved')
         return value
     result, client = run_sequence(saved, tmp_path, fail)
-    assert len(client.calls) == 4
+    assert len(client.calls) == 5
     assert result['termination'] == ('MODEL_FAILURE' if mode == 'transport' else
         'INSUFFICIENT_EVIDENCE' if mode == 'refusal' else 'FINALIZATION_FAILED')
     if mode != 'refusal':
@@ -98,9 +98,9 @@ def test_finalization_failure_is_bounded(saved, tmp_path, mode):
 
 
 def test_no_extra_step_budget(saved, tmp_path):
-    result, client = run_sequence(saved, tmp_path, budget=Budget(steps=3))
+    result, client = run_sequence(saved, tmp_path, budget=Budget(steps=4))
     assert result['termination'] == 'NO_NEW_EVIDENCE'
-    assert len(client.calls) == 3 and not result['state']['finalization_requested']
+    assert len(client.calls) == 4 and not result['state']['finalization_requested']
     assert any('remaining budget' in s for s in result['limitations'])
 
 

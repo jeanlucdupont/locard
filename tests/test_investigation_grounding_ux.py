@@ -14,12 +14,12 @@ def unsupported():
 
 
 def test_guidance_disclosure_and_existing_grammar_stay_bounded():
-    for phrase in ('ONLY exact leaf fields/values explicitly disclosed',
-                   'An exposed ID does not expose every field',
-                   'truncated_fields omissions', 'NOT disclosed values',
-                   'propose an allowed grounded read-only tool',
-                   'Never invent OBSERVED entries or guess yes/no',
-                   'an unresolved final result is valid'):
+    for phrase in ('exact disclosed evidence_id and leaf JSON-pointer',
+                   'IDs are not detail; omissions are unavailable',
+                   'Authorized read-only scope only',
+                   'Never invent fields or guess yes/no',
+                   'Partial/unresolved is valid',
+                   'Without evidence, unknowns only'):
         assert phrase in SYSTEM
     assert 'coreupdater' not in SYSTEM and 'loot.zip' not in SYSTEM
     state = State(Budget())

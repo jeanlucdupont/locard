@@ -27,13 +27,13 @@ def test_rejected_final_persisted_before_termination(saved, tmp_path, mode):
         original.append(json.dumps(value))
         return value
     result, client = run_sequence(saved, tmp_path, invalid)
-    assert result['termination'] == 'FINALIZATION_FAILED' and len(client.calls) == 4
+    assert result['termination'] == 'FINALIZATION_FAILED' and len(client.calls) == 5
     manifest, events = load(tmp_path/'runs', result['investigation_id'])
     event = next(e for e in events if e['kind'] == 'rejected')
     capture = event['data']['rejected_response']
     assert json.loads(capture['text']) == json.loads(original[0])
     assert not capture['truncated'] and not capture['redacted']
-    assert capture['disclosure']['exposure_event_step'] == 4
+    assert capture['disclosure']['exposure_event_step'] == 5
     assert events[-1]['kind'] == 'terminal' and event['sequence'] < events[-1]['sequence']
     detail = capture['reference_failure']
     if mode in ('field', 'identity', 'derived'):

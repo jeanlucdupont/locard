@@ -444,23 +444,23 @@ def _run(
                         **({'query': {k: args[k] for k in ('artifact', 'event_id', 'evtx_text') if k in args},
                             'coverage': {k: response['result']['content_search'][k] for k in ('complete', 'examined', 'skipped')}}
                            if response['result'].get('content_search') is not None else {})}
-                new = state.ingest(response['result'])
+                state.ingest(response['result'], operation=name)
                 state.path.append({
                     'operation': name,
-                    'new_records': new,
+                    **state.progress,
                     'returned_records': response['result']['returned_count'],
                     'outcome': outcome
                 })
-                feedback = str(new) + ' NEW EVIDENCE' if new else 'NO NEW EVIDENCE'
+                feedback = 'Evidence progress: ' + encoded(state.progress)
                 if unresolved:
                     feedback = 'Previous around lookup is unresolved: ' + '; '.join(response['result']['limitations']) + '. This is a limitation, not evidence. Do not repeat the identical lookup or broaden across hosts; choose another grounded allowed lookup or conclude unresolved.'
                 if state.no_new >= 3:
                     if step + 1 < budget.steps and remaining() > 0:
                         state.finalization_requested = True
-                        feedback = 'No new evidence IDs in three operations. Finalize once using disclosed fields only; no tools. State unresolved questions; empty/partial searches do not prove non-execution.'
-                        state.limit('No-new-evidence cutoff reached; one final-only model opportunity allowed within existing budgets.')
+                        feedback = 'No new evidence identities or retained field values in three operations. Finalize once using disclosed fields only; no tools. State unresolved questions; empty/partial searches do not prove non-execution.'
+                        state.limit('No-evidence-progress cutoff reached; one final-only model opportunity allowed within existing budgets.')
                         continue
-                    state.limit('No-new-evidence cutoff reached without remaining budget for finalization.')
+                    state.limit('No-evidence-progress cutoff reached without remaining budget for finalization.')
                     termination = 'NO_NEW_EVIDENCE'
                     break
                 if len(state.records) >= budget.records:
@@ -633,6 +633,9 @@ def _run(
             'Hypotheses and model-proposed unknowns are unverified.'
         ] + state.limits
     }
+    from .narrative import build
+    result['question'] = question
+    result['narrative'] = build(final, state.summary())
     if cleanup_failure is not None:
         result['cleanup'] = {'status': 'CLEANUP_LIMITATION', 'stage': 'forensic_worker'}
         cleanup_failure.result = result

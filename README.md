@@ -3628,3 +3628,43 @@ retain their observation-eligible meaning. Diagnostics remain bounded transcript
 data, not findings; normal output does not expose raw rejected responses.
 Grounding rules, approvals, budgets and the single final-only opportunity are
 unchanged. Live model adherence requires manual acceptance.
+
+### Multi-artifact investigation and grounded narrative (6.99)
+
+Assessment-initiated investigations keep bounded current candidate identities
+visible, with inspection status linked to their prompt record positions. The
+model is instructed to consider question-relevant uninspected families before
+broad searches when useful. This is planning guidance, not automatic retrieval
+or a requirement to inspect every assessment reference. Each lookup retains
+analyst approval, scope checks, duplicate protection and existing budgets.
+
+The three-operation stagnation cutoff now measures new evidence IDs **or new
+retained original scalar values**, rather than IDs alone. A detailed inspection
+of a previously known ID can therefore advance the investigation. Repeated
+information cannot reset the counter. Inspection IDs/families and actual
+disclosed-field counts are recorded separately; retained detail is not deemed
+model-exposed until it enters the prompt. Progress tracking itself is bounded.
+The single final-only opportunity and its existing output budget are unchanged.
+
+Browser download URL chains and referrers are now available through the normal
+approved evidence adapter. Chains retain original chain indices and use a
+bounded prefix (at most four entries and 1,024 serialized bytes); shortened or
+omitted values are flagged. A referrer is never substituted for a source URL,
+and historical assessment URLs never populate current observations.
+
+New investigation results include a deterministic narrative projection built
+only from validated observations and interpretations. Sentences retain links
+to their technical finding indices; duplicate target/current path observations
+are condensed only in the human view. Filesystem metadata, Prefetch references,
+security blocking and causal hypotheses remain distinct. Model-proposed
+uncertainty remains explicitly unverified. No extra model summary is requested.
+
+Use `investigate-ai ... --details` for technical rendering, or `--json` for
+structured results. Existing `briefing ... --details` retains its structured
+detail view. `ai-history show <investigation-id> --json` reviews a saved result
+without a new investigation. Old transcripts retain their legacy display.
+
+All prompts remain bounded to 5,600 bytes. The projection can omit fields or
+records under pressure; limitations remain visible and a PARTIAL result is
+expected when coverage is insufficient. Inspection is not verification or a
+guarantee that every retrieved field was shown to the model.

@@ -59,9 +59,9 @@ def test_controller_budget_final_only_and_no_retry(saved,tmp_path,monkeypatch,tr
         assert sdk.calls==1
         return json.loads(returned['text'])
     result,client=run_sequence(saved,tmp_path,finish)
-    assert allowances==[1024,1024,1024,4096] and output_tokens()==1024
+    assert allowances==[1024,1024,1024,1024,4096] and output_tokens()==1024
     assert result['termination']==('MODEL_FAILURE' if truncated else 'ANSWER_SUPPORTED')
-    assert len(client.calls)==4 and max(result['metrics']['prompt_bytes'])<=5600
+    assert len(client.calls)==5 and max(result['metrics']['prompt_bytes'])<=5600
     if truncated:
         assert any('Final AI response truncated' in s for s in result['limitations'])
         from forensic_assistant.investigation_ai.presentation import termination_label

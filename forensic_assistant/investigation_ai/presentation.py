@@ -24,7 +24,7 @@ LABELS = {
     'SEMANTIC_STATE_CHANGED': 'Semantic index changed during investigation',
     'USER_SCOPE_REACHED': 'Requested scope reached or analyst interrupted',
     'INSUFFICIENT_EVIDENCE': 'Insufficient disclosed evidence',
-    'NO_NEW_EVIDENCE': 'No new evidence IDs from recent lookups',
+    'NO_NEW_EVIDENCE': 'No new evidence identities or fields from recent lookups',
     'FINALIZATION_FAILED': 'The final-only response failed validation',
     'TOOL_FAILURE': 'Forensic lookup failed',
     'AUDIT_FAILURE': 'Required audit recording failed',
@@ -148,7 +148,7 @@ def proposal_text(proposal, palette=None, *, introduction=False):
     return '\n'.join(lines)
 
 
-def render(result, palette=None, *, dry_run=False):
+def render(result, palette=None, *, dry_run=False, details=False):
     palette = palette or Palette()
     supported = result.get('termination') == 'ANSWER_SUPPORTED'
     dry_run = dry_run or bool(result.get('dry_run_proposal'))
@@ -165,6 +165,29 @@ def render(result, palette=None, *, dry_run=False):
     state = result.get('state') or {}
     caveats.extend(state.get('limitations') or [])
     source_material = False
+    concise = result.get('narrative', {}).get('contract') == 'grounded-narrative-v1' and not details
+    if concise:
+        # Rebuild from validated findings, not persisted/generated narrative text.
+        from .narrative import build
+        narrative = build(findings, state)
+        if result.get('question'):
+            lines.extend(['', palette('heading', 'Investigation question'), '  ' + safe(result['question'])])
+        lines.extend(['', palette('heading', 'What the evidence supports')])
+        if not narrative['records'] and not narrative['interpretations']:
+            lines.append('  No supported observations were established.')
+        for number, group in enumerate(narrative['records'], 1):
+            lines.append('  ' + group['title'] + ' [' + str(number) + ']')
+            lines.append('    ' + ' '.join(safe(s['text']) for s in group['sentences']))
+            lines.append('    ' + group['caution'])
+        for item in narrative['interpretations']:
+            lines.append('  Derived interpretation: ' + safe(item['text']))
+        if narrative['records']:
+            lines.extend(['', palette('heading', 'Relationship between records'), '  ' + narrative['relationship_caution']])
+        coverage = narrative['coverage']
+        lines.extend(['', palette('heading', 'Supporting evidence'),
+                      '  Approved detail lookups inspected ' + str(coverage['inspected_records']) + ' records across: ' + (', '.join(coverage['inspected_families']) or 'none') + '.',
+                      '  Known records without a separate detail lookup: ' + str(coverage['known_records_without_detail_lookup']) + '.',
+                      '  Full IDs, exact fields and provenance remain in --details or --json.'])
     for title, key in [('Observed evidence', 'observed'),
                        ('Deterministic relationships', 'deterministically_correlated'),
                        ('Corroborated evidence', 'corroborated'),
@@ -173,12 +196,14 @@ def render(result, palette=None, *, dry_run=False):
         rows = findings.get(key) or []
         if not rows:
             continue
-        lines.extend(['', palette('heading', title)])
+        if not (concise and key == 'observed'):
+            lines.extend(['', palette('heading', title)])
         for row in rows:
             if key == 'observed':
                 label, timestamp = field_label(row)
                 value = timestamp_text(row.get('reported_value')) if timestamp else safe(row.get('reported_value'))
-                lines.append('  ' + palette('key', label) + ': ' + palette('string_value', value))
+                if not concise:
+                    lines.append('  ' + palette('key', label) + ': ' + palette('string_value', value))
                 caveats.append(row.get('qualifier'))
             else:
                 source_material |= source_dependency(row)
@@ -186,7 +211,7 @@ def render(result, palette=None, *, dry_run=False):
                              + ' — ' + safe(row.get('status') or row.get('correlation_status', '')))
                 if row.get('reason'):
                     lines.append('    ' + safe(row['reason']))
-            for eid in row.get('evidence_ids', []):
+            for eid in ([] if concise else row.get('evidence_ids', [])):
                 lines.append('    Evidence: ' + palette('evidence_id', safe(eid)))
             context = row.get('source_context') or {}
             source_material |= source_dependency(row)
@@ -198,14 +223,14 @@ def render(result, palette=None, *, dry_run=False):
                 caveats.append('Some evidence fields were truncated; omitted values are unavailable.')
             caveats.extend(row.get('warnings') or [])
             caveats.extend(row.get('limitations') or [])
-    if findings.get('interpretations'):
+    if findings.get('interpretations') and not concise:
         lines.extend(['', palette('heading', 'Deterministic interpretations (derived, not original fields)')])
         for item in findings['interpretations'][:4]:
             lines.extend(['  ' + safe(item['text']), '    Derivation: ' + safe(item['derivation_id'])])
             for eid in item['evidence_ids']:
                 lines.append('    Evidence: ' + palette('evidence_id', safe(eid)))
     if findings.get('model_proposed_unknowns'):
-        lines.extend(['', palette('heading', 'Model-proposed uncertainty (unverified)')])
+        lines.extend(['', palette('heading', 'What remains unresolved — model-proposed, unverified' if concise else 'Model-proposed uncertainty (unverified)')])
         for unknown in findings['model_proposed_unknowns'][:3]:
             lines.append('  - ' + safe(str(unknown)[:200]))
     completed = sum(p.get('operation') != 'initial' for p in state.get('investigation_path', []) if isinstance(p, dict))
@@ -256,4 +281,6 @@ def render(result, palette=None, *, dry_run=False):
     unique = limitations(caveats, source_material=source_material)
     if unique:
         lines.extend(['', palette('heading', 'Limitations'), *(palette('warning', '  - ' + safe(value)) for value in unique)])
+    if concise:
+        lines.extend(['', palette('heading', 'Suggested next steps'), *('  - ' + safe(v) for v in narrative['next_steps'])])
     return '\n'.join(lines)
