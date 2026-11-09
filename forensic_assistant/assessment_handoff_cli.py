@@ -25,7 +25,8 @@ def run(args):
         def authorize_envelope(grant):
             indicator.stop()  # Never animate concurrently with approval input.
             s4 = grant.get('contract') == 'investigation-s4-authorization-v1'
-            print('Autonomous S4-A authorization' if s4 else 'Autonomous Stage A authorization',file=stream)
+            b2 = grant.get('contract') == 'investigation-s4-b2-authorization-v1'
+            print('Autonomous S4-B2 authorization' if b2 else 'Autonomous S4-A authorization' if s4 else 'Autonomous Stage A authorization',file=stream)
             print('  Case: '+safe(grant['case']),file=stream)
             print('  Question: '+safe(grant['objective']),file=stream)
             print('  Window: '+grant['start']+' to '+grant['end'],file=stream)
@@ -34,7 +35,13 @@ def run(args):
             print('  OpenAI model: '+safe(grant['model'])+'; authorized evidence will be sent to OpenAI.',file=stream)
             print('  Inspect only '+str(len(grant['evidence_ids']))+' listed assessment references; show_evidence only, no search.',file=stream)
             print('  Eligibility: any of the first 32 recorded timestamps in the window. Bounded full-record context, including other timestamps, is permitted.',file=stream)
-            if s4:
+            if b2:
+                print('  Limits: 6 analysis + 1 decomposition + 2 synthesis; 9 model attempts; 6 lookups; 0 refill; 10 steps.',file=stream)
+                print('  300 seconds total: model work ends by 280; 15 seconds finalization + 5 seconds containment.',file=stream)
+                print('  Synthesis at most 30 seconds/request; 5600 content bytes; 1024 output tokens. No retries or transfers.',file=stream)
+                print('  Original evidence may be disclosed repeatedly. Exploratory organization is permitted for unresolved objectives.',file=stream)
+                print('  Model proposals remain unverified. Budget exhaustion may skip synthesis; completion is not forensic completeness.',file=stream)
+            elif s4:
                 print('  Limits: 6 analysis + 1 question-only decomposition, 0 organization; 7 AI requests total.',file=stream)
                 print('  6 lookups, 8 steps, 5 minutes; 15 seconds reserved for finalization; decomposition at most 30 seconds.',file=stream)
                 print('  5600 prompt bytes and 1024 output tokens per request. No retries or allocation transfers.',file=stream)
@@ -48,6 +55,7 @@ def run(args):
             return read_answer(read,'Authorize this bounded autonomous investigation? [y/N] ').strip().casefold() in ('y','yes')
         with ActivityIndicator('Preparing investigation...',args=args) as indicator:
             extra = {'decompose':True} if getattr(args,'decompose',False) else {}
+            if getattr(args,'synthesize',False):extra['synthesize']=True
             result=start(handoff,selected,backend(),authorize_envelope,status=indicator.phase,**extra)
         return {'kind':'assessment_investigation',**({'result':result} if result is not None else {'message':'Investigation cancelled; no evidence retrieved or model called.'})}
     def confirm(plan):

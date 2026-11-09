@@ -23,6 +23,28 @@ from .timing import ExecutionClock, APPROVAL_SECONDS
 from .lifecycle import WorkerJob
 
 CLEANUP_SECONDS = 5.0
+
+
+class SynthesisDeadline:
+    """Request-specific parent timer; ordinary status traffic cannot renew it."""
+    def __init__(self, model_deadline):
+        self.model_deadline=model_deadline
+        self.deadline=None
+        self.ordinal=0
+    def update(self, value, now):
+        if not isinstance(value,dict):return
+        if value.get('phase')=='synthesis':
+            ordinal=value.get('ordinal');started=value.get('started')
+            if type(ordinal) is not int or ordinal!=self.ordinal+1 or ordinal>2 or self.deadline is not None:
+                raise ValueError('Invalid synthesis phase sequence')
+            if type(started) not in (int,float) or not 0<=started<=now:raise ValueError('Invalid synthesis clock')
+            self.ordinal=ordinal
+            self.deadline=min(started+30,self.model_deadline)
+        elif value.get('phase')=='synthesis_complete':
+            if value.get('ordinal')!=self.ordinal or self.deadline is None:raise ValueError('Invalid synthesis completion')
+            self.deadline=None
+    def expired(self, now):
+        return self.deadline is not None and now>=self.deadline
 STARTUP_REASONS = frozenset(('AUTHORIZATION_EXPIRED','AUTHORIZATION_INVALID','AUTHORIZATION_CASE_CHANGED',
                            'PROVIDER_SCOPE_CHANGED','ADDITIONAL_SCOPE_REQUIRED','READ_VIEW_INCONSISTENT'))
 
@@ -198,6 +220,13 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
             client.prepare(STATUS.get())  # Cloud certification precedes the forensic clock.
     started = config.get('_stage_a_started', time.monotonic()) if config.get('_stage_a') else time.monotonic()
     deadline = min(started + budget.seconds, config.get('_stage_a_deadline', float('inf'))) if config.get('_stage_a') else started + budget.seconds
+    b2=config.get('_stage_a',{}).get('contract')=='investigation-s4-b2-authorization-v1'
+    overall=deadline
+    if b2:
+        overall=min(overall,time.monotonic()+max(0,config['_stage_a']['expires']-time.time()))
+        deadline=overall-5
+    synthesis_clock=SynthesisDeadline(overall-20)
+    finalizing=False
     context = multiprocessing.get_context('spawn')
     clock = ExecutionClock(started, deadline)
     identity = uuid.uuid4().hex
@@ -262,8 +291,11 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         reader = threading.Thread(target=receive, daemon=True)
         reader.start()
         decomposition_deadline = None
-        s4 = isinstance(config.get('_stage_a'), dict) and config['_stage_a'].get('contract') == 'investigation-s4-authorization-v1'
+        s4 = isinstance(config.get('_stage_a'), dict) and config['_stage_a'].get('contract') in ('investigation-s4-authorization-v1','investigation-s4-b2-authorization-v1')
         while clock.remaining() > 0:
+            if b2 and (synthesis_clock.expired(time.monotonic()) or (not finalizing and time.monotonic()>=overall-20)):
+                reason='SYNTHESIS_TIMEOUT' if synthesis_clock.expired(time.monotonic()) else 'MODEL_PHASE_TIMEOUT'
+                break
             if decomposition_deadline is not None and time.monotonic() >= decomposition_deadline:
                 reason = 'DECOMPOSITION_TIMEOUT'
                 break
@@ -282,9 +314,13 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                 continue
             if message['kind'] == 'status':
                 phase = message.get('phase')
+                if b2 and isinstance(phase,dict):
+                    synthesis_clock.update(phase,time.monotonic())
+                    continue
+                if b2 and phase=='finalization':finalizing=True
                 if s4:
                     if phase == 'decomposition':
-                        decomposition_deadline = min(deadline - 15, time.monotonic() + 30)
+                        decomposition_deadline = min(overall-20 if b2 else deadline-15, time.monotonic() + 30)
                         current_phase = phase
                     elif phase != 'decomposition':
                         decomposition_deadline = None
@@ -339,7 +375,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     except (OSError, ValueError):
         reason = 'WORKER_FAILURE' if startup_complete else 'WORKER_START_FAILURE'
     finally:
-        cleanup_deadline = time.monotonic() + CLEANUP_SECONDS
+        cleanup_deadline = min(overall,time.monotonic()+CLEANUP_SECONDS) if b2 else time.monotonic()+CLEANUP_SECONDS
         cleaned = True
         if startup_cancelled is not None:
             startup_cancelled.set()
@@ -369,7 +405,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
             from .narrative import build
             result['narrative']=build(result['findings'],result['state'])
         if config.get('_stage_a'):
-            result['engine']=('incremental-s4-a-v1' if config['_stage_a'].get('contract') == 'investigation-s4-authorization-v1'
+            result['engine']=('incremental-s4-b2-v1' if b2 else 'incremental-s4-a-v1' if config['_stage_a'].get('contract') == 'investigation-s4-authorization-v1'
                               else 'incremental-stage-a-v1')
             result['startup_diagnostic']=dict(last_phase=current_phase,read_view_established=startup_complete,
                 elapsed_seconds=round(time.monotonic()-started,3),cleanup_confirmed=cleaned)

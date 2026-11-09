@@ -292,7 +292,8 @@ def validate_journal(manifest, events):
     """Validate new events without renewing authorization or opening a case."""
     from . import autonomous_policy as policy
     grant = manifest['authorization']
-    policy.validate_s4_shape(grant)
+    b2=manifest.get('engine')=='incremental-s4-b2-v1'
+    (policy.validate_b2_shape if b2 else policy.validate_s4_shape)(grant)
     question = manifest['question']
     if grant['objective'] != question:
         raise ValueError('Invalid S4 question binding')
@@ -305,9 +306,13 @@ def validate_journal(manifest, events):
     analysis_pending = False
     exposure_pending = False
     deltas = 0
+    synthesis_attempts=0
     for event in events:
         data = event['data']
-        if event['kind'] == 'decomposition_request':
+        if event['kind']=='synthesis_attempt':
+            if not b2:raise ValueError('Synthesis not authorized')
+            synthesis_attempts+=1
+        elif event['kind'] == 'decomposition_request':
             if request is not None or analysis or data != request_manifest(question, grant):
                 raise ValueError('Invalid decomposition request binding/allocation')
             request = data
@@ -353,8 +358,12 @@ def validate_journal(manifest, events):
             deltas += 1
         elif event['kind'] == 'terminal':
             metrics = data['metrics']
+            if b2 and (type(data['state'].get('steps')) is not int or not 0<=data['state']['steps']<=10
+                       or data['state'].get('accepted_calls')!=operations):
+                raise ValueError('Invalid B2 step/tool accounting')
             if (metrics.get('analysis_requests') != analysis or metrics.get('decomposition_requests') != int(request is not None)
-                    or metrics.get('organization_requests') != 0 or metrics.get('ai_requests') != analysis + int(request is not None)
+                    or metrics.get('organization_requests') != 0 or metrics.get('ai_requests') != analysis + int(request is not None) + synthesis_attempts
+                    or (b2 and metrics.get('synthesis_requests')!=synthesis_attempts)
                     or data['validated_batches'] != deltas):
                 raise ValueError('Invalid S4 recorded resource counters')
     if request is not None and not decisions:

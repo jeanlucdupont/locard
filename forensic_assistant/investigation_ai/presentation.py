@@ -93,7 +93,7 @@ def source_dependency(row):
 
 def termination_label(result):
     code = result.get('termination')
-    if result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1'):
+    if result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1', 'incremental-s4-b2-v1'):
         labels = {
             'AUTHORIZED_PLAN_EXHAUSTED': 'All authorized assessment references were processed',
             'RESOURCE_BUDGET_EXHAUSTED': 'Authorized resource limit reached',
@@ -168,7 +168,7 @@ def proposal_text(proposal, palette=None, *, introduction=False):
 def render(result, palette=None, *, dry_run=False, details=False):
     palette = palette or Palette()
     supported = result.get('termination') == 'ANSWER_SUPPORTED'
-    incremental = result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1')
+    incremental = result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1', 'incremental-s4-b2-v1')
     findings = result.get('findings') or {}
     accumulated = incremental and bool(findings.get('observed') or findings.get('interpretations'))
     dry_run = dry_run or bool(result.get('dry_run_proposal'))
@@ -186,7 +186,9 @@ def render(result, palette=None, *, dry_run=False, details=False):
              str(len(findings.get('interpretations',[])))+' deterministic interpretations.' if accumulated else
              '  No validated observations or deterministic interpretations were accumulated.'),
             '  Each accepted batch was grounded against its own disclosed evidence; accumulated findings are retained below.',
-            '  No separate final synthesis was requested. A complete answer to the investigation question is not established.',
+            ('  Authorized synthesis proposals are separate and unverified. A complete answer is not established.'
+             if result.get('engine')=='incremental-s4-b2-v1' else
+             '  No separate final synthesis was requested. A complete answer to the investigation question is not established.'),
             '  Model hypotheses remain unverified; citations do not prove causality or execution.'])
     caveats = list(result.get('limitations') or [])
     state = result.get('state') or {}
@@ -263,7 +265,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
             lines.extend(['  ' + safe(item['text']), '    Derivation: ' + safe(item['derivation_id'])])
             for eid in item['evidence_ids']:
                 lines.append('    Evidence: ' + palette('evidence_id', safe(eid)))
-    if result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1'):
+    if result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1', 'incremental-s4-b2-v1'):
         lines.extend(['', palette('heading','Incremental investigation status'),
                         '  '+safe(termination_label(result)),
                       '  Validated batches: '+str(result.get('validated_batches',0)),
@@ -340,4 +342,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
     if result.get('question_decomposition'):
         from .decomposition import render as render_decomposition
         lines.extend(['', render_decomposition(result['question_decomposition'])])
+    if result.get('synthesis'):
+        from .synthesis_consumer import render as render_synthesis
+        lines.extend(['',render_synthesis(result['synthesis'])])
     return '\n'.join(lines)

@@ -9,12 +9,20 @@ from .contracts import EID
 
 CONTRACT = 'investigation-authorization-v1'
 S4_CONTRACT = 'investigation-s4-authorization-v1'
+B2_CONTRACT = 'investigation-s4-b2-authorization-v1'
+B2_ALLOCATION = dict(analysis=6, decomposition=1, synthesis=2, total=9,
+                     finalization_reserve_seconds=20, decomposition_seconds=30, synthesis_seconds=30,
+                     refill=0, retries=0, containment_seconds=5)
+B2_LIMITS = dict(requests=9,steps=10,seconds=300,records=200,prompt_bytes=5600,tool_calls=6,tool_seconds=45,output_tokens=1024)
 S4_ALLOCATION = dict(analysis=6, decomposition=1, organization=0, total=7,
                      finalization_reserve_seconds=15, decomposition_seconds=30)
 TEMPORAL = 'any retained timestamp in window; bounded full-record context permitted'
 
 
 def validate(grant, case):
+    if grant.get('contract') == B2_CONTRACT:
+        validate_b2_shape(grant)
+        grant = {**grant, 'contract': CONTRACT, 'limits': {**grant['limits'], 'requests':6, 'steps':8}}
     if grant.get('contract') == S4_CONTRACT:
         validate_s4_shape(grant)
         # Reuse every existing source/time/tool check, without altering old grants.
@@ -45,6 +53,13 @@ def validate_s4_shape(grant):
             or grant.get('limits') != dict(requests=7,steps=8,seconds=300,records=200,
                 prompt_bytes=5600,tool_calls=6,tool_seconds=45,output_tokens=1024)
             or grant.get('tools') != ['show_evidence'] or grant.get('provider') != 'openai'):
+        raise ValueError('AUTHORIZATION_INVALID')
+
+
+def validate_b2_shape(grant):
+    if (grant.get('contract') != B2_CONTRACT or grant.get('allocations') != B2_ALLOCATION
+            or grant.get('limits') != B2_LIMITS or grant.get('tools') != ['show_evidence']
+            or grant.get('provider') != 'openai'):
         raise ValueError('AUTHORIZATION_INVALID')
 
 

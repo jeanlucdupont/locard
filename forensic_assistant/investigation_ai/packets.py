@@ -93,7 +93,7 @@ def _validate_context(ctx):
     if ctx.related['chronology']['graph']['unresolved_cycle_or_dependent_nodes']:
         raise ValueError('Cyclic chronology is not eligible for packet dependencies')
     grant = ctx.manifest['authorization']
-    if grant.get('contract') not in ('investigation-authorization-v1', 'investigation-s4-authorization-v1'):
+    if grant.get('contract') not in ('investigation-authorization-v1', 'investigation-s4-authorization-v1', 'investigation-s4-b2-authorization-v1'):
         raise ValueError('Unknown recorded authorization contract')
     if ctx.mapping is not None:
         if not same(decomposition.validate(ctx.mapping['proposal'], ctx.manifest['question']), ctx.mapping):
@@ -258,7 +258,7 @@ def _bundle(unit, clauses, hydrated, conflicts):
     return result
 
 
-def _assemble(ctx, selected, objective, selection):
+def _assemble(ctx, selected, objective, selection, encoder=None):
     """Lossless source/qualification dictionaries, defined completely in this packet."""
     leaves, derived, sources, lineages = {}, {}, {}, {}
     for _, bundle in selected:
@@ -290,13 +290,15 @@ def _assemble(ctx, selected, objective, selection):
         relationships=list({r['id']:r for _,b in selected for r in b['relationships']}.values()),
         qualifications=sorted({q for _,b in selected for q in b['qualifications']}),
         selection_sha256=digest(selection), coverage={k:selection[k] for k in ('known','examined','unassessed','omitted_counts')})
+    if encoder is not None:
+        return encoder(ctx, body)
     messages = [{'role':'system','content':INSTRUCTION}, {'role':'user','content':encoded(body)}]
     return dict(content=body, messages=messages, content_bytes=sum(len(m['content'].encode('utf-8')) for m in messages),
                 digest=digest(messages), represented_supports=[{'evidence_id':v['evidence_id'],'pointer':v['field']['pointer'],
                     'value_sha256':digest(v['field']['value'])} for v in body['supports']], actually_disclosed=False)
 
 
-def _plan(ctx, *, limits, _clock):
+def _plan(ctx, *, limits, _clock, encoder=None):
     """Provider-independent local service; caller supplies trusted reducer state."""
     meter = Meter(limits, _clock)
     meter.check()
@@ -317,6 +319,9 @@ def _plan(ctx, *, limits, _clock):
         bindings = _bindings(ctx, hydrated, meter)
     except PlanningLimit as exc:
         exhausted = str(exc)
+    if encoder is not None:
+        materializer = encoder
+        encoder = lambda context, body: materializer(context, body, bindings)
     objectives = (ctx.mapping or {}).get('objectives', [])
     seen_units, represented_ids = set(), set()
     for packet_index in range(limits.packets):
@@ -362,7 +367,7 @@ def _plan(ctx, *, limits, _clock):
                     decisions[uid]='support_unavailable'
                     continue
                 decisions[uid]='selected'
-                candidate = _assemble(ctx,selected+[(uid,bundle)],compact_objective,selection())
+                candidate = _assemble(ctx,selected+[(uid,bundle)],compact_objective,selection(),encoder)
                 body = candidate['content']
                 if len(body['supports'])>limits.observations or len(body['interpretations'])>limits.interpretations:
                     decisions[uid]='support_count_budget'
@@ -379,7 +384,7 @@ def _plan(ctx, *, limits, _clock):
         # Final omission metadata is measured too; remove a whole unit if needed.
         while selected:
             meter.check()
-            final = _assemble(ctx,selected,compact_objective,selection())
+            final = _assemble(ctx,selected,compact_objective,selection(),encoder)
             meter.check()
             if final['content_bytes']<=limits.content_bytes:
                 packets.append(final)
@@ -410,14 +415,14 @@ def _plan(ctx, *, limits, _clock):
     return result
 
 
-def plan(ctx, *, limits=Limits(), _clock=time.monotonic):
+def plan(ctx, *, limits=Limits(), _clock=time.monotonic, _encoder=None):
     """Build a local preview. No deadline failure returns a dispatchable packet.
 
     The deadline covers bounded in-memory planning, not transcript disk I/O.
     Context is an internal verified reducer result, not a serialized import API.
     """
     try:
-        return _plan(ctx, limits=limits, _clock=_clock)
+        return _plan(ctx, limits=limits, _clock=_clock, encoder=_encoder)
     except PlanningLimit as exc:
         return dict(contract='synthesis-preview-v1', status='no_supported_packet',
                     packets=[], bindings=[], selections=[], planning_stop=str(exc),

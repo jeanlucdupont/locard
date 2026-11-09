@@ -3833,3 +3833,14 @@ inspection, not AI synthesis: it makes no provider requests, opens no case datab
 and does not mark packet contents as disclosed. Exact historical projections that
 are no longer available remain unavailable; budget omissions are explicit.
 See [packet contracts, limits and commands](docs/LOCARD_6_109_PACKET_PREVIEWS.md).
+
+### Authorized incremental synthesis (S4-B2)
+
+Add `--synthesize` to `briefing --investigate latest --autonomous --decompose`
+to explicitly authorize up to two additional OpenAI requests consuming bounded
+original-support packets. The selected assessment supplies the source/time scope
+unless an explicit permitted window is provided. Review the new authorization:
+six analysis, one decomposition and two synthesis attempts, no refill or retry.
+Model groups, hypotheses and questions appear separately as **unverified** proposals.
+Existing workflows without this option are unchanged. See
+[contracts, deadlines and manual acceptance](docs/LOCARD_6_110_SYNTHESIS.md).

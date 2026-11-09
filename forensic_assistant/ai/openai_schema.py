@@ -28,10 +28,17 @@ def decomposition(schema):
     return type(schema) is dict and schema == SCHEMA
 
 
+def synthesis(schema):
+    from forensic_assistant.investigation_ai.synthesis_consumer import SCHEMA
+    return type(schema) is dict and schema == SCHEMA
+
+
 def _wire(node):
     result=copy.deepcopy(node)
     # Uniqueness is still mandatory in canonical validation after decoding.
     result.pop('uniqueItems',None)
+    for branch in ('anyOf','oneOf'):
+        if branch in node:result[branch]=[_wire(v) for v in node[branch]]
     if result.get('type')=='object':
         required=set(node.get('required',[]))
         result['properties']={key:(_wire(value) if key in required else
@@ -43,7 +50,7 @@ def _wire(node):
 
 
 def request_schema(provider, canonical):
-    if provider == 'openai' and (briefing(canonical) or decomposition(canonical)):
+    if provider == 'openai' and (briefing(canonical) or decomposition(canonical) or synthesis(canonical)):
         return _wire(canonical)
     if provider!='openai' or not investigation(canonical):
         return canonical
@@ -78,6 +85,11 @@ def response(provider,text,canonical):
     from .response_contract import validate
     from .provider_diagnostics import ProviderFailure
     wire=request_schema(provider,canonical)
+    if provider == 'openai' and synthesis(canonical):
+        # This contract has no optional canonical fields: no null coercion is permitted.
+        validate(text,wire)
+        validate(text,canonical)
+        return text
     if provider == 'openai' and (briefing(canonical) or decomposition(canonical)):
         # Recursively remove only optional null fields from strict OpenAI output.
         # Canonical validation (including uniqueness) remains mandatory.

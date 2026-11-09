@@ -290,9 +290,14 @@ def main():
     mode.add_argument('--assessment', action='store_true', help='Inspect S3 deterministic assessment of the saved original question')
     mode.add_argument('--decomposition', action='store_true', help='Inspect recorded S4-A mappings and scoped assessments; never invokes AI')
     mode.add_argument('--packet-preview', action='store_true', help='Build local non-disclosing B1 packets; no AI or case access')
+    mode.add_argument('--synthesis-proposals', action='store_true', help='Validate saved B2 proposals; no AI or case access')
     args = parser.parse_args()
     try:
-        if args.packet_preview:
+        if args.synthesis_proposals:
+            from . import synthesis_consumer
+            result = synthesis_consumer.reconstruct(args.root,args.identity)
+            print(encoded(result) if args.json else synthesis_consumer.render(result))
+        elif args.packet_preview:
             from . import packets
             result = packets.reconstruct(args.root, args.identity)
             print(encoded(result) if args.json else packets.render(result))
