@@ -289,9 +289,14 @@ def main():
     mode.add_argument('--relationships', action='store_true', help='Inspect S2 typed relationships and recorded-value chronology')
     mode.add_argument('--assessment', action='store_true', help='Inspect S3 deterministic assessment of the saved original question')
     mode.add_argument('--decomposition', action='store_true', help='Inspect recorded S4-A mappings and scoped assessments; never invokes AI')
+    mode.add_argument('--packet-preview', action='store_true', help='Build local non-disclosing B1 packets; no AI or case access')
     args = parser.parse_args()
     try:
-        if args.decomposition:
+        if args.packet_preview:
+            from . import packets
+            result = packets.reconstruct(args.root, args.identity)
+            print(encoded(result) if args.json else packets.render(result))
+        elif args.decomposition:
             from . import decomposition
             result = decomposition.reconstruct(args.root, args.identity)
             print(encoded(result) if args.json else decomposition.render(result))

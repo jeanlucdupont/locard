@@ -3824,3 +3824,12 @@ S3 rules, while unknown roles, negation and unsupported objectives remain explic
 The original question and its separate deterministic assessment are preserved.
 Omitting `--decompose` preserves existing Stage A behavior. Recorded inspection
 never makes provider calls. See [S4-A contracts and manual acceptance](docs/LOCARD_6_108_DECOMPOSITION.md).
+
+### Local synthesis packet previews (S4-B1)
+
+The independent synthesis diagnostic accepts `--packet-preview` (and `--json`)
+to reconstruct bounded support packets from a saved investigation. This is local
+inspection, not AI synthesis: it makes no provider requests, opens no case database,
+and does not mark packet contents as disclosed. Exact historical projections that
+are no longer available remain unavailable; budget omissions are explicit.
+See [packet contracts, limits and commands](docs/LOCARD_6_109_PACKET_PREVIEWS.md).

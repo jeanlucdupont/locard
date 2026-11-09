@@ -207,6 +207,7 @@ report-bundles/
 !/docs/LOCARD_6_106_RELATIONSHIPS.md
 !/docs/LOCARD_6_107_QUESTION_ASSESSMENT.md
 !/docs/LOCARD_6_108_DECOMPOSITION.md
+!/docs/LOCARD_6_109_PACKET_PREVIEWS.md
 
 # Analyst briefing sidecars and private editor scratch directories
 *.briefing/
