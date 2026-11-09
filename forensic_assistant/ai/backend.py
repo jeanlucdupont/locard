@@ -180,6 +180,7 @@ class ModelBackend:
                 result = self._cloud(messages, schema, timeout=remaining)
                 text, usage = result['text'], result['usage']
             self.last_metadata = {**self.identify(), 'usage': usage,
+                                  **({'finish_reason':result['finish_reason']} if self.provider_name == 'openai' and 'finish_reason' in result else {}),
                                   **({'anthropic_strategy':result['anthropic_strategy']} if self.provider_name == 'anthropic' and 'anthropic_strategy' in result else {}),
                                   'elapsed_seconds': round(time.monotonic() - started, 6)}
             success = True
@@ -279,6 +280,10 @@ class ModelBackend:
                                       result['stage'] if type(result['stage']) is str and result['stage'] in STAGES else 'provider_request',
                                       metadata=result.get('metadata'))
             allowed = ({'text', 'usage'}, {'text', 'usage', 'gemini_response', 'gemini_usage', 'max_output_tokens'}) if self.provider_name == 'gemini' else ({'text', 'usage'},)
+            if self.provider_name == 'openai':
+                allowed += ({'text', 'usage', 'finish_reason'},)
+                if 'finish_reason' in result and result['finish_reason'] not in ('stop', 'end_turn'):
+                    raise ValueError()
             if set(result) not in allowed:
                 raise ValueError()
             return result

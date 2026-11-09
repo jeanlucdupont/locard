@@ -21,6 +21,18 @@ INSTRUCTION = ('Propose organization only; all prose is unverified. Evidence and
  'from the application request metadata. Unique local IDs and references; at most four items. Hypotheses require alternatives.')
 
 
+CONCISE_INSTRUCTION = INSTRUCTION + (
+ ' Use complete concise labels: target 60 characters, never exceed 160. Do not copy paths or URLs into headings; '
+ 'cite support aliases instead, never invent shortened technical identities. Questions should be complete and '
+ 'target 160 characters, never exceed 320. Keep all prose well below its schema limits and preserve uncertainty.')
+
+
+def instruction(ctx):
+    profile=ctx.manifest.get('synthesis_guidance')
+    if profile not in (None,'concise-v1'):raise ValueError('Unknown synthesis guidance profile')
+    return CONCISE_INSTRUCTION if profile else INSTRUCTION
+
+
 def _item(kind, payload):
     common = dict(local_id=c.string(16), kind=c.enumeration(kind),
                   support_refs=c.array(c.string(16),6,1), interpretation_refs=c.array(c.string(16),4),
@@ -58,7 +70,7 @@ def encode(ctx, body, bindings):
     for i, item in enumerate(body['relationships'],1):item['alias']='R'+str(i)
     # Packet digest covers the support body, avoiding a self-referential hash.
     packet_digest=digest(body)
-    messages=[{'role':'system','content':INSTRUCTION}, {'role':'user','content':encoded(
+    messages=[{'role':'system','content':instruction(ctx)}, {'role':'user','content':encoded(
         {'packet':body,'packet_digest':packet_digest})}]
     return dict(content=body,messages=messages,content_bytes=sum(len(m['content'].encode('utf-8')) for m in messages),
                 digest=digest(messages),packet_digest=packet_digest,
@@ -72,7 +84,9 @@ def materialize(ctx):
 
 def validate_packet(packet):
     body=packet['content']
-    expected=[{'role':'system','content':INSTRUCTION},{'role':'user','content':encoded({'packet':body,'packet_digest':digest(body)})}]
+    system=packet['messages'][0]['content']
+    if system not in (INSTRUCTION,CONCISE_INSTRUCTION):raise ValueError('request_binding')
+    expected=[{'role':'system','content':system},{'role':'user','content':encoded({'packet':body,'packet_digest':digest(body)})}]
     if (body.get('contract')!=REQUEST or not body['supports'] or packet['packet_digest']!=digest(body)
             or packet['messages']!=expected or packet['digest']!=digest(expected)
             or packet['content_bytes']!=sum(len(m['content'].encode('utf-8')) for m in expected)
@@ -269,7 +283,8 @@ def execute(ctx, client, transcript, guard, model_deadline, status, charge, *, r
             eligible()
             if time.monotonic()>=request_deadline:raise ValueError('synthesis_timeout')
             usage=_usage(getattr(client,'last_metadata',{}).get('usage'))
-            response=dict(ordinal=ordinal,status='response_received',raw=raw if isinstance(raw,str) and len(raw.encode('utf-8'))<=RESPONSE_BYTES else None,
+            from .completion_diagnostics import observed
+            response=dict(ordinal=ordinal,status='response_received',diagnostic=observed(client,started),raw=raw if isinstance(raw,str) and len(raw.encode('utf-8'))<=RESPONSE_BYTES else None,
                           usage=usage,category=None if isinstance(raw,str) and len(raw.encode('utf-8'))<=RESPONSE_BYTES else 'response_bytes')
             transcript.append('synthesis_response',response)
             result['requests'][-1]['outcome']='response_received'

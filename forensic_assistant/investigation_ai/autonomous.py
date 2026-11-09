@@ -90,6 +90,7 @@ def merge_findings(deltas):
 def packet(state,question,previous,current_id):
     # Unresolved text is explicitly an unverified planning input, not evidence.
     context={'previous_unresolved_unverified':previous.get('model_proposed_unknowns',[])[:3],
+             'byte_limits':'All response string maxLength values are local UTF-8 byte ceilings, not character allowances. Write short complete prose with margin; unknowns/alternatives target 100 bytes, hypotheses 240 bytes. Never shorten exact evidence IDs or pointers.',
              'batch_instruction':'Return a final action for this batch only. Cite current disclosed fields. Identify unresolved questions that guide the next authorized inspection. Hypotheses remain unverified.'}
     overhead=len(encoded(context).encode())+80
     original=state.budget;records=state.records
@@ -116,6 +117,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     from forensic_assistant.ai.backend import model_operation
     from forensic_assistant.llm.client import LLMError
     status=config.get('_status') or (lambda _:None)
+    controller_started=time.monotonic()
     status('authorization_validation')
     grant=config['_stage_a'];policy.validate(grant,config['case_path'])
     from . import decomposition as decomposition_service
@@ -150,7 +152,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     identity=config.get('_investigation_id') or uuid.uuid4().hex
     status('transcript_init')
     transcript=Transcript(root,dict(engine=engine,authorization=grant,question=question,budgets=asdict(budget),
-        evidence_fingerprint=None,rule_ids=[],schema=5),investigation_id=identity)
+        evidence_fingerprint=None,rule_ids=[],schema=5,**({'synthesis_guidance':'concise-v1'} if b2 else {})),investigation_id=identity)
     deltas=[];pending=set(grant['evidence_ids']);requests=0;view=None;worker=None;stop='AUTHORIZED_PLAN_EXHAUSTED';sizes=[];usage=[];phase='operation'
     def remaining():return min(45,max(.001,deadline-time.monotonic()))
     def guard():
@@ -231,12 +233,15 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             old_timeout = getattr(client,'timeout',None)
             if s4:
                 client.timeout = max(.001,min(old_timeout or 120,model_deadline-time.monotonic()))
+            request_started=time.monotonic()
             try:
                 with model_operation('investigation'),final_output(False):raw=client.complete(messages,contracts.schema([]))
             finally:
                 if s4:
                     if old_timeout is None:del client.timeout
                     else:client.timeout=old_timeout
+            from .completion_diagnostics import observed
+            transcript.append('analysis_response_diagnostic',dict(ordinal=requests,**observed(client,request_started)))
             guard();usage.append(deepcopy(getattr(client,'last_metadata',{}).get('usage') or None))
             try:
                 proposal=contracts.request(raw,[]);findings=state.render(proposal['answer'])
@@ -299,7 +304,15 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         'No restart continuation; hypotheses and unresolved questions remain unverified.'],
         metrics=dict(ai_requests=requests,prompt_bytes=sizes,usage=usage,usage_unknown=requests-sum(v is not None for v in usage)),
         answer_assessment=dict(status='PARTIAL',reason='Bounded assessed coverage; objective completeness is not independently established.'))
-    if b2:result['synthesis']=synthesis_result
+    result['controller_diagnostic']={'observer':'controller','elapsed_seconds':round(time.monotonic()-controller_started,6),
+        'termination':stop,'worker_close_returned':worker is not None and stop!='CLEANUP_LIMITATION',
+        'parent_cleanup_confirmation':'unavailable_in_child_journal'}
+    if b2:
+        result['synthesis']=synthesis_result
+        result['analysis_coverage']={'termination':primary_stop,'authorized_references':len(grant['evidence_ids']),
+            'completed_lookups':len(state.path),'validated_batches':len(deltas),'rejected_responses':state.rejected,
+            'synthesis_basis':'accepted_partial_findings_only',
+            'analysis_error_limited':primary_stop=='VALIDATION_FAILURE'}
     if s4:
         from . import relationships
         if decomposition_requests and decision['status'] == 'not_attempted':

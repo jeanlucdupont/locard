@@ -343,6 +343,19 @@ def render(result, palette=None, *, dry_run=False, details=False):
         from .decomposition import render as render_decomposition
         lines.extend(['', render_decomposition(result['question_decomposition'])])
     if result.get('synthesis'):
+        coverage=result.get('analysis_coverage',{})
+        if coverage.get('analysis_error_limited'):
+            synth=result['synthesis']
+            accepted=sum(d.get('status')=='accepted' for d in synth['decisions'])
+            lines.extend(['',palette('warning','Analysis-error-limited synthesis — based on accepted partial findings only'),
+                '  Analysis stopped: '+safe(termination_label({**result,'termination':coverage['termination']})),
+                '  Authorized references: '+str(coverage['authorized_references'])+
+                '; completed lookups: '+str(coverage['completed_lookups']),
+                '  Validated batches: '+str(coverage['validated_batches'])+
+                '; rejected responses: '+str(coverage['rejected_responses']),
+                '  Synthesis requests attempted: '+str(synth['attempts'])+'; accepted: '+str(accepted),
+                '  Rejected-batch evidence was not promoted into accepted findings.',
+                '  Synthesis completion does not imply completed evidence examination.'])
         from .synthesis_consumer import render as render_synthesis
         lines.extend(['',render_synthesis(result['synthesis'])])
     return '\n'.join(lines)

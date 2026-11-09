@@ -28,7 +28,7 @@ def safe(value):
     return result
 
 
-def content(result, kwargs):
+def content(result, kwargs, *, observation=None):
     from .provider_diagnostics import ProviderFailure
     detail = {'json_parse':'not_attempted', 'canonical_validation':'not_attempted'}
     limit = kwargs.get('max_completion_tokens', kwargs.get('max_tokens'))
@@ -72,6 +72,8 @@ def content(result, kwargs):
         if not isinstance(text,str):reject('invalid_content_type')
         if not text.strip():reject('empty_response_content')
         if detail['content_bytes']>LIMIT:reject('response_size_exceeded')
+        if observation is not None:
+            observation['finish_reason'] = finish
         return text
     except ProviderFailure:
         raise

@@ -33,19 +33,25 @@ def synthesis(schema):
     return type(schema) is dict and schema == SCHEMA
 
 
-def _wire(node):
+def _wire(node, *, byte_guidance=False):
     result=copy.deepcopy(node)
     # Uniqueness is still mandatory in canonical validation after decoding.
     result.pop('uniqueItems',None)
+    if byte_guidance and node.get('type') == 'string' and 'maxLength' in node:
+        ceiling = node['maxLength']
+        result['description'] = (node.get('description', '') +
+            f' Local canonical limit: {ceiling} UTF-8 bytes, not characters; nonblank and no NUL. '
+            'JSON Schema maxLength constrains characters only and cannot guarantee this byte limit. '
+            'Use concise complete wording well below the byte ceiling; preserve exact identifiers.').strip()
     for branch in ('anyOf','oneOf'):
-        if branch in node:result[branch]=[_wire(v) for v in node[branch]]
+        if branch in node:result[branch]=[_wire(v, byte_guidance=byte_guidance) for v in node[branch]]
     if result.get('type')=='object':
         required=set(node.get('required',[]))
-        result['properties']={key:(_wire(value) if key in required else
-            {'anyOf':[_wire(value),{'type':'null'}]}) for key,value in node['properties'].items()}
+        result['properties']={key:(_wire(value, byte_guidance=byte_guidance) if key in required else
+            {'anyOf':[_wire(value, byte_guidance=byte_guidance),{'type':'null'}]}) for key,value in node['properties'].items()}
         result['required']=list(node['properties'])
     elif result.get('type')=='array':
-        result['items']=_wire(node['items'])
+        result['items']=_wire(node['items'], byte_guidance=byte_guidance)
     return result
 
 
@@ -55,7 +61,7 @@ def request_schema(provider, canonical):
     if provider!='openai' or not investigation(canonical):
         return canonical
     return {'type':'object','additionalProperties':False,'required':['proposal'],
-            'properties':{'proposal':{'anyOf':[_wire(v) for v in canonical['oneOf']]}}}
+            'properties':{'proposal':{'anyOf':[_wire(v, byte_guidance=True) for v in canonical['oneOf']]}}}
 
 
 def instruct(messages):

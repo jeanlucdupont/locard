@@ -282,6 +282,9 @@ def execute(client, question, grant, transcript, guard, seconds, *, charge, deci
             client.timeout = previous_timeout
     decision['usage'] = deepcopy(getattr(client, 'last_metadata', {}).get('usage')) if raw is not None else None
     decision['elapsed_seconds'] = time.monotonic() - started
+    if raw is not None:
+        from .completion_diagnostics import observed
+        decision['completion_diagnostic'] = observed(client, started)
     transcript.append('decomposition_decision', decision)
     decision_store.clear()
     decision_store.update(decision)

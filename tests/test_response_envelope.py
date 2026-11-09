@@ -65,7 +65,7 @@ def test_envelope_checks_and_briefing_output(result,rule,monkeypatch):
 @pytest.mark.parametrize('finish',['stop','end_turn'])
 def test_success_unchanged(finish):
     result=cloud_worker.complete({'custom_llm_provider':'openai','max_tokens':1024},SDK(envelope(finish)))
-    assert result=={'text':'{"items":[]}','usage':{}}
+    assert result=={'text':'{"items":[]}','usage':{},'finish_reason':finish}
 
 
 def test_allowlist_and_optional_values():

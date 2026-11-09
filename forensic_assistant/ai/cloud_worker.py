@@ -101,9 +101,10 @@ def complete(kwargs, sdk):
             raise ProviderFailure(exc.category, exc.stage, metadata={**exc.metadata, **gemini_metadata}) from None
     try:
         from .response_envelope import content
-        text = content(result, kwargs)
+        observation = {}
+        text = content(result, kwargs, observation=observation)
         usage = getattr(result, 'usage', None)
-        return {'text': text, **({'gemini_response':gemini_detail, **gemini_metadata} if gemini_detail else {}), 'usage': {name: getattr(usage, name) for name in
+        return {'text': text, **({'finish_reason': observation['finish_reason']} if kwargs.get('custom_llm_provider') == 'openai' else {}), **({'gemini_response':gemini_detail, **gemini_metadata} if gemini_detail else {}), 'usage': {name: getattr(usage, name) for name in
                 ('prompt_tokens', 'completion_tokens', 'total_tokens')
                 if type(getattr(usage, name, None)) is int and 0 <= getattr(usage, name) <= 10000000}}
     except (AttributeError, IndexError, TypeError, UnicodeError):

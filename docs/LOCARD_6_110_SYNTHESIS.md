@@ -199,3 +199,126 @@ Changed files (repository-relative):
 - `pyproject.toml`: sole application-version update.
 - `README.md`, `.gitignore`, `docs/LOCARD_6_110_SYNTHESIS.md`: documentation and one
   narrow source-document ignore exception.
+
+
+## 6.111 corrective release: byte contracts and partial synthesis
+
+The live 6.110 analysis rejected `request.answer.unknowns[2]`: 200 Unicode
+characters occupied 206 UTF-8 bytes. The OpenAI JSON Schema validator correctly
+counted characters; `investigation_ai/contracts.py:validate` correctly enforced
+its stricter byte ceiling. No evidence-grounding failure was established.
+
+### Authoritative string constraints
+
+All strings accepted by `contracts.validate` must be nonblank and NUL-free.
+The following limits are UTF-8 bytes, unchanged by this correction. Arrays retain
+their existing cardinality/uniqueness rules; identifiers retain their further
+syntactic and disclosure checks.
+
+| Contract fields | Maximum UTF-8 bytes |
+|---|---:|
+| FINAL observed[].evidence_id; hypotheses[].evidence_ids[]; detections[] | 160 |
+| FINAL observed[].field | 256 |
+| FINAL interpretations[]; relationships[] | 80 |
+| FINAL hypotheses[].statement | 400 |
+| FINAL hypotheses[].alternatives[]; unknowns[] | 200 |
+| Tool proposal reason | 256 |
+| Shared hostname, username, process, path, ip filters | 1024 |
+| Shared start/end; detections start/end | 40 |
+| Anchor evidence_id | 160 |
+| search_evidence evtx_text / evtx_after | 256 / 1024 |
+| semantic_search query | 1000 |
+| around/investigate_evidence timestamp_slot | 128 |
+| detections rule_id | 64 |
+
+Closed enums are restricted to their registered literals (the validator's default
+1024-byte ceiling adds no practical freedom). The tool-result envelope also uses
+160-byte original IDs; it is application data, not model prose. Other nested
+artifact projections keep their own existing validation.
+
+B2 is distinct: `synthesis_consumer.proposal` uses JSON Schema character limits
+plus unchanged 16-KiB raw and canonical response byte ceilings, not the analysis
+field-byte validator. Its string maxima remain: local_id and O/I/R aliases 16;
+prior refs, request/packet IDs and relationship endpoints 64; group labels 160;
+relationship rationale and questions/next-objective text 320; hypothesis statement
+400, alternatives 320, uncertainty 240. Existing membership, exact identity,
+ASCII local-ID, dependency, cardinality and decision-size checks still apply.
+Do not reinterpret historical B2 fields as new per-field byte contracts.
+
+`ai/openai_schema.py:_wire` now annotates every analysis string maximum with its
+local byte meaning while keeping the actual character-valued `maxLength` intact.
+The canonical schema is unchanged. `autonomous.packet` gives concise prose targets
+(unknowns/alternatives 100 bytes; hypotheses 240 bytes), preserves exact citations,
+and includes the guidance in the existing message-content budget.
+There is no truncation, coercion, repair or retry. Guidance cannot mathematically
+prevent Unicode byte overflow: the strict local validator remains authoritative.
+A conservative character cap cannot express the full arbitrary UTF-8 byte contract
+without excluding valid strings. Retain explicit local rejection rather than
+silently reducing allowed evidence identifiers or relaxing byte bounds.
+
+### Synthesis presentation and replay
+
+New B2 manifests select `synthesis_guidance=concise-v1`: labels target 60 characters,
+questions 160, complete wording, support aliases instead of long copied paths/URLs.
+Limits are not increased. Packets are repacked under the same 5600-byte content
+limit. Absent profile retains the exact historical instruction and packet digests;
+unknown profiles fail closed. Accepted prose is rendered unchanged and remains
+unverified, including syntactically valid incomplete or inaccurate prose.
+
+`analysis_coverage` separately records analysis termination, authorized references,
+completed lookups, validated batches, rejected responses and accepted-partial basis.
+When validation stops analysis, the human result prominently labels synthesis
+analysis-error-limited and shows attempted/accepted synthesis response counts.
+`completed_bounded` remains the independent synthesis status. Rejected-batch fields
+are not promoted into factual clauses or synthesis support. No retry is introduced.
+
+### Diagnostic observations and limits
+
+The OpenAI cloud worker forwards only allowlisted successful finish reasons from
+the existing response-envelope check through ModelBackend. Other provider response
+shapes remain unchanged. `completion_diagnostics.observed` journals bounded
+controller elapsed time and backend-return receipt; finish reason is `unavailable`
+when absent. It never invents a provider attestation from successful JSON parsing.
+Analysis uses a diagnostic event, decomposition an optional decision field, and
+synthesis an optional response field. These are observations, not grounding inputs.
+
+Terminal `controller_diagnostic` distinguishes worker-close return from parent
+cleanup confirmation. Parent `startup_diagnostic` already reports observed elapsed,
+read-view establishment and cleanup on the returned result. Those parent observations
+occur after child finalization and are NOT retroactively written into its journal.
+Persisting a parent attestation would require a separate lifecycle/persistence design;
+this correction does not claim that the child confirmed its own parent cleanup.
+Historical events lacking optional diagnostics remain replayable.
+
+### Manual acceptance
+
+After installation, verify `./locard.ps1 --version` reports 6.111, then repeat:
+
+```text
+briefing --investigate latest --autonomous --decompose --synthesize --question "What evidence supports the suspected attack sequence, and did the PowerShell script execute?"
+```
+
+Check progress beyond the former second-batch failure, bounded original support,
+short complete proposals, explicit error-limited coverage if analysis rejects, and
+separate allocation/termination diagnostics. A successful random response does not
+prove Unicode violations impossible. Only the analyst performs live acceptance.
+
+### Recorded corrective validation (2026-11-08)
+
+Focused integration: **270 passed, 16 deselected, 101.96 seconds**. The selection
+covered corrective, B2 consumer/packet, Stage A/startup, decomposition, OpenAI schema,
+response-envelope, deadline, cloud-readiness and compact-disclosure tests. After a
+final presentation adjustment preserving the original analysis-stop reason when
+cleanup also fails, all **30 corrective tests passed in 2.11 seconds**.
+
+The 16 exclusions were first observed as failures and reproduced with committed
+HEAD versions of the affected provider modules loaded only in memory: 12 old briefing
+rendering assertions, one old briefing prompt assertion, and three malformed-envelope
+error-category assertions. They remain unchanged and are not reported as passing.
+The two success-envelope assertions were updated to require the newly preserved
+finish reason while retaining exact text and usage equality. No full suite was run.
+
+Read-only reconstruction of copied run `3524e2043bf34d2fb3451800257f0b32`
+succeeded: completed_bounded, two synthesis attempts, three accepted proposals.
+Both copied manifest/events SHA-256 hashes remained unchanged. No provider requests
+or forensic database access were performed. Live acceptance remains pending.
