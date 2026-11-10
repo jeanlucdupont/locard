@@ -13,6 +13,14 @@ from .storage import DirectoryGuard, local_path
 MAX_BYTES = 4 * 1024 * 1024
 ID = re.compile(r'[a-f0-9]{32}\Z')
 
+class JournalPublicationError(BaseException):
+    """Fatal execution boundary: ordinary optional-update handlers must not swallow it.
+
+    Supervision catches BaseException and contains the worker. No exception text
+    contains evidence. The filesystem may be ahead of the confirmed application state.
+    """
+
+
 def digest(value):
     return hashlib.sha256(encoded(value).encode()).hexdigest()
 
@@ -60,6 +68,8 @@ class Transcript:
         self.size = 0
         self.chain = '0' * 64
         self.count = 0
+        self.publication = {'contract':'journal-publication-v1','status':'ready','stage':None}
+        self.last_confirmed = None
         self.manifest = {
             'format': 1,
             'investigation_id': self.id,
@@ -69,6 +79,28 @@ class Transcript:
             **metadata
         }
         self._manifest()
+        self._confirm()
+
+    def _confirm(self):
+        from copy import deepcopy
+        self.last_confirmed = dict(count=self.count,chain=self.chain,size=self.size,
+                                   manifest=deepcopy(self.manifest))
+
+    def _uncertain(self, stage):
+        self.publication.update(status='uncertain',stage=stage)
+        if self.last_confirmed is not None:
+            self.count=self.last_confirmed['count'];self.chain=self.last_confirmed['chain']
+            self.size=self.last_confirmed['size'];self.manifest=self.last_confirmed['manifest'].copy()
+        # Never append or rewrite the manifest after a possibly partial publication.
+        # close() is best effort; supervisor containment remains the ultimate bound.
+        try:self.close()
+        except BaseException:pass
+        error=JournalPublicationError('JOURNAL_PUBLICATION_UNCERTAIN')
+        error.diagnostic=dict(contract='journal-publication-v1',status='uncertain',stage=stage,
+            confirmed_event_count=self.count,attempted_sequence=self.publication.get('attempted_sequence'),
+            event_persistence='not_attempted' if stage=='before_event_write' else 'possible',
+            persistence='unknown_requires_strict_validation')
+        raise error from None
 
     def _manifest(self):
         self.manifest.update(event_count=self.count, chain=self.chain)
@@ -91,26 +123,40 @@ class Transcript:
                 time.sleep(.02 * (attempt + 1))
 
     def append(self, kind, data, terminal=False):
+        if self.publication['status']=='uncertain':
+            raise JournalPublicationError('JOURNAL_PUBLICATION_UNCERTAIN')
         event = {'sequence': self.count, 'kind': kind, 'data': data, 'previous': self.chain}
         event['hash'] = digest(event)
         raw = (encoded(event) + '\n').encode()
         cap = MAX_BYTES if terminal else MAX_BYTES - 512 * 1024
         if len(raw) > 600 * 1024 or self.size + len(raw) > cap:
+            self.publication.update(status='admission_rejected',stage='before_io')
             raise ValueError('TRANSCRIPT_BUDGET_EXHAUSTED')
-        local_path(self.path / 'events.jsonl')
-        self.stream.write(raw)
-        self.stream.flush()
-        os.fsync(self.stream.fileno())
-        self.size += len(raw)
-        self.chain = event['hash']
-        self.count += 1
-        self._manifest()
+        self.publication.update(status='attempting',stage='before_event_write',
+                                attempted_sequence=self.count,attempted_kind=kind)
+        stage='before_event_write'
+        try:
+            local_path(self.path / 'events.jsonl')
+            stage='event_write'
+            if self.stream.write(raw)!=len(raw):raise OSError('Short journal write')
+            stage='event_flush';self.stream.flush()
+            stage='event_fsync';os.fsync(self.stream.fileno())
+            self.size += len(raw);self.chain = event['hash'];self.count += 1
+            stage='manifest_publication';self._manifest()
+            self._confirm()
+        except BaseException:
+            self._uncertain(stage)
+        self.publication.update(status='confirmed',stage=None,confirmed_sequence=self.count-1)
 
     def finish(self, result):
         try:
             self.append('terminal', result, terminal=True)
             self.manifest['status'] = result['termination']
-            self._manifest()
+            try:
+                self._manifest()
+                self._confirm()
+            except BaseException:
+                self._uncertain('terminal_manifest_publication')
         finally:
             self.close()
 

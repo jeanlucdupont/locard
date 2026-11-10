@@ -10,6 +10,7 @@ LABELS = {
     'BUDGET_EXHAUSTED': 'Investigation budget exhausted',
     'WORKER_FAILURE': 'Investigation worker failed',
     'TRANSCRIPT_FAILURE': 'Investigation record could not be saved',
+    'JOURNAL_PUBLICATION_UNCERTAIN': 'Investigation stopped: journal publication could not be confirmed; saved records require strict validation',
     'TOOL_LOOP': 'Repeated lookup proposal stopped the investigation',
     'TIMEOUT': 'Investigation time limit reached',
     'INTEGRITY_FAILURE': 'Case integrity verification failed',

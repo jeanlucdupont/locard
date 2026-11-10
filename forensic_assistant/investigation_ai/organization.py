@@ -12,6 +12,7 @@ RULES = 'organization-rules-v2'
 CHECKPOINT = 'organization-checkpoint-v1'
 DEPENDENCY = 'organization-dependency-v1'
 PROFILE = 'local-organization-v2'
+FINALIZATION = 'organization-finalization-v1'
 FRONTIER = 'relationship-frontier-v1'
 LIMITS = dict(entities=256, links=512, revisions=8, checkpoints=9, per_checkpoint=128,
               operations=1024, visits=4096, view_bytes=256*1024, event_bytes=8192,
@@ -317,8 +318,10 @@ class Live:
     def __init__(self, transcript):
         self.transcript=transcript;self.sources=_Sources(transcript.manifest)
         self.reducer=_Reducer(self.sources);self.disabled=False
+        self.finalization=dict(contract=FINALIZATION,status='unavailable',anchor=False,checkpoint=False)
 
     def update(self, source_update, *, final=False, deadline=float('inf'), remaining_analysis=0, remaining_synthesis=0):
+        if final:self.finalization['status']='unavailable' if self.disabled else 'skipped_resource'
         if self.disabled:return
         started=time.monotonic()
         previous_elapsed=self.reducer.elapsed
@@ -332,7 +335,9 @@ class Live:
                 if self.transcript.size+1024+512*1024>MAX_BYTES or self.transcript.count+3>256:
                     self.reducer.stops.append('journal_reservation');return
                 before=self.transcript.size
+                self.finalization['status']='anchor_append_failed'
                 self.transcript.append('organization_final',{'profile':PROFILE})
+                self.finalization.update(anchor=True,status='anchor_committed')
                 self.reducer.journal_bytes+=self.transcript.size-before
             prepared,reason=self.reducer.prepare(_frontier(self.transcript),final=final,deadline=deadline)
             if prepared is None:self.reducer.stops.append(reason);return
@@ -353,9 +358,12 @@ class Live:
             self.transcript.append('organization_checkpoint',cp)
             target.journal_bytes=self.reducer.journal_bytes+size
             self.reducer.commit(prepared)
+            if final:self.finalization.update(checkpoint=True,status='checkpoint_committed')
         except KeyboardInterrupt:
+            if final:self.finalization['status']='interrupted'
             self.reducer.stops.append('cancelled');raise
         except (ValueError,OSError,RuntimeError):
+            if final and self.finalization['anchor']:self.finalization['status']='final_checkpoint_failed'
             self.reducer.stops.append('organization_failed');self.disabled=True
         finally:
             # Charge skipped preparation and durable I/O too, not only committed work.
@@ -365,7 +373,8 @@ class Live:
         return dict(contract=CONTRACT,profile=PROFILE,revision=self.reducer.revision,
                     digest=digest(self.reducer.state()),frontier=self.reducer.frontier,
                     elapsed_seconds=round(self.reducer.elapsed,6),view_bytes=_bytes(self.reducer.state()),
-                    journal_bytes=self.reducer.journal_bytes,stops=sorted(set(self.reducer.stops)))
+                    journal_bytes=self.reducer.journal_bytes,stops=sorted(set(self.reducer.stops)),
+                    finalization=deepcopy(self.finalization))
 
 
 def reconstruct(root, identity):
@@ -381,6 +390,7 @@ def reconstruct(root, identity):
     sources=_Sources(manifest);org=_Reducer(sources);facts=s1._Reducer();state=State(Budget())
     exposure=None;packet=None;last_source=None;terminal=None
     pending=False;mode='recorded' if profile else 'retrospective';last_kind=None;final_seen=False;stops=[]
+    final_checkpoint=False;final_diagnostic=None
     for event in events:
         work_started=time.monotonic();previous_elapsed=org.elapsed
         kind,data=event['kind'],event['data']
@@ -411,6 +421,7 @@ def reconstruct(root, identity):
             prepared,_=org.prepare(last_source,final=data['final'],replay=data)
             if prepared is None:raise ValueError('Unreplayable checkpoint')
             org.commit(prepared);org.journal_bytes+=size;pending=False
+            if data['final']:final_checkpoint=True
             if data['stop_reason']:stops.append(data['stop_reason'])
         elif kind=='terminal':
             terminal=data
@@ -423,6 +434,16 @@ def reconstruct(root, identity):
                         or summary['frontier']!=org.frontier or summary['journal_bytes']!=org.journal_bytes):
                     raise ValueError('Invalid terminal organization')
                 stops.extend(summary.get('stops',[]))
+                final_diagnostic=summary.get('finalization')
+                if final_diagnostic is not None:
+                    if (set(final_diagnostic)!={'contract','status','anchor','checkpoint'} or
+                        final_diagnostic['contract']!=FINALIZATION or
+                        type(final_diagnostic['anchor']) is not bool or type(final_diagnostic['checkpoint']) is not bool or
+                        final_diagnostic['anchor']!=final_seen or final_diagnostic['checkpoint']!=final_checkpoint or
+                        final_diagnostic['status'] not in ('unavailable','skipped_resource','anchor_append_failed',
+                            'anchor_committed','checkpoint_committed','interrupted','final_checkpoint_failed') or
+                        (final_diagnostic['status']=='checkpoint_committed')!=final_checkpoint):
+                        raise ValueError('Invalid organization finalization diagnostic')
         if kind!='organization_checkpoint':
             last_source=dict(sequence=event['sequence'],hash=event['hash']);last_kind=kind
         if mode=='retrospective' and pending:
@@ -440,8 +461,14 @@ def reconstruct(root, identity):
                       retrospective_revisions=org.revision if not profile else 0,
                       persisted_organization_checkpoints=sum(e['kind']=='organization_checkpoint' for e in events),
                       organization_revision=org.revision,
-                      organization_processing_complete=not pending and result['coverage'].get('processing_complete',False)),
-                  incomplete=terminal is None or pending or not result['coverage'].get('processing_complete',False),
+                      organization_processing_complete=not pending and result['coverage'].get('processing_complete',False)
+                          and (not profile or final_checkpoint)),
+                  incomplete=terminal is None or pending or not result['coverage'].get('processing_complete',False)
+                      or bool(profile and not final_checkpoint),
+                  finalization=dict(contract=FINALIZATION,anchor_committed=final_seen,
+                      checkpoint_committed=final_checkpoint,terminal_present=terminal is not None,
+                      final_s3_available=bool(terminal and terminal.get('question_decomposition')),
+                      recorded_diagnostic=final_diagnostic,forensic_completeness='not_established'),
                   limitations=['Organization is not evidence, authorization, forensic completeness or a final report.',
                                'Recorded read view only; current case equality and parent cleanup are not established.'])
     if _bytes(result)>LIMITS['view_bytes']:raise ValueError('Organization view byte limit')

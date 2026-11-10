@@ -324,3 +324,138 @@ Review exact paths, Browser time meanings, ASR limitations, unresolved S3 status
 and separated historical chronology. This remains a bounded factual presentation,
 not an integrated AI narrative, report-import permission or new conclusion.
 No full suite, provider request, live case access, commit or push is authorized here.
+
+## 6.116 — C1 finalization and journal publication correction
+
+Corrective scope only; no D1b live explanation persistence. The application version
+is declared only in `pyproject.toml`. Manual acceptance is pending.
+
+### Root cause and completeness
+
+The baseline `test_c1_prospective_failure_gate[final_anchor]` reproduced as one
+expected failure. The final `organization_final` append was rejected, the prior
+valid organization checkpoint remained intact, and a terminal event recorded the
+organization failure. Reconstruction nevertheless derived completeness from
+terminal presence, pending source work and prior coverage, without requiring the
+final transition. The original `assert view['incomplete']` failed.
+
+`organization.reconstruct` now requires a committed final checkpoint for recorded
+C1 processing completion. Missing final anchors cannot yield complete organization.
+The former strict assertion is unchanged and its expected-failure marker is removed.
+Canonical checkpoint rule/profile versions and digest computation are unchanged.
+This corrects completion diagnostics; it does not reinterpret checkpoint operations.
+
+The additive `organization-finalization-v1` diagnostic in live summaries records
+anchor/checkpoint confirmation and unavailable, resource-skipped, anchor failure,
+anchor-committed, checkpoint-committed, interrupted or checkpoint-failure status.
+Replay checks claimed confirmation against actual events. For historical journals
+without the diagnostic, events establish anchor/checkpoint presence; absence does
+not establish a particular unrecorded failure cause.
+
+Reconstruction separately exposes terminal presence, final S3 availability,
+anchor/checkpoint commitment and recorded diagnostics. A terminal S3 result is not
+proof of final C1 completion. A committed final checkpoint with pending operations
+is still incomplete. Forensic completeness remains `not_established`. Retrospective
+unprofiled history is not relabeled as persisted C1 finalization.
+
+### Journal state and publication boundary
+
+`Transcript.append` still serializes and bounds the event, writes/flushes/fsyncs
+`events.jsonl`, then publishes a fsynced temporary manifest by atomic replacement.
+These remain separate filesystem publications, not a two-file transaction.
+
+`journal-publication-v1` tracks ready, admission-rejected, attempting, confirmed
+and uncertain writer states. `last_confirmed` snapshots application counters and
+manifest after successful publication. Attempt sequence/kind and failure stage
+remain distinct from the last confirmed state. No original evidence data is added
+to the sanitized diagnostic. Stages distinguish before write, write, flush, event
+fsync, manifest publication and the terminal-status manifest publication.
+
+| Boundary | Behavior |
+|---|---|
+| Oversize admission before I/O | Ordinary budget rejection; writer may subsequently accept a valid bounded event. |
+| Successful append return | Application-level confirmation; dependent C1 commit may proceed. |
+| Exception/cancellation after append I/O begins | Poison writer, retain last confirmed application counters, close best-effort, raise fatal `JournalPublicationError`. Disk may already contain the attempted event. |
+| Repeated append or finish on poisoned writer | Refuse before filesystem mutation; no retry or conflicting chain. |
+| Final terminal event succeeds but later status-manifest update fails | Terminal append remains the last confirmed application publication; status update is uncertain. Strict inspection may still find a valid terminal with a RUNNING manifest status. |
+
+The fatal exception deliberately derives from `BaseException` so generic optional
+organization/provider handlers cannot swallow it and continue scheduling. Existing
+controller cleanup `finally` paths and parent supervision handle containment. The
+parent recognizes `JOURNAL_PUBLICATION_UNCERTAIN`, retains previously received
+accepted state where available, and exposes bounded publication diagnostics.
+The existing bounded termination-marker mechanism does not repair the journal.
+No new monitor/recovery process, deadline extension or request retry was added.
+The existing bounded retry for replacing the same manifest on Windows is unchanged;
+there is no retry of a failed event append.
+
+In-memory predecessor restoration is bookkeeping for last confirmed state, **not**
+a rollback claim about disk. Failure after manifest replacement can leave a valid
+disk journal ahead of the last returned append. Failure earlier can leave an extra
+event tail or partial JSON. Neither permits further appends by this writer.
+
+### Replay and partial-diagnostic boundary
+
+Normal `transcript.load` acceptance is unchanged: exact manifest count/hash, full
+chain, bounded encoding and read-view checks remain required. C1/B2/S1 replay
+continues to validate accepted dependencies and grounding separately from hashes.
+Valid journals lacking terminal/final transitions can yield partial C1 state.
+An append that returned before a dependent memory commit can exist on disk; if a
+later terminal contradicts it, reconstruction rejects the inconsistent run rather
+than erase the checkpoint or invent success.
+
+**No permissive prefix salvage was implemented.** Current downstream validators
+independently reload the entire strict journal and validate interdependent source,
+decision and organization events. Safely replaying only a manifest-bound prefix
+requires a shared immutable prefix input across those validators, plus explicit
+partial-result contracts. Temporarily trimming files, altering the manifest or
+patching loaders would bypass that boundary. This exceeds the narrow correction.
+When a trustworthy strict input cannot be established, inspection remains
+unavailable; it does not promote unconfirmed tail contents. This is a remaining
+limitation for D1b diagnostics, not a claim that interrupted-run salvage exists.
+
+No guarantees of physical power-loss durability, hardware cache behavior or cleanup
+after an unresponsive OS are made. Parent cleanup is reported only when observed.
+The synthetic supervisor regression confirms controlled child cleanup, not recovery
+from real hardware failure.
+
+### Validation and manual acceptance
+
+New `test_journal_publication.py` injects pre-write/partial-write/flush/event-fsync,
+manifest-open/write/fsync/replace/after-replace failures and cancellation; tests
+writer poisoning, no subsequent mutation, admission rejection, terminal status
+failure, dependent-commit failure, analysis stop/worker closure, and parent reporting.
+`test_organization_finalization.py` checks successful, failed, missing/resource-
+skipped and interrupted final transitions, retained revisions and false diagnostic
+rejection. Existing grounding/security assertions were not weakened.
+
+Recorded focused results: **181 passed in 158.30s** across publication/finalization,
+C1, D1a, autonomous analysis/startup, B2, completion deadlines and v4 replay/controller
+suites. After the final sanitized diagnostic and supervised-process test additions,
+the publication suite passed **23 tests in 8.83s**. These overlap; they are not
+204 distinct tests. The former expected failure is now a normal passing test.
+`git diff --check` and new-file whitespace checks passed.
+
+Historical read-only check with SQLite/provider entry points blocked preserved:
+
+- 61-statement canonical digest:
+  `0a449bb4cde578094d5f6145769ca0a0c5cf34eb984299eccdb4c1441b62ca5a`.
+- Seven-page compact digest:
+  `79bb708cbcca853cd8d4c3b168150353d5ad0cdd32c4ead34fc427af911297da`.
+- Copied manifest and events SHA-256 values before/after inspection.
+
+After installing the checkout, use the same provider-free commands above; version
+should read 6.116. For explicit C1 diagnostics:
+
+```powershell
+.\locard.ps1 --version
+$root = 'C:\tmp\locard-diagnostics\6.111-b2'
+$run = 'ec81a1af5b1f471ca4f3a4c0bb917fa2'
+.\.venv\Scripts\python.exe -B -m forensic_assistant.investigation_ai.synthesis $root $run --organization --json
+.\.venv\Scripts\python.exe -B -m forensic_assistant.investigation_ai.synthesis $root $run --explanation
+```
+
+For a new readable run copy, substitute its root/run ID. An inconsistent journal
+must fail strict inspection; do not edit it to force replay. No historical or
+original transcript, forensic database, ACL, grant ceiling or report-import rule
+was changed. No full suite, live provider request, commit or push was performed.

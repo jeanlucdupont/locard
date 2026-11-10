@@ -129,7 +129,7 @@ def test_assembly_admission_limit():
     assert result[-1]['assembly_limit_omitted']==58
 
 
-@pytest.mark.parametrize('failure',['later','after_b2',pytest.param('final_anchor',marks=pytest.mark.xfail(strict=True,reason='Existing C1 final-anchor append failure is not reflected by reconstructed incomplete flag; D1b gate remains open')),'final_checkpoint','cancel_later'])
+@pytest.mark.parametrize('failure',['later','after_b2','final_anchor','final_checkpoint','cancel_later'])
 def test_c1_prospective_failure_gate(tmp_path,monkeypatch,failure):
     original=Transcript.append;committed=[];b2_seen=[];cancelled=[]
     def append(self,kind,data,terminal=False):

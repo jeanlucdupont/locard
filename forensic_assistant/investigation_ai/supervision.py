@@ -128,6 +128,7 @@ def _child(connection, gate, request):
         else:
             reason = str(exc) if request['config'].get('_stage_a') and str(exc) in STARTUP_REASONS else None
             connection.send_bytes(json.dumps({'kind': 'error', 'type': type(exc).__name__,
+                                             **({'publication':exc.diagnostic} if type(exc).__name__=='JournalPublicationError' and hasattr(exc,'diagnostic') else {}),
                                              **({'reason':reason} if reason is not None else {})}).encode())
     finally:
         raw_diagnostics.clear()
@@ -227,6 +228,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         deadline=overall-5
     synthesis_clock=SynthesisDeadline(overall-20)
     finalizing=False
+    journal_publication=None
     context = multiprocessing.get_context('spawn')
     clock = ExecutionClock(started, deadline)
     identity = uuid.uuid4().hex
@@ -359,8 +361,10 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
             else:
                 if message.get('type') == 'CleanupError':
                     child_cleanup_failed = True
-                reason = ('AUDIT_FAILURE' if message.get('type') == 'AuditError' else
+                reason = ('JOURNAL_PUBLICATION_UNCERTAIN' if message.get('type') == 'JournalPublicationError' else
+                          'AUDIT_FAILURE' if message.get('type') == 'AuditError' else
                           'TRANSCRIPT_FAILURE' if message.get('type') in ('OSError', 'PermissionError', 'FileExistsError') else 'WORKER_FAILURE')
+                if reason=='JOURNAL_PUBLICATION_UNCERTAIN':journal_publication=message.get('publication')
                 if config.get('_stage_a') and message.get('reason') in STARTUP_REASONS:
                     reason=message['reason']
                 break
@@ -399,6 +403,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                       state={'accepted_calls': None}, transcript_complete=False,
                       limitations=['Investigation interrupted; partial transcript is not a completed investigation.'],
                       metrics={**clock.metrics(), 'timeout_cause': ('final_integrity_timeout' if current_phase in ('final_fingerprint', 'fingerprint') and startup_complete else 'execution_budget_exhausted') if reason in ('MAX_SECONDS', 'STARTUP_TIMEOUT') else None})
+        if journal_publication is not None:result['journal_publication']=journal_publication
         if stage_a_checkpoint is not None:
             result.update(stage_a_checkpoint)
             result['limitations'].append('Previously committed Stage A deltas retained; no restart continuation.')
