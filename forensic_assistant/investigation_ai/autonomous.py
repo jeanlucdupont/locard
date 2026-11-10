@@ -122,6 +122,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     grant=config['_stage_a'];policy.validate(grant,config['case_path'])
     from . import decomposition as decomposition_service
     from . import synthesis_consumer as consumer
+    from . import organization
     b2 = grant['contract'] == policy.B2_CONTRACT
     s4 = b2 or grant['contract'] == policy.S4_CONTRACT
     reserve = 20 if b2 else decomposition_service.RESERVE_SECONDS
@@ -152,7 +153,8 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     identity=config.get('_investigation_id') or uuid.uuid4().hex
     status('transcript_init')
     transcript=Transcript(root,dict(engine=engine,authorization=grant,question=question,budgets=asdict(budget),
-        evidence_fingerprint=None,rule_ids=[],schema=5,**({'synthesis_guidance':'concise-v1'} if b2 else {})),investigation_id=identity)
+        evidence_fingerprint=None,rule_ids=[],schema=5,**({'synthesis_guidance':'concise-v1','organization_profile':organization.PROFILE} if b2 else {})),investigation_id=identity)
+    organizer=None
     deltas=[];pending=set(grant['evidence_ids']);requests=0;view=None;worker=None;stop='AUTHORIZED_PLAN_EXHAUSTED';sizes=[];usage=[];phase='operation'
     def remaining():return min(45,max(.001,deadline-time.monotonic()))
     def guard():
@@ -174,6 +176,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         transcript.manifest['evidence_state']=view
         transcript.manifest['schema']=initial.get('schema',5)
         transcript.append('initial',initial)
+        if b2:organizer=organization.Live(transcript)
         if config.get('_startup_complete'):config['_startup_complete']()
         if s4:
             guard()
@@ -257,6 +260,9 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             deltas.append(delta)
             if reducer is not None:
                 reducer.consume(state,delta,exposure)
+            if organizer:
+                organizer.update(lambda:organizer.sources.analysis(reducer,delta,exposure),
+                    deadline=model_deadline,remaining_analysis=6-requests,remaining_synthesis=2)
             if config.get('_stage_a_checkpoint'):
                 config['_stage_a_checkpoint'](dict(findings=merge_findings(deltas),state=state.summary(),
                     validated_batches=len(deltas),evidence_state=view,question=question,engine=engine))
@@ -275,8 +281,12 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                     config['_stage_a_checkpoint'](dict(findings=merge_findings(deltas),state=state.summary(),
                         validated_batches=len(deltas),evidence_state=view,question=question,engine=engine,
                         synthesis=deepcopy(synthesis_result)))
+            def organize_proposals(packet,accepted):
+                if organizer:
+                    organizer.update(lambda:organizer.sources.synthesis(packet,accepted),
+                        deadline=model_deadline,remaining_synthesis=2-synthesis_result['attempts'])
             consumer.execute(ctx,client,transcript,guard,model_deadline,status,charge_synthesis,
-                             result=synthesis_result,checkpoint=synthesis_checkpoint)
+                             result=synthesis_result,checkpoint=synthesis_checkpoint,on_decision=organize_proposals)
         elif b2:
             synthesis_result.update(status='skipped_budget' if deltas else 'skipped_no_packet',termination='NO_ADMISSIBLE_SYNTHESIS')
     except KeyboardInterrupt:stop='ANALYST_CANCELLED'
@@ -331,6 +341,10 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 ai_requests=requests+decomposition_requests+synthesis_result['attempts'],
                 synthesis_usage=synthesis_result['usage'],usage_unknown=result['metrics']['usage_unknown']+synthesis_result['usage_unknown'])
     result['narrative']=build(findings,result['state'])
+    if organizer:
+        organizer.update(lambda:organizer.sources.final(result['question_decomposition'],result['state'],synthesis_result),
+                         final=True,deadline=deadline)
+        result['organization']=organizer.summary()
     cleanup_failure=None
     if stop=='CLEANUP_LIMITATION':
         from .lifecycle import CleanupError

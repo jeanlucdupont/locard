@@ -229,7 +229,7 @@ def decision(raw, packet, ctx, prior):
         return result
 
 
-def execute(ctx, client, transcript, guard, model_deadline, status, charge, *, result=None, checkpoint=None):
+def execute(ctx, client, transcript, guard, model_deadline, status, charge, *, result=None, checkpoint=None, on_decision=None):
     """One preplanned operation, no refill/repair. Durable state precedes memory."""
     from forensic_assistant.ai.backend import model_operation
     from forensic_assistant.ai.output_budget import final_output
@@ -297,6 +297,7 @@ def execute(ctx, client, transcript, guard, model_deadline, status, charge, *, r
             if accepted['status']!='accepted':
                 result['status']='partial_failed';result['termination']='SYNTHESIS_VALIDATION_FAILURE';break
             result['accepted'].extend(accepted['units']);result['status']='completed_bounded'
+            if on_decision:on_decision(packet,accepted)
             if checkpoint:checkpoint()
         except KeyboardInterrupt:
             result['status']='cancelled';result['termination']='ANALYST_CANCELLED'
@@ -343,11 +344,14 @@ def render(result):
     return '\n'.join(lines)
 
 
-def reconstruct(root, identity):
+def reconstruct(root, identity, *, _validate_organization=True):
     """Replay accepted originals and every B2 transition; no live grant renewal."""
     from . import autonomous, synthesis, decomposition
     from .state import State, Budget
     manifest,events=load(root,identity)
+    if _validate_organization and manifest.get('organization_profile'):
+        from . import organization
+        organization.reconstruct(root,identity)
     if manifest.get('engine')!=ENGINE:raise ValueError('Not a B2 transcript')
     mapping=decomposition.validate_journal(manifest,events)
     reducer=synthesis._Reducer();retained=State(Budget());accepted=set()
