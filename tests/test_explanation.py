@@ -69,7 +69,7 @@ def test_cursor_binds_exact_revision_and_order(tmp_path):
     with pytest.raises(ValueError):e.page({})
 
 
-def synthetic_session():
+def synthetic_session(rows_extra=()):
     from test_synthesis_relationships import clause,factual
     from forensic_assistant.investigation_ai import synthesis as s1
     from test_organization import source
@@ -79,6 +79,7 @@ def synthetic_session():
           clause('2026-01-01T10:00:00Z',number=3,source='admin-a'),
           clause('2026-01-01T10:00:05Z',number=4,source='admin-b'),
           clause('UpdaterService',family='evtx',pointer='/original_event_data/0/value',name='ServiceName',number=5,source='admin-b')]
+    rows.extend(rows_extra)
     facts=factual(*rows);src.view=facts['evidence_state'];src.manifest['evidence_state']=src.view
     reducer=s1._Reducer();reducer.previous='accepted';reducer.batches=1;reducer.finish=lambda:facts
     exposure={'synthetic':'accepted'}

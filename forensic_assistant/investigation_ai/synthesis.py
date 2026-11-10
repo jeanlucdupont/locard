@@ -294,19 +294,24 @@ def main():
     mode.add_argument('--organization', action='store_true', help='Provider-free C1 organization; retrospective for historical B2 runs')
     mode.add_argument('--explanation', action='store_true', help='Read-only deterministic integrated explanation preview')
     parser.add_argument('--cursor', help='Continue an explanation page against the exact same validated source revision')
+    parser.add_argument('--canonical', action='store_true', help='Inspect original expanded D1a statements instead of the compact display')
+    parser.add_argument('--expand-questions', action='store_true', help='Display all distinct questions on each explanation page')
     args = parser.parse_args()
     if args.cursor and not args.explanation:parser.error('--cursor requires --explanation')
+    if (args.canonical or args.expand_questions) and not args.explanation:parser.error('Explanation display options require --explanation')
     try:
         if args.explanation:
             from . import explanation
             session=explanation.open_history(args.root,args.identity)
-            result=explanation.page(session,args.cursor)
+            from . import explanation_display
+            projection=explanation if args.canonical else explanation_display
+            result=projection.page(session,args.cursor)
             if args.json:print(encoded(result))
             else:
                 while True:
-                    print(explanation.render(result))
+                    print(projection.render(result,**({'expand_questions':args.expand_questions} if not args.canonical else {})))
                     if not result['next_cursor']:break
-                    result=explanation.page(session,result['next_cursor'])
+                    result=projection.page(session,result['next_cursor'])
         elif args.organization:
             from . import organization
             result=organization.reconstruct(args.root,args.identity)

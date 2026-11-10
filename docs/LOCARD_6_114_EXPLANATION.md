@@ -213,3 +213,114 @@ that B2 synthesis packets represented all examined records.
 No D1b persistence, D2 provider proposals, additional authorization, live evidence
 access, forensic report import, restart continuation or new inference rules are
 implemented. No commit or push was made.
+
+## 6.115 presentation supplement (2026-11-09)
+
+This section supersedes the expanded-default presentation described above, not
+its canonical contracts. Starting HEAD: `5ae07552b1797f1dc3ba98ded828dc437c44038d`.
+Manual acceptance of this working-tree change is pending.
+
+`explanation_display.py` adds `explanation-display-v1` with
+`record-grouped-display-v1` rules. `page()` consumes the same validated private
+D1a session and admission inventory; `resolve(session, statement_id)` returns
+the unchanged canonical statement. `synthesis.main()` selects compact display by
+default for `--explanation`; `--canonical` retains the original diagnostic path.
+No S1/S2/S3/B2/C1 authority, canonical identity, evidence value or lineage changes.
+
+Each compact item maps to canonical statement/source-unit IDs, classification,
+original EID through a page-local record dictionary, field pointers and exact
+qualification references. The page binds the original run/read view and source
+revision. Full dependencies remain in canonical drill-down. Exact qualification
+texts are interned once per page; similar texts are not merged. Every page carries
+its own required legend. Context labels use admitted fields on the same original
+EID only; identical paths across EIDs do not create physical-object identity.
+
+Observation selection interleaves records for the opening page, with deterministic
+per-record priority for interpretation, recorded path/object context, then field
+pointer. Rendering groups fields by EID. Summary entries reference body atoms;
+there is no free-form factual paraphrase. Timestamp labels use validated meaning
+or type metadata (including Browser DownloadStart/DownloadEnd). Current and
+historical S2 sections remain separate, with sparse-comparison, clock and source
+limitations. Sorted/display-adjacent entries do not introduce new relationships.
+
+Only three distinct questions per page appear by default, with an explicit hidden
+count. `--expand-questions` displays all; compact JSON always retains all. There
+is no new semantic deduplication. Alternatives and request-local alias provenance
+remain visible. Model text remains in the existing unverified sections.
+
+Prospective page checks enforce 16,384 UTF-8 bytes for JSON and expanded human
+output, at most 64 distinct canonical references (including context references),
+and the unchanged 192-candidate admission ceiling. An individually oversized
+display bundle is explicitly omitted atomically; canonical access remains separate.
+Display cursors bind the display rules/order and are not canonical cursors.
+
+### Recorded provider-free measurements
+
+Readable accepted historical run: `6.111-b2/ec81a1af5b1f471ca4f3a4c0bb917fa2`.
+These are serialized byte totals, not token or evidence-storage measurements.
+
+| Measurement | Expanded 6.114 path | Compact 6.115 path |
+|---|---:|---:|
+| Pages | 24 | 7 |
+| Structured JSON bytes, all pages | 287,373 | 99,268 |
+| Human rendering bytes, all pages | 49,376 | 34,563 |
+| Maximum JSON page bytes | 14,525 | 16,151 |
+| Maximum expanded-human page bytes | not separately recorded | 6,022 |
+| Canonical statements represented | 61 | 61 |
+| Explicit budget omissions | 0 | 0 |
+| Qualification serialization bytes | 19,586 (per statement) | 5,828 (page legends) |
+
+The expanded statements total 232,390 bytes, including 103,158 dependency bytes.
+Repeated per-statement contract/rules/run/view metadata totals 17,629 bytes.
+Expanded page overhead beyond statement objects is 54,983 bytes. Compact items
+total 59,785 bytes, record dictionaries 11,628 bytes; the remaining 22,027 bytes
+cover page bindings, coverage, summaries, continuation, framing and separators.
+These component measurements use individually serialized objects; overlapping
+components (such as dependencies within statements) must not be added together.
+
+The opening compact page represents all six records. All 21 observations, one ASR
+interpretation, seven current relationships and three historical-only relationships
+are preserved. Both independent reconstructions produced page digest
+`79bb708cbcca853cd8d4c3b168150353d5ad0cdd32c4ead34fc427af911297da`.
+The before/after canonical inventory digest is identical:
+`0a449bb4cde578094d5f6145769ca0a0c5cf34eb984299eccdb4c1441b62ca5a`.
+Every projected qualification mapping was checked against its canonical statement.
+Provider and SQLite entry points were blocked in the diagnostic reconstruction.
+Copied manifest/events SHA-256 values were unchanged after inspection; this is
+not a claim about historical integrity of unrelated case files.
+
+### Focused validation and manual acceptance
+
+`tests/test_explanation_display.py` covers deterministic pages, qualification
+factoring, exact canonical resolution, record separation, timestamp meaning,
+context on relationship pages, cursor/source mutation rejection, byte/reference
+bounds, control escaping, question expansion and atomic oversized omissions.
+Existing explanation, organization, relationship and B2 suites protect upstream
+contracts. The pre-existing strict C1 final-anchor failure remains an expected
+failure; this presentation patch does not close that gate.
+
+Recorded focused run: **124 passed, 1 expected failure**, 91.38 seconds. After
+the final record-context rendering adjustment, the seven display tests passed
+again (5.04 seconds). `git diff --check` passed. No complete suite was run.
+
+After installing the development checkout, verify the installed version, then run
+the provider-free preview (no live case database is needed):
+
+```powershell
+.\locard.ps1 --version
+$root = 'C:\tmp\locard-diagnostics\6.111-b2'
+$run = 'ec81a1af5b1f471ca4f3a4c0bb917fa2'
+.\.venv\Scripts\python.exe -B -m forensic_assistant.investigation_ai.synthesis $root $run --explanation
+# All distinct questions, without changing canonical content:
+.\.venv\Scripts\python.exe -B -m forensic_assistant.investigation_ai.synthesis $root $run --explanation --expand-questions
+# One compact page; pass its next_cursor with --cursor to continue:
+.\.venv\Scripts\python.exe -B -m forensic_assistant.investigation_ai.synthesis $root $run --explanation --json
+# Full original statement/support diagnostics (separate cursor namespace):
+.\.venv\Scripts\python.exe -B -m forensic_assistant.investigation_ai.synthesis $root $run --explanation --canonical --json
+```
+
+Expected installed version: 6.115. Human mode streams all seven compact pages.
+Review exact paths, Browser time meanings, ASR limitations, unresolved S3 status,
+and separated historical chronology. This remains a bounded factual presentation,
+not an integrated AI narrative, report-import permission or new conclusion.
+No full suite, provider request, live case access, commit or push is authorized here.
