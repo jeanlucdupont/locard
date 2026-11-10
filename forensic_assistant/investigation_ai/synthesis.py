@@ -292,9 +292,22 @@ def main():
     mode.add_argument('--packet-preview', action='store_true', help='Build local non-disclosing B1 packets; no AI or case access')
     mode.add_argument('--synthesis-proposals', action='store_true', help='Validate saved B2 proposals; no AI or case access')
     mode.add_argument('--organization', action='store_true', help='Provider-free C1 organization; retrospective for historical B2 runs')
+    mode.add_argument('--explanation', action='store_true', help='Read-only deterministic integrated explanation preview')
+    parser.add_argument('--cursor', help='Continue an explanation page against the exact same validated source revision')
     args = parser.parse_args()
+    if args.cursor and not args.explanation:parser.error('--cursor requires --explanation')
     try:
-        if args.organization:
+        if args.explanation:
+            from . import explanation
+            session=explanation.open_history(args.root,args.identity)
+            result=explanation.page(session,args.cursor)
+            if args.json:print(encoded(result))
+            else:
+                while True:
+                    print(explanation.render(result))
+                    if not result['next_cursor']:break
+                    result=explanation.page(session,result['next_cursor'])
+        elif args.organization:
             from . import organization
             result=organization.reconstruct(args.root,args.identity)
             print(encoded(result) if args.json else organization.render_view(result))
