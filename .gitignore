@@ -211,6 +211,7 @@ report-bundles/
 !/docs/LOCARD_6_110_SYNTHESIS.md
 !/docs/LOCARD_6_112_ORGANIZATION.md
 !/docs/LOCARD_6_114_EXPLANATION.md
+!/docs/LOCARD_6_117_JOURNAL_SHORT_WRITE.md
 
 # Analyst briefing sidecars and private editor scratch directories
 *.briefing/

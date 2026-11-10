@@ -27,6 +27,13 @@ def digest(value):
 READ_VIEW_CONTRACT = 'sqlite-read-view-v1'
 
 
+def _write_complete(stream, raw):
+    """Binary publication writes must accept every byte in one bounded attempt."""
+    written = stream.write(raw)
+    if type(written) is not int or written != len(raw):
+        raise OSError('Incomplete journal write')
+
+
 def validate_evidence_state(value):
     """Run-local identity, explicitly NOT a digest or cross-run compatibility proof."""
     if (type(value) is not dict or set(value) != {'contract', 'view_id', 'file_identity'}
@@ -108,7 +115,7 @@ class Transcript:
         local_path(self.path)
         local_path(self.path / 'manifest.json')
         with pending.open('xb') as stream:
-            stream.write(encoded(self.manifest).encode())
+            _write_complete(stream, encoded(self.manifest).encode('utf-8'))
             stream.flush()
             os.fsync(stream.fileno())
         # Windows scanners/readers can briefly hold a non-delete-sharing handle.
@@ -138,7 +145,7 @@ class Transcript:
         try:
             local_path(self.path / 'events.jsonl')
             stage='event_write'
-            if self.stream.write(raw)!=len(raw):raise OSError('Short journal write')
+            _write_complete(self.stream, raw)
             stage='event_flush';self.stream.flush()
             stage='event_fsync';os.fsync(self.stream.fileno())
             self.size += len(raw);self.chain = event['hash'];self.count += 1
