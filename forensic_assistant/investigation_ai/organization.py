@@ -8,13 +8,18 @@ from .state import encoded, State, Budget
 from .transcript import digest, load, validate_evidence_state, MAX_BYTES
 
 CONTRACT = 'investigative-organization-v1'
-RULES = 'organization-rules-v1'
+RULES = 'organization-rules-v2'
 CHECKPOINT = 'organization-checkpoint-v1'
 DEPENDENCY = 'organization-dependency-v1'
-PROFILE = 'local-organization-v1'
+PROFILE = 'local-organization-v2'
+FRONTIER = 'relationship-frontier-v1'
 LIMITS = dict(entities=256, links=512, revisions=8, checkpoints=9, per_checkpoint=128,
               operations=1024, visits=4096, view_bytes=256*1024, event_bytes=8192,
               journal_bytes=64*1024, seconds=2)
+
+
+class LegacyOrganizationProfile(ValueError):
+    """A v1 checkpoint must not be replayed with v2 membership rules."""
 
 
 def _bytes(value):
@@ -70,7 +75,7 @@ class _Sources:
                     source_context=deepcopy(support['context'].get('source_context')),
                     lineage=deepcopy(clause['lineage']))
 
-    def analysis(self, reducer, delta, exposure):
+    def analysis(self, reducer, delta, exposure, source_event=None):
         if type(reducer) is not s1._Reducer or reducer.previous != delta['id']:
             raise ValueError('Expected accepted reducer frontier')
         if delta['disclosure_sha256'] != digest(exposure) or not same(delta['evidence_state'],self.view):
@@ -91,12 +96,29 @@ class _Sources:
                          text=clause['predicate'], role='navigation')
             self._edge('contains_reference',bucket,cid,'navigation_only',{'contract':RULES})
             self._edge('context_for',cid,self.question_id,'organizational_only',{'contract':RULES})
+        frontier=dict(contract=FRONTIER,delta_id=delta['id'],batch=delta['batch'],
+                      event=deepcopy(source_event),event_status='recorded' if source_event else 'unknown',
+                      disclosure_sha256=delta['disclosure_sha256'])
+        current={rel['id'] for rel in self.related['relationships']}
+        for entity in self.entities.values():
+            if entity['kind']=='relationship':
+                entity['current_final']=entity['id'] in current
+                entity['membership']='current_final' if entity['current_final'] else 'historical_only'
+                entity['membership_frontier']=delta['id']
         for rel in self.related['relationships']:
             rid=rel['id']
+            prior=self.entities.get(rid,{})
+            present=deepcopy(prior.get('present_frontiers',[]))
+            if not any(f['delta_id']==delta['id'] for f in present):present.append(frontier)
             self._entity(rid,'relationship','validated_recorded_comparison',
                          {'contract':s2.CONTRACT,'id':rid}, predicate=rel['predicate'],rule=rel['rule'],
                          endpoints=rel['endpoints'], assumptions=rel['assumptions'],
-                         qualifications=rel['qualifications'], semantics=rel['semantics'])
+                         qualifications=rel['qualifications'], semantics=rel['semantics'],
+                         derivation='deterministic_accepted_frontier_reconstruction',
+                         first_frontier=present[0]['delta_id'],last_frontier=present[-1]['delta_id'],
+                         present_frontiers=present,current_final=True,membership='current_final',
+                         membership_frontier=delta['id'],
+                         lineage_references=list(rel['endpoints']))
             for endpoint in rel['endpoints']:
                 self._edge('registered_conflict' if rel['predicate']=='incompatible_recorded_field'
                            else 'references_validated_relationship',rid,endpoint,
@@ -124,6 +146,8 @@ class _Sources:
                              relationship_coverage=deepcopy(self.related['coverage']),
                              source_clock_limitations=deepcopy(self.related['limitations']),
                              validated_batches=reducer.batches)
+        self.coverage['relationships_meaning']='latest_s2_snapshot'
+        self.coverage['relationship_frontier']=delta['id']
 
     def synthesis(self, packet, decision):
         # Caller has already recomputed the exact decision with the B2 validator.
@@ -255,6 +279,12 @@ class _Reducer:
             'unassigned_findings':sorted(finding_ids-member_ids),
             'known_unprocessed':len(candidates)-count,'processing_complete':count==len(candidates),
             'unavailable_support':0,'relevance_of_omissions':'not_evaluated'}
+        relationships=[e for e in target.entities.values() if e['kind']=='relationship']
+        assessed=[e for e in relationships if e.get('membership_frontier')==target.coverage.get('relationship_frontier')]
+        target.coverage.update(relationships_current_final=sum(e.get('current_final',False) for e in assessed),
+            relationships_historical_only=sum(not e.get('current_final',False) for e in assessed),
+            relationships_accumulated_distinct=len(relationships),
+            relationships_membership_pending=len(relationships)-len(assessed))
         if _bytes(target.state())>LIMITS['view_bytes']:return None,'view_byte_limit'
         cp=dict(contract=CHECKPOINT,profile=PROFILE,rules=RULES,frontier=frontier,
                 previous_revision=self.revision,previous_digest=previous,
@@ -343,6 +373,8 @@ def reconstruct(root, identity):
     from . import synthesis_consumer as b2, autonomous
     manifest,events=load(root,identity)
     profile=manifest.get('organization_profile')
+    if profile=='local-organization-v1':
+        raise LegacyOrganizationProfile('Legacy C1 v1 checkpoints require their original rules; v2 will not reinterpret their digests')
     if profile not in (None,PROFILE):raise ValueError('Unknown organization profile')
     validated_b2=b2.reconstruct(root,identity,_validate_organization=False)
     if manifest.get('engine')!=b2.ENGINE:raise ValueError('Organization requires B2 history')
@@ -355,7 +387,8 @@ def reconstruct(root, identity):
         if kind=='result':state.ingest(data['response']['result'],operation=data['operation'])
         elif kind=='exposure':exposure=data['content'];state.disclose(exposure)
         elif kind=='validated_delta':
-            facts.consume(state,data,exposure);sources.analysis(facts,data,exposure);pending=True
+            facts.consume(state,data,exposure)
+            sources.analysis(facts,data,exposure,dict(sequence=event['sequence'],hash=event['hash']));pending=True
         elif kind=='synthesis_prepared':packet=data['packet']
         elif kind=='synthesis_decision' and data['status']=='accepted':
             sources.synthesis(packet,data);pending=True
@@ -403,7 +436,11 @@ def reconstruct(root, identity):
     result=org.state()
     result.update(mode=mode,state_digest=digest(org.state()),
                   processing_stops=sorted(set(stops+org.stops)),
-                  resource_use=dict(operations=org.operations,dependency_visits=org.visits,checkpoints=org.revision),
+                  resource_use=dict(operations=org.operations,dependency_visits=org.visits,
+                      retrospective_revisions=org.revision if not profile else 0,
+                      persisted_organization_checkpoints=sum(e['kind']=='organization_checkpoint' for e in events),
+                      organization_revision=org.revision,
+                      organization_processing_complete=not pending and result['coverage'].get('processing_complete',False)),
                   incomplete=terminal is None or pending or not result['coverage'].get('processing_complete',False),
                   limitations=['Organization is not evidence, authorization, forensic completeness or a final report.',
                                'Recorded read view only; current case equality and parent cleanup are not established.'])
@@ -416,16 +453,24 @@ def render_view(view):
            '  Reference organization only; no new forensic conclusions.']
     entities=view['entities'];labels={e['id']:'F'+str(i+1) for i,e in enumerate(e for e in entities if e['kind']=='finding')}
     caveats=set()
+    def membership(e):
+        if e.get('membership_frontier')!=view['coverage'].get('relationship_frontier'):return 'pending'
+        return e['membership']
     sections=[('Original question and provisional objectives',lambda e:e['kind']=='question' and e.get('role') in ('original_question','provisional_objective')),
               ('Validated finding references and deterministic interpretations',lambda e:e['kind']=='finding'),
-              ('Registered relationships and qualified chronology',lambda e:e['kind']=='relationship'),
+              ('Current validated S2 relationships',lambda e:e['kind']=='relationship' and membership(e)=='current_final'),
+              ('Earlier-frontier relationships — historical derivations',lambda e:e['kind']=='relationship' and membership(e)=='historical_only'),
+              ('Relationship membership pending — organization incomplete',lambda e:e['kind']=='relationship' and membership(e)=='pending'),
               ('AI-proposed themes — unverified',lambda e:e.get('role')=='b2_group'),
               ('AI-proposed relationship explanations — unverified',lambda e:e['kind']=='proposal'),
               ('Hypotheses and alternatives — unverified',lambda e:e['kind']=='hypothesis'),
               ('Outstanding questions / next objectives — unverified',lambda e:e['kind']=='question' and e.get('role') not in ('original_question','provisional_objective'))]
     for heading,predicate in sections:
-        lines+=['',heading]
         selected=[e for e in entities if predicate(e)]
+        if heading.startswith('Relationship membership pending') and not selected:continue
+        lines+=['',heading]
+        if heading.startswith('Earlier-frontier') and selected:
+            lines.append('  Derived when the accepted evidence frontier was smaller; absent from the final sparse relationship graph. This does not invalidate the recorded-time comparison.')
         if not selected:lines.append('  None recorded.')
         for e in selected:
             if e['kind']=='finding':
@@ -438,6 +483,7 @@ def render_view(view):
                 lines.append('  '+_text(content))
             if e['kind']=='relationship':
                 lines.append('    References: '+', '.join(labels.get(k,'unavailable') for k in e['endpoints']))
+                lines.append('    Derived at accepted batches: '+', '.join(str(f['batch']) for f in e['present_frontiers']))
                 caveats.update(e.get('qualifications',[]))
             if e.get('alternatives'):lines.append('    Alternatives: '+_text(e['alternatives']))
             for key in ('original_assessment','assessment','binding'):
@@ -455,7 +501,7 @@ def render_view(view):
     lines+=['','Accepted findings unassigned to an AI theme',
             '  '+', '.join(labels.get(k,k) for k in view['coverage'].get('unassigned_findings',[])),
             '', 'Coverage (no completeness percentage)',
-            *('  '+key+': '+str(value) for key,value in view['coverage'].items() if type(value) in (int,bool)),
+            *('  '+key+': '+str(value) for key,value in view['coverage'].items() if type(value) in (int,bool) and key!='relationships'),
             '  Source/clock coverage and forensic completeness remain limited; omissions are not irrelevant.',
             '', 'Qualifications and uncertainty',*('  '+_text(q) for q in sorted(caveats)),
             'Organization incomplete: '+str(view['incomplete']),

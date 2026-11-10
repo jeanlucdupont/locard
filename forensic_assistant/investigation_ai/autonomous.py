@@ -261,7 +261,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             if reducer is not None:
                 reducer.consume(state,delta,exposure)
             if organizer:
-                organizer.update(lambda:organizer.sources.analysis(reducer,delta,exposure),
+                organizer.update(lambda:organizer.sources.analysis(reducer,delta,exposure,organization._frontier(transcript)),
                     deadline=model_deadline,remaining_analysis=6-requests,remaining_synthesis=2)
             if config.get('_stage_a_checkpoint'):
                 config['_stage_a_checkpoint'](dict(findings=merge_findings(deltas),state=state.summary(),

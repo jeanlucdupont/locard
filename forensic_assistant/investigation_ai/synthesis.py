@@ -322,6 +322,9 @@ def main():
             result = reconstruct(args.root, args.identity)
             print(encoded(result) if args.json else render(result))
     except (ValueError, OSError) as exc:
+        from .organization import LegacyOrganizationProfile
+        if isinstance(exc, LegacyOrganizationProfile):
+            parser.exit(1, 'Organization profile v1 requires its original reader; v2 does not reinterpret existing checkpoint digests. No transcript was changed.\n')
         parser.exit(1, 'Factual clause inspection failed: ' + type(exc).__name__ + '\n')
 
 

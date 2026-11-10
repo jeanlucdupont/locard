@@ -18,6 +18,15 @@ def test_live_checkpoints_and_independent_replay(tmp_path):
     assert view['coverage']['organized_findings']==view['coverage']['observations']+view['coverage']['interpretations']
     assert view['coverage']['accepted_b2_proposals']==len(result['synthesis']['accepted'])
     assert view['state_digest']==result['organization']['digest']
+    _,events=load(tmp_path/'runs',result['investigation_id'])
+    deltas={e['data']['id']:e for e in events if e['kind']=='validated_delta'}
+    for entity in view['entities']:
+        if entity['kind']=='relationship':
+            for frontier in entity['present_frontiers']:
+                event=deltas[frontier['delta_id']]
+                assert frontier['event']=={'sequence':event['sequence'],'hash':event['hash']}
+    assert view['resource_use']['persisted_organization_checkpoints']==sum(e['kind']=='organization_checkpoint' for e in events)
+    assert view['resource_use']['retrospective_revisions']==0
     assert result['organization']['journal_bytes']<=65536
     assert result['organization']['elapsed_seconds']<=2
     assert len(encoded(view).encode())<=262144
@@ -139,6 +148,8 @@ def test_historical_reconstruction_is_read_only_and_provider_free(tmp_path,monke
     before=[hashlib.sha256(p.read_bytes()).hexdigest() for p in paths]
     view=o.reconstruct(root,rid)
     assert view['mode']=='retrospective' and not view['incomplete']
+    assert view['resource_use']['persisted_organization_checkpoints']==0
+    assert view['resource_use']['retrospective_revisions']==view['revision']
     assert view==o.reconstruct(root,rid)
     assert before==[hashlib.sha256(p.read_bytes()).hexdigest() for p in paths]
     # Rejected model output cannot become an accepted source by rehashing its journal.
@@ -214,3 +225,115 @@ def test_primary_journal_reservation():
     observer.update(lambda:None,remaining_analysis=6,remaining_synthesis=2)
     assert observer.reducer.revision==0
     assert observer.reducer.stops==['journal_reservation']
+
+
+def frontier_fixture(monkeypatch):
+    from test_synthesis_relationships import clause, factual
+    from forensic_assistant.investigation_ai import synthesis as s1
+    src=source();reducer=s1._Reducer();org=o._Reducer(src,clock=lambda:0)
+    def advance(seconds,batch):
+        rows=[clause('2026-01-01T00:%02d:%02dZ'%(n//60,n%60),number=n) for n in seconds]
+        accepted=factual(*rows);src.view=accepted['evidence_state']
+        reducer.previous=digest(['delta',batch]);reducer.batches=batch
+        monkeypatch.setattr(reducer,'finish',lambda:accepted)
+        exposure={'fixture':batch}
+        delta=dict(id=reducer.previous,batch=batch,disclosure_sha256=digest(exposure),
+                   evidence_state=src.view,counters={'ai_requests':batch},
+                   findings={'hypotheses':[],'model_proposed_unknowns':[]})
+        boundary={'sequence':batch*5,'hash':digest(['event',batch])}
+        src.analysis(reducer,delta,exposure,boundary)
+        prepared,_=org.prepare(boundary);org.commit(prepared)
+        return {r['id'] for r in src.related['relationships']}
+    return src,org,advance
+
+
+def test_sparse_frontier_history_seven_current_ten_distinct(monkeypatch):
+    src,org,advance=frontier_fixture(monkeypatch)
+    sets=[advance(values,batch) for batch,values in enumerate([
+        [0,100],[0,30,100],[0,30,50,100],[0,30,50,70,100],
+        [0,30,50,70,100,110,120],[0,30,50,70,100,110,120,130]],1)]
+    assert [len(s) for s in sets]==[1,2,3,4,6,7]
+    assert org.coverage['relationships_current_final']==7
+    assert org.coverage['relationships_historical_only']==3
+    assert org.coverage['relationships_accumulated_distinct']==10
+    assert org.coverage['relationships_membership_pending']==0
+    rels=[e for e in org.entities.values() if e['kind']=='relationship']
+    for e in rels:
+        assert e['current_final']==(e['id'] in sets[-1])
+        expected=[i for i,s in enumerate(sets,1) if e['id'] in s]
+        assert [f['batch'] for f in e['present_frontiers']]==expected
+        assert e['first_frontier']==digest(['delta',expected[0]])
+        assert e['last_frontier']==digest(['delta',expected[-1]])
+        assert e['lineage_references']==e['endpoints']
+        assert all(f['event']['hash']==digest(['event',f['batch']]) for f in e['present_frontiers'])
+        assert e['semantics']['physical_event_order']=='not established'
+        assert e['semantics']['left']['clock_skew']=='unknown'
+        assert e['status']=='active' and e['classification']=='validated_recorded_comparison'
+    # Prefix replay rejects a changed membership classification, even with valid source IDs.
+    before=deepcopy(org.state())
+    src.entities[rels[0]['id']]['current_final']=not src.entities[rels[0]['id']]['current_final']
+    assert org.state()==before  # prospective source mutation never alters committed state
+
+
+def test_frontier_reappearance_retains_membership_history(monkeypatch):
+    src,org,advance=frontier_fixture(monkeypatch)
+    # Isolated adapter exercise: later source contracts may revise their selected set.
+    first=advance([0,100],1);advance([0,50,100],2);last=advance([0,100],3)
+    assert first==last
+    e=org.entities[next(iter(first))]
+    assert [f['batch'] for f in e['present_frontiers']]==[1,3]
+    assert e['membership']=='current_final'
+    assert org.coverage['relationships_accumulated_distinct']==3
+
+
+def test_membership_not_misreported_when_revision_is_partial(monkeypatch):
+    src,org,advance=frontier_fixture(monkeypatch)
+    advance([0,100],1)
+    org.operations=896  # final reserve is not borrowed
+    advance([0,50,100],2)
+    assert not org.coverage['processing_complete']
+    assert org.coverage['relationships_current_final']==0
+    assert org.coverage['relationships_membership_pending']==1
+
+
+def test_legacy_profile_is_not_silently_reinterpreted(tmp_path):
+    result,*_=execute(tmp_path);root=tmp_path/'runs';rid=result['investigation_id']
+    manifest,events=load(root,rid);manifest['organization_profile']='local-organization-v1'
+    rehash(root/rid,manifest,events)
+    with pytest.raises(ValueError,match='original rules'):o.reconstruct(root,rid)
+
+
+def test_frontier_candidate_tampering_rejected(tmp_path,monkeypatch):
+    result,*_=execute(tmp_path);root=tmp_path/'runs';rid=result['investigation_id']
+    original=o._Sources.analysis
+    def forged(self,*args,**kwargs):
+        original(self,*args,**kwargs)
+        for entity in self.entities.values():
+            if entity['kind']=='relationship':
+                entity['membership_frontier']='forged'
+    monkeypatch.setattr(o._Sources,'analysis',forged)
+    with pytest.raises(ValueError,match='checkpoint'):o.reconstruct(root,rid)
+
+
+def test_interrupted_journal_retains_exact_committed_prefix(tmp_path):
+    result,*_=execute(tmp_path);root=tmp_path/'runs';rid=result['investigation_id']
+    manifest,events=load(root,rid)
+    index=next(i for i,e in enumerate(events) if e['kind']=='organization_checkpoint')
+    expected=events[index]['data'];events=events[:index+1]
+    manifest['status']='running';rehash(root/rid,manifest,events)
+    view=o.reconstruct(root,rid)
+    assert view['incomplete']
+    assert view['state_digest']==expected['result_digest']
+    assert view['frontier']==expected['frontier']
+    assert view['resource_use']['persisted_organization_checkpoints']==1
+
+
+def test_legacy_diagnostic_explains_profile_boundary(monkeypatch,capsys):
+    import sys
+    from forensic_assistant.investigation_ai import synthesis
+    def legacy(*args):raise o.LegacyOrganizationProfile('original rules required')
+    monkeypatch.setattr(o,'reconstruct',legacy)
+    monkeypatch.setattr(sys,'argv',['synthesis','unused','a'*32,'--organization'])
+    with pytest.raises(SystemExit) as exc:synthesis.main()
+    assert exc.value.code==1
+    assert 'requires its original reader' in capsys.readouterr().err

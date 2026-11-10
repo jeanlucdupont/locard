@@ -1,5 +1,102 @@
 # Locard 6.112: local investigative organization (S4-C1)
 
+## 6.113 correction: relationship frontiers and revision accounting
+
+Implemented on 2026-11-09 against `e3fd261fe6b202123679244e68f08e8914c005fc`.
+This section supersedes the relationship/count descriptions below for new output.
+The earlier implementation and measurements are retained as release history.
+
+The 6.112 defect mixed the accumulated union of S2 relationships from accepted
+batch frontiers with a counter for only the latest S2 snapshot. The existing S2
+policy compares adjacent recorded timestamps: newly admitted timestamps can split
+an earlier pair without invalidating its recorded-coordinate ordering.
+
+6.113 preserves exact S2 IDs, comparison rules, original endpoints, qualifications
+and source/read-view bindings. Each relationship now has `present_frontiers`,
+`first_frontier`, `last_frontier`, `membership_frontier`, `current_final` and
+`membership` (`current_final` or `historical_only`). Each presence entry binds an
+accepted delta ID/batch/disclosure digest to its source event sequence and hash.
+Missing event provenance is explicitly `unknown`. Endpoint lineage references
+resolve through the original S1 finding dependencies and the recorded delta, rather
+than duplicating original evidence values. Membership frequency is not confidence.
+
+Contracts: `investigative-organization-v1`, `organization-checkpoint-v1` and
+`organization-dependency-v1` remain envelope contracts; new semantics use
+`organization-rules-v2`, `local-organization-v2` and `relationship-frontier-v1`.
+S2 still uses its existing registered rule, including `recorded-utc-interval-v1`.
+Historical derived organization is explicitly retrospective; it does not assert
+that individual S2 derivation events were persisted during the original run.
+
+New v2 checkpoints hash the prospective membership history, candidate ordering,
+frontier and coverage. Replay regenerates these from validated source events and
+rejects inconsistent classifications/digests. Old 6.112 `local-organization-v1`
+checkpoints are explicitly refused by the v2 reader, with an original-reader
+diagnostic, rather than reinterpreted or rewritten. Use the original reader for
+those runs. Profile-free historical 6.111 B2 transcripts remain supported.
+
+Coverage separates `relationships_current_final`, `relationships_historical_only`
+and `relationships_accumulated_distinct`. Legacy `relationships` remains defined
+as `latest_s2_snapshot` and is omitted from human coverage output. If resource
+exhaustion leaves entity membership updates pending, those references are counted
+under `relationships_membership_pending` and displayed separately rather than
+misrepresented as current-final. Whole-source and partially materialized counts
+can differ only with explicitly incomplete organization.
+
+Readable chronology now has separate current and historical sections. Historical
+ordering is not labeled rejected or disproven. The display retains clock, source,
+precision and causality qualifications. Original questions, proposals, legends and
+unassigned findings retain their prior behavior.
+
+Resource accounting now reports `retrospective_revisions`,
+`persisted_organization_checkpoints`, `organization_revision` and
+`organization_processing_complete`. Persisted checkpoints are counted from actual
+journal events, not processing phases. Interrupted journals retain the exact last
+committed prefix. No historical checkpoint is manufactured.
+
+The accepted 6.111 copy reconstructed in two fresh processes with identical full
+canonical digest:
+`13c40a473c56f9e13ad498cee2fb73cd546c4d8fd64382901642018806bed6e8`.
+
+| 6.113 historical validation | Result |
+|---|---:|
+| Current / historical-only / accumulated S2 relationships | 7 / 3 / 10 |
+| Observations / ASR interpretations | 21 / 1 |
+| B2 / total model-originated proposals | 4 / 25 |
+| Authorized / examined evidence references | 6 / 6 |
+| Retrospective revisions / persisted checkpoints | 9 / 0 |
+| Operations / dependency visits | 223 / 563 |
+| Serialized view | 244,935 bytes |
+| Full reconstruction duration | 0.839 s / 0.847 s |
+
+All ten relationship IDs, endpoints, rule results, qualifications and frontier event
+bindings were checked. Original S3 remained `NOT_ASSESSABLE`; two unresolved
+objectives remain. Provider and SQLite connection entry points were blocked during
+these diagnostics. Both historical transcript hashes remained unchanged.
+
+Focused organization, S2, B2 and S3 tests passed **138/138 in 41.88 seconds**.
+Additional focused checks cover exact live event bindings and the explicit legacy
+profile diagnostic; the final organization suite passed **30/30 in 19.68 seconds**.
+Synthetic coverage includes seven-final/ten-union sparse
+frontiers, first/last/repeated membership, possible reappearance, partial membership
+updates, tampering, interrupted replay and journal reservation/failure. No complete
+suite or live provider call was run.
+
+All C1 and B2 resource ceilings are unchanged. The historical view is near the
+256-KiB ceiling; larger provenance histories may stop explicitly at an atomic
+boundary. No new inference, model calls, evidence access, report-import permission
+or restart capability was introduced. Manual acceptance remains pending.
+
+Provider-free acceptance after installing the changed checkout:
+
+```powershell
+.\locard.ps1 --version
+.\.venv\Scripts\python.exe -B -m forensic_assistant.investigation_ai.synthesis C:\tmp\locard-diagnostics\6.111-b2 ec81a1af5b1f471ca4f3a4c0bb917fa2 --organization
+.\.venv\Scripts\python.exe -B -m forensic_assistant.investigation_ai.synthesis C:\tmp\locard-diagnostics\6.111-b2 ec81a1af5b1f471ca4f3a4c0bb917fa2 --organization --json
+```
+
+Expect version 6.113, separate 7/3 relationship sections, accumulated count 10,
+nine retrospective revisions and zero persisted checkpoints.
+
 Implementation and provider-free validation recorded on 2026-11-09. Starting
 revision: `bfc32219e574556e9c78c970f2d6ef009b198849`; these changes are uncommitted.
 `pyproject.toml` is the application version authority. Manual acceptance is pending.
