@@ -8,6 +8,8 @@ from . import explanation_status as diagnostic
 from .transcript import digest, MAX_BYTES, JournalPublicationError
 
 PROFILE='local-explanation-v1'
+COMPACT_PROFILE='local-explanation-v2'
+COMPACT_CHECKPOINT='explanation-checkpoint-v2'
 CONTRACT='explanation-revision-v1'
 CHECKPOINT='explanation-checkpoint-v1'
 FRONTIER='explanation-frontier-v1'
@@ -15,6 +17,22 @@ ORDER='affected-reference-order-v1'
 LIMITS=dict(checkpoints=9,per_checkpoint=32,operations=288,visits=2048,
             admissions=192,event_bytes=8192,journal_bytes=65536,seconds=1.,slice=.100,
             state_bytes=131072,edges=2048,pending=192,heap=4*1024*1024)
+
+
+def receipt_reference(receipt):
+    """Bind a wire reference to the complete, independently reconstructed receipt."""
+    if (receipt['contract']!='organization-commit-v1' or receipt['profile']!=c1.PROFILE
+        or receipt['rules']!=c1.RULES):
+        raise ValueError('Unsupported C1 receipt rules')
+    return {**{k:deepcopy(receipt[k]) for k in
+        ('contract','profile','rules','run_id','read_view','event','revision','digest','source_frontier')},
+        'receipt_digest':digest(receipt)}
+
+
+def event_size(cp, event):
+    value=dict(sequence=event['sequence'],kind='explanation_checkpoint',data=cp,previous=event['previous'])
+    value['hash']=digest(value)
+    return d1._size(value)+1
 
 
 def owned_bytes(value):
@@ -75,9 +93,11 @@ class Sources:
 
 
 class Reducer:
-    def __init__(self, run_id, view):
+    def __init__(self, run_id, view, profile=PROFILE):
+        if profile not in (PROFILE,COMPACT_PROFILE):raise ValueError('Unknown explanation profile')
+        self.profile=profile
         self.waiting=set();self.omitted_keys=set()
-        self.state=dict(contract=CONTRACT,profile=PROFILE,run_id=run_id,read_view=deepcopy(view),
+        self.state=dict(contract=CONTRACT,profile=profile,run_id=run_id,read_view=deepcopy(view),
             revision=0,frontier=None,items={},pending=[],operations=0,visits=0,admitted=[],
             coverage={},stop=None,indexes={},omitted=[])
 
@@ -91,7 +111,7 @@ class Reducer:
         if cp['previous_digest']!=digest(self.state):raise ValueError('Stale explanation predecessor')
         self.state=target;self.waiting=set(target['pending']);self.omitted_keys=set(target['omitted'])
 
-    def prepare(self, receipt, sources, *, clock=time.monotonic, deadline=float('inf'), replay=None, charged_visits=None):
+    def prepare(self, receipt, sources, *, clock=time.monotonic, deadline=float('inf'), replay=None, charged_visits=None, event=None):
         started=clock();measuring=time.perf_counter();old=self.state
         self.last_visits=old['visits'] if charged_visits is None else charged_visits
         self.timings=dict(candidate_seconds=0.,dependency_seconds=0.,serialization_seconds=0.)
@@ -103,6 +123,9 @@ class Reducer:
         if type(self.last_visits) is not int or not old['visits']<=self.last_visits<=LIMITS['visits']:
             raise ValueError('Invalid charged explanation visits')
         charged_before=self.last_visits
+        compact=self.profile==COMPACT_PROFILE
+        if compact and event is None:raise ValueError('Compact checkpoint requires event identity')
+        binding=receipt_reference(receipt) if compact else receipt
         if old['revision']>=LIMITS['checkpoints']:return None,'checkpoint_limit'
         changed=set(receipt['changed']['entities'])|set(old['pending'])|self.waiting|set(old['omitted'])|self.omitted_keys
         changed.update(k for k,deps in old['indexes'].items() if changed.intersection(deps))
@@ -122,8 +145,27 @@ class Reducer:
         target=deepcopy(old);target['visits']=charged_before
         operations=[];visited=0;done=[];stop=None
         self.timings['candidate_seconds']=time.perf_counter()-measuring
-        # Conservative fixed envelope reservation; final full event is checked again.
+        # Preserve v1's estimator for historical replay. V2 measures complete events.
         operation_bytes=d1._size(receipt)+1024
+        def checkpoint(current, ops, completed, examined, reason):
+            # Full logical state retains the authenticated receipt under both profiles.
+            result=deepcopy(current)
+            result['pending']=[k for _,k,_ in candidates if k not in completed]
+            result['omitted']=omitted
+            result['revision']=old['revision']+1
+            result['frontier']=dict(contract=FRONTIER,receipt=receipt,
+                statement_contract=d1.STATEMENT,statement_rules=d1.RULES,ordering=ORDER)
+            result['coverage']=dict(c1_complete=sources.session.organization['incomplete'] is False,
+                final_assessment_available=bool(sources.session.original.get('original_assessment')),
+                final_assessment_represented=bool(sources.session.original.get('original_assessment')) and 'original_assessment' in completed,
+                pending=len(result['pending']),omitted=len(omitted),accepted=len(result['items']),omissions_relevance='not_evaluated',
+                relationship_frontier=sources.session.organization['coverage'].get('relationship_frontier'))
+            result['stop']=reason
+            wire=dict(contract=COMPACT_CHECKPOINT if compact else CHECKPOINT,profile=self.profile,ordering=ORDER,receipt=binding,
+                previous_revision=old['revision'],previous_digest=digest(old),revision=result['revision'],
+                candidate_digest=digest([candidates,omitted]),operations=ops,examined=examined,
+                applied=len(ops),stop=reason,result_digest=digest(result),charged_visits_before=charged_before)
+            return result,wire
         allowance=LIMITS['operations']-(0 if receipt['final'] else 32)
         visit_cap=LIMITS['visits']-(0 if receipt['final'] else 128)
         wanted=replay['examined'] if replay is not None else len(candidates)
@@ -153,12 +195,17 @@ class Reducer:
             op=dict(kind='update_coverage' if key=='coverage' else 'admit' if previous is None else
                     'retire_current_membership' if previous['section']=='current' and section!='current' else 'replace',
                     key=key,old=previous,new=ref)
-            if operation_bytes+d1._size(op)+1>LIMITS['event_bytes']:
+            if not compact and operation_bytes+d1._size(op)+1>LIMITS['event_bytes']:
                 stop='event_byte_limit';break
             operation_bytes+=d1._size(op)+1
+            predecessor=deepcopy(target) if compact else None
             target['items'][key]=ref;target['operations']+=1
             target['indexes'][key]=dependencies
             if statement['id'] not in target['admitted']:target['admitted'].append(statement['id'])
+            if compact:
+                prospective=checkpoint(target,operations+[op],done+[key],visited,'event_byte_limit')
+                if event_size(prospective[1],event)>LIMITS['event_bytes']:
+                    target=predecessor;stop='event_byte_limit';break
             operations.append(op);done.append(key)
         target['pending']=[k for _,k,_ in candidates if k not in done]
         target['omitted']=omitted
@@ -177,18 +224,20 @@ class Reducer:
             previous_revision=old['revision'],previous_digest=digest(old),revision=target['revision'],
             candidate_digest=digest([candidates,omitted]),operations=operations,examined=visited,
             applied=len(operations),stop=stop,result_digest=digest(target),charged_visits_before=charged_before)
+        if compact:target,cp=checkpoint(target,operations,done,visited,stop)
         self.peak_owned=owned_bytes((old,target,cp,candidates,self.waiting,self.omitted_keys,sources.clauses,sources.entities,
-                                     locals().get('statement')))
+                                     locals().get('statement'),locals().get('predecessor'),locals().get('prospective'),binding))
         if d1._size(target)>LIMITS['state_bytes'] or self.peak_owned>LIMITS['heap']:return None,'memory_limit'
         self.timings['serialization_seconds']+=time.perf_counter()-serializing
-        if replay is not None and cp!=replay:raise ValueError('Explanation checkpoint mismatch')
+        if replay is not None and (digest(cp)!=digest(replay) if compact else cp!=replay):
+            raise ValueError('Explanation checkpoint mismatch')
         return (target,cp),stop
 
 
 class Live:
     def __init__(self, transcript, organizer, facts):
         self.transcript=transcript;self.organizer=organizer;self.facts=facts
-        self.reducer=Reducer(transcript.id,organizer.sources.view)
+        self.reducer=Reducer(transcript.id,organizer.sources.view,transcript.manifest.get('explanation_profile',PROFILE))
         self.elapsed=0.;self.journal_bytes=0;self.last_receipt=None;self.checkpoint=None;self.stops=[]
         self.metrics=dict(callbacks=0,prepare_seconds=0.,append_seconds=0.,peak_owned_heap=0)
         self.visits=0;self.disabled=False
@@ -226,6 +275,7 @@ class Live:
             try:
                 sources=Sources(transcript.manifest,org.reducer,self.facts)
                 prepared,reason=self.reducer.prepare(receipt,sources,charged_visits=self.visits,
+                    event=dict(sequence=transcript.count,previous=transcript.chain),
                     deadline=min(deadline,started+1-self.elapsed,started+LIMITS['slice']))
             except (ValueError,KeyError,TypeError):
                 self.disabled=True;self.stops.append('preparation_failed')
@@ -289,7 +339,7 @@ class Live:
                       self.organizer.finalization['status']!='checkpoint_committed')
         status=diagnostic.project(self.reducer.state,self.organizer.last_receipt,
             upstream if self.organizer.last_receipt else None,finalized=True)
-        return dict(contract=CONTRACT,profile=PROFILE,revision=self.reducer.state['revision'],
+        return dict(contract=CONTRACT,profile=self.reducer.profile,revision=self.reducer.state['revision'],
             digest=digest(self.reducer.state),checkpoint=self.checkpoint,
             journal_bytes=self.journal_bytes,elapsed_seconds=self.elapsed,stops=self.stops,
             metrics=self.metrics,charged_visits=self.visits,coverage=self.reducer.state['coverage'],
@@ -302,8 +352,8 @@ class Live:
 
 class Replay:
     def __init__(self, manifest):
-        if manifest['explanation_profile']!=PROFILE:raise ValueError('Unknown explanation profile')
-        self.manifest=manifest;self.reducer=Reducer(manifest['investigation_id'],manifest['evidence_state'])
+        if manifest['explanation_profile'] not in (PROFILE,COMPACT_PROFILE):raise ValueError('Unknown explanation profile')
+        self.manifest=manifest;self.reducer=Reducer(manifest['investigation_id'],manifest['evidence_state'],manifest['explanation_profile'])
         self.receipt=None;self.sources=None;self.checkpoint=None;self.bytes=0;self.ended=False
         self.statements={};self.clauses={};self.entities={};self.used=set()
         self.diagnostics=None
@@ -315,12 +365,14 @@ class Replay:
 
     def consume(self,event):
         cp=event['data']
-        if (self.receipt is None or cp['receipt']!=self.receipt or
+        expected=receipt_reference(self.receipt) if self.receipt is not None and self.reducer.profile==COMPACT_PROFILE else self.receipt
+        same_receipt=(digest(cp['receipt'])==digest(expected) if self.reducer.profile==COMPACT_PROFILE else cp['receipt']==expected)
+        if (self.receipt is None or not same_receipt or
             self.receipt['revision'] in self.used or event['sequence']!=self.receipt['event']['sequence']+1 or
             event['previous']!=self.receipt['event']['hash']):raise ValueError('Invalid explanation receipt')
         size=d1._size(event)+1
         if size>8192 or self.bytes+size>65536:raise ValueError('Explanation journal budget')
-        prepared,_=self.reducer.prepare(self.receipt,self.sources,replay=cp)
+        prepared,_=self.reducer.prepare(self.receipt,self.sources,replay=cp,event=event)
         if prepared is None:raise ValueError('Unreplayable explanation checkpoint')
         target,_=prepared
         for op in cp['operations']:
@@ -339,7 +391,7 @@ class Replay:
 
     def terminal(self,data):
         summary=data.get('explanation')
-        if summary is None or summary['profile']!=PROFILE or summary['digest']!=digest(self.reducer.state) or summary['revision']!=self.reducer.state['revision'] or summary['journal_bytes']!=self.bytes or summary['checkpoint']!=self.checkpoint:
+        if summary is None or summary['profile']!=self.reducer.profile or summary['digest']!=digest(self.reducer.state) or summary['revision']!=self.reducer.state['revision'] or summary['journal_bytes']!=self.bytes or summary['checkpoint']!=self.checkpoint:
             raise ValueError('Invalid terminal explanation')
         if type(summary.get('charged_visits')) is not int or not self.reducer.state['visits']<=summary['charged_visits']<=LIMITS['visits']:
             raise ValueError('Invalid terminal explanation resources')
@@ -381,7 +433,7 @@ def session(root, identity):
     s.original=next((v for v in s.entities.values() if v.get('role')=='original_question'),{})
     s.organization=dict(entities=list(s.entities.values()),links=[],coverage=state['coverage'],
         read_view=state['read_view'],state_digest=digest(state),incomplete=result['incomplete'])
-    s.binding=dict(contract=CONTRACT,profile=PROFILE,run_id=identity,read_view=state['read_view'],
+    s.binding=dict(contract=CONTRACT,profile=state['profile'],run_id=identity,read_view=state['read_view'],
         revision=state['revision'],digest=digest(state),checkpoint=result['checkpoint'],statement_rules=d1.RULES,ordering=ORDER)
     s.candidates=[(v['section'],k) for k,v in sorted(state['items'].items())]
     s.context_candidates=set(state['items'])

@@ -158,7 +158,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     status('transcript_init')
     transcript=Transcript(root,dict(engine=engine,authorization=grant,question=question,budgets=asdict(budget),
         evidence_fingerprint=None,rule_ids=[],schema=5,**({'synthesis_guidance':'concise-v1','organization_profile':organization.PROFILE,
-            **({'explanation_profile':explanation_live.PROFILE} if config.get('_live_explanation',False) else {})} if b2 else {})),investigation_id=identity)
+            **({'explanation_profile':explanation_live.COMPACT_PROFILE} if config.get('_live_explanation',False) else {})} if b2 else {})),investigation_id=identity)
     organizer=None;explainer=None
     deltas=[];pending=set(grant['evidence_ids']);requests=0;view=None;worker=None;stop='AUTHORIZED_PLAN_EXHAUSTED';sizes=[];usage=[];phase='operation'
     def remaining():return min(45,max(.001,deadline-time.monotonic()))
