@@ -359,4 +359,14 @@ def render(result, palette=None, *, dry_run=False, details=False):
                 '  Synthesis completion does not imply completed evidence examination.'])
         from .synthesis_consumer import render as render_synthesis
         lines.extend(['',render_synthesis(result['synthesis'])])
+    if result.get('explanation'):
+        local=result['explanation'];coverage=local['coverage']
+        lines.extend(['','Local explanation persistence — enabled',
+            '  Revision '+str(local['revision'])+'; C1 '+str(local['c1_revision'])+'; '+
+            str(coverage.get('accepted',0))+' accepted, '+str(coverage.get('pending',0))+' pending, '+
+            str(coverage.get('omitted',0))+' omitted components.',
+            '  '+('Partial/stale' if local['stale'] or local['upstream_partial'] or coverage.get('pending') or coverage.get('omitted') else 'Processing complete')+
+            '; forensic completeness and parent cleanup are not established.',
+            '  Final assessment '+('available' if coverage.get('final_assessment_available') else 'pending')+
+            '; resource stops: '+safe(', '.join(local['stops']) or 'none')+'.'])
     return '\n'.join(lines)

@@ -35,6 +35,7 @@ def _record_index(session):
     labels={eid:'R'+str(n+1) for n,eid in enumerate(ids)}
     contexts={}
     for c in sorted(session.clauses.values(),key=lambda c:c['id']):
+        if hasattr(session,'context_candidates') and c['id'] not in session.context_candidates:continue
         s=c['supports'][0];f=s.get('field',{});pointer=f.get('pointer','')
         if pointer in ('/target_path','/current_path','/executable') or pointer.startswith('/objects/'):
             contexts.setdefault(s['evidence_id'],c)
@@ -111,7 +112,8 @@ def _project(session,section,identity,labels,contexts,page):
     return item
 
 
-def page(session,cursor=None):
+def page(session,cursor=None,*,byte_limit=e.PAGE_BYTES):
+    if type(byte_limit) is not int or not 2048<=byte_limit<=e.PAGE_BYTES:raise ValueError('Invalid display byte limit')
     _check(session)
     labels,contexts=_record_index(session)
     # Same admission inventory as D1a; display order groups observations by original EID.
@@ -157,21 +159,21 @@ def page(session,cursor=None):
         references={x['statement_id'] for x in trial['items']}|{r['context_statement'] for r in trial['records'].values() if 'context_statement' in r}
         trial['pending']=len(candidates)-index-1
         trial['next_cursor']=e._cursor(binding,index+1) if trial['pending'] else None
-        if e._size(trial)>e.PAGE_BYTES or len(references)>e.PAGE_STATEMENTS or len(render(trial,check=False,expand_questions=True).encode('utf-8'))>e.PAGE_BYTES:
+        if e._size(trial)>byte_limit or len(references)>e.PAGE_STATEMENTS or len(render(trial,check=False,expand_questions=True).encode('utf-8'))>byte_limit:
             if result['items']:break
             omission={'source_unit':candidates[index][1],'reason':'atomic_display_bundle_budget'}
-            if e._size(result)+e._size(omission)>e.PAGE_BYTES-1024:break
+            if e._size(result)+e._size(omission)>byte_limit-1024:break
             result['omissions'].append(omission);index+=1;continue
         result=trial;index+=1
     result['pending']=len(candidates)-index
     result['next_cursor']=e._cursor(binding,index) if result['pending'] else None
     if index==offset and result['pending']:raise ValueError('Display cannot advance within page budget')
-    if e._size(result)>e.PAGE_BYTES:raise ValueError('Display envelope exceeds page budget')
+    if e._size(result)>byte_limit:raise ValueError('Display envelope exceeds page budget')
     return result
 
 
 def render(view,*,check=True,expand_questions=False):
-    lines=['Integrated explanation — retrospective',e._safe(view['question']),
+    lines=['Integrated explanation — '+view.get('mode','retrospective'),e._safe(view['question']),
            'Original S3: '+view['s3_status'],view['answer_boundary']]
     def qrefs(refs):return ' ['+', '.join(refs)+']' if refs else ''
     byid={x['statement_id']:x for x in view['items']}

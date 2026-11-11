@@ -111,7 +111,8 @@ class _Session:
             [digest(c) for c in self.factual['clauses']],
             [digest(x) for x in self.organization['entities']],
             [digest(x) for x in self.organization['links']],
-            digest(self.organization['coverage']),digest(self.organization['read_view']),self.organization['state_digest']])
+            digest(self.organization['coverage']),digest(self.organization['read_view']),self.organization['state_digest'],
+            digest(self.objective_entities) if hasattr(self,'objective_entities') else None])
 
     def _statement(self, section, identity):
         deps=[];qualifications=[];metadata={};objective_ids=[]
@@ -175,7 +176,7 @@ class _Session:
                 qualifications=['Model proposal is unverified; citations do not establish entailment or corroboration.']
                 if classification=='recommended_action':qualifications+=['Suggestion only; not executed or authorized by this preview.']
         if classification in ('recorded_observation','deterministic_interpretation','validated_relationship'):
-            for entity in self.entities.values():
+            for entity in getattr(self,'objective_entities',self.entities.values()):
                 assessment=entity.get('assessment') or entity.get('original_assessment') or {}
                 if any(identity in p.get(key,[]) for p in assessment.get('propositions',[]) for key in ('direct_clauses','direct_relationships')):
                     objective_ids.append(entity['id'])
@@ -262,7 +263,7 @@ def page(session, cursor=None):
 
 def render(view):
     """Render a page produced by page(); no independent prose generation."""
-    lines=['Integrated investigative explanation — retrospective',_safe(view['question']),
+    lines=['Integrated investigative explanation — '+view.get('mode','retrospective'),_safe(view['question']),
            'Original S3 assessment: '+str((view['original_assessment'] or {}).get('status','NOT_ASSESSABLE')),
            view['answer_boundary']]
     lines+=['Recorded scope: '+str(view['source_coverage']['examined_references'])+' examined / '+str(view['source_coverage']['authorized_references'])+' authorized references. No new lookups or model requests.']

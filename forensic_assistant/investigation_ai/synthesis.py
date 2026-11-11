@@ -293,14 +293,30 @@ def main():
     mode.add_argument('--synthesis-proposals', action='store_true', help='Validate saved B2 proposals; no AI or case access')
     mode.add_argument('--organization', action='store_true', help='Provider-free C1 organization; retrospective for historical B2 runs')
     mode.add_argument('--explanation', action='store_true', help='Read-only deterministic integrated explanation preview')
+    mode.add_argument('--live-explanation', action='store_true', help='Validate and inspect persisted D1b checkpoints; no provider or case access')
     parser.add_argument('--cursor', help='Continue an explanation page against the exact same validated source revision')
     parser.add_argument('--canonical', action='store_true', help='Inspect original expanded D1a statements instead of the compact display')
     parser.add_argument('--expand-questions', action='store_true', help='Display all distinct questions on each explanation page')
     args = parser.parse_args()
-    if args.cursor and not args.explanation:parser.error('--cursor requires --explanation')
-    if (args.canonical or args.expand_questions) and not args.explanation:parser.error('Explanation display options require --explanation')
+    if args.cursor and not (args.explanation or args.live_explanation):parser.error('--cursor requires an explanation mode')
+    if args.canonical and not (args.explanation or args.live_explanation):parser.error('--canonical requires an explanation mode')
+    if args.expand_questions and not args.explanation:parser.error('--expand-questions requires --explanation')
     try:
-        if args.explanation:
+        if args.live_explanation:
+            from . import explanation_live
+            result=explanation_live.reconstruct(args.root,args.identity)
+            if result['mode']=='retrospective':
+                print(encoded(result) if args.json else 'D1b disabled: no persisted checkpoints. Use --explanation for retrospective output.')
+            else:
+                session,result=explanation_live.session(args.root,args.identity)
+                view=explanation_live.page(session,result,args.cursor,canonical=args.canonical)
+                if args.json:print(encoded(view))
+                else:
+                    while True:
+                        print(explanation_live.render(view))
+                        if not view['next_cursor']:break
+                        view=explanation_live.page(session,result,view['next_cursor'],canonical=args.canonical)
+        elif args.explanation:
             from . import explanation
             session=explanation.open_history(args.root,args.identity)
             from . import explanation_display
@@ -340,6 +356,9 @@ def main():
             result = reconstruct(args.root, args.identity)
             print(encoded(result) if args.json else render(result))
     except (ValueError, OSError) as exc:
+        if args.live_explanation and args.json:
+            print(encoded({'mode':'unavailable','reason':'source_or_checkpoint_validation_failed','error_type':type(exc).__name__}))
+            parser.exit(1)
         from .organization import LegacyOrganizationProfile
         if isinstance(exc, LegacyOrganizationProfile):
             parser.exit(1, 'Organization profile v1 requires its original reader; v2 does not reinterpret existing checkpoint digests. No transcript was changed.\n')

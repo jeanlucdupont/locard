@@ -56,7 +56,8 @@ def prepare(handoff, assessment, client, *, decompose=False, synthesize=False):
     return grant,hints
 
 
-def start(handoff,assessment,client,confirm,*,status=None,decompose=False,synthesize=False):
+def start(handoff,assessment,client,confirm,*,status=None,decompose=False,synthesize=False,live_explanation=False):
+    if live_explanation and not synthesize:raise ValueError('Live explanation requires synthesis')
     grant,hints=prepare(handoff,assessment,client,decompose=decompose,synthesize=synthesize)
     from .supervision import run as supervised
     from forensic_assistant.ai.backend import ModelBackend
@@ -67,7 +68,8 @@ def start(handoff,assessment,client,confirm,*,status=None,decompose=False,synthe
     grant.update(id=uuid.uuid4().hex,issued=time.time());grant['expires']=grant['issued']+300
     from forensic_assistant.assessment_handoff import authorize
     return supervised({'case_path':grant['case'],'semantic_enabled':False,'_stage_a':grant,'_stage_a_hints':hints,
-        '_stage_a_handoff':authorize(handoff,lambda _:True),'_stage_a_started':started,'_stage_a_deadline':started+300},
+        '_stage_a_handoff':authorize(handoff,lambda _:True),'_stage_a_started':started,'_stage_a_deadline':started+300,
+        '_live_explanation':live_explanation},
         grant['objective'],grant['case']+'.investigations',client=client,budget=Budget(),status=status,prepared_backend=descriptor)
 
 
@@ -122,8 +124,10 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     grant=config['_stage_a'];policy.validate(grant,config['case_path'])
     from . import decomposition as decomposition_service
     from . import synthesis_consumer as consumer
-    from . import organization
+    from . import organization, explanation_live
     b2 = grant['contract'] == policy.B2_CONTRACT
+    if config.get('_live_explanation',False) and not b2:
+        raise ValueError('Live explanation requires the S4-B2 workflow')
     s4 = b2 or grant['contract'] == policy.S4_CONTRACT
     reserve = 20 if b2 else decomposition_service.RESERVE_SECONDS
     engine = consumer.ENGINE if b2 else decomposition_service.ENGINE if s4 else ENGINE
@@ -153,8 +157,9 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     identity=config.get('_investigation_id') or uuid.uuid4().hex
     status('transcript_init')
     transcript=Transcript(root,dict(engine=engine,authorization=grant,question=question,budgets=asdict(budget),
-        evidence_fingerprint=None,rule_ids=[],schema=5,**({'synthesis_guidance':'concise-v1','organization_profile':organization.PROFILE} if b2 else {})),investigation_id=identity)
-    organizer=None
+        evidence_fingerprint=None,rule_ids=[],schema=5,**({'synthesis_guidance':'concise-v1','organization_profile':organization.PROFILE,
+            **({'explanation_profile':explanation_live.PROFILE} if config.get('_live_explanation',False) else {})} if b2 else {})),investigation_id=identity)
+    organizer=None;explainer=None
     deltas=[];pending=set(grant['evidence_ids']);requests=0;view=None;worker=None;stop='AUTHORIZED_PLAN_EXHAUSTED';sizes=[];usage=[];phase='operation'
     def remaining():return min(45,max(.001,deadline-time.monotonic()))
     def guard():
@@ -177,6 +182,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         transcript.manifest['schema']=initial.get('schema',5)
         transcript.append('initial',initial)
         if b2:organizer=organization.Live(transcript)
+        if b2 and config.get('_live_explanation',False):explainer=explanation_live.Live(transcript,organizer,reducer)
         if config.get('_startup_complete'):config['_startup_complete']()
         if s4:
             guard()
@@ -261,8 +267,9 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             if reducer is not None:
                 reducer.consume(state,delta,exposure)
             if organizer:
-                organizer.update(lambda:organizer.sources.analysis(reducer,delta,exposure,organization._frontier(transcript)),
+                receipt=organizer.update(lambda:organizer.sources.analysis(reducer,delta,exposure,organization._frontier(transcript)),
                     deadline=model_deadline,remaining_analysis=6-requests,remaining_synthesis=2)
+                if explainer:explainer.update(receipt,deadline=model_deadline,remaining_analysis=6-requests,remaining_synthesis=2)
             if config.get('_stage_a_checkpoint'):
                 config['_stage_a_checkpoint'](dict(findings=merge_findings(deltas),state=state.summary(),
                     validated_batches=len(deltas),evidence_state=view,question=question,engine=engine))
@@ -283,8 +290,9 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                         synthesis=deepcopy(synthesis_result)))
             def organize_proposals(packet,accepted):
                 if organizer:
-                    organizer.update(lambda:organizer.sources.synthesis(packet,accepted),
+                    receipt=organizer.update(lambda:organizer.sources.synthesis(packet,accepted),
                         deadline=model_deadline,remaining_synthesis=2-synthesis_result['attempts'])
+                    if explainer:explainer.update(receipt,deadline=model_deadline,remaining_synthesis=2-synthesis_result['attempts'])
             consumer.execute(ctx,client,transcript,guard,model_deadline,status,charge_synthesis,
                              result=synthesis_result,checkpoint=synthesis_checkpoint,on_decision=organize_proposals)
         elif b2:
@@ -342,9 +350,11 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 synthesis_usage=synthesis_result['usage'],usage_unknown=result['metrics']['usage_unknown']+synthesis_result['usage_unknown'])
     result['narrative']=build(findings,result['state'])
     if organizer:
-        organizer.update(lambda:organizer.sources.final(result['question_decomposition'],result['state'],synthesis_result),
+        receipt=organizer.update(lambda:organizer.sources.final(result['question_decomposition'],result['state'],synthesis_result),
                          final=True,deadline=deadline)
+        if explainer:explainer.update(receipt,deadline=deadline)
         result['organization']=organizer.summary()
+        if explainer:result['explanation']=explainer.summary()
     cleanup_failure=None
     if stop=='CLEANUP_LIMITATION':
         from .lifecycle import CleanupError

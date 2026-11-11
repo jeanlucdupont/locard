@@ -49,6 +49,8 @@ def run(args):
             else:
                 print('  Limits: 6 AI requests, 6 lookups, 8 steps, 5 minutes; 5600 prompt bytes and 1024 output tokens per request.',file=stream)
             print('  View established after approval; expires after 5 minutes. No restart continuation or automatic scope expansion.',file=stream)
+            if getattr(args,'live_explanation',False):
+                print('  Local explanation persistence enabled; no additional model requests or evidence lookups.',file=stream)
             if args.details:
                 import json
                 print(json.dumps(grant,ensure_ascii=True,indent=2),file=stream)
@@ -56,6 +58,7 @@ def run(args):
         with ActivityIndicator('Preparing investigation...',args=args) as indicator:
             extra = {'decompose':True} if getattr(args,'decompose',False) else {}
             if getattr(args,'synthesize',False):extra['synthesize']=True
+            if getattr(args,'live_explanation',False):extra['live_explanation']=True
             result=start(handoff,selected,backend(),authorize_envelope,status=indicator.phase,**extra)
         return {'kind':'assessment_investigation',**({'result':result} if result is not None else {'message':'Investigation cancelled; no evidence retrieved or model called.'})}
     def confirm(plan):

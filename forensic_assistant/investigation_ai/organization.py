@@ -313,12 +313,28 @@ def _frontier(transcript):
     return dict(sequence=transcript.count-1,hash=transcript.chain)
 
 
+def commit_receipt(before, after, checkpoint, event):
+    """Reference-only receipt, constructed at the confirmed checkpoint boundary."""
+    changed={kind:sorted(k for k,v in after[kind].items() if before[kind].get(k)!=v)
+             for kind in ('entities','links')}
+    return dict(contract='organization-commit-v1',profile=PROFILE,rules=RULES,
+        run_id=after['run_id'],read_view=after['read_view'],revision=checkpoint['revision'],
+        previous_digest=checkpoint['previous_digest'],digest=checkpoint['result_digest'],
+        source_frontier=checkpoint['frontier'],event=event,changed=changed,final=checkpoint['final'])
+
+
+def _receipt_state(reducer):
+    return dict(run_id=reducer.sources.manifest['investigation_id'],read_view=reducer.sources.view,
+                entities=reducer.entities,links=reducer.links)
+
+
 class Live:
     """Lower-priority local observer. Call only after authoritative event persistence."""
     def __init__(self, transcript):
         self.transcript=transcript;self.sources=_Sources(transcript.manifest)
         self.reducer=_Reducer(self.sources);self.disabled=False
         self.finalization=dict(contract=FINALIZATION,status='unavailable',anchor=False,checkpoint=False)
+        self.last_receipt=None
 
     def update(self, source_update, *, final=False, deadline=float('inf'), remaining_analysis=0, remaining_synthesis=0):
         if final:self.finalization['status']='unavailable' if self.disabled else 'skipped_resource'
@@ -357,8 +373,11 @@ class Live:
                 self.reducer.stops.append('journal_reservation');return
             self.transcript.append('organization_checkpoint',cp)
             target.journal_bytes=self.reducer.journal_bytes+size
+            before=_receipt_state(self.reducer)
             self.reducer.commit(prepared)
             if final:self.finalization.update(checkpoint=True,status='checkpoint_committed')
+            self.last_receipt=commit_receipt(before,_receipt_state(self.reducer),cp,_frontier(self.transcript))
+            return deepcopy(self.last_receipt)
         except KeyboardInterrupt:
             if final:self.finalization['status']='interrupted'
             self.reducer.stops.append('cancelled');raise
@@ -377,10 +396,14 @@ class Live:
                     finalization=deepcopy(self.finalization))
 
 
-def reconstruct(root, identity):
+def reconstruct(root, identity, *, _explanation=False):
     """Validate original B2 history first; no grant renewal, provider or database access."""
     from . import synthesis_consumer as b2, autonomous
     manifest,events=load(root,identity)
+    explanation_observer=None
+    if manifest.get('explanation_profile') is not None:
+        from .explanation_live import Replay
+        explanation_observer=Replay(manifest)
     profile=manifest.get('organization_profile')
     if profile=='local-organization-v1':
         raise LegacyOrganizationProfile('Legacy C1 v1 checkpoints require their original rules; v2 will not reinterpret their digests')
@@ -420,10 +443,18 @@ def reconstruct(root, identity):
                 raise ValueError('Invalid organization frontier')
             prepared,_=org.prepare(last_source,final=data['final'],replay=data)
             if prepared is None:raise ValueError('Unreplayable checkpoint')
+            before=_receipt_state(org)
             org.commit(prepared);org.journal_bytes+=size;pending=False
+            if explanation_observer is not None:
+                receipt=commit_receipt(before,_receipt_state(org),data,dict(sequence=event['sequence'],hash=event['hash']))
+                explanation_observer.source(receipt,org,facts)
             if data['final']:final_checkpoint=True
             if data['stop_reason']:stops.append(data['stop_reason'])
+        elif kind=='explanation_checkpoint':
+            if explanation_observer is None:raise ValueError('Unprofiled explanation checkpoint')
+            explanation_observer.consume(event)
         elif kind=='terminal':
+            if explanation_observer is not None:explanation_observer.terminal(data)
             terminal=data
             if not profile:
                 sources.final(data['question_decomposition'],data['state'],data['synthesis']);pending=True
@@ -472,6 +503,8 @@ def reconstruct(root, identity):
                   limitations=['Organization is not evidence, authorization, forensic completeness or a final report.',
                                'Recorded read view only; current case equality and parent cleanup are not established.'])
     if _bytes(result)>LIMITS['view_bytes']:raise ValueError('Organization view byte limit')
+    if explanation_observer is not None and _explanation:
+        result['explanation']=explanation_observer.finish(result)
     return result
 
 
