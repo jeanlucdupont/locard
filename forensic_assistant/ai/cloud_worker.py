@@ -38,6 +38,18 @@ def request_kwargs(request):
 
 def generate(request, sdk):
     kwargs = request_kwargs(request)
+    if 'd2_body_sha256' in request:
+        from .d2_transport import guarded_client
+        if request.get('raw_diagnostics') or request.get('handshake'):
+            raise ValueError('D2_UNSUPPORTED_MODE')
+        from forensic_assistant.investigation_ai.d2_wire import SCHEMA
+        if request['schema'] != SCHEMA or request['provider'] != 'openai':
+            raise ValueError('D2_SCHEMA_MISMATCH')
+        kwargs.pop('max_tokens', None)
+        kwargs['max_completion_tokens'] = 1024
+        # Never initialize a provider readiness probe or fallback for D2.
+        with guarded_client({**request, '_key':kwargs['api_key']}) as client:
+            return complete({**kwargs, 'client':client}, sdk)
     raw = None
     if request.get('raw_diagnostics') is True:
         from .raw_diagnostics import entry

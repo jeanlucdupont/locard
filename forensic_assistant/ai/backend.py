@@ -242,7 +242,14 @@ class ModelBackend:
                 record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
             raise ProviderFailure('provider_failure') from None
 
-    def _cloud_request(self, messages, schema, *, timeout=None, handshake=False):
+    def complete_d2(self, messages, body_sha256):
+        """Called only inside D2's fresh-grant supervisor; no readiness requests."""
+        from forensic_assistant.investigation_ai.d2_wire import SCHEMA
+        if self.provider_name != 'openai' or self.endpoint or self.managed:
+            raise ValueError('D2_PROVIDER_SCOPE')
+        return self._cloud_request(messages, SCHEMA, timeout=self.timeout, d2_body_sha256=body_sha256)
+
+    def _cloud_request(self, messages, schema, *, timeout=None, handshake=False, d2_body_sha256=None):
         from .provider_diagnostics import ProviderFailure, STAGES
         timeout = self.timeout if timeout is None else timeout
         from importlib.util import find_spec
@@ -256,6 +263,8 @@ class ModelBackend:
         from .output_budget import FINAL_ONLY
         request = dict(final_only=FINAL_ONLY.get(), provider=self.provider_name, model=self.model_name, messages=messages,
                        schema=schema, timeout=timeout, handshake=handshake, raw_diagnostics=raw_diagnostics.enabled)
+        if d2_body_sha256 is not None:
+            request.update(d2_body_sha256=d2_body_sha256, raw_diagnostics=False, final_only=False)
         process = subprocess.Popen([sys.executable, '-B', '-m', 'forensic_assistant.ai.cloud_worker'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
             cwd=str(Path(__file__).resolve().parents[2]),

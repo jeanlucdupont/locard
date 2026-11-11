@@ -33,6 +33,11 @@ def synthesis(schema):
     return type(schema) is dict and schema == SCHEMA
 
 
+def d2(schema):
+    from forensic_assistant.investigation_ai.d2_wire import SCHEMA
+    return type(schema) is dict and schema == SCHEMA
+
+
 def _wire(node, *, byte_guidance=False):
     result=copy.deepcopy(node)
     # Uniqueness is still mandatory in canonical validation after decoding.
@@ -56,7 +61,7 @@ def _wire(node, *, byte_guidance=False):
 
 
 def request_schema(provider, canonical):
-    if provider == 'openai' and (briefing(canonical) or decomposition(canonical) or synthesis(canonical)):
+    if provider == 'openai' and (briefing(canonical) or decomposition(canonical) or synthesis(canonical) or d2(canonical)):
         return _wire(canonical)
     if provider!='openai' or not investigation(canonical):
         return canonical
