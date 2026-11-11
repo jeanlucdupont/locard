@@ -31,6 +31,7 @@ def render(result, prepared):
             '  Original S3: '+prepared.history._original['status'],
             '  Only this packet; omitted evidence is not established irrelevant.',
             '  Attempts: '+('unknown (at most 1)' if result['attempts'] is None else str(result['attempts'])+' / 1')+'; no lookups or automatic continuation.',
+            '  Provider response: '+('received' if result.get('provider_response_received') is True else 'not observed' if result.get('provider_response_received') is False else 'unknown')+'.',
             '  Provider-reported usage: '+json.dumps(result.get('usage',{}))+' (missing values are unknown).',
             '  Cleanup: '+result['cleanup']+'; elapsed: '+str(result['elapsed_seconds'])+' seconds.']
     return '\n'.join(lines)

@@ -286,59 +286,76 @@ class _History:
         expected = next((p for p in preview['packets'] if p['request_id']==packet.get('request_id')),None)
         if expected is None or digest(expected)!=digest(packet):
             raise ValueError('D2_PACKET_SOURCE_BINDING')
-        value = c.parse(raw)
-        if value['request_id']!=expected['request_id'] or value['packet_digest']!=expected['packet_digest']:
-            raise ValueError('D2_RESPONSE_REQUEST_BINDING')
-        body = expected['content']
-        refs = {s['alias']:s for s in body['supports']}
-        interpretations = {s['alias']:s for s in body['interpretations']}
-        edges = {s['alias']:s for s in body['relationships']}
-        registered = {r['id']:r for r in s2._build(self._ctx.factual)['relationships']}
-        if not set(value['assessment']['support_refs'])<=refs.keys():raise ValueError('D2_UNKNOWN_SUPPORT')
-        accepted = []
-        for item in value['items']:
-            if (not set(item['support_refs']+item['contradictory_refs'])<=refs.keys()
-                or not set(item['interpretation_refs'])<=interpretations.keys()
-                or not set(item['relationship_refs'])<=edges.keys()
-                or not set(item['next_issue_refs'])<= {i['id'] for i in preview['issues']}):
-                raise ValueError('D2_UNKNOWN_SUPPORT')
-            cited = [refs[a] for a in item['support_refs']+item['contradictory_refs']]
-            clause_ids = {body['clauses'][leaf['clause_ref']] for leaf in cited}
-            for edge in body['relationships']:
-                if edge['predicate']=='incompatible_recorded_field' and set(edge['endpoints']) & clause_ids:
-                    if not set(edge['endpoints']) <= clause_ids:
-                        raise ValueError('D2_OMITTED_CONTRADICTORY_SUPPORT')
-            for alias in item['interpretation_refs']:
-                interp=interpretations[alias]
-                if not set(interp['premise_pointers']) <= {s['field']['pointer'] for s in cited if s['record_ref']==interp['record_ref']}:
-                    raise ValueError('D2_INCOMPLETE_INTERPRETATION')
-            validated_edges=[]
-            for alias in item['relationship_refs']:
-                edge=edges[alias];original=registered.get(edge['id'])
-                if original is None or not set(edge['endpoints'])<=clause_ids:
-                    raise ValueError('D2_INCOMPLETE_RELATIONSHIP')
-                if any(digest(edge[k])!=digest(original[k]) for k in ('contract','rule','predicate','endpoints','semantics','assumptions')):
-                    raise ValueError('D2_INVALID_RELATIONSHIP')
-                validated_edges.append(original)
-            if item['relationship'] and not any(
-                r['predicate']==item['relationship'][0]['predicate'] and r['endpoints']==item['relationship'][0]['endpoints'] for r in validated_edges):
-                raise ValueError('D2_UNSUPPORTED_RELATIONSHIP')
-            accepted.append(dict(id=digest([c.RESPONSE,expected['request_id'],item]),
-                request_id=expected['request_id'],packet_digest=expected['packet_digest'],
-                classification='mechanically_accepted_unverified',item=deepcopy(item),
-                dependencies=[dict(evidence_id=body['records'][s['record_ref']],
-                    clause_id=body['clauses'][s['clause_ref']],field=deepcopy(s['field']),
-                    source=deepcopy(body['sources'][s['source_ref']]),
-                    lineage=deepcopy(body['lineages'][s['lineage_ref']]),
-                    **({'timestamp':deepcopy(s['timestamp'])} if 'timestamp' in s else {})) for s in cited],
-                interpretation_support=deepcopy([interpretations[a] for a in item['interpretation_refs']]),
-                validated_relationship_ids=[r['id'] for r in validated_edges],
-                mandatory_qualifications=deepcopy(body['qualifications'])))
+        context = self.response_context(preview)
+        result = validate_response(expected, raw, context)
         self._check()
-        return dict(contract='d2-offline-validation-v1',status='accepted_offline',proposals=accepted,
-            source=deepcopy(self._anchor),request_id=expected['request_id'],packet_digest=expected['packet_digest'],
-            assessment=deepcopy(value['assessment']),assessment_classification='unverified_packet_limited',
-            original_s3_assessment=deepcopy(self._original),actually_disclosed=False,dispatch_authorized=False)
+        return result
+
+    def response_context(self, preview):
+        # Internal authenticated input, never supplied by a worker or JSON import.
+        return dict(source=deepcopy(self._anchor), original=deepcopy(self._original),
+                    issues=[i['id'] for i in preview['issues']],
+                    registered={r['id']: r for r in s2._build(self._ctx.factual)['relationships']})
+
+
+def validate_response(expected, raw, context, checkpoint=lambda: None):
+    """Existing strict validator over parent-owned frozen inputs; no IO or replay."""
+    checkpoint()
+    value = c.parse(raw)
+    if value['request_id']!=expected['request_id'] or value['packet_digest']!=expected['packet_digest']:
+        raise ValueError('D2_RESPONSE_REQUEST_BINDING')
+    body = expected['content']
+    refs = {s['alias']:s for s in body['supports']}
+    interpretations = {s['alias']:s for s in body['interpretations']}
+    edges = {s['alias']:s for s in body['relationships']}
+    registered = context['registered']
+    if not set(value['assessment']['support_refs'])<=refs.keys():raise ValueError('D2_UNKNOWN_SUPPORT')
+    accepted = []
+    for item in value['items']:
+        checkpoint()
+        if (not set(item['support_refs']+item['contradictory_refs'])<=refs.keys()
+            or not set(item['interpretation_refs'])<=interpretations.keys()
+            or not set(item['relationship_refs'])<=edges.keys()
+            or not set(item['next_issue_refs'])<= set(context['issues'])):
+            raise ValueError('D2_UNKNOWN_SUPPORT')
+        cited = [refs[a] for a in item['support_refs']+item['contradictory_refs']]
+        clause_ids = {body['clauses'][leaf['clause_ref']] for leaf in cited}
+        for edge in body['relationships']:
+            if edge['predicate']=='incompatible_recorded_field' and set(edge['endpoints']) & clause_ids:
+                if not set(edge['endpoints']) <= clause_ids:
+                    raise ValueError('D2_OMITTED_CONTRADICTORY_SUPPORT')
+        for alias in item['interpretation_refs']:
+            interp=interpretations[alias]
+            if not set(interp['premise_pointers']) <= {s['field']['pointer'] for s in cited if s['record_ref']==interp['record_ref']}:
+                raise ValueError('D2_INCOMPLETE_INTERPRETATION')
+        validated_edges=[]
+        for alias in item['relationship_refs']:
+            edge=edges[alias];original=registered.get(edge['id'])
+            if original is None or not set(edge['endpoints'])<=clause_ids:
+                raise ValueError('D2_INCOMPLETE_RELATIONSHIP')
+            if any(digest(edge[k])!=digest(original[k]) for k in ('contract','rule','predicate','endpoints','semantics','assumptions')):
+                raise ValueError('D2_INVALID_RELATIONSHIP')
+            validated_edges.append(original)
+        if item['relationship'] and not any(
+            r['predicate']==item['relationship'][0]['predicate'] and r['endpoints']==item['relationship'][0]['endpoints'] for r in validated_edges):
+            raise ValueError('D2_UNSUPPORTED_RELATIONSHIP')
+        accepted.append(dict(id=digest([c.RESPONSE,expected['request_id'],item]),
+            request_id=expected['request_id'],packet_digest=expected['packet_digest'],
+            classification='mechanically_accepted_unverified',item=deepcopy(item),
+            dependencies=[dict(evidence_id=body['records'][s['record_ref']],
+                clause_id=body['clauses'][s['clause_ref']],field=deepcopy(s['field']),
+                source=deepcopy(body['sources'][s['source_ref']]),
+                lineage=deepcopy(body['lineages'][s['lineage_ref']]),
+                **({'timestamp':deepcopy(s['timestamp'])} if 'timestamp' in s else {})) for s in cited],
+            interpretation_support=deepcopy([interpretations[a] for a in item['interpretation_refs']]),
+            validated_relationship_ids=[r['id'] for r in validated_edges],
+            mandatory_qualifications=deepcopy(body['qualifications'])))
+    checkpoint()
+    return dict(contract='d2-offline-validation-v1',status='accepted_offline',proposals=accepted,
+        source=deepcopy(context['source']),request_id=expected['request_id'],packet_digest=expected['packet_digest'],
+        assessment=deepcopy(value['assessment']),assessment_classification='unverified_packet_limited',
+        original_s3_assessment=deepcopy(context['original']),actually_disclosed=False,dispatch_authorized=False)
+
 
 
 def render(result):

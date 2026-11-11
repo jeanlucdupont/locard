@@ -158,7 +158,7 @@ def test_child_single_mock_dispatch(monkeypatch):
     monkeypatch.setattr('forensic_assistant.ai.backend.ModelBackend',Backend)
     pipe=Pipe();gate=threading.Event();gate.set()
     ex._child(pipe,gate,dict(deadline=time.monotonic()+20,root='unused',run_id='b'*32,issue='c'*64,
-        config=config(),exploratory=True,seal=p.identity()))
+        config=config(),exploratory=True,seal=p.identity(),binding=ex.ipc.binding(p)))
     assert len(calls)==1 and pipe.values[-1]['status']=='accepted'
 
 
@@ -208,7 +208,7 @@ def test_child_failure_no_retry_or_sensitive_output(monkeypatch,failure):
     monkeypatch.setattr('forensic_assistant.ai.backend.ModelBackend',Backend)
     pipe=Pipe();gate=threading.Event();gate.set()
     ex._child(pipe,gate,dict(deadline=time.monotonic()+20,root='unused',run_id='b'*32,issue='c'*64,
-        config=config(),exploratory=True,seal='changed' if failure=='source_changed' else p.identity()))
+        config=config(),exploratory=True,seal='changed' if failure=='source_changed' else p.identity(),binding=ex.ipc.binding(p)))
     assert len(calls)==(0 if failure in ('provider_changed','source_changed') else 1)
     assert pipe.values[-1]['status']=='rejected' and 'validated' not in pipe.values[-1]
     assert 'SENSITIVE_VALUE' not in json.dumps(pipe.values)

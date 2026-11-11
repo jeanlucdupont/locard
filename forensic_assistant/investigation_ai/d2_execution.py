@@ -8,7 +8,7 @@ import queue
 import threading
 import time
 
-from . import d2, d2_wire as wire, d2_contracts
+from . import d2, d2_wire as wire, d2_contracts, d2_result as ipc
 from .transcript import digest
 from .supervision import Launch, _stop
 from .lifecycle import WorkerJob, CleanupError
@@ -27,12 +27,13 @@ class Prepared:
         self.messages = wire.messages(self.packet)
         wire.expand_view(json.loads(self.messages[1]['content']), self.packet)
         self.body = wire.body(self.messages, config['model'])
+        self._response_context = history.response_context(history.preview(**options))
         self._seal = self.identity()
         self.check()
 
     def identity(self):
         return digest(dict(packet=self.packet, messages=self.messages, body=self.body.hex(),
-                           config=self.config, options=self.options, limits=LIMITS))
+                           config=self.config, options=self.options, limits=LIMITS, context=self._response_context))
 
     def check(self):
         if self.identity() != self._seal:
@@ -95,39 +96,58 @@ def authorize(prepared, confirmation):
 
 
 def _child(connection, gate, request):
-    deadline = request['deadline']
-    if not gate.wait(max(0, deadline-time.monotonic())) or time.monotonic()>=deadline:
-        return
-    if os.name != 'nt':
-        os.setsid()
-    attempted = False
+    attempted = received = False
+    stage = 'initialization'
+    bound = request['binding']
     try:
+        deadline = request['deadline']
+        if not gate.wait(max(0, deadline-time.monotonic())) or time.monotonic()>=deadline:
+            raise TimeoutError()
+        if os.name != 'nt':
+            os.setsid()
         from forensic_assistant.ai.settings import load
         current = load()
         if (current['provider'],current['model']) != ('openai',request['config']['model']):
             raise ValueError('D2_PROVIDER_CHANGED')
         prepared = prepare(request['root'], request['run_id'], request['issue'], request['config'],
                            exploratory=request['exploratory'])
-        if prepared.identity()!=request['seal']:
+        if prepared.identity()!=request['seal'] or ipc.binding(prepared)!=bound:
             raise ValueError('D2_SOURCE_CHANGED')
         from forensic_assistant.ai.backend import ModelBackend
         remaining = deadline-time.monotonic()
-        if remaining<=0:
-            raise TimeoutError()
+        if remaining<=0:raise TimeoutError()
         client = ModelBackend(config=request['config'], timeout=min(55,remaining))
         if (client.provider_name,client.model_name)!=('openai',prepared.config['model']):
             raise ValueError('D2_PROVIDER_CHANGED')
+        stage = 'provider_dispatch'
+        received = None  # Backend entry alone cannot establish receipt or non-receipt.
         attempted = True
-        connection.send_bytes(b'{"phase":"attempt"}')
+        try:connection.send_bytes(b'{"phase":"attempt"}')
+        except (OSError,ValueError):
+            connection.close()
+            raise SystemExit(74)
         response = client.complete_d2(prepared.messages, hashlib.sha256(prepared.body).hexdigest())
-        if time.monotonic()>=deadline:
-            raise TimeoutError()
-        validated = prepared.history.validate(prepared.packet, wire.expand_response(response['text'],prepared.packet), **prepared.options)
-        connection.send_bytes(json.dumps(dict(status='accepted', validated=validated,usage=response.get('usage',{}),attempted=True)).encode())
+        received = True
+        stage = 'response_validation'
+        if time.monotonic()>=deadline:raise TimeoutError()
+        prepared.history.validate(prepared.packet, wire.expand_response(response['text'],prepared.packet), **prepared.options)
+        if time.monotonic()>=deadline:raise TimeoutError()
+        value = ipc.envelope(bound,response=response['text'],usage=response.get('usage',{}),attempted=True,received=True)
     except BaseException as exc:
+        if isinstance(exc,SystemExit) and exc.code==74:raise
         from forensic_assistant.ai.provider_diagnostics import ProviderFailure
-        reason = exc.category if isinstance(exc,ProviderFailure) else 'timeout' if isinstance(exc,TimeoutError) else 'validation_or_worker_failure'
-        connection.send_bytes(json.dumps(dict(status='rejected',reason=reason,attempted=attempted)).encode())
+        category = ('worker_initialization_failure' if stage=='initialization' else
+                    'response_schema_validation' if stage=='response_validation' else 'provider_dispatch_failure')
+        if isinstance(exc,TimeoutError):category='timeout'
+        if isinstance(exc,ProviderFailure):
+            if exc.category=='timeout':category='provider_timeout'
+            elif exc.category=='provider_refusal':category='provider_refusal';received=True
+            elif exc.category in ('output_truncated','response_envelope_failed','response_parse_failed','structured_validation_failed'):
+                category='provider_response_invalid'
+                received=exc.metadata.get('response_envelope',{}).get('envelope_received') is True or None
+        value = ipc.envelope(bound,category=category,stage=stage,attempted=attempted,received=received)
+    try:
+        if not ipc.send(connection,value):raise SystemExit(74)
     finally:
         connection.close()
 
@@ -151,7 +171,7 @@ def execute(permit, *, cancelled=None):
                     attempts=0,attempt_allocation_consumed=True,network_outcome='not_dispatched',
                     elapsed_seconds=round(time.monotonic()-permit.approved,3),cleanup='confirmed',lookups=0)
     request=dict(root=str(p.history._root),run_id=p.history._anchor['run_id'],issue=p.packet['content']['issue']['id'],
-                 config=p.config, exploratory=p.options['exploratory'],seal=permit.seal,deadline=deadline)
+                 config=p.config, exploratory=p.options['exploratory'],seal=permit.seal,deadline=deadline,binding=ipc.binding(p))
     context=multiprocessing.get_context('spawn')
     parent,child=context.Pipe(duplex=False);gate=context.Event()
     process=context.Process(target=_child,args=(child,gate,request),daemon=False)
@@ -159,8 +179,12 @@ def execute(permit, *, cancelled=None):
     result=dict(status='interrupted',reason='worker_failure')
     def receive():
         try:
-            while True:inbox.put(json.loads(parent.recv_bytes(131072)))
-        except (EOFError,OSError,ValueError):inbox.put(None)
+            while True:inbox.put(('message',parent.recv_bytes(ipc.RECEIVE_LIMIT)))
+        except EOFError:inbox.put(('error','ipc_channel_closed'))
+        except (OSError,ValueError):inbox.put(('error','ipc_receive_failure'))
+    def checkpoint():
+        if cancelled is not None and cancelled.is_set():raise KeyboardInterrupt()
+        if time.monotonic()>=deadline:raise TimeoutError()
     try:
         launch.thread.start();launch.wait(deadline)
         child.close()
@@ -173,9 +197,34 @@ def execute(permit, *, cancelled=None):
                 result=dict(status='interrupted',reason='cancelled');break
             try:message=inbox.get(timeout=min(.05,max(.001,deadline-time.monotonic())))
             except queue.Empty:continue
-            if message is None:break
-            if message.get('phase')=='attempt':attempted=True;continue
-            result=message;break
+            kind, payload = message
+            if kind=='error':
+                result=dict(status='interrupted',reason=payload)
+                if payload=='ipc_channel_closed':
+                    process.join(timeout=min(.05,max(0,deadline-time.monotonic())))
+                    if process.exitcode==74:result['reason']='ipc_send_failure'
+                    elif process.exitcode not in (None,0):result['reason']='worker_terminated_unexpectedly'
+                break
+            if payload==b'{"phase":"attempt"}':
+                if attempted:
+                    result=dict(status='rejected',reason='ipc_invalid_message');break
+                attempted=True;continue
+            terminal=None
+            try:
+                checkpoint()
+                terminal=ipc.parse(payload,request['binding'])
+                result=dict(status=terminal['status'],reason=terminal['category'],stage=terminal['stage'],
+                            attempted=terminal['attempted'],provider_response_received=terminal['provider_response_received'],
+                            usage=terminal['usage'],ipc_result_bytes=len(payload))
+                if terminal['status']=='accepted':
+                    # Only frozen, authenticated parent state supplies evidence authority.
+                    raw=wire.expand_response(terminal['response'],p.packet)
+                    result['validated']=d2.validate_response(p.packet,raw,p._response_context,checkpoint)
+                    checkpoint()
+            except (ValueError,TypeError,KeyError,UnicodeError,RecursionError):
+                result=dict(status='rejected',reason='response_schema_validation' if terminal else 'ipc_invalid_message',
+                            **(dict(attempted=terminal['attempted'],provider_response_received=terminal['provider_response_received']) if terminal else {}))
+            break
         else:result=dict(status='interrupted',reason='timeout')
     except KeyboardInterrupt:
         result=dict(status='interrupted',reason='cancelled')
