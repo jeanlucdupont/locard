@@ -135,3 +135,21 @@ def test_display_waits_for_delay(terminal):
         assert not terminal.getvalue()
         wait_for(lambda: bool(terminal.getvalue()))
         assert time.monotonic() - started >= .09
+
+
+@pytest.mark.parametrize('interactive', [True, False])
+def test_generic_model_and_provider_initialization_phases(terminal, interactive):
+    stream = terminal if interactive else io.StringIO()
+    with ui.ActivityIndicator(stream=stream, delay=0) as indicator:
+        indicator.phase('provider_init')
+        assert indicator.text == 'Initializing approved AI provider...'
+        if interactive:
+            wait_for(lambda: 'Initializing approved AI provider...' in stream.getvalue())
+        indicator.phase('model')
+        assert indicator.text == 'Waiting for AI...'
+        if interactive:
+            wait_for(lambda: 'Waiting for AI...' in stream.getvalue())
+        else:
+            assert not stream.getvalue() and indicator._thread is None
+        assert 'Waiting for local AI...' not in stream.getvalue()
+    assert indicator._thread is None

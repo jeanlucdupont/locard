@@ -431,8 +431,14 @@ def reconstruct(root, identity, *, _explanation=False):
             final_seen=True
             if data!={'profile':PROFILE}:raise ValueError('Invalid organization final anchor')
             decision=decomposition.validate_journal(manifest,events)
-            expected=decomposition.assess(manifest['question'],identity,sources.related,decision)
-            sources.final(expected,state.summary(),validated_b2);pending=True
+            related=sources.related if sources.related is not None else s2._build(facts.finish())
+            expected=decomposition.assess(manifest['question'],identity,related,decision)
+            final_synthesis=validated_b2
+            if facts.batches==0 and not any(e['kind']=='terminal' for e in events):
+                # Live execution never plans B2 without accepted analysis. B2's
+                # retrospective preview is not evidence that planning took place.
+                final_synthesis={**validated_b2,'omissions':[]}
+            sources.final(expected,state.summary(),final_synthesis);pending=True
             org.journal_bytes+=_bytes(event)+1
         elif kind=='rejected':state.rejected+=1
         elif kind=='organization_checkpoint':

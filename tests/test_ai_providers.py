@@ -7,6 +7,7 @@ from forensic_assistant.ai import settings, cli, cloud_worker, runtime
 from forensic_assistant.ai.backend import ModelBackend, redact
 from forensic_assistant.cli import build_parser
 from test_investigation_hardening import local_model
+from test_terminal_activity import terminal, wait_for
 
 
 @pytest.fixture(autouse=True)
@@ -82,7 +83,8 @@ def test_provider_adapter_contract(provider, monkeypatch):
         assert result.pop('max_output_tokens') == 1024
         assert result.pop('gemini_usage') == {'prompt_tokens':11,'completion_tokens':4,'total_tokens':15}
         assert result.pop('gemini_response') == {'container_type':'provider_object','phase':'extraction','json_parse':'not_attempted','wire_validation':'not_attempted','content_type':'string','finish_reason':'stop'}
-    assert result == {'text':'{"answer":"bounded"}', 'usage':{'prompt_tokens':11,'completion_tokens':4,'total_tokens':15}}
+    assert result == {'text':'{"answer":"bounded"}', 'usage':{'prompt_tokens':11,'completion_tokens':4,'total_tokens':15},
+                      **({'finish_reason':'stop'} if provider == 'openai' else {})}
     assert secret not in redact(secret)
 
 
@@ -100,8 +102,13 @@ def test_native_tool_response_rejected(monkeypatch):
     sdk = SimpleNamespace(completion=lambda **kw: SimpleNamespace(choices=[SimpleNamespace(
         finish_reason='tool_calls', message=SimpleNamespace(content='', tool_calls=[{'name':'execute'}]))]))
     from forensic_assistant.ai.provider_diagnostics import ProviderFailure
-    with pytest.raises(ProviderFailure, match='structured contract'):
+    with pytest.raises(ProviderFailure) as caught:
         cloud_worker.generate(dict(provider='openai',model='synthetic',messages=[],schema={},timeout=1),sdk)
+    assert caught.value.category == 'response_envelope_failed'
+    assert caught.value.stage == 'response_envelope'
+    assert caught.value.metadata['response_envelope']['rule'] == 'unexpected_finish_reason'
+    assert caught.value.metadata['response_envelope']['tool_calls_present'] is True
+    assert caught.value.metadata['response_envelope']['json_parse'] == 'not_attempted'
 
 
 def test_owned_argv_and_no_shell(tmp_path):
@@ -117,6 +124,56 @@ def test_external_override_does_not_start_runtime(monkeypatch):
     monkeypatch.setattr(runtime,'ensure',lambda *a,**kw:pytest.fail('managed startup'))
     assert backend.prepare().endpoint=='http://127.0.0.1:12345'
     assert backend.managed is None
+
+
+@pytest.mark.parametrize('provider', ['openai', 'local'])
+def test_generic_investigation_phase_preserves_restored_provider(monkeypatch, terminal, provider):
+    from forensic_assistant.ai import backend as implementation, readiness
+    from forensic_assistant import terminal_activity as ui
+    from forensic_assistant.investigation_ai import contracts
+    config = {**settings.defaults(), 'provider':provider, 'model':'synthetic-model',
+              'cloud_acknowledged':True}
+    monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-secret')
+    monkeypatch.setattr(readiness, 'export', lambda _: {'synthetic':True})
+    monkeypatch.setattr(readiness, 'accept', lambda *a: True)
+    def forbidden(*a, **kw):
+        pytest.fail('Unexpected runtime initialization or external process')
+    monkeypatch.setattr(runtime, 'acquire', forbidden)
+    monkeypatch.setattr(runtime, 'ensure', forbidden)
+    monkeypatch.setattr(runtime, 'request', forbidden)
+    monkeypatch.setattr(implementation.subprocess, 'Popen', forbidden)
+    calls = []
+    class LocalMock:
+        def __init__(self, endpoint, timeout):
+            assert provider == 'local', 'OpenAI must not construct a local client'
+            assert endpoint == 'http://127.0.0.1:12345'
+            self.last_metadata = {'usage':{}}
+        def complete(self, messages, schema):
+            calls.append(('local', messages, schema))
+            return '{}'
+    def cloud(self, messages, schema, **kw):
+        assert provider == 'openai'
+        calls.append((self.provider_name, messages, schema))
+        return {'text':'{}', 'usage':{}}
+    monkeypatch.setattr(implementation, 'LocalClient', LocalMock)
+    monkeypatch.setattr(ModelBackend, '_cloud', cloud)
+    parent = ModelBackend('http://127.0.0.1:12345' if provider == 'local' else None, config=config)
+    client = ModelBackend.restore(parent.descriptor())
+    messages = [{'role':'user', 'content':'Synthetic investigation input'}]
+    schema = contracts.schema([])
+    # Autonomous briefing relays the generic phase to this callback. There is
+    # deliberately no provider detection in the indicator.
+    with implementation.status_callback(None), ui.ActivityIndicator(delay=0) as indicator:
+        callback = indicator.phase
+        callback('model')
+        wait_for(lambda: 'Waiting for AI...' in terminal.getvalue())
+        assert client.complete(messages, schema) == '{}'
+        assert indicator.text == 'Waiting for AI...'
+        assert 'Waiting for local AI...' not in terminal.getvalue()
+    assert calls == [(provider, messages, schema)]
+    assert client.provider_name == parent.provider_name == provider
+    assert client.model_name == parent.model_name
+    assert client.last_metadata['provider'] == provider
 
 
 def test_removed_commands():
@@ -272,7 +329,7 @@ runpy.run_module('forensic_assistant.ai.cloud_worker',run_name='__main__')
         output,error=process.communicate(json.dumps(dict(provider='openai',model='synthetic',
             messages=[{'role':'user','content':'synthetic'}],timeout=2)).encode(),timeout=5)
         assert process.returncode==0 and not error
-        assert json.loads(output)=={'text':'{}','usage':{}}
+        assert json.loads(output)=={'text':'{}','usage':{},'finish_reason':'stop'}
     finally:
         if job:job.close()
         if process.poll() is None:process.kill()

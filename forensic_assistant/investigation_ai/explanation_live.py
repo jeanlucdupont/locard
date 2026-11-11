@@ -4,7 +4,8 @@ import sys
 import time
 
 from . import explanation as d1, organization as c1, synthesis as s1
-from .transcript import digest, MAX_BYTES
+from . import explanation_status as diagnostic
+from .transcript import digest, MAX_BYTES, JournalPublicationError
 
 PROFILE='local-explanation-v1'
 CONTRACT='explanation-revision-v1'
@@ -192,6 +193,20 @@ class Live:
         self.metrics=dict(callbacks=0,prepare_seconds=0.,append_seconds=0.,peak_owned_heap=0)
         self.visits=0;self.disabled=False
         self.observed=None
+        self.diagnostics=dict(contract=diagnostic.CONTRACT,attempts=[],omitted_attempts=0,time_limit_exceeded=False)
+
+    def _diagnostic(self, receipt, outcome, reason=None, cp=None, details=None):
+        # Bounded numerical telemetry only; no source values, keys or model prose.
+        rows=self.diagnostics['attempts']
+        if len(rows)>=diagnostic.MAX_ATTEMPTS:
+            self.diagnostics['omitted_attempts']=min(256,self.diagnostics['omitted_attempts']+1)
+            return
+        rows.append(dict(c1_revision=receipt['revision'],outcome=outcome,reason=diagnostic.reason(reason),
+            event_size_basis='measured' if details else 'unavailable',
+            candidate_operations_considered=cp['examined'] if cp else None,
+            prepared_operations=cp['applied'] if cp else None,
+            committed_operations=cp['applied'] if cp and outcome.startswith('committed_') else 0,
+            details=details))
 
     def update(self, receipt, *, deadline, remaining_analysis=0, remaining_synthesis=0):
         if receipt is None or self.disabled:return
@@ -206,60 +221,82 @@ class Live:
             if self.last_receipt and receipt['revision']<=self.last_receipt['revision']:raise ValueError('Stale C1 receipt')
             if self.observed!=receipt:
                 self.reducer.observe(receipt);self.observed=deepcopy(receipt)
-            if self.elapsed>=1 or started>=deadline:self.stops.append('time_limit');return
+            if self.elapsed>=1 or started>=deadline:
+                self.stops.append('time_limit');self._diagnostic(receipt,'admission_rejected','time_limit');return
             try:
                 sources=Sources(transcript.manifest,org.reducer,self.facts)
                 prepared,reason=self.reducer.prepare(receipt,sources,charged_visits=self.visits,
                     deadline=min(deadline,started+1-self.elapsed,started+LIMITS['slice']))
             except (ValueError,KeyError,TypeError):
-                self.disabled=True;self.stops.append('preparation_failed');return
+                self.disabled=True;self.stops.append('preparation_failed')
+                self._diagnostic(receipt,'admission_rejected','preparation_failed');return
             self.visits=max(self.visits,self.reducer.last_visits)
             for key,value in self.reducer.timings.items():self.metrics[key]=self.metrics.get(key,0.)+value
             self.metrics['prepare_seconds']+=time.monotonic()-started
-            if prepared is None:self.stops.append(reason);return
+            if prepared is None:
+                self.stops.append(reason);self._diagnostic(receipt,'admission_rejected',reason);return
             target,cp=prepared
             heap=owned_bytes((self.reducer.state,self.reducer.waiting,self.reducer.omitted_keys,self.observed,self.last_receipt,
-                              self.stops,self.metrics,target,cp,sources.clauses,sources.entities))
+                              self.stops,self.metrics,self.diagnostics,target,cp,sources.clauses,sources.entities))
             self.metrics['peak_owned_heap']=max(self.metrics['peak_owned_heap'],heap,self.reducer.peak_owned)
-            if heap>LIMITS['heap']:self.stops.append('memory_limit');return
+            if heap>LIMITS['heap']:
+                self.stops.append('memory_limit');self._diagnostic(receipt,'admission_rejected','memory_limit',cp);return
             event=dict(sequence=transcript.count,kind='explanation_checkpoint',data=cp,previous=transcript.chain)
             event['hash']=digest(event);size=d1._size(event)+1
             reserve=remaining_analysis*1264*1024+remaining_synthesis*96*1024+512*1024+65536
             slots=remaining_analysis*6+remaining_synthesis*5+3+(9-org.reducer.revision)+1
-            if (size>8192 or self.journal_bytes+size>65536-(0 if receipt['final'] else 8192) or
-                transcript.size+size+reserve>MAX_BYTES or transcript.count+1+slots>256):
-                self.stops.append('journal_reservation');return
+            details=dict(event_bytes=size,event_limit=8192,local_bytes=self.journal_bytes,
+                local_remaining_bytes=max(0,65536-(0 if receipt['final'] else 8192)-self.journal_bytes),
+                global_bytes=transcript.size,global_limit=MAX_BYTES,future_reserved_bytes=reserve,
+                remaining_event_slots=max(0,256-transcript.count),future_reserved_slots=slots)
+            admission_reason=diagnostic.admission(details)
+            if admission_reason:
+                # Keep legacy aggregate codes unchanged; v1 diagnostics disambiguate.
+                self.stops.append('journal_reservation')
+                self._diagnostic(receipt,'admission_rejected',admission_reason,cp,details);return
             if time.monotonic()>=deadline or self.elapsed+time.monotonic()-started>=1:
-                self.stops.append('time_limit');return
+                self.stops.append('time_limit')
+                self._diagnostic(receipt,'admission_rejected','time_limit',cp,details);return
             writing=time.monotonic()
             try:transcript.append('explanation_checkpoint',cp)
-            except (OSError,ValueError):transcript._uncertain('explanation_checkpoint_append')
+            except JournalPublicationError:
+                self._diagnostic(receipt,'publication_uncertain','checkpoint_append',cp,details)
+                raise
+            except (OSError,ValueError):
+                self._diagnostic(receipt,'publication_uncertain','checkpoint_append',cp,details)
+                transcript._uncertain('explanation_checkpoint_append')
             self.metrics['append_seconds']+=time.monotonic()-writing
             try:self.reducer.commit(prepared)
             except BaseException:
                 # The durable event can be replayed, but this process must not
                 # append a terminal summary describing the predecessor state.
+                self._diagnostic(receipt,'publication_uncertain','commit_after_publication',cp,details)
                 transcript._uncertain('explanation_commit_after_publication')
             self.journal_bytes+=size;self.last_receipt=deepcopy(receipt)
             self.checkpoint=c1._frontier(transcript)
+            self._diagnostic(receipt,'committed_prefix' if reason else 'committed_complete',reason,cp,details)
             if reason:self.stops.append(reason)
         finally:
             spent=time.monotonic()-started;self.elapsed+=spent
             if self.elapsed>LIMITS['seconds']:
                 self.disabled=True
+                self.diagnostics['time_limit_exceeded']=True
                 if 'local_time_overrun' not in self.stops:self.stops.append('local_time_overrun')
             if receipt['final']:self.metrics['finalization_seconds']=self.metrics.get('finalization_seconds',0.)+spent
 
     def summary(self):
+        upstream=not (not self.organizer.reducer.coverage.get('processing_complete',False) or self.organizer.disabled or
+                      self.organizer.finalization['status']!='checkpoint_committed')
+        status=diagnostic.project(self.reducer.state,self.organizer.last_receipt,
+            upstream if self.organizer.last_receipt else None,finalized=True)
         return dict(contract=CONTRACT,profile=PROFILE,revision=self.reducer.state['revision'],
             digest=digest(self.reducer.state),checkpoint=self.checkpoint,
             journal_bytes=self.journal_bytes,elapsed_seconds=self.elapsed,stops=self.stops,
             metrics=self.metrics,charged_visits=self.visits,coverage=self.reducer.state['coverage'],
             source_frontier=self.last_receipt['source_frontier'] if self.last_receipt else None,
             c1_revision=self.last_receipt['revision'] if self.last_receipt else None,
-            stale=self.organizer.reducer.revision!=(self.last_receipt or {}).get('revision'),
-            upstream_partial=not self.organizer.reducer.coverage.get('processing_complete',False) or self.organizer.disabled or
-                self.organizer.finalization['status']!='checkpoint_committed',
+            stale=bool(self.organizer.last_receipt and status['currentness']!='current'),
+            upstream_partial=not upstream,status=status,diagnostics=deepcopy(self.diagnostics),
             cleanup='not_confirmed_by_explanation')
 
 
@@ -269,6 +306,8 @@ class Replay:
         self.manifest=manifest;self.reducer=Reducer(manifest['investigation_id'],manifest['evidence_state'])
         self.receipt=None;self.sources=None;self.checkpoint=None;self.bytes=0;self.ended=False
         self.statements={};self.clauses={};self.entities={};self.used=set()
+        self.diagnostics=None
+        self.execution_outcome=None
 
     def source(self, receipt, org, facts):
         self.receipt=receipt;self.sources=Sources(self.manifest,org,facts)
@@ -304,15 +343,22 @@ class Replay:
             raise ValueError('Invalid terminal explanation')
         if type(summary.get('charged_visits')) is not int or not self.reducer.state['visits']<=summary['charged_visits']<=LIMITS['visits']:
             raise ValueError('Invalid terminal explanation resources')
+        if 'diagnostics' in summary:
+            diagnostic.validate(summary['diagnostics'])
+            self.diagnostics=deepcopy(summary['diagnostics'])
+        self.execution_outcome=data.get('termination')
         self.ended=True
 
     def finish(self,organization):
         state=deepcopy(self.reducer.state)
-        stale=bool(self.receipt and (not state['frontier'] or state['frontier']['receipt']['revision']!=self.receipt['revision']))
+        status=diagnostic.project(state,self.receipt,not organization['incomplete'] if self.receipt else None,
+                                  finalized=self.ended)
+        stale=bool(self.receipt and status['currentness']!='current')
         return dict(state=state,checkpoint=self.checkpoint,journal_bytes=self.bytes,mode='persisted',
             incomplete=not self.ended or stale or bool(state['pending']) or bool(state['omitted']) or organization['incomplete'],
             stale=stale,terminal_present=self.ended,statements=self.statements,
-            clauses=self.clauses,entities=self.entities)
+            clauses=self.clauses,entities=self.entities,status=status,diagnostics=self.diagnostics,
+            execution_outcome=self.execution_outcome)
 
 
 def reconstruct(root, identity):
@@ -357,7 +403,8 @@ def page(s,result,cursor=None,*,canonical=False):
         relationship_frontier=state['coverage'].get('relationship_frontier'),
         incomplete=result['incomplete'],final_assessment_available=state['coverage'].get('final_assessment_available',False),
         final_assessment_represented=state['coverage'].get('final_assessment_represented',False),
-        resource_stop=state['stop'],cleanup='not_confirmed_by_explanation')
+        resource_stop=state['stop'],status=result['status'],execution_outcome=result['execution_outcome'],
+        cleanup='not_confirmed_by_explanation')
     if d1._size(view)>d1.PAGE_BYTES:raise ValueError('Live display budget')
     return view
 
@@ -365,12 +412,10 @@ def page(s,result,cursor=None,*,canonical=False):
 def render(view):
     from . import explanation_display as display
     status=view['live_status']
-    header=('Local explanation enabled; persisted revision '+str(status['revision'])+'; C1 '+str(status['c1_revision'])+
-            '; '+('partial' if status['incomplete'] else 'processed')+'; '+str(status['accepted'])+' accepted, '+
-            str(status['pending'])+' pending, '+str(status['omitted'])+' omitted.\n'+
-            'Final assessment '+('available' if status['final_assessment_available'] else 'pending')+
-            (' (not represented in this revision)' if status['final_assessment_available'] and not status['final_assessment_represented'] else '')+
-            '; stale: '+str(status['stale'])+'; stop: '+str(status['resource_stop'])+'. Cleanup not confirmed by explanation.\n')
+    header=('Local explanation enabled; persisted revision '+str(status['revision'])+'.\n'+
+            '\n'.join(diagnostic.lines(status['status']))+'\nRecorded investigation outcome: '+
+            d1._safe(status['execution_outcome'] or 'unavailable (no terminal record)')+
+            '.\nCleanup not confirmed by explanation.\n')
     result=header+(d1.render(view) if view['contract']==d1.CONTRACT else display.render(view))
     if len(result.encode('utf-8'))>d1.PAGE_BYTES:raise ValueError('Live text budget')
     return result

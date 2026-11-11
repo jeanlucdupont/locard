@@ -23,7 +23,7 @@ PHASES = {
     'fingerprint': 'Calculating evidence fingerprint...',
     'initial_retrieval': 'Retrieving initial evidence...',
     'exposure': 'Preparing evidence context...',
-    'model': 'Waiting for local AI...',
+    'model': 'Waiting for AI...',
     'validation': 'Validating proposed operation...',
     'operation': 'Running read-only operation...',
     'finalizing': 'Finalizing investigation...',

@@ -360,13 +360,27 @@ def render(result, palette=None, *, dry_run=False, details=False):
         from .synthesis_consumer import render as render_synthesis
         lines.extend(['',render_synthesis(result['synthesis'])])
     if result.get('explanation'):
-        local=result['explanation'];coverage=local['coverage']
+        from . import explanation_status
+        local=result['explanation']
         lines.extend(['','Local explanation persistence — enabled',
-            '  Revision '+str(local['revision'])+'; C1 '+str(local['c1_revision'])+'; '+
-            str(coverage.get('accepted',0))+' accepted, '+str(coverage.get('pending',0))+' pending, '+
-            str(coverage.get('omitted',0))+' omitted components.',
-            '  '+('Partial/stale' if local['stale'] or local['upstream_partial'] or coverage.get('pending') or coverage.get('omitted') else 'Processing complete')+
-            '; forensic completeness and parent cleanup are not established.',
-            '  Final assessment '+('available' if coverage.get('final_assessment_available') else 'pending')+
-            '; resource stops: '+safe(', '.join(local['stops']) or 'none')+'.'])
+            '  Persisted revision '+str(local['revision'])+'.'])
+        lines.extend('  '+line for line in explanation_status.lines(explanation_status.from_summary(local)))
+        diagnostics=local.get('diagnostics')
+        if diagnostics:
+            rows=diagnostics['attempts']
+            labels=(('committed_complete','complete checkpoints committed'),
+                    ('committed_prefix','bounded prefixes committed'),
+                    ('admission_rejected','updates not published'),
+                    ('publication_uncertain','uncertain publications'))
+            lines.append('  Checkpoint updates: '+'; '.join(str(sum(r['outcome']==k for r in rows))+' '+label
+                                                           for k,label in labels)+'.')
+            rejected=sorted({r['reason'] for r in rows if r['outcome']=='admission_rejected' and r['reason']})
+            if rejected:lines.append('  Admission stops: '+safe(', '.join(rejected))+'.')
+            if diagnostics['omitted_attempts']:
+                lines.append('  Additional diagnostic attempts omitted: '+str(diagnostics['omitted_attempts'])+'.')
+            if diagnostics['time_limit_exceeded']:
+                lines.append('  Processing time limit exceeded; further explanation updates stopped.')
+        else:
+            lines.append('  Recorded legacy stop codes: '+safe(', '.join(local['stops']) or 'none')+'.')
+        lines.append('  Parent cleanup is not established by explanation persistence.')
     return '\n'.join(lines)
