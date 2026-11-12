@@ -8,8 +8,9 @@ def guarded_client(request, transport=None):
     from forensic_assistant.investigation_ai import d2_wire as wire
     if request['provider'] != 'openai' or request['schema'] != wire.schema_for(request['messages']):
         raise ValueError('D2_PROVIDER_CONTRACT')
+    limit = wire.request_limit(request["messages"])
     expected = wire.body(request['messages'], request['model'],request['schema'])
-    if len(expected) > wire.LIMIT or hashlib.sha256(expected).hexdigest() != request['d2_body_sha256']:
+    if len(expected) > limit or hashlib.sha256(expected).hexdigest() != request['d2_body_sha256']:
         raise ValueError('D2_BODY_ADMISSION')
     class Gate(httpx.BaseTransport):
         def __init__(self):
@@ -21,7 +22,7 @@ def guarded_client(request, transport=None):
             self.used = True
             if (str(outgoing.url) != 'https://api.openai.com/v1/chat/completions'
                     or outgoing.method != 'POST' or outgoing.content != expected
-                    or len(outgoing.content) > wire.LIMIT):
+                    or len(outgoing.content) > limit):
                 raise ValueError('D2_SERIALIZED_BODY_CHANGED')
             # This is the sole point at which network activity becomes possible.
             return self.inner.handle_request(outgoing)

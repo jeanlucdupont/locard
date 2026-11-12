@@ -32,7 +32,11 @@ def view(result,prepared):
         item={k:v for k,v in proposal['item'].items() if k!='local_id'}
         key=digest([item,proposal['dependencies'],proposal['mandatory_qualifications']])
         if key not in seen_proposals:seen_proposals.add(key);proposals.append(deepcopy(proposal))
-    return dict(contract='d2-quality-view-v1',established=established[:4],established_detail_count=max(0,len(established)-4),
+    cross=prepared.profile=='d2x1'
+    limit=16 if cross else 4
+    return dict(contract='d2-quality-view-v1',established=established[:limit],established_detail_count=max(0,len(established)-limit),
+        **(dict(question=packet['question'],request_policy=prepared.request_policy,
+                question_assessment_status=packet['issue']['question_assessment_status']) if cross else {}),
         qualifications=unique(packet['qualifications']),reasoning_outcome=validated.get('reasoning_outcome'),
         abstention_reason=validated.get('abstention_reason',''),proposals=proposals,
         coverage=deepcopy(packet['coverage']),relationships=deepcopy(packet['relationships']),
@@ -44,11 +48,20 @@ def view(result,prepared):
 
 def render(value):
     out=['Ephemeral D2 result — not saved','Established']
+    if 'question' in value:
+        out=['Ephemeral cross-artifact investigation — not saved','Question: '+_safe(value['question']),
+             'Policy: '+value['request_policy'],'Recorded context — not proof of causality']
     for row in value['established']:
         text=row['text'];shown=text if len(text)<=180 else text[:180]+'… [display shortened; exact value in details]'
         out.append('  '+_safe(shown)+' ['+row['reference']+']')
     if value['established_detail_count']:out.append('  '+str(value['established_detail_count'])+' additional original fields in details.')
     out.extend('  Qualification: '+_safe(q) for q in value['qualifications'])
+    if 'question' in value:
+        out.append('Registered relationships — qualified application context')
+        for edge in value['relationships']:
+            out.append('  '+_safe(edge['alias']+': '+edge['predicate']))
+            out.extend('    Assumption: '+_safe(s) for s in edge['assumptions'])
+        out.append('  New-question assessment: '+value['question_assessment_status']+'; historical S3 unchanged.')
     out.append('Suggested, not proved')
     execution=value['execution']
     if execution['status']!='accepted':out.append('  No validated AI reasoning: '+_safe(execution.get('reason','unknown')))

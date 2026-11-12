@@ -87,7 +87,13 @@ def expand_response(raw, packet):
 
 
 def schema_for(messages):
-    from . import d2_quality as quality
+    from . import d2_quality as quality, d2_cross as cross
+    if (len(messages)==2 and messages[0].get('content')==cross.GUIDE
+            and json.loads(messages[1]['content']).get('wire_version')==cross.VERSION):
+        from .d2_schema import build
+        view=json.loads(messages[1]['content'])
+        if view.get('issue',{}).get('request_policy')!=cross.POLICY:raise ValueError('D2_CROSS_POLICY')
+        return build([s[0] for s in view['supports']], [s['alias'] for s in view['interpretations']])
     if (len(messages)==2 and messages[0].get('content')==quality.GUIDE
             and json.loads(messages[1]['content']).get('wire_version')==quality.VERSION):
         from .d2_schema import from_view
@@ -96,3 +102,12 @@ def schema_for(messages):
             and json.loads(messages[1]['content']).get('wire_version')==quality.VERSION):
         return quality.SCHEMA
     return SCHEMA
+
+
+def request_limit(messages):
+    from . import d2_cross as cross
+    if (len(messages)==2 and messages[0].get('content')==cross.GUIDE
+            and json.loads(messages[1]['content']).get('wire_version')==cross.VERSION):
+        schema_for(messages)  # Exact versioned cross-artifact envelope only.
+        return cross.LIMIT
+    return LIMIT

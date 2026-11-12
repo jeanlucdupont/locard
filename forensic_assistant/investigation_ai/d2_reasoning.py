@@ -6,7 +6,7 @@ from .explanation import _safe
 
 
 def render(result, prepared):
-    if result.get('validated',{}).get('contract')=='d2-quality-validation-v1' or prepared.profile=='d2q1':
+    if result.get('validated',{}).get('contract')=='d2-quality-validation-v1' or prepared.profile in ('d2q1','d2x1'):
         from . import d2_presentation
         return d2_presentation.render(d2_presentation.view(result,prepared))
     packet=prepared.packet['content']
@@ -47,10 +47,15 @@ def main():
     parser=argparse.ArgumentParser(description='Provider-free D2 preview or explicitly approved one-shot reasoning')
     parser.add_argument('root');parser.add_argument('run_id')
     parser.add_argument('--issue');parser.add_argument('--exploratory',action='store_true')
+    parser.add_argument('--cross-artifact',action='store_true',help='Use the separate 16384-byte policy over saved authorized evidence')
+    parser.add_argument('--question',help='Analyst question for --cross-artifact')
     parser.add_argument('--execute',action='store_true',help='Ask to authorize one cloud request; no automatic approval')
     parser.add_argument('--json',action='store_true')
     args=parser.parse_args()
-    if not args.issue:
+    if args.cross_artifact:
+        if not args.question or args.issue:parser.error('--cross-artifact requires --question and excludes --issue')
+    elif args.question:parser.error('--question requires --cross-artifact')
+    if not args.issue and not args.cross_artifact:
         if args.execute:parser.error('--execute requires an explicit --issue')
         preview=d2.open_history(args.root,args.run_id).preview(exploratory=args.exploratory)
         from . import d2_issues
@@ -62,15 +67,26 @@ def main():
             for row in review['issues']:print(row['id']+' | '+row['purpose']+' | '+row['relevance']+' | '+row['feasibility'])
         return
     from forensic_assistant.ai.settings import load
-    prepared=service.prepare(args.root,args.run_id,args.issue,load(),exploratory=args.exploratory)
+    if args.cross_artifact:
+        from . import d2_cross
+        if not args.execute:
+            print(json.dumps(d2_cross.preview(args.root,args.run_id,args.question,load()),ensure_ascii=True,indent=2));return
+        prepared=d2_cross.prepare(args.root,args.run_id,args.question,load())
+    else:
+        prepared=service.prepare(args.root,args.run_id,args.issue,load(),exploratory=args.exploratory)
     preview=prepared.preview()
     if not args.execute:
         print(json.dumps(preview,ensure_ascii=True,indent=2));return
     def approve(value):
         print('Authorize one D2 request: '+_safe(value['provider']+' / '+value['model']))
+        print('Policy: '+value['request_policy'])
+        if 'question' in value:
+            print('Question: '+_safe(value['question']))
+            print('Artifact families: '+', '.join(value['families']))
+            print('Omissions: '+str(value['selection']['omitted_counts']))
         print('Source: '+value['source']['run_id']+'; frontier: '+str(value['source']['event_head']))
         print('Issue: '+value['issue']['id']+'; packet: '+value['packet_digest'])
-        print('Complete request: '+str(value['body_bytes'])+' / 5600 bytes; 1024 output tokens; 60 seconds including cleanup.')
+        print('Complete request: '+str(value['body_bytes'])+' / '+str(value['limits']['body_bytes'])+' bytes; 1024 output tokens; 60 seconds including cleanup.')
         print('Recorded evidence will be disclosed to this provider. No retries, lookups, fallback or persistence.')
         return input('Authorize this exact request? [y/N] ').strip().casefold()=='y'
     result=service.execute(service.authorize(prepared,approve))

@@ -215,6 +215,7 @@ report-bundles/
 !/docs/LOCARD_6_118_LIVE_EXPLANATION.md
 !/docs/LOCARD_6_127_D2_ALIAS_NORMALIZATION.md
 !/docs/LOCARD_6_128_D2_TYPED_REFERENCES.md
+!/docs/LOCARD_6_129_CROSS_ARTIFACT_INVESTIGATION.md
 
 # Analyst briefing sidecars and private editor scratch directories
 *.briefing/
