@@ -28,6 +28,9 @@ def render(result, prepared):
             lines.append('  Support: '+_safe(support['evidence_id'])+' '+_safe(support['field']['pointer']))
     else:
         lines+=['No validated AI explanation.', 'Outcome: '+result['status']+' / '+result.get('reason','unknown')]
+        if result.get('diagnostic'):
+            from .d2_diagnostics import line
+            lines.append('Validation: '+line(result['diagnostic']))
     lines+=['Coverage and authority', '  '+_safe(prepared.config['provider']+' / '+prepared.config['model']),
             '  Recorded source run: '+packet['source']['run_id'],
             '  Source frontier: '+str(packet['source']['event_head']),

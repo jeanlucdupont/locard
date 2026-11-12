@@ -1,6 +1,6 @@
 """Payload-free diagnostics for the existing SDK response acceptance boundary."""
 LIMIT = 1024 * 1024
-RULES = frozenset(('output_truncated', 'unexpected_finish_reason', 'unexpected_tool_call',
+RULES = frozenset(('provider_refusal', 'output_truncated', 'unexpected_finish_reason', 'unexpected_tool_call',
     'missing_response_message', 'missing_response_content', 'empty_response_content',
     'invalid_content_type', 'response_size_exceeded', 'invalid_response_envelope'))
 
@@ -17,7 +17,7 @@ def safe(value):
     }.items():
         if type(value.get(key)) is str and value[key] in allowed:
             result[key] = value[key]
-    for key in ('tool_calls_present','function_call_present','content_bytes_capped','envelope_received'):
+    for key in ('tool_calls_present','function_call_present','content_bytes_capped','envelope_received','usage_reported'):
         if type(value.get(key)) is bool:
             result[key] = value[key]
     from forensic_assistant.briefing import OPENAI_OUTPUT_TOKENS
@@ -28,7 +28,7 @@ def safe(value):
     return result
 
 
-def content(result, kwargs, *, observation=None):
+def content(result, kwargs, *, observation=None, explicit_refusal=False):
     from .provider_diagnostics import ProviderFailure
     detail = {'json_parse':'not_attempted', 'canonical_validation':'not_attempted'}
     limit = kwargs.get('max_completion_tokens', kwargs.get('max_tokens'))
@@ -37,16 +37,18 @@ def content(result, kwargs, *, observation=None):
     detail['envelope_received'] = result is not None
 
     def reject(rule):
-        raise ProviderFailure('output_truncated' if rule=='output_truncated' else 'response_envelope_failed',
+        raise ProviderFailure(rule if rule in ('output_truncated','provider_refusal') else 'response_envelope_failed',
                               'response_envelope', metadata={'response_envelope':safe({**detail,'rule':rule})})
 
     missing = object()
     try:
         usage = getattr(result, 'usage', None)
+        if explicit_refusal:detail['usage_reported']=False
         for name in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
             value = getattr(usage, name, None)
             if type(value) is int and 0 <= value <= 10000000:
                 detail[name] = value
+                if explicit_refusal:detail['usage_reported']=True
         choices = getattr(result,'choices',missing)
         if choices is missing or choices is None or choices == []:
             reject('missing_response_message')
@@ -68,6 +70,7 @@ def content(result, kwargs, *, observation=None):
         if finish == 'length':reject('output_truncated')
         if finish not in ('stop','end_turn'):reject('unexpected_finish_reason')
         if detail['tool_calls_present'] or detail['function_call_present']:reject('unexpected_tool_call')
+        if explicit_refusal and isinstance(getattr(message,'refusal',None),str) and message.refusal.strip():reject('provider_refusal')
         if text is missing:reject('missing_response_content')
         if not isinstance(text,str):reject('invalid_content_type')
         if not text.strip():reject('empty_response_content')

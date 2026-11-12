@@ -49,7 +49,12 @@ def generate(request, sdk):
         kwargs['max_completion_tokens'] = 1024
         # Never initialize a provider readiness probe or fallback for D2.
         with guarded_client({**request, '_key':kwargs['api_key']}) as client:
-            return complete({**kwargs, 'client':client}, sdk)
+            try:result=complete({**kwargs, 'client':client}, sdk, d2=True)
+            except Exception:
+                if client._locard_d2_failure is not None:raise ProviderFailure(**client._locard_d2_failure) from None
+                raise
+            if client._locard_d2_failure is not None:raise ProviderFailure(**client._locard_d2_failure) from None
+            return result
     raw = None
     if request.get('raw_diagnostics') is True:
         from .raw_diagnostics import entry
@@ -84,7 +89,7 @@ def generate(request, sdk):
         raise failure from None
 
 
-def complete(kwargs, sdk):
+def complete(kwargs, sdk, *, d2=False):
     result = sdk.completion(**kwargs)
     gemini_detail = None
     gemini_metadata = {}
@@ -114,7 +119,7 @@ def complete(kwargs, sdk):
     try:
         from .response_envelope import content
         observation = {}
-        text = content(result, kwargs, observation=observation)
+        text = content(result, kwargs, observation=observation, explicit_refusal=d2)
         usage = getattr(result, 'usage', None)
         return {'text': text, **({'finish_reason': observation['finish_reason']} if kwargs.get('custom_llm_provider') == 'openai' else {}), **({'gemini_response':gemini_detail, **gemini_metadata} if gemini_detail else {}), 'usage': {name: getattr(usage, name) for name in
                 ('prompt_tokens', 'completion_tokens', 'total_tokens')

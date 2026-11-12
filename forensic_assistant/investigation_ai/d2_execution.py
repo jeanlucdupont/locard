@@ -9,6 +9,7 @@ import threading
 import time
 
 from . import d2, d2_wire as wire, d2_contracts, d2_result as ipc, d2_quality as quality
+from . import d2_diagnostics as diagnostics
 from .transcript import digest
 from .supervision import Launch, _stop
 from .lifecycle import WorkerJob, CleanupError
@@ -102,6 +103,9 @@ def authorize(prepared, confirmation):
 
 def _child(connection, gate, request):
     attempted = received = False
+    usage = {}
+    completion = None
+    response = None
     stage = 'initialization'
     bound = request['binding']
     try:
@@ -133,11 +137,15 @@ def _child(connection, gate, request):
             raise SystemExit(74)
         response = client.complete_d2(prepared.messages, hashlib.sha256(prepared.body).hexdigest())
         received = True
+        usage = diagnostics.usage(response.get('usage'))
+        completion = response.get('finish_reason')
         stage = 'response_validation'
         if time.monotonic()>=deadline:raise TimeoutError()
         prepared.history.validate(prepared.packet, prepared.codec.expand_response(response['text'],prepared.packet), **prepared.options)
         if time.monotonic()>=deadline:raise TimeoutError()
-        value = ipc.envelope(bound,response=response['text'],usage=response.get('usage',{}),attempted=True,received=True)
+        detail=diagnostics.base(received=True,reported=usage,outcome='accepted')
+        detail.update(json_extraction='passed',json_parsing='passed',completion=completion if completion in ('stop','end_turn') else 'unknown')
+        value = ipc.envelope(bound,response=response['text'],usage=usage,attempted=True,received=True,diagnostics=detail)
     except BaseException as exc:
         if isinstance(exc,SystemExit) and exc.code==74:raise
         from forensic_assistant.ai.provider_diagnostics import ProviderFailure
@@ -145,12 +153,20 @@ def _child(connection, gate, request):
                     'response_schema_validation' if stage=='response_validation' else 'provider_dispatch_failure')
         if isinstance(exc,TimeoutError):category='timeout'
         if isinstance(exc,ProviderFailure):
+            usage=diagnostics.usage(exc.metadata.get('response_envelope',{}))
             if exc.category=='timeout':category='provider_timeout'
             elif exc.category=='provider_refusal':category='provider_refusal';received=True
             elif exc.category in ('output_truncated','response_envelope_failed','response_parse_failed','structured_validation_failed'):
                 category='provider_response_invalid'
                 received=exc.metadata.get('response_envelope',{}).get('envelope_received') is True or None
-        value = ipc.envelope(bound,category=category,stage=stage,attempted=attempted,received=received)
+        detail=diagnostics.failure(exc,stage='compact_schema' if stage=='response_validation' else stage,
+                                   received=received,reported=usage,completion=completion)
+        if type(response) is dict and type(response.get('text')) is str:
+            try:detail['response_bytes']=min(len(response['text'].encode('utf-8')),1048576)
+            except UnicodeError:pass
+        received=detail['provider_response_received']
+        value = ipc.envelope(bound,category=category,stage=stage,attempted=attempted,received=received,
+                             usage=usage,diagnostics=detail)
     try:
         if not ipc.send(connection,value):raise SystemExit(74)
     finally:
@@ -172,9 +188,11 @@ def execute(permit, *, cancelled=None):
         raise ValueError('D2_BODY_TOO_LARGE')
     deadline, end = permit.approved+55, permit.approved+60
     if cancelled is not None and cancelled.is_set():
+        detail=diagnostics.base('initialization','cancelled',origin='parent',received=False,outcome='interrupted')
+        detail['cleanup']='confirmed'
         return dict(status='interrupted',reason='cancelled',durable=False,grant=deepcopy(permit.grant),
                     attempts=0,attempt_allocation_consumed=True,network_outcome='not_dispatched',
-                    elapsed_seconds=round(time.monotonic()-permit.approved,3),cleanup='confirmed',lookups=0)
+                    elapsed_seconds=round(time.monotonic()-permit.approved,3),cleanup='confirmed',lookups=0,diagnostic=detail)
     request=dict(root=str(p.history._root),run_id=p.history._anchor['run_id'],issue=p.packet['content']['issue']['id'],
                  config=p.config, exploratory=p.options['exploratory'],seal=permit.seal,deadline=deadline,binding=ipc.binding(p),profile=p.profile)
     context=multiprocessing.get_context('spawn')
@@ -221,20 +239,30 @@ def execute(permit, *, cancelled=None):
                 result=dict(status=terminal['status'],reason=terminal['category'],stage=terminal['stage'],
                             attempted=terminal['attempted'],provider_response_received=terminal['provider_response_received'],
                             usage=terminal['usage'],ipc_result_bytes=len(payload))
+                if 'diagnostic' in terminal:result['diagnostic']=deepcopy(terminal['diagnostic'])
                 if terminal['status']=='accepted':
                     # Only frozen, authenticated parent state supplies evidence authority.
                     raw=p.codec.expand_response(terminal['response'],p.packet)
                     result['validated']=d2.validate_response(p.packet,raw,p._response_context,checkpoint)
                     checkpoint()
-            except (ValueError,TypeError,KeyError,UnicodeError,RecursionError):
+            except TimeoutError:
+                raise
+            except Exception as exc:
+                detail=diagnostics.failure(exc,origin='parent',stage='compact_schema' if terminal else 'ipc',
+                    received=terminal['provider_response_received'] if terminal else None,
+                    reported=terminal['usage'] if terminal else None,
+                    completion=terminal.get('diagnostic',{}).get('completion') if terminal else None)
+                if terminal and type(terminal.get('response')) is str:
+                    detail['response_bytes']=min(len(terminal['response'].encode('utf-8')),1048576)
                 result=dict(status='rejected',reason='response_schema_validation' if terminal else 'ipc_invalid_message',
-                            **(dict(attempted=terminal['attempted'],provider_response_received=terminal['provider_response_received']) if terminal else {}))
+                            diagnostic=detail,
+                            **(dict(attempted=terminal['attempted'],provider_response_received=terminal['provider_response_received'],usage=terminal['usage']) if terminal else {}))
             break
         else:result=dict(status='interrupted',reason='timeout')
     except KeyboardInterrupt:
-        result=dict(status='interrupted',reason='cancelled')
+        result={**{k:v for k,v in result.items() if k in ('usage','provider_response_received','attempted')},'status':'interrupted','reason':'cancelled'}
     except TimeoutError:
-        result=dict(status='interrupted',reason='timeout')
+        result={**{k:v for k,v in result.items() if k in ('usage','provider_response_received','attempted')},'status':'interrupted','reason':'timeout'}
     except Exception:
         result=dict(status='rejected',reason='worker_startup_failure')
     finally:
@@ -246,6 +274,15 @@ def execute(permit, *, cancelled=None):
     # Cancellation may race the phase message. Absence of IPC is not proof of no send.
     confirmed = result.pop('attempted', None)
     attempts = int(confirmed) if type(confirmed) is bool else 1 if attempted else None if released else 0
+    if 'diagnostic' not in result:
+        reason=result.get('reason')
+        detail=diagnostics.base('initialization' if reason=='worker_startup_failure' else 'ipc',
+            'timeout' if reason=='timeout' else 'cancelled' if reason=='cancelled' else 'unknown_internal_validation_error' if reason=='worker_startup_failure' else 'ipc_failure',
+            origin='parent',received=result.get('provider_response_received'),reported=result.get('usage'),outcome=result['status'])
+        if result.get('status')=='accepted':detail.update(stage='complete',code='none')
+        if result.get('provider_response_received') is True and not result.get('usage'):detail['usage_availability']='discarded_by_earlier_failure'
+        result['diagnostic']=detail
+    result['diagnostic']['cleanup']='confirmed'
     return dict(**result,durable=False,grant=deepcopy(permit.grant),attempts=attempts,
                 attempt_allocation_consumed=True,network_outcome='not_dispatched' if attempts==0 else 'may_have_been_exposed',
                 elapsed_seconds=round(time.monotonic()-permit.approved,3),cleanup='confirmed',lookups=0)

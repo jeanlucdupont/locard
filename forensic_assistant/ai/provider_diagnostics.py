@@ -8,6 +8,7 @@ from . import settings, diagnostics
 from forensic_assistant.llm.client import LLMError
 
 REASONS = {
+    'provider_refusal': 'Provider explicitly refused the request',
     'response_envelope_failed': 'Provider response envelope failed validation before JSON parsing',
     'output_truncated': 'Model output was truncated before a complete structured response was produced',
     'response_validated': 'Provider response passed canonical structural validation; grounding is checked separately',

@@ -56,6 +56,10 @@ def render(value):
         out.append('  '+_safe(value['reasoning_outcome'] or 'No material inference')+': '+_safe(value['abstention_reason']))
     else:
         for p in value['proposals']:out.append('  Unverified account: '+_safe(p['item']['statement']))
+    if execution.get('diagnostic'):
+        from .d2_diagnostics import line
+        if execution['status']!='accepted':out.append('  Validation: '+line(execution['diagnostic']))
+        out.append('  Usage availability: '+execution['diagnostic']['usage_availability']+'.')
     out.append('Alternatives and discriminators')
     for p in value['proposals']:
         item=p['item']

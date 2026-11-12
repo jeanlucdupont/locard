@@ -2,8 +2,10 @@
 import json
 import hashlib
 from . import d2_contracts
+from . import d2_diagnostics as diagnostic
 
 CONTRACT = 'd2-worker-result-v1'
+DIAGNOSTIC_CONTRACT = 'd2-worker-result-v2'
 LIMIT = 32768
 RECEIVE_LIMIT = 131072
 STAGES = {'initialization', 'provider_dispatch', 'response_validation', 'result_preparation', 'complete'}
@@ -23,10 +25,11 @@ def binding(prepared):
 
 
 def envelope(bound, *, response=None, usage=None, stage='complete', category='none', attempted=False,
-             received=False):
-    return dict(contract=CONTRACT,binding=bound,status='accepted' if category=='none' else 'rejected',
+             received=False, diagnostics=None):
+    return dict(contract=DIAGNOSTIC_CONTRACT if diagnostics is not None else CONTRACT,binding=bound,status='accepted' if category=='none' else 'rejected',
                 stage=stage,category=category,attempted=attempted,provider_response_received=received,
-                validation='passed' if category=='none' else 'not_accepted',response=response,usage=usage or {})
+                validation='passed' if category=='none' else 'not_accepted',response=response,usage=usage or {},
+                **({'diagnostic':diagnostics} if diagnostics is not None else {}))
 
 
 def encode(value):
@@ -42,8 +45,16 @@ def parse(raw, bound):
             result[k]=v
         return result
     value=json.loads(raw,object_pairs_hook=pairs,parse_constant=lambda _: (_ for _ in ()).throw(ValueError('ipc_invalid_message')))
-    if type(value) is not dict or set(value)!=FIELDS or value['contract']!=CONTRACT or value['binding']!=bound:
+    if type(value) is not dict or value.get('binding')!=bound:
         raise ValueError('ipc_invalid_binding')
+    if value.get('contract')==DIAGNOSTIC_CONTRACT:
+        if set(value)!=FIELDS|{'diagnostic'}:raise ValueError('ipc_invalid_message')
+        detail=diagnostic.validate(value['diagnostic'])
+        if (detail['origin']!='child' or detail['cleanup']!='unknown'
+                or detail['provider_response_received']!=value['provider_response_received']
+                or detail['worker_outcome']!=value['status']
+                or (detail['code']=='none')!=(value['status']=='accepted')):raise ValueError('ipc_invalid_message')
+    elif value.get('contract')!=CONTRACT or set(value)!=FIELDS:raise ValueError('ipc_invalid_binding')
     if (value['stage'] not in STAGES or value['category'] not in CATEGORIES
         or type(value['attempted']) is not bool or (value['provider_response_received'] is not None and type(value['provider_response_received']) is not bool)):
         raise ValueError('ipc_invalid_message')
@@ -58,19 +69,30 @@ def parse(raw, bound):
     usage=value['usage']
     if type(usage) is not dict or not set(usage)<={'prompt_tokens','completion_tokens','total_tokens'} or any(type(v) is not int or not 0<=v<=10000000 for v in usage.values()):
         raise ValueError('ipc_invalid_message')
+    if 'diagnostic' in value and ((value['diagnostic']['usage_availability']=='reported')!=bool(usage)):
+        raise ValueError('ipc_invalid_message')
     return value
 
 
 def send(connection, value):
     """At most one channel write. Oversize/serialization failures become small envelopes."""
+    diagnostic_failure=False
     try:
+        if 'diagnostic' in value:
+            try:diagnostic.validate(value['diagnostic'])
+            except (TypeError,ValueError,UnicodeError,RecursionError):
+                diagnostic_failure=True
+                raise
         payload=encode(value)
         category='result_byte_limit' if len(payload)+8>LIMIT else None
     except (TypeError,ValueError,UnicodeError,RecursionError):
         category='result_serialization_failure'
     if category:
+        detail=diagnostic.base('ipc','diagnostic_limit' if diagnostic_failure else 'ipc_failure',
+                               received=value['provider_response_received'],reported=value.get('usage'),outcome='rejected')
         value=envelope(value['binding'],category=category,stage='result_preparation',
-                       attempted=value['attempted'],received=value['provider_response_received'])
+                       attempted=value['attempted'],received=value['provider_response_received'],
+                       usage=diagnostic.usage(value.get('usage')),diagnostics=detail if 'diagnostic' in value else None)
         payload=encode(value)
     if len(payload)+8>LIMIT:return False
     try:
