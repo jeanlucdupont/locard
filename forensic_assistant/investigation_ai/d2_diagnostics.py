@@ -6,7 +6,7 @@ CONTRACT = 'd2-validation-diagnostic-v1'
 LIMIT = 2048
 STAGES = frozenset(('initialization', 'provider_dispatch', 'provider_response_receipt',
     'sdk_response_extraction', 'provider_refusal', 'output_truncation', 'json_parsing',
-    'compact_schema', 'outcome_validation', 'alias_membership', 'interpretation_premises',
+    'compact_schema', 'provider_schema', 'outcome_validation', 'alias_membership', 'interpretation_premises',
     'relationship_premises', 'parent_canonical_revalidation', 'ipc', 'complete'))
 CODES = frozenset(('none', 'malformed_json', 'duplicate_key', 'missing_field', 'unknown_field',
     'wrong_type', 'unsupported_enum', 'item_count', 'duplicate_item', 'blank_text', 'nul_text',
@@ -15,6 +15,7 @@ CODES = frozenset(('none', 'malformed_json', 'duplicate_key', 'missing_field', '
     'provider_refusal', 'output_truncated', 'provider_failure', 'timeout', 'cancelled',
     'invalid_response_envelope', 'ipc_failure', 'diagnostic_limit', 'unknown_internal_validation_error'))
 ENUMS = dict(stage=STAGES, code=CODES, origin={'child','parent'}, failure_stage=STAGES,
+    reference_namespace={'O','I'},reference_reason={'wrong_namespace','not_in_current_packet','malformed_reference'},
     expected_type={'object','array','string','integer','boolean','null'},
     observed_type={'dict','list','str','int','bool','NoneType','float','other'},
     json_extraction={'passed','failed','not_attempted','unknown'},
@@ -25,7 +26,7 @@ ENUMS = dict(stage=STAGES, code=CODES, origin={'child','parent'}, failure_stage=
 NUMBERS = {'characters','utf8_bytes','maximum_bytes','response_bytes'}
 REQUIRED = {'contract','stage','code','origin','provider_response_received','json_extraction',
     'json_parsing','completion','usage_availability','worker_outcome','cleanup'}
-FIELDS = REQUIRED | set(ENUMS) | NUMBERS | {'pointer','normalization'}
+FIELDS = REQUIRED | set(ENUMS) | NUMBERS | {'pointer','normalization','other_namespace_member'}
 # A schema-derived path whitelist: model keys never become diagnostic pointers.
 KEYS = frozenset(('v','o','a','r','s','e','c','i','u','d','n','g','l','response','contract',
     'request_id','packet_digest','items','assessment','local_id','kind','statement','support_refs',
@@ -49,6 +50,13 @@ def validate(value):
     for key,choices in ENUMS.items():
         if key in value and (type(value[key]) is not str or value[key] not in choices):raise ValueError('D2_DIAGNOSTIC_ENUM')
     if value['provider_response_received'] is not None and type(value['provider_response_received']) is not bool:raise ValueError('D2_DIAGNOSTIC_RECEIPT')
+    if 'other_namespace_member' in value and type(value['other_namespace_member']) is not bool:raise ValueError('D2_DIAGNOSTIC_RECEIPT')
+    refs={'reference_namespace','reference_reason','other_namespace_member'}
+    if refs & value.keys():
+        if (not refs<=value.keys() or type(value.get('pointer')) is not str
+                or not re.fullmatch(r'/a/[01]/[eci]',value['pointer'])
+                or value['reference_namespace']!=('I' if value['pointer'].endswith('/i') else 'O')):
+            raise ValueError('D2_DIAGNOSTIC_REFERENCE')
     if 'normalization' in value:
         from .d2_normalization import validate_receipt
         validate_receipt(value['normalization'])
@@ -116,6 +124,13 @@ def failure(exc,*,stage='compact_schema',origin='child',received=None,reported=N
         for source,target in (('characters','characters'),('utf8_bytes','utf8_bytes'),('maximum_utf8_bytes','maximum_bytes')):
             v=detail.get(source)
             if type(v) is int and 0<=v<=1048576:result[target]=v
+    from .d2_schema import POLICY
+    if getattr(exc,'d2_schema_policy',None)==POLICY:
+        result['stage']='provider_schema'
+        reference=getattr(exc,'reference_detail',None)
+        if type(reference) is dict:
+            result.update(reference)
+            if result['code']=='unsupported_enum':result['code']='unknown_support'
     if isinstance(exc,ProviderFailure):
         envelope=exc.metadata.get('response_envelope',{})
         if type(envelope.get('envelope_received')) is bool:result['provider_response_received']=envelope['envelope_received']
@@ -148,6 +163,7 @@ def line(value):
     validate(value)
     result=value['stage']+' / '+value['code']
     if 'failure_stage' in value:result+=' ('+value['failure_stage']+')'
+    if 'reference_reason' in value:result+='; expected '+value['reference_namespace']+' / '+value['reference_reason']
     if value.get('pointer'):result+=' at '+value['pointer']
     if 'utf8_bytes' in value and 'maximum_bytes' in value:result+='; '+str(value['utf8_bytes'])+' / '+str(value['maximum_bytes'])+' UTF-8 bytes'
     return result

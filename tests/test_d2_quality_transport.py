@@ -13,14 +13,14 @@ from forensic_assistant.ai import d2_transport,cloud_worker
 @pytest.mark.parametrize('name',list(scenarios))
 def test_quality_sdk_bytes(sdk,monkeypatch,name):
     import httpx
-    p=generic_packet(name);messages=q.messages(p);body=w.body(messages,'gpt-6.1-sol',q.SCHEMA);seen=[]
+    p=generic_packet(name);messages=q.messages(p);schema=w.schema_for(messages);body=w.body(messages,'gpt-6.1-sol',schema);seen=[]
     def handle(request):
         assert request.content==body;seen.append(len(request.content))
         return httpx.Response(200,json={'id':'mock','object':'chat.completion','created':0,'model':'gpt-6.1-sol',
             'choices':[{'index':0,'message':{'role':'assistant','content':json.dumps(answer('no_material_inference'))},'finish_reason':'stop'}]})
     factory=d2_transport.guarded_client
     monkeypatch.setattr(d2_transport,'guarded_client',lambda r:factory(r,httpx.MockTransport(handle)))
-    request=dict(provider='openai',model='gpt-6.1-sol',messages=messages,schema=q.SCHEMA,timeout=10,
+    request=dict(provider='openai',model='gpt-6.1-sol',messages=messages,schema=schema,timeout=10,
                  handshake=False,raw_diagnostics=False,final_only=False,d2_body_sha256=hashlib.sha256(body).hexdigest())
     if len(body)>5600:
         with pytest.raises(ValueError):cloud_worker.generate(request,sdk)
@@ -35,7 +35,7 @@ def test_quality_sdk_bytes(sdk,monkeypatch,name):
     import httpx
     enc=lambda v:httpx.Request('POST','https://example.invalid',json=v).content
     system=len(enc(messages[0]['content']));user=len(enc(messages[1]['content']));schema=len(enc(obj['response_format']))
-    canonical=copy.deepcopy(obj['response_format']);canonical['json_schema']['schema']=q.SCHEMA
+    canonical=copy.deepcopy(obj['response_format']);canonical['json_schema']['schema']=schema
     view=json.loads(messages[1]['content']);empty=copy.deepcopy(view)
     for key in ('supports','interpretations','relationships','qualifications','sources'):empty[key]=[] if isinstance(empty[key],list) else {}
     print('QUALITY_EVIDENCE',name,len(enc(w.J(view)))-len(enc(w.J(empty))),'adaptation',len(enc(obj['response_format']))-len(enc(canonical)))

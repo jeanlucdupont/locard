@@ -10,7 +10,7 @@ import time
 
 from . import d2, d2_wire as wire, d2_contracts, d2_result as ipc, d2_quality as quality
 from . import d2_diagnostics as diagnostics
-from . import d2_normalization as normalization
+from . import d2_normalization as normalization, d2_schema as typed_schema
 from .transcript import digest
 from .supervision import Launch, _stop
 from .lifecycle import WorkerJob, CleanupError
@@ -29,9 +29,10 @@ class Prepared:
         if profile not in (wire.CONTRACT,quality.VERSION):raise ValueError('D2_PROFILE')
         self.profile=profile
         self.codec=quality if profile==quality.VERSION else wire
+        self.schema = typed_schema.from_packet(self.packet) if self.profile==quality.VERSION else deepcopy(self.codec.SCHEMA)
         self.messages = self.codec.messages(self.packet)
         self.codec.expand_view(json.loads(self.messages[1]['content']), self.packet)
-        self.body = wire.body(self.messages, config['model'],self.codec.SCHEMA)
+        self.body = wire.body(self.messages, config['model'],self.schema)
         self._response_context = history.response_context(history.preview(**options))
         self._seal = self.identity()
         self.check()
@@ -39,24 +40,26 @@ class Prepared:
     def identity(self):
         return digest(dict(packet=self.packet, messages=self.messages, body=self.body.hex(),
                            config=self.config, options=self.options, limits=LIMITS, context=self._response_context,profile=self.profile,
-                           **({'response_policy':normalization.VERSION} if self.profile==quality.VERSION else {})))
+                           **({'response_policy':normalization.VERSION,'schema_policy':typed_schema.POLICY,'schema':self.schema} if self.profile==quality.VERSION else {})))
 
     def check(self):
         if self.identity() != self._seal:
             raise ValueError('D2_PREPARED_CHANGED')
         self.codec.expand_view(json.loads(self.messages[1]['content']), self.packet)
+        expected=typed_schema.from_packet(self.packet) if self.profile==quality.VERSION else self.codec.SCHEMA
+        if self.schema!=expected:raise ValueError('D2_REFERENCE_SCHEMA')
         # A no-item canonical proposal validates original packet authority without AI.
         self.history.validate(self.packet, wire.J(dict(contract=d2_contracts.RESPONSE,
             request_id=self.packet['request_id'], packet_digest=self.packet['packet_digest'], items=[],
             assessment=dict(proposed_answerability='unresolved', rationale='Local source validation.',
                             support_refs=[self.packet['content']['supports'][0]['alias']]))), **self.options)
-        if self.body != wire.body(self.messages, self.config['model'],self.codec.SCHEMA):
+        if self.body != wire.body(self.messages, self.config['model'],self.schema):
             raise ValueError('D2_REQUEST_CHANGED')
 
     def preview(self):
         self.check()
         return dict(contract='d2-quality-authorized-preview-v1' if self.profile==quality.VERSION else 'd2-authorized-preview-v1',
-                    **(dict(response_contract=quality.CONTRACT,response_policy=normalization.VERSION) if self.profile==quality.VERSION else {}),
+                    **(dict(response_contract=quality.CONTRACT,response_policy=normalization.VERSION,schema_policy=typed_schema.POLICY,schema_sha256=digest(self.schema)) if self.profile==quality.VERSION else {}),
                     provider=self.config['provider'], model=self.config['model'],
                     issue=self.packet['content']['issue'], source=self.packet['content']['source'],
                     view=self.packet['content']['view'], packet_digest=self.packet['packet_digest'],
@@ -88,7 +91,7 @@ class _Permit:
                           source=deepcopy(prepared.packet['content']['source']), view=deepcopy(prepared.packet['content']['view']),
                           issue=prepared.packet['content']['issue']['id'], packet_digest=prepared.packet['packet_digest'],
                           request_sha256=hashlib.sha256(prepared.body).hexdigest(), limits=deepcopy(LIMITS),
-                          **({'response_policy':normalization.VERSION} if prepared.profile==quality.VERSION else {}))
+                          **({'response_policy':normalization.VERSION,'schema_policy':typed_schema.POLICY,'schema_sha256':digest(prepared.schema)} if prepared.profile==quality.VERSION else {}))
         self.grant_seal = digest(self.grant)
 
 
@@ -110,7 +113,7 @@ def validate_model_response(prepared,text,*,parent=False,checkpoint=lambda:None)
     try:
         checkpoint()
         if prepared.profile==quality.VERSION:
-            value,info=normalization.canonicalize(text,prepared.packet)
+            value,info=normalization.canonicalize(text,prepared.packet,typed=True)
             text=wire.J(value)
         raw=prepared.codec.expand_response(text,prepared.packet)
         result=(d2.validate_response(prepared.packet,raw,prepared._response_context,checkpoint) if parent else

@@ -26,15 +26,19 @@ def validate_receipt(value):
     return value
 
 
-def _structural(value):
+def _structural(value, packet=None):
     # Exact provider-facing structure, including raw item counts, before any
     # mutation. The canonical validator remains responsible for UTF-8 byte limits.
     from forensic_assistant.ai.openai_schema import request_schema
     from forensic_assistant.ai.response_contract import validator
-    schema=request_schema('openai',quality.SCHEMA)
+    from . import d2_schema
+    schema=request_schema('openai',quality.SCHEMA if packet is None else d2_schema.from_packet(packet))
     error=next(validator(schema).iter_errors(value),None)
     if error is None:return
     failure=ValueError('D2_RAW_SCHEMA')
+    if packet is not None:
+        failure.d2_schema_policy=d2_schema.POLICY
+        failure.reference_detail=d2_schema.reference_detail(list(error.absolute_path),error.instance,packet)
     constraints={'required':'missing parameter','additionalProperties':'unknown parameter','type':'wrong type',
                  'enum':'unsupported value','minItems':'invalid item count','maxItems':'invalid item count',
                  'minLength':'invalid string length/content','maxLength':'invalid string length/content'}
@@ -47,18 +51,18 @@ def _structural(value):
         else:break
     failure.validation_detail=dict(validation_path=path,constraint=constraints.get(error.validator,''),
         expected_type=error.schema.get('type'),actual_type=type(error.instance).__name__)
-    if type(error.instance) is str:
+    if type(error.instance) is str and error.validator in ('minLength','maxLength'):
         failure.validation_detail.update(characters=len(error.instance),utf8_bytes=len(error.instance.encode('utf-8')),
             maximum_utf8_bytes=error.schema.get('maxLength',1024),blank=not error.instance.strip(),contains_nul='\0' in error.instance)
     raise failure
 
 
-def canonicalize(raw,packet):
+def canonicalize(raw,packet,*,typed=False):
     """No original evidence mutation, alias repair, or post-dedup size admission."""
     info=receipt()
     try:
         value=contracts.loads(raw,max_bytes=d2_contracts.RESPONSE_BYTES)
-        _structural(value)
+        _structural(value,packet if typed else None)
         refs={s['alias'] for s in packet['content']['supports']}
         interpretations={s['alias'] for s in packet['content']['interpretations']}
         count=0

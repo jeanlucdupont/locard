@@ -80,7 +80,7 @@ def sdk_call(name,p,sdk):
         assert req.content==p.body;seen.append(1)
         if name=='provider_error':return httpx.Response(400,json={'error':{'message':'SENSITIVE_PROVIDER_BODY','type':'invalid_request_error'}})
         return httpx.Response(200,json=body)
-    req=dict(provider='openai',model=config()['model'],messages=p.messages,schema=q.SCHEMA,timeout=10,handshake=False,raw_diagnostics=False,final_only=False,d2_body_sha256=hashlib.sha256(p.body).hexdigest())
+    req=dict(provider='openai',model=config()['model'],messages=p.messages,schema=p.schema,timeout=10,handshake=False,raw_diagnostics=False,final_only=False,d2_body_sha256=hashlib.sha256(p.body).hexdigest())
     with patch.object(d2_transport,'guarded_client',lambda r:factory(r,httpx.MockTransport(handle))),patch.object(socket.socket,'connect',side_effect=AssertionError('network')),patch.object(socket,'create_connection',side_effect=AssertionError('network')):
         try:return cloud_worker.generate(req,sdk)
         except Exception as e:raise ProviderFailure(classify(e),getattr(e,'stage','provider_request'),metadata=error_metadata(e)) from None
@@ -113,7 +113,7 @@ def sdk_child(name,connection,gate,request):
     litellm.telemetry=False
     p=prepared()
     def cloud(self,messages,schema,**kw):
-        assert schema==q.SCHEMA
+        assert schema==p.schema
         return sdk_call(name,p,litellm)
     with patch.object(settings,'load',config),patch.object(ex,'prepare',lambda *a,**k:p),patch('forensic_assistant.ai.backend.ModelBackend._cloud_request',cloud),patch.object(sqlite3,'connect',side_effect=AssertionError('database')):
         ORIGINAL_CHILD(connection,gate,request)
@@ -197,7 +197,7 @@ def test_parent_revalidation_identity(monkeypatch):
     r=ex.execute(ex.authorize(p,lambda _:True))
     assert r['status']=='rejected' and 'validated' not in r and r['usage']==USAGE
     assert r['diagnostic']['origin']=='parent' and r['diagnostic']['stage']=='parent_canonical_revalidation'
-    assert r['diagnostic']['code']=='unknown_support' and r['diagnostic']['failure_stage']=='alias_membership'
+    assert r['diagnostic']['code']=='unknown_support' and r['diagnostic']['failure_stage']=='provider_schema'
 
 
 def test_parent_unexpected_failure_is_not_startup(monkeypatch):
@@ -233,6 +233,7 @@ def test_clarified_guide_gate(sdk):
     from openai import OpenAI
     from forensic_assistant.investigation_ai import d2_wire as w
     packet=generic_packet('large_value');messages=q.messages(packet)
+    messages[0]['content']=q.LEGACY_GUIDE  # Recorded 6.126 sizing experiment, not the current wire policy.
     extra=' For inference r must be empty; for abstention r must be nonblank. A single competing account needs an alternative. Use unique aliases, no null text, and respect UTF-8 byte limits. Cite every original premise alias when citing an interpretation.'
     for suffix,expected in [('',5552),(extra,5797),
             (' Use empty r for inference, nonblank r otherwise.',5601),
@@ -244,7 +245,7 @@ def test_clarified_guide_gate(sdk):
             return __import__('httpx').Response(200,json={'id':'mock','object':'chat.completion','created':0,'model':'gpt-6.1-sol','choices':[{'index':0,'message':{'role':'assistant','content':'{}'},'finish_reason':'stop'}]})
         with OpenAI(api_key='synthetic',max_retries=0,http_client=httpx.Client(transport=httpx.MockTransport(handle))) as client:
             client.chat.completions.create(**json.loads(body))
-    assert len(q.GUIDE.encode('utf-8'))==546
+    assert len(q.LEGACY_GUIDE.encode('utf-8'))==546
 
 
 def test_ui_rejection_diagnostic():

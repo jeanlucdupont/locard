@@ -26,10 +26,10 @@ def prepared():
 def test_budget_and_lossless(name):
     p=generic_packet(name);old=w.messages(p);new=q.messages(p)
     assert q.expand_view(json.loads(new[1]['content']),p)==p['content']
-    old_size=len(w.body(old,config()['model']));size=len(w.body(new,config()['model'],q.SCHEMA))
-    assert size-old_size==71
+    old_size=len(w.body(old,config()['model']));size=len(w.body(new,config()['model'],w.schema_for(new)))
+    assert size>old_size  # Typed schema and clarified guide; exact sizes tested separately.
     if old_size<=5600:assert size<=5600
-    if name=='large_value':assert size==5552
+    if name=='large_value':assert size==5568
     if old_size>5600:assert size>5600
 
 
@@ -102,8 +102,8 @@ def test_ui_abstention_details():
 def _child(connection,gate,request):
     original=ex._child
     def complete(client,messages,body_sha256):
-        assert w.schema_for(messages)==q.SCHEMA
-        assert len(w.body(messages,client.model_name,q.SCHEMA))<=5600
+        assert w.schema_for(messages)!=q.SCHEMA
+        assert len(w.body(messages,client.model_name,w.schema_for(messages)))<=5600
         return dict(text=json.dumps(answer('no_material_inference')),usage={})
     with patch.object(settings,'load',config),patch('forensic_assistant.ai.backend.ModelBackend.complete_d2',complete),patch('socket.socket.connect',side_effect=AssertionError('network')),patch('sqlite3.connect',side_effect=AssertionError('case')):
         original(connection,gate,request)
@@ -114,7 +114,7 @@ def test_quality_windows_spawn_historical(monkeypatch):
     if not (root/rid/'manifest.json').exists():pytest.skip('readable copied fixture unavailable')
     files=[root/rid/n for n in ('manifest.json','events.jsonl')];hashes=lambda:[hashlib.sha256(f.read_bytes()).hexdigest() for f in files];before=hashes()
     p=ex.prepare(root,rid,'d81869143ab5f3a355285bd79802d93912491834bc4f602c0a5fda6fd28739e7',config(),exploratory=True)
-    assert p.profile==q.VERSION and len(p.body)==5395
+    assert p.profile==q.VERSION and len(p.body)==5455
     permit=ex.authorize(p,lambda _:True)
     monkeypatch.setattr(ex,'_child',_child)
     result=ex.execute(permit)
@@ -143,7 +143,7 @@ def test_quality_review_fixtures(case):
     rows,caveat=QUALITY_CASES[case];ctx,_=context(rows);h=history(ctx);preview=h.preview(exploratory=True)
     assert preview['packets']
     for packet in preview['packets']:
-        assert len(w.body(q.messages(packet),config()['model'],q.SCHEMA))<=5600
+        assert len(w.body(q.messages(packet),config()['model'],w.schema_for(q.messages(packet))))<=5600
         v=answer('insufficient_packet_support');v['r']=caveat
         result=h.validate(packet,q.expand_response(json.dumps(v),packet),exploratory=True)
         assert not result['proposals'] and result['original_s3_assessment']==h._original
@@ -186,7 +186,7 @@ def test_quality_provider_failure_no_retry(monkeypatch,failure):
 def test_canonical_cross_run_and_exact_version():
     p=prepared();raw=json.loads(q.expand_response(json.dumps(answer()),p.packet));raw['request_id']='0'*64
     with pytest.raises(ValueError):d2.validate_response(p.packet,json.dumps(raw),p._response_context)
-    assert w.schema_for(p.messages)==q.SCHEMA
+    assert w.schema_for(p.messages)==p.schema
     assert w.schema_for(w.messages(p.packet))==w.SCHEMA
     with pytest.raises(ValueError):w.expand_response(json.dumps(answer()),p.packet)
 
@@ -211,6 +211,6 @@ def test_backend_uses_exact_quality_schema_without_probe(monkeypatch):
     monkeypatch.setattr(ModelBackend,'prepare',lambda *a,**k:pytest.fail('hidden readiness request'))
     client=ModelBackend(config=config(),timeout=10)
     client.complete_d2(p.messages,hashlib.sha256(p.body).hexdigest())
-    assert len(calls)==1 and calls[0][1]==q.SCHEMA
+    assert len(calls)==1 and calls[0][1]==p.schema
     assert calls[0][2]['d2_body_sha256']==hashlib.sha256(p.body).hexdigest()
     assert p.preview()['contract']=='d2-quality-authorized-preview-v1'

@@ -90,5 +90,9 @@ def schema_for(messages):
     from . import d2_quality as quality
     if (len(messages)==2 and messages[0].get('content')==quality.GUIDE
             and json.loads(messages[1]['content']).get('wire_version')==quality.VERSION):
+        from .d2_schema import from_view
+        return from_view(json.loads(messages[1]['content']))
+    if (len(messages)==2 and messages[0].get('content')==quality.LEGACY_GUIDE
+            and json.loads(messages[1]['content']).get('wire_version')==quality.VERSION):
         return quality.SCHEMA
     return SCHEMA
