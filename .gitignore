@@ -213,6 +213,7 @@ report-bundles/
 !/docs/LOCARD_6_114_EXPLANATION.md
 !/docs/LOCARD_6_117_JOURNAL_SHORT_WRITE.md
 !/docs/LOCARD_6_118_LIVE_EXPLANATION.md
+!/docs/LOCARD_6_127_D2_ALIAS_NORMALIZATION.md
 
 # Analyst briefing sidecars and private editor scratch directories
 *.briefing/

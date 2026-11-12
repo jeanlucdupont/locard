@@ -25,7 +25,7 @@ ENUMS = dict(stage=STAGES, code=CODES, origin={'child','parent'}, failure_stage=
 NUMBERS = {'characters','utf8_bytes','maximum_bytes','response_bytes'}
 REQUIRED = {'contract','stage','code','origin','provider_response_received','json_extraction',
     'json_parsing','completion','usage_availability','worker_outcome','cleanup'}
-FIELDS = REQUIRED | set(ENUMS) | NUMBERS | {'pointer'}
+FIELDS = REQUIRED | set(ENUMS) | NUMBERS | {'pointer','normalization'}
 # A schema-derived path whitelist: model keys never become diagnostic pointers.
 KEYS = frozenset(('v','o','a','r','s','e','c','i','u','d','n','g','l','response','contract',
     'request_id','packet_digest','items','assessment','local_id','kind','statement','support_refs',
@@ -49,6 +49,9 @@ def validate(value):
     for key,choices in ENUMS.items():
         if key in value and (type(value[key]) is not str or value[key] not in choices):raise ValueError('D2_DIAGNOSTIC_ENUM')
     if value['provider_response_received'] is not None and type(value['provider_response_received']) is not bool:raise ValueError('D2_DIAGNOSTIC_RECEIPT')
+    if 'normalization' in value:
+        from .d2_normalization import validate_receipt
+        validate_receipt(value['normalization'])
     for key in NUMBERS & value.keys():
         if type(value[key]) is not int or not 0<=value[key]<=1048576:raise ValueError('D2_DIAGNOSTIC_COUNT')
     if 'pointer' in value:
@@ -133,6 +136,11 @@ def failure(exc,*,stage='compact_schema',origin='child',received=None,reported=N
     if result['stage']=='json_parsing':result['json_parsing']='failed'
     if token in ('D2_RESPONSE_BYTES','Model response exceeds content limit'):result['json_parsing']='not_attempted'
     if origin=='parent' and stage!='ipc':result['failure_stage']=result['stage'];result['stage']='parent_canonical_revalidation'
+    normalized=getattr(exc,'d2_normalization',None)
+    if normalized is not None:
+        from .d2_normalization import validate_receipt
+        try:result['normalization']=validate_receipt(normalized)
+        except (TypeError,ValueError):pass
     return validate(result)
 
 

@@ -60,6 +60,10 @@ def render(value):
         from .d2_diagnostics import line
         if execution['status']!='accepted':out.append('  Validation: '+line(execution['diagnostic']))
         out.append('  Usage availability: '+execution['diagnostic']['usage_availability']+'.')
+        normalized=execution['diagnostic'].get('normalization')
+        if normalized and normalized['occurred']:
+            out.append('  Exact duplicate references removed: '+str(normalized['duplicates_removed'])+
+                '; final validation: '+normalized['canonical_validation']+'.')
     out.append('Alternatives and discriminators')
     for p in value['proposals']:
         item=p['item']

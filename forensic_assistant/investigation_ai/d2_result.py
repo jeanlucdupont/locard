@@ -54,6 +54,9 @@ def parse(raw, bound):
                 or detail['provider_response_received']!=value['provider_response_received']
                 or detail['worker_outcome']!=value['status']
                 or (detail['code']=='none')!=(value['status']=='accepted')):raise ValueError('ipc_invalid_message')
+        if 'normalization' in detail:
+            allowed=('passed',) if value['status']=='accepted' else ('failed','not_attempted')
+            if detail['normalization']['canonical_validation'] not in allowed:raise ValueError('ipc_invalid_message')
     elif value.get('contract')!=CONTRACT or set(value)!=FIELDS:raise ValueError('ipc_invalid_binding')
     if (value['stage'] not in STAGES or value['category'] not in CATEGORIES
         or type(value['attempted']) is not bool or (value['provider_response_received'] is not None and type(value['provider_response_received']) is not bool)):

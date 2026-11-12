@@ -10,6 +10,7 @@ import time
 
 from . import d2, d2_wire as wire, d2_contracts, d2_result as ipc, d2_quality as quality
 from . import d2_diagnostics as diagnostics
+from . import d2_normalization as normalization
 from .transcript import digest
 from .supervision import Launch, _stop
 from .lifecycle import WorkerJob, CleanupError
@@ -37,7 +38,8 @@ class Prepared:
 
     def identity(self):
         return digest(dict(packet=self.packet, messages=self.messages, body=self.body.hex(),
-                           config=self.config, options=self.options, limits=LIMITS, context=self._response_context,profile=self.profile))
+                           config=self.config, options=self.options, limits=LIMITS, context=self._response_context,profile=self.profile,
+                           **({'response_policy':normalization.VERSION} if self.profile==quality.VERSION else {})))
 
     def check(self):
         if self.identity() != self._seal:
@@ -54,7 +56,7 @@ class Prepared:
     def preview(self):
         self.check()
         return dict(contract='d2-quality-authorized-preview-v1' if self.profile==quality.VERSION else 'd2-authorized-preview-v1',
-                    **(dict(response_contract=quality.CONTRACT) if self.profile==quality.VERSION else {}),
+                    **(dict(response_contract=quality.CONTRACT,response_policy=normalization.VERSION) if self.profile==quality.VERSION else {}),
                     provider=self.config['provider'], model=self.config['model'],
                     issue=self.packet['content']['issue'], source=self.packet['content']['source'],
                     view=self.packet['content']['view'], packet_digest=self.packet['packet_digest'],
@@ -85,7 +87,8 @@ class _Permit:
         self.grant = dict(contract=GRANT, provider=prepared.config['provider'], model=prepared.config['model'],
                           source=deepcopy(prepared.packet['content']['source']), view=deepcopy(prepared.packet['content']['view']),
                           issue=prepared.packet['content']['issue']['id'], packet_digest=prepared.packet['packet_digest'],
-                          request_sha256=hashlib.sha256(prepared.body).hexdigest(), limits=deepcopy(LIMITS))
+                          request_sha256=hashlib.sha256(prepared.body).hexdigest(), limits=deepcopy(LIMITS),
+                          **({'response_policy':normalization.VERSION} if prepared.profile==quality.VERSION else {}))
         self.grant_seal = digest(self.grant)
 
 
@@ -99,6 +102,27 @@ def authorize(prepared, confirmation):
     if prepared.identity() != prepared._seal:
         raise ValueError('D2_PREPARED_CHANGED')
     return _Permit(prepared)
+
+
+def validate_model_response(prepared,text,*,parent=False,checkpoint=lambda:None):
+    """Both processes recompute normalization; only original packet support has authority."""
+    info=None
+    try:
+        checkpoint()
+        if prepared.profile==quality.VERSION:
+            value,info=normalization.canonicalize(text,prepared.packet)
+            text=wire.J(value)
+        raw=prepared.codec.expand_response(text,prepared.packet)
+        result=(d2.validate_response(prepared.packet,raw,prepared._response_context,checkpoint) if parent else
+                prepared.history.validate(prepared.packet,raw,**prepared.options))
+        if info is not None:info['canonical_validation']='passed'
+        checkpoint()
+        return result,info
+    except Exception as exc:
+        if info is not None:
+            info['canonical_validation']='failed'
+            exc.d2_normalization=info
+        raise
 
 
 def _child(connection, gate, request):
@@ -141,10 +165,11 @@ def _child(connection, gate, request):
         completion = response.get('finish_reason')
         stage = 'response_validation'
         if time.monotonic()>=deadline:raise TimeoutError()
-        prepared.history.validate(prepared.packet, prepared.codec.expand_response(response['text'],prepared.packet), **prepared.options)
+        _,normalized=validate_model_response(prepared,response['text'])
         if time.monotonic()>=deadline:raise TimeoutError()
         detail=diagnostics.base(received=True,reported=usage,outcome='accepted')
         detail.update(json_extraction='passed',json_parsing='passed',completion=completion if completion in ('stop','end_turn') else 'unknown')
+        if normalized is not None:detail['normalization']=normalized
         value = ipc.envelope(bound,response=response['text'],usage=usage,attempted=True,received=True,diagnostics=detail)
     except BaseException as exc:
         if isinstance(exc,SystemExit) and exc.code==74:raise
@@ -242,8 +267,14 @@ def execute(permit, *, cancelled=None):
                 if 'diagnostic' in terminal:result['diagnostic']=deepcopy(terminal['diagnostic'])
                 if terminal['status']=='accepted':
                     # Only frozen, authenticated parent state supplies evidence authority.
-                    raw=p.codec.expand_response(terminal['response'],p.packet)
-                    result['validated']=d2.validate_response(p.packet,raw,p._response_context,checkpoint)
+                    validated,normalized=validate_model_response(p,terminal['response'],parent=True,checkpoint=checkpoint)
+                    if normalized is not None:
+                        recorded=terminal.get('diagnostic',{}).get('normalization')
+                        if recorded is not None and recorded!=normalized:raise ValueError('D2_RESPONSE_REQUEST_BINDING')
+                        if 'diagnostic' not in result:
+                            result['diagnostic']=diagnostics.base(received=True,reported=terminal['usage'],origin='parent',outcome='accepted')
+                        result['diagnostic']['normalization']=normalized
+                    result['validated']=validated
                     checkpoint()
             except TimeoutError:
                 raise

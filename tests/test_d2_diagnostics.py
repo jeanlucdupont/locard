@@ -185,8 +185,9 @@ def test_full_result_overflow_does_not_blame_diagnostic():
     assert actual['response'] is None and actual['usage']==USAGE
 
 
-def forged_accept(connection,gate,request):
-    gate.wait();v=answer();v['a'][0]['e']=['O999']
+def forged_accept(connection,gate,request,*,unknown=True):
+    gate.wait();v=answer()
+    if unknown:v['a'][0]['e']=['O999']
     detail=diag.base(received=True,reported=USAGE,outcome='accepted')
     ipc.send(connection,ipc.envelope(request['binding'],response=json.dumps(v),usage=USAGE,attempted=True,received=True,diagnostics=detail));connection.close()
 
@@ -201,7 +202,7 @@ def test_parent_revalidation_identity(monkeypatch):
 
 def test_parent_unexpected_failure_is_not_startup(monkeypatch):
     p=prepared();permit=ex.authorize(p,lambda _:True)
-    monkeypatch.setattr(ex,'_child',forged_accept)
+    monkeypatch.setattr(ex,'_child',functools.partial(forged_accept,unknown=False))
     def fail(*a,**k):raise RuntimeError('SECRET MODEL TEXT')
     monkeypatch.setattr(d2,'validate_response',fail)
     r=ex.execute(permit)
