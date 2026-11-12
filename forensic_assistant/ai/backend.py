@@ -244,10 +244,10 @@ class ModelBackend:
 
     def complete_d2(self, messages, body_sha256):
         """Called only inside D2's fresh-grant supervisor; no readiness requests."""
-        from forensic_assistant.investigation_ai.d2_wire import SCHEMA
+        from forensic_assistant.investigation_ai.d2_wire import schema_for
         if self.provider_name != 'openai' or self.endpoint or self.managed:
             raise ValueError('D2_PROVIDER_SCOPE')
-        return self._cloud_request(messages, SCHEMA, timeout=self.timeout, d2_body_sha256=body_sha256)
+        return self._cloud_request(messages, schema_for(messages), timeout=self.timeout, d2_body_sha256=body_sha256)
 
     def _cloud_request(self, messages, schema, *, timeout=None, handshake=False, d2_body_sha256=None):
         from .provider_diagnostics import ProviderFailure, STAGES

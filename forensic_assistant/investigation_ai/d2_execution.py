@@ -8,7 +8,7 @@ import queue
 import threading
 import time
 
-from . import d2, d2_wire as wire, d2_contracts, d2_result as ipc
+from . import d2, d2_wire as wire, d2_contracts, d2_result as ipc, d2_quality as quality
 from .transcript import digest
 from .supervision import Launch, _stop
 from .lifecycle import WorkerJob, CleanupError
@@ -20,36 +20,41 @@ GRANT = 'd2-reasoning-authorization-v1'
 
 class Prepared:
     """Created from trusted history; serialized caller packets are not an import API."""
-    def __init__(self, history, packet, config, options):
+    def __init__(self, history, packet, config, options, *, profile=wire.CONTRACT):
         if config['provider'] != 'openai':
             raise ValueError('D2_OPENAI_REQUIRED')
         self.history, self.packet, self.config, self.options = history, deepcopy(packet), deepcopy(config), deepcopy(options)
-        self.messages = wire.messages(self.packet)
-        wire.expand_view(json.loads(self.messages[1]['content']), self.packet)
-        self.body = wire.body(self.messages, config['model'])
+        if profile not in (wire.CONTRACT,quality.VERSION):raise ValueError('D2_PROFILE')
+        self.profile=profile
+        self.codec=quality if profile==quality.VERSION else wire
+        self.messages = self.codec.messages(self.packet)
+        self.codec.expand_view(json.loads(self.messages[1]['content']), self.packet)
+        self.body = wire.body(self.messages, config['model'],self.codec.SCHEMA)
         self._response_context = history.response_context(history.preview(**options))
         self._seal = self.identity()
         self.check()
 
     def identity(self):
         return digest(dict(packet=self.packet, messages=self.messages, body=self.body.hex(),
-                           config=self.config, options=self.options, limits=LIMITS, context=self._response_context))
+                           config=self.config, options=self.options, limits=LIMITS, context=self._response_context,profile=self.profile))
 
     def check(self):
         if self.identity() != self._seal:
             raise ValueError('D2_PREPARED_CHANGED')
-        wire.expand_view(json.loads(self.messages[1]['content']), self.packet)
+        self.codec.expand_view(json.loads(self.messages[1]['content']), self.packet)
         # A no-item canonical proposal validates original packet authority without AI.
         self.history.validate(self.packet, wire.J(dict(contract=d2_contracts.RESPONSE,
             request_id=self.packet['request_id'], packet_digest=self.packet['packet_digest'], items=[],
             assessment=dict(proposed_answerability='unresolved', rationale='Local source validation.',
                             support_refs=[self.packet['content']['supports'][0]['alias']]))), **self.options)
-        if self.body != wire.body(self.messages, self.config['model']):
+        if self.body != wire.body(self.messages, self.config['model'],self.codec.SCHEMA):
             raise ValueError('D2_REQUEST_CHANGED')
 
     def preview(self):
         self.check()
-        return dict(contract='d2-authorized-preview-v1', provider=self.config['provider'], model=self.config['model'],
+        return dict(contract='d2-quality-authorized-preview-v1' if self.profile==quality.VERSION else 'd2-authorized-preview-v1',
+                    **(dict(response_contract=quality.CONTRACT) if self.profile==quality.VERSION else {}),
+                    provider=self.config['provider'], model=self.config['model'],
                     issue=self.packet['content']['issue'], source=self.packet['content']['source'],
                     view=self.packet['content']['view'], packet_digest=self.packet['packet_digest'],
                     body_sha256=hashlib.sha256(self.body).hexdigest(), body_bytes=len(self.body),
@@ -58,7 +63,7 @@ class Prepared:
                     original_s3=deepcopy(self.history._original), provider_requests=0, durable=False)
 
 
-def prepare(root, run_id, issue_id, config, *, exploratory=False):
+def prepare(root, run_id, issue_id, config, *, exploratory=False, profile=quality.VERSION):
     from forensic_assistant.ai.settings import validate
     config = validate(config)
     history = d2.open_history(root, run_id)
@@ -66,7 +71,7 @@ def prepare(root, run_id, issue_id, config, *, exploratory=False):
     preview = history.preview(**options)
     if len(preview['packets']) != 1:
         raise ValueError('D2_NO_COMPLETE_PACKET')
-    return Prepared(history, preview['packets'][0], config, options)
+    return Prepared(history, preview['packets'][0], config, options,profile=profile)
 
 
 class _Permit:
@@ -110,7 +115,7 @@ def _child(connection, gate, request):
         if (current['provider'],current['model']) != ('openai',request['config']['model']):
             raise ValueError('D2_PROVIDER_CHANGED')
         prepared = prepare(request['root'], request['run_id'], request['issue'], request['config'],
-                           exploratory=request['exploratory'])
+                           exploratory=request['exploratory'],profile=request.get('profile',wire.CONTRACT))
         if prepared.identity()!=request['seal'] or ipc.binding(prepared)!=bound:
             raise ValueError('D2_SOURCE_CHANGED')
         from forensic_assistant.ai.backend import ModelBackend
@@ -130,7 +135,7 @@ def _child(connection, gate, request):
         received = True
         stage = 'response_validation'
         if time.monotonic()>=deadline:raise TimeoutError()
-        prepared.history.validate(prepared.packet, wire.expand_response(response['text'],prepared.packet), **prepared.options)
+        prepared.history.validate(prepared.packet, prepared.codec.expand_response(response['text'],prepared.packet), **prepared.options)
         if time.monotonic()>=deadline:raise TimeoutError()
         value = ipc.envelope(bound,response=response['text'],usage=response.get('usage',{}),attempted=True,received=True)
     except BaseException as exc:
@@ -171,7 +176,7 @@ def execute(permit, *, cancelled=None):
                     attempts=0,attempt_allocation_consumed=True,network_outcome='not_dispatched',
                     elapsed_seconds=round(time.monotonic()-permit.approved,3),cleanup='confirmed',lookups=0)
     request=dict(root=str(p.history._root),run_id=p.history._anchor['run_id'],issue=p.packet['content']['issue']['id'],
-                 config=p.config, exploratory=p.options['exploratory'],seal=permit.seal,deadline=deadline,binding=ipc.binding(p))
+                 config=p.config, exploratory=p.options['exploratory'],seal=permit.seal,deadline=deadline,binding=ipc.binding(p),profile=p.profile)
     context=multiprocessing.get_context('spawn')
     parent,child=context.Pipe(duplex=False);gate=context.Event()
     process=context.Process(target=_child,args=(child,gate,request),daemon=False)
@@ -218,7 +223,7 @@ def execute(permit, *, cancelled=None):
                             usage=terminal['usage'],ipc_result_bytes=len(payload))
                 if terminal['status']=='accepted':
                     # Only frozen, authenticated parent state supplies evidence authority.
-                    raw=wire.expand_response(terminal['response'],p.packet)
+                    raw=p.codec.expand_response(terminal['response'],p.packet)
                     result['validated']=d2.validate_response(p.packet,raw,p._response_context,checkpoint)
                     checkpoint()
             except (ValueError,TypeError,KeyError,UnicodeError,RecursionError):

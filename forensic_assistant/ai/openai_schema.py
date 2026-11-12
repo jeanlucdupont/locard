@@ -35,7 +35,8 @@ def synthesis(schema):
 
 def d2(schema):
     from forensic_assistant.investigation_ai.d2_wire import SCHEMA
-    return type(schema) is dict and schema == SCHEMA
+    from forensic_assistant.investigation_ai.d2_quality import SCHEMA as QUALITY
+    return type(schema) is dict and (schema == SCHEMA or schema == QUALITY)
 
 
 def _wire(node, *, byte_guidance=False):

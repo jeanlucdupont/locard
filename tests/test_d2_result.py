@@ -137,7 +137,7 @@ def test_exact_historical_overflow_fixed(monkeypatch):
     before=hashes()
     monkeypatch.setattr('sqlite3.connect',lambda *a,**k:pytest.fail('case'))
     monkeypatch.setattr('socket.socket.connect',lambda *a,**k:pytest.fail('network'))
-    p=ex.prepare(root,rid,issue,config(),exploratory=True)
+    p=ex.prepare(root,rid,issue,config(),exploratory=True,profile='d2c1')
     v=dict(s='Recorded observations may be related.',e=[s['alias'] for s in p.packet['content']['supports']],i=[],c=[],a=['The observations may be unrelated.'],u=[],g=['Coverage is limited.'],l=['Causality is unresolved.'],n='Seek separately authorized corroboration.')
     validated=p.history.validate(p.packet,ex.wire.expand_response(json.dumps(v),p.packet),**p.options)
     legacy=json.dumps(dict(status='accepted',validated=validated,usage={},attempted=True)).encode()

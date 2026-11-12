@@ -52,11 +52,11 @@ def expand_view(wire, packet):
     return body
 
 
-def body(messages, model):
+def body(messages, model, schema=None):
     """HTTPX is also the OpenAI SDK's JSON serializer; transport checks exact bytes."""
     import httpx
     from forensic_assistant.ai.capabilities import configure
-    request = configure(dict(messages=messages, model=model, max_completion_tokens=1024), 'openai', SCHEMA)
+    request = configure(dict(messages=messages, model=model, max_completion_tokens=1024), 'openai', schema if schema is not None else SCHEMA)
     return httpx.Request('POST', 'https://api.openai.com/v1/chat/completions', json=request).content
 
 
@@ -84,3 +84,11 @@ def expand_response(raw, packet):
                   rationale='Packet-limited unverified proposal; original S3 unchanged.', support_refs=v['e']))
     c.parse(J(result))
     return J(result)
+
+
+def schema_for(messages):
+    from . import d2_quality as quality
+    if (len(messages)==2 and messages[0].get('content')==quality.GUIDE
+            and json.loads(messages[1]['content']).get('wire_version')==quality.VERSION):
+        return quality.SCHEMA
+    return SCHEMA

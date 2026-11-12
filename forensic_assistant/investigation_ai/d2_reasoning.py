@@ -6,6 +6,9 @@ from .explanation import _safe
 
 
 def render(result, prepared):
+    if result.get('validated',{}).get('contract')=='d2-quality-validation-v1' or prepared.profile=='d2q1':
+        from . import d2_presentation
+        return d2_presentation.render(d2_presentation.view(result,prepared))
     packet=prepared.packet['content']
     lines=['Ephemeral D2 result — not saved', 'Established by the evidence']
     for leaf in packet['supports']:
@@ -47,7 +50,14 @@ def main():
     if not args.issue:
         if args.execute:parser.error('--execute requires an explicit --issue')
         preview=d2.open_history(args.root,args.run_id).preview(exploratory=args.exploratory)
-        print(json.dumps(preview,ensure_ascii=True) if args.json else d2.render(preview));return
+        from . import d2_issues
+        from forensic_assistant.ai.settings import load
+        review=d2_issues.inspect(d2.open_history(args.root,args.run_id),preview,load()['model'])
+        if args.json:print(json.dumps(dict(contract='d2-quality-discovery-v1',preview=preview,review=review),ensure_ascii=True))
+        else:
+            print('D2 issue review — no provider request')
+            for row in review['issues']:print(row['id']+' | '+row['purpose']+' | '+row['relevance']+' | '+row['feasibility'])
+        return
     from forensic_assistant.ai.settings import load
     prepared=service.prepare(args.root,args.run_id,args.issue,load(),exploratory=args.exploratory)
     preview=prepared.preview()
@@ -61,7 +71,10 @@ def main():
         print('Recorded evidence will be disclosed to this provider. No retries, lookups, fallback or persistence.')
         return input('Authorize this exact request? [y/N] ').strip().casefold()=='y'
     result=service.execute(service.authorize(prepared,approve))
-    print(json.dumps(result,ensure_ascii=True) if args.json else render(result,prepared))
+    if args.json:
+        from . import d2_presentation
+        print(json.dumps(dict(contract='d2-quality-result-v1',result=result,view=d2_presentation.view(result,prepared)),ensure_ascii=True))
+    else:print(render(result,prepared))
 
 
 if __name__=='__main__':

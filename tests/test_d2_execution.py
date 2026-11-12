@@ -232,7 +232,7 @@ def test_full_service_with_synthetic_history_and_mock_provider(tmp_path,monkeypa
     outcome,*_=execute(tmp_path);root=tmp_path/'runs';rid=outcome['investigation_id']
     paths=[root/rid/n for n in ('manifest.json','events.jsonl')];before=[p.read_bytes() for p in paths]
     preview=d2.open_history(root,rid).preview(exploratory=True)
-    p=ex.prepare(root,rid,preview['packets'][0]['content']['issue']['id'],config(),exploratory=True)
+    p=ex.prepare(root,rid,preview['packets'][0]['content']['issue']['id'],config(),exploratory=True,profile='d2c1')
     permit=ex.authorize(p,lambda _:True)
     # Spawn uses this named test function; only its provider entry is mocked.
     monkeypatch.setattr(ex,'_child',_successful_child)

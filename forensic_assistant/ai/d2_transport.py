@@ -6,9 +6,9 @@ def guarded_client(request, transport=None):
     import httpx
     from openai import OpenAI
     from forensic_assistant.investigation_ai import d2_wire as wire
-    if request['provider'] != 'openai' or request['schema'] != wire.SCHEMA:
+    if request['provider'] != 'openai' or request['schema'] != wire.schema_for(request['messages']):
         raise ValueError('D2_PROVIDER_CONTRACT')
-    expected = wire.body(request['messages'], request['model'])
+    expected = wire.body(request['messages'], request['model'],request['schema'])
     if len(expected) > wire.LIMIT or hashlib.sha256(expected).hexdigest() != request['d2_body_sha256']:
         raise ValueError('D2_BODY_ADMISSION')
     class Gate(httpx.BaseTransport):

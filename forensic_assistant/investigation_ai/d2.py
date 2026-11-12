@@ -301,7 +301,11 @@ class _History:
 def validate_response(expected, raw, context, checkpoint=lambda: None):
     """Existing strict validator over parent-owned frozen inputs; no IO or replay."""
     checkpoint()
-    value = c.parse(raw)
+    from . import d2_quality
+    if not isinstance(raw,str) or len(raw.encode('utf-8'))>c.RESPONSE_BYTES:raise ValueError('D2_RESPONSE_BYTES')
+    header = json.loads(raw)
+    quality = type(header) is dict and header.get('contract')==d2_quality.CONTRACT
+    value = d2_quality.parse(raw) if quality else c.parse(raw)
     if value['request_id']!=expected['request_id'] or value['packet_digest']!=expected['packet_digest']:
         raise ValueError('D2_RESPONSE_REQUEST_BINDING')
     body = expected['content']
@@ -339,7 +343,7 @@ def validate_response(expected, raw, context, checkpoint=lambda: None):
         if item['relationship'] and not any(
             r['predicate']==item['relationship'][0]['predicate'] and r['endpoints']==item['relationship'][0]['endpoints'] for r in validated_edges):
             raise ValueError('D2_UNSUPPORTED_RELATIONSHIP')
-        accepted.append(dict(id=digest([c.RESPONSE,expected['request_id'],item]),
+        accepted.append(dict(id=digest([value['contract'],expected['request_id'],item]),
             request_id=expected['request_id'],packet_digest=expected['packet_digest'],
             classification='mechanically_accepted_unverified',item=deepcopy(item),
             dependencies=[dict(evidence_id=body['records'][s['record_ref']],
@@ -351,7 +355,8 @@ def validate_response(expected, raw, context, checkpoint=lambda: None):
             validated_relationship_ids=[r['id'] for r in validated_edges],
             mandatory_qualifications=deepcopy(body['qualifications'])))
     checkpoint()
-    return dict(contract='d2-offline-validation-v1',status='accepted_offline',proposals=accepted,
+    return dict(contract='d2-quality-validation-v1' if quality else 'd2-offline-validation-v1',status='accepted_offline',proposals=accepted,
+        **(dict(reasoning_outcome=value['reasoning_outcome'],abstention_reason=value['abstention_reason']) if quality else {}),
         source=deepcopy(context['source']),request_id=expected['request_id'],packet_digest=expected['packet_digest'],
         assessment=deepcopy(value['assessment']),assessment_classification='unverified_packet_limited',
         original_s3_assessment=deepcopy(context['original']),actually_disclosed=False,dispatch_authorized=False)

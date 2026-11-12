@@ -42,8 +42,8 @@ def generate(request, sdk):
         from .d2_transport import guarded_client
         if request.get('raw_diagnostics') or request.get('handshake'):
             raise ValueError('D2_UNSUPPORTED_MODE')
-        from forensic_assistant.investigation_ai.d2_wire import SCHEMA
-        if request['schema'] != SCHEMA or request['provider'] != 'openai':
+        from forensic_assistant.investigation_ai.d2_wire import schema_for
+        if request['schema'] != schema_for(request['messages']) or request['provider'] != 'openai':
             raise ValueError('D2_SCHEMA_MISMATCH')
         kwargs.pop('max_tokens', None)
         kwargs['max_completion_tokens'] = 1024
