@@ -25,21 +25,25 @@ SCHEMA = quality.SCHEMA
 expand_response = quality.expand_response
 
 
-def messages(packet):
-    result = quality.messages(packet)
-    result[0]['content'] = GUIDE
+def guide(version=quality.VERSION):
+    return quality.guide(version)+GUIDE[len(quality.GUIDE):]
+
+
+def messages(packet,version=quality.VERSION):
+    result = quality.messages(packet,version)
+    result[0]['content'] = guide(version)
     view = json.loads(result[1]['content'])
     view['wire_version'] = VERSION
     result[1]['content'] = wire.J(view)
     return result
 
 
-def expand_view(value, packet):
+def expand_view(value, packet,version=quality.VERSION):
     value = deepcopy(value)
     if value.get('wire_version') != VERSION:
         raise ValueError('D2_CROSS_VERSION')
-    value['wire_version'] = quality.VERSION
-    return quality.expand_view(value, packet)
+    value['wire_version'] = version
+    return quality.expand_view(value, packet,version)
 
 
 def _question(value):
@@ -99,16 +103,18 @@ def _words(value):
 
 class History(d2._History):
     """Internal handle constructed only from a validated D2 history."""
-    def __init__(self, history, question, model):
+    def __init__(self, history, question, model, response_version=quality.VERSION):
         history._check()
         super().__init__(history._ctx, history._anchor, history._original,
                          history._mapping_status, history._root)
         self.question, self.model = _question(question), model
-        self._question_seal = digest([self.question, self.model])
+        quality.schema(response_version)
+        self.response_version=response_version
+        self._question_seal = digest([self.question, self.model,self.response_version])
 
     def preview(self, *, exploratory=True, issue_ids=(), _clock=time.monotonic):
         self._check()
-        if digest([self.question, self.model]) != self._question_seal or issue_ids or exploratory is not True:
+        if digest([self.question, self.model,self.response_version]) != self._question_seal or issue_ids or exploratory is not True:
             raise ValueError('D2_CROSS_OPTIONS')
         meter = b1.Meter(b1.Limits(), _clock)
         ctx = self._ctx
@@ -218,7 +224,7 @@ class History(d2._History):
             body = packet['content']
             if len(body['supports']) > 12 or len(body['interpretations']) > 4:
                 return 'support_count_budget'
-            if len(wire.body(messages(packet), self.model, d2_schema.from_packet(packet))) > LIMIT:
+            if len(wire.body(messages(packet,self.response_version), self.model, d2_schema.from_packet(packet,self.response_version))) > LIMIT:
                 return 'complete_request_byte_budget'
             return None
         def restore(keys):
@@ -271,7 +277,7 @@ class History(d2._History):
                 if bundles is None: continue
                 selected = bundles
                 candidate = encode(bundles)
-                cost = len(wire.body(messages(candidate),self.model,d2_schema.from_packet(candidate))) if len(candidate['content']['supports'])<=12 else None
+                cost = len(wire.body(messages(candidate,self.response_version),self.model,d2_schema.from_packet(candidate,self.response_version))) if len(candidate['content']['supports'])<=12 else None
                 reason = fits(candidate)
                 enough = sufficiency()['status']=='comparison_inputs_present'
                 utility = 1+8*exact+2*overlap+min(lexical,8)
@@ -306,7 +312,7 @@ class History(d2._History):
             selected = selected+[(uid,bundle)]
             candidate=encode(selected)
             reason=fits(candidate)
-            bundle_diagnostics.append(dict(units=[uid], cost_bytes=len(wire.body(messages(candidate),self.model,d2_schema.from_packet(candidate))) if len(candidate['content']['supports'])<=12 and len(candidate['content']['interpretations'])<=4 else None,
+            bundle_diagnostics.append(dict(units=[uid], cost_bytes=len(wire.body(messages(candidate,self.response_version),self.model,d2_schema.from_packet(candidate,self.response_version))) if len(candidate['content']['supports'])<=12 and len(candidate['content']['interpretations'])<=4 else None,
                                            reason=reason or 'selected_complement', rationale='Complementary original context; cost includes the already selected context.'))
             if reason: decisions[uid]=reason;selected=previous
             elif unit.get('predicate')=='recorded_time_before': temporal_edges+=1
@@ -332,11 +338,11 @@ class History(d2._History):
                                'Unselected evidence is not irrelevant; missing families require separately authorized retrieval.')
 
 
-def prepare(root, run_id, question, config):
+def prepare(root, run_id, question, config, *, response_version=quality.CURRENT):
     from forensic_assistant.ai.settings import validate
     from .d2_execution import Prepared
     config = validate(config)
-    history = History(d2.open_history(root, run_id), question, config['model'])
+    history = History(d2.open_history(root, run_id), question, config['model'],response_version)
     preview = history.preview()
     if not preview['packets']:
         raise ValueError('D2_CROSS_INSUFFICIENT_ARTIFACT_COVERAGE')
@@ -345,14 +351,14 @@ def prepare(root, run_id, question, config):
     return Prepared(history, preview['packets'][0], config, dict(exploratory=True), profile=VERSION)
 
 
-def preview(root, run_id, question, config):
+def preview(root, run_id, question, config, *, response_version=quality.CURRENT):
     """Provider-free admission including useful failure/coverage information."""
     from forensic_assistant.ai.settings import validate
     from .d2_execution import Prepared
     config = validate(config)
     if config['provider'] != 'openai':
         raise ValueError('D2_OPENAI_REQUIRED')
-    history = History(d2.open_history(root, run_id), question, config['model'])
+    history = History(d2.open_history(root, run_id), question, config['model'],response_version)
     result = history.preview()
     if result['packets']:
         value = Prepared(history, result['packets'][0], config, dict(exploratory=True), profile=VERSION).preview()

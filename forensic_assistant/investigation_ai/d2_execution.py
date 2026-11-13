@@ -23,19 +23,21 @@ GRANT = 'd2-reasoning-authorization-v1'
 
 class Prepared:
     """Created from trusted history; serialized caller packets are not an import API."""
-    def __init__(self, history, packet, config, options, *, profile=wire.CONTRACT):
+    def __init__(self, history, packet, config, options, *, profile=wire.CONTRACT, response_version=quality.VERSION):
         if config['provider'] != 'openai':
             raise ValueError('D2_OPENAI_REQUIRED')
         self.history, self.packet, self.config, self.options = history, deepcopy(packet), deepcopy(config), deepcopy(options)
         if profile not in (wire.CONTRACT,quality.VERSION,cross.VERSION):raise ValueError('D2_PROFILE')
         self.profile=profile
+        self.response_version=history.response_version if profile==cross.VERSION else response_version
+        if profile!=wire.CONTRACT:quality.schema(self.response_version)
         self.codec=cross if profile==cross.VERSION else quality if profile==quality.VERSION else wire
         self.limits={**LIMITS, **({"body_bytes":cross.LIMIT} if profile==cross.VERSION else {})}
         self.request_policy=cross.POLICY if profile==cross.VERSION else "d2-single-packet-request-v1"
         if profile==cross.VERSION and type(history) is not cross.History:raise ValueError("D2_CROSS_HISTORY")
-        self.schema = typed_schema.from_packet(self.packet) if self.profile in (quality.VERSION,cross.VERSION) else deepcopy(self.codec.SCHEMA)
-        self.messages = self.codec.messages(self.packet)
-        self.codec.expand_view(json.loads(self.messages[1]['content']), self.packet)
+        self.schema = typed_schema.from_packet(self.packet,self.response_version) if self.profile in (quality.VERSION,cross.VERSION) else deepcopy(self.codec.SCHEMA)
+        self.messages = self.codec.messages(self.packet,self.response_version) if profile!=wire.CONTRACT else self.codec.messages(self.packet)
+        self.codec.expand_view(json.loads(self.messages[1]['content']), self.packet, *([self.response_version] if self.profile!=wire.CONTRACT else []))
         self.body = wire.body(self.messages, config['model'],self.schema)
         self._response_context = history.response_context(history.preview(**options))
         self._seal = self.identity()
@@ -43,14 +45,14 @@ class Prepared:
 
     def identity(self):
         return digest(dict(packet=self.packet, messages=self.messages, body=self.body.hex(),
-                           config=self.config, options=self.options, limits=self.limits, request_policy=self.request_policy, context=self._response_context,profile=self.profile,
+                           config=self.config, options=self.options, limits=self.limits, request_policy=self.request_policy, context=self._response_context,profile=self.profile,response_version=self.response_version,
                            **({'response_policy':normalization.VERSION,'schema_policy':typed_schema.POLICY,'schema':self.schema} if self.profile in (quality.VERSION,cross.VERSION) else {})))
 
     def check(self):
         if self.identity() != self._seal:
             raise ValueError('D2_PREPARED_CHANGED')
-        self.codec.expand_view(json.loads(self.messages[1]['content']), self.packet)
-        expected=typed_schema.from_packet(self.packet) if self.profile in (quality.VERSION,cross.VERSION) else self.codec.SCHEMA
+        self.codec.expand_view(json.loads(self.messages[1]['content']), self.packet, *([self.response_version] if self.profile!=wire.CONTRACT else []))
+        expected=typed_schema.from_packet(self.packet,self.response_version) if self.profile in (quality.VERSION,cross.VERSION) else self.codec.SCHEMA
         if self.schema!=expected:raise ValueError('D2_REFERENCE_SCHEMA')
         # A no-item canonical proposal validates original packet authority without AI.
         self.history.validate(self.packet, wire.J(dict(contract=d2_contracts.RESPONSE,
@@ -63,7 +65,7 @@ class Prepared:
     def preview(self):
         self.check()
         return dict(contract='d2-quality-authorized-preview-v1' if self.profile in (quality.VERSION,cross.VERSION) else 'd2-authorized-preview-v1',
-                    **(dict(response_contract=quality.CONTRACT,response_policy=normalization.VERSION,schema_policy=typed_schema.POLICY,schema_sha256=digest(self.schema)) if self.profile in (quality.VERSION,cross.VERSION) else {}),
+                    **(dict(response_contract=quality.CONTRACT,response_version=self.response_version,response_policy=normalization.VERSION,schema_policy=typed_schema.POLICY,schema_sha256=digest(self.schema)) if self.profile in (quality.VERSION,cross.VERSION) else {}),
                     provider=self.config['provider'], model=self.config['model'],
                     issue=self.packet['content']['issue'], source=self.packet['content']['source'],
                     view=self.packet['content']['view'], packet_digest=self.packet['packet_digest'],
@@ -80,7 +82,7 @@ class Prepared:
                        if self.profile==cross.VERSION else {}))
 
 
-def prepare(root, run_id, issue_id, config, *, exploratory=False, profile=quality.VERSION):
+def prepare(root, run_id, issue_id, config, *, exploratory=False, profile=quality.VERSION, response_version=quality.CURRENT):
     from forensic_assistant.ai.settings import validate
     config = validate(config)
     history = d2.open_history(root, run_id)
@@ -88,7 +90,7 @@ def prepare(root, run_id, issue_id, config, *, exploratory=False, profile=qualit
     preview = history.preview(**options)
     if len(preview['packets']) != 1:
         raise ValueError('D2_NO_COMPLETE_PACKET')
-    return Prepared(history, preview['packets'][0], config, options,profile=profile)
+    return Prepared(history, preview['packets'][0], config, options,profile=profile,response_version=response_version)
 
 
 class _Permit:
@@ -102,7 +104,7 @@ class _Permit:
                           source=deepcopy(prepared.packet['content']['source']), view=deepcopy(prepared.packet['content']['view']),
                           issue=prepared.packet['content']['issue']['id'], packet_digest=prepared.packet['packet_digest'],
                           request_sha256=hashlib.sha256(prepared.body).hexdigest(), limits=deepcopy(prepared.limits),
-                          **({'response_policy':normalization.VERSION,'schema_policy':typed_schema.POLICY,'schema_sha256':digest(prepared.schema)} if prepared.profile in (quality.VERSION,cross.VERSION) else {}))
+                          **({'response_version':prepared.response_version,'response_policy':normalization.VERSION,'schema_policy':typed_schema.POLICY,'schema_sha256':digest(prepared.schema)} if prepared.profile in (quality.VERSION,cross.VERSION) else {}))
         self.grant_seal = digest(self.grant)
 
 
@@ -124,9 +126,9 @@ def validate_model_response(prepared,text,*,parent=False,checkpoint=lambda:None)
     try:
         checkpoint()
         if prepared.profile in (quality.VERSION,cross.VERSION):
-            value,info=normalization.canonicalize(text,prepared.packet,typed=True)
+            value,info=normalization.canonicalize(text,prepared.packet,typed=True,version=prepared.response_version)
             text=wire.J(value)
-        raw=prepared.codec.expand_response(text,prepared.packet)
+        raw=prepared.codec.expand_response(text,prepared.packet,*([prepared.response_version] if prepared.profile!=wire.CONTRACT else []))
         result=(d2.validate_response(prepared.packet,raw,prepared._response_context,checkpoint) if parent else
                 prepared.history.validate(prepared.packet,raw,**prepared.options))
         if info is not None:info['canonical_validation']='passed'
@@ -156,10 +158,10 @@ def _child(connection, gate, request):
         current = load()
         if (current['provider'],current['model']) != ('openai',request['config']['model']):
             raise ValueError('D2_PROVIDER_CHANGED')
-        prepared = (cross.prepare(request["root"], request["run_id"], request["question"], request["config"])
+        prepared = (cross.prepare(request["root"], request["run_id"], request["question"], request["config"],response_version=request.get("response_version",quality.VERSION))
                     if request.get("profile")==cross.VERSION else
                     prepare(request['root'], request['run_id'], request['issue'], request['config'],
-                            exploratory=request['exploratory'],profile=request.get('profile',wire.CONTRACT)))
+                            exploratory=request['exploratory'],profile=request.get('profile',wire.CONTRACT),response_version=request.get('response_version',quality.VERSION)))
         if prepared.identity()!=request['seal'] or ipc.binding(prepared)!=bound:
             raise ValueError('D2_SOURCE_CHANGED')
         from forensic_assistant.ai.backend import ModelBackend
@@ -235,7 +237,7 @@ def execute(permit, *, cancelled=None):
                     attempts=0,attempt_allocation_consumed=True,network_outcome='not_dispatched',
                     elapsed_seconds=round(time.monotonic()-permit.approved,3),cleanup='confirmed',lookups=0,diagnostic=detail)
     request=dict(root=str(p.history._root),run_id=p.history._anchor['run_id'],issue=p.packet['content']['issue']['id'],
-                 config=p.config, exploratory=p.options['exploratory'],seal=permit.seal,deadline=deadline,binding=ipc.binding(p),profile=p.profile,
+                 config=p.config, exploratory=p.options['exploratory'],seal=permit.seal,deadline=deadline,binding=ipc.binding(p),profile=p.profile,response_version=p.response_version,
                  **({"question":p.history.question} if p.profile==cross.VERSION else {}))
     context=multiprocessing.get_context('spawn')
     parent,child=context.Pipe(duplex=False);gate=context.Event()

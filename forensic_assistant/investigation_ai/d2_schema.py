@@ -12,12 +12,12 @@ def _aliases(values, prefix, maximum):
     return values
 
 
-def build(originals, interpretations):
-    from .d2_quality import SCHEMA
+def build(originals, interpretations, version='d2q1'):
+    from .d2_quality import schema as quality_schema
     originals=_aliases(originals,'O',12)
     interpretations=_aliases(interpretations,'I',4)
     if not originals:raise ValueError('D2_REFERENCE_SCHEMA')
-    schema=copy.deepcopy(SCHEMA)
+    schema=quality_schema(version)
     fields=schema['properties']['a']['items']['properties']
     for key,aliases in (('e',originals),('c',originals),('i',interpretations)):
         # Exact enums imply the canonical alias length bounds. Empty namespace
@@ -27,14 +27,14 @@ def build(originals, interpretations):
     return schema
 
 
-def from_packet(packet):
+def from_packet(packet, version='d2q1'):
     body=packet['content']
-    return build([s['alias'] for s in body['supports']], [s['alias'] for s in body['interpretations']])
+    return build([s['alias'] for s in body['supports']], [s['alias'] for s in body['interpretations']],version)
 
 
 def from_view(view):
-    if view.get('wire_version')!='d2q1':raise ValueError('D2_REFERENCE_SCHEMA')
-    return build([s[0] for s in view['supports']], [s['alias'] for s in view['interpretations']])
+    if view.get('wire_version') not in ('d2q1','d2q2'):raise ValueError('D2_REFERENCE_SCHEMA')
+    return build([s[0] for s in view['supports']], [s['alias'] for s in view['interpretations']],view['wire_version'])
 
 
 def recognized(schema):
@@ -42,8 +42,8 @@ def recognized(schema):
         fields=schema['properties']['a']['items']['properties']
         originals=fields['e']['items']['enum']
         interpretations=fields['i']['items'].get('enum',[])
-        return schema==build(originals,interpretations)
-    except (KeyError,TypeError,ValueError,AttributeError):return False
+        return schema==build(originals,interpretations,schema['properties']['v']['enum'][0])
+    except (KeyError,TypeError,ValueError,AttributeError,IndexError):return False
 
 
 def reference_detail(path, value, packet):

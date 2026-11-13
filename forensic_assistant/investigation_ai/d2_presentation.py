@@ -39,6 +39,7 @@ def view(result,prepared):
                 question_assessment_status=packet['issue']['question_assessment_status']) if cross else {}),
         qualifications=unique(packet['qualifications']),reasoning_outcome=validated.get('reasoning_outcome'),
         abstention_reason=validated.get('abstention_reason',''),proposals=proposals,
+        **({'outcome_rationale':validated['outcome_rationale'],'rationale_classification':'unverified_model_commentary'} if 'outcome_rationale' in validated else {}),
         coverage=deepcopy(packet['coverage']),relationships=deepcopy(packet['relationships']),
         provider=prepared.config['provider'],model=prepared.config['model'],
         source=deepcopy(packet['source']),view=deepcopy(packet['view']),s3=prepared.history._original['status'],
@@ -66,7 +67,7 @@ def render(value):
     execution=value['execution']
     if execution['status']!='accepted':out.append('  No validated AI reasoning: '+_safe(execution.get('reason','unknown')))
     elif not value['proposals']:
-        out.append('  '+_safe(value['reasoning_outcome'] or 'No material inference')+': '+_safe(value['abstention_reason']))
+        out.append('  '+_safe(value['reasoning_outcome'] or 'No material inference')+('' if 'outcome_rationale' in value else ': '+_safe(value['abstention_reason'])))
     else:
         for p in value['proposals']:out.append('  Unverified account: '+_safe(p['item']['statement']))
     if execution.get('diagnostic'):
@@ -77,6 +78,8 @@ def render(value):
         if normalized and normalized['occurred']:
             out.append('  Exact duplicate references removed: '+str(normalized['duplicates_removed'])+
                 '; final validation: '+normalized['canonical_validation']+'.')
+    if value.get('outcome_rationale'):
+        out += ['Unverified outcome rationale', '  '+_safe(value['outcome_rationale'])]
     out.append('Alternatives and discriminators')
     for p in value['proposals']:
         item=p['item']

@@ -174,6 +174,8 @@ def _successful_child(connection,gate,request):
         view=json.loads(messages[1]['content'])
         assert view['wire_version']==x.VERSION
         return dict(text=w.J(answer('competing_explanations',aliases=[view['supports'][0][0]]) | {
+            'v':w.schema_for(messages)['properties']['v']['enum'][0],
+            'r':'The association remains uncertain.' if w.schema_for(messages)['properties']['v']['enum'][0]==q.CURRENT else '',
             'a':[dict(s='The recorded observations might be related.',e=[view['supports'][0][0]],c=[],i=[],
                       a='They might describe independent activity.',u='Host clocks and identity remain uncertain.',
                       d='Compare recorded hashes before asserting common identity.',
@@ -197,6 +199,7 @@ def test_windows_supervisor_history_roundtrip(tmp_path,monkeypatch):
     assert output['ipc_result_bytes']<32768
     assert output['usage']['completion_tokens']==100
     assert output['validated']['original_s3_assessment']==p.history._original
+    assert output['validated']['outcome_rationale']=='The association remains uncertain.'
     with pytest.raises(ValueError):ex.execute(permit)
     assert before==[hashlib.sha256(f.read_bytes()).hexdigest() for f in files]
 
@@ -306,7 +309,7 @@ def test_question_changes_selection_and_binding():
 
 def _invalid_child(connection,gate,request):
     def complete(client,messages,body_sha256):
-        v=answer();v['a'][0]['e']=['O999']
+        v=answer();v['v']=w.schema_for(messages)['properties']['v']['enum'][0];v['a'][0]['e']=['O999']
         return dict(text=w.J(v),finish_reason='stop',usage={'completion_tokens':12})
     with patch.object(settings,'load',lambda:request['config']),patch('forensic_assistant.ai.backend.ModelBackend.complete_d2',complete):
         _ORIGINAL_CHILD(connection,gate,request)
@@ -351,7 +354,7 @@ def test_cross_human_output_keeps_classifications():
 
 def _forged_acceptance(connection,gate,request):
     gate.wait()
-    v=answer();v['a'][0]['e']=['O999']
+    v=answer();v['v']=request['response_version'];v['a'][0]['e']=['O999']
     connection.send_bytes(b'{"phase":"attempt"}')
     ipc.send(connection,ipc.envelope(request['binding'],response=w.J(v),attempted=True,received=True))
     connection.close()

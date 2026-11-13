@@ -42,7 +42,7 @@ def inspect(history, preview, model):
                  selection='selected_for_preview' if issue['id'] in results else 'deferred_not_evaluated',
                  feasibility=results.get(issue['id'],{}).get('status','not_evaluated'))
         if issue['id'] in packets:
-            p=packets[issue['id']];messages=d2_quality.messages(p)
+            p=packets[issue['id']];messages=d2_quality.messages(p,d2_quality.CURRENT)
             row['request_bytes']=len(d2_wire.body(messages,model,d2_wire.schema_for(messages)))
             row['feasibility']='fits_complete_request' if row['request_bytes']<=5600 else 'complete_request_oversized'
         rows.append(row)

@@ -104,17 +104,18 @@ def _child(connection,gate,request):
     def complete(client,messages,body_sha256):
         assert w.schema_for(messages)!=q.SCHEMA
         assert len(w.body(messages,client.model_name,w.schema_for(messages)))<=5600
-        return dict(text=json.dumps(answer('no_material_inference')),usage={})
+        return dict(text=json.dumps(dict(answer('no_material_inference'),v=w.schema_for(messages)['properties']['v']['enum'][0])),usage={})
     with patch.object(settings,'load',config),patch('forensic_assistant.ai.backend.ModelBackend.complete_d2',complete),patch('socket.socket.connect',side_effect=AssertionError('network')),patch('sqlite3.connect',side_effect=AssertionError('case')):
         original(connection,gate,request)
 
 
-def test_quality_windows_spawn_historical(monkeypatch):
+@pytest.mark.parametrize('response_version,expected_bytes',[(q.VERSION,5455),(q.CURRENT,5453)])
+def test_quality_windows_spawn_historical(monkeypatch,response_version,expected_bytes):
     root=Path(r'C:\tmp\locard-diagnostics\6.118-live');rid='6ad0c85499564406aa4d949f3b0e72e5'
     if not (root/rid/'manifest.json').exists():pytest.skip('readable copied fixture unavailable')
     files=[root/rid/n for n in ('manifest.json','events.jsonl')];hashes=lambda:[hashlib.sha256(f.read_bytes()).hexdigest() for f in files];before=hashes()
-    p=ex.prepare(root,rid,'d81869143ab5f3a355285bd79802d93912491834bc4f602c0a5fda6fd28739e7',config(),exploratory=True)
-    assert p.profile==q.VERSION and len(p.body)==5455
+    p=ex.prepare(root,rid,'d81869143ab5f3a355285bd79802d93912491834bc4f602c0a5fda6fd28739e7',config(),exploratory=True,response_version=response_version)
+    assert p.profile==q.VERSION and len(p.body)==expected_bytes
     permit=ex.authorize(p,lambda _:True)
     monkeypatch.setattr(ex,'_child',_child)
     result=ex.execute(permit)

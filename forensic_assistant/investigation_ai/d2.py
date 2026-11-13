@@ -356,7 +356,7 @@ def validate_response(expected, raw, context, checkpoint=lambda: None):
             mandatory_qualifications=deepcopy(body['qualifications'])))
     checkpoint()
     return dict(contract='d2-quality-validation-v1' if quality else 'd2-offline-validation-v1',status='accepted_offline',proposals=accepted,
-        **(dict(reasoning_outcome=value['reasoning_outcome'],abstention_reason=value['abstention_reason']) if quality else {}),
+        **(dict(reasoning_outcome=value['reasoning_outcome'],abstention_reason=value['abstention_reason'],**({k:value[k] for k in ('outcome_rationale','response_version')} if 'outcome_rationale' in value else {})) if quality else {}),
         source=deepcopy(context['source']),request_id=expected['request_id'],packet_digest=expected['packet_digest'],
         assessment=deepcopy(value['assessment']),assessment_classification='unverified_packet_limited',
         original_s3_assessment=deepcopy(context['original']),actually_disclosed=False,dispatch_authorized=False)

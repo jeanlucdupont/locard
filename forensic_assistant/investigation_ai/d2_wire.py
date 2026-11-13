@@ -88,16 +88,17 @@ def expand_response(raw, packet):
 
 def schema_for(messages):
     from . import d2_quality as quality, d2_cross as cross
-    if (len(messages)==2 and messages[0].get('content')==cross.GUIDE
-            and json.loads(messages[1]['content']).get('wire_version')==cross.VERSION):
-        from .d2_schema import build
-        view=json.loads(messages[1]['content'])
-        if view.get('issue',{}).get('request_policy')!=cross.POLICY:raise ValueError('D2_CROSS_POLICY')
-        return build([s[0] for s in view['supports']], [s['alias'] for s in view['interpretations']])
-    if (len(messages)==2 and messages[0].get('content')==quality.GUIDE
-            and json.loads(messages[1]['content']).get('wire_version')==quality.VERSION):
-        from .d2_schema import from_view
-        return from_view(json.loads(messages[1]['content']))
+    for version in quality.VERSIONS:
+        if (len(messages)==2 and messages[0].get('content')==cross.guide(version)
+                and json.loads(messages[1]['content']).get('wire_version')==cross.VERSION):
+            from .d2_schema import build
+            view=json.loads(messages[1]['content'])
+            if view.get('issue',{}).get('request_policy')!=cross.POLICY:raise ValueError('D2_CROSS_POLICY')
+            return build([s[0] for s in view['supports']], [s['alias'] for s in view['interpretations']],version)
+        if (len(messages)==2 and messages[0].get('content')==quality.guide(version)
+                and json.loads(messages[1]['content']).get('wire_version')==version):
+            from .d2_schema import from_view
+            return from_view(json.loads(messages[1]['content']))
     if (len(messages)==2 and messages[0].get('content')==quality.LEGACY_GUIDE
             and json.loads(messages[1]['content']).get('wire_version')==quality.VERSION):
         return quality.SCHEMA
@@ -105,8 +106,8 @@ def schema_for(messages):
 
 
 def request_limit(messages):
-    from . import d2_cross as cross
-    if (len(messages)==2 and messages[0].get('content')==cross.GUIDE
+    from . import d2_cross as cross, d2_quality as quality
+    if (len(messages)==2 and messages[0].get('content') in tuple(cross.guide(v) for v in quality.VERSIONS)
             and json.loads(messages[1]['content']).get('wire_version')==cross.VERSION):
         schema_for(messages)  # Exact versioned cross-artifact envelope only.
         return cross.LIMIT

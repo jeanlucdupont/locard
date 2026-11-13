@@ -26,13 +26,13 @@ def validate_receipt(value):
     return value
 
 
-def _structural(value, packet=None):
+def _structural(value, packet=None,version=quality.VERSION):
     # Exact provider-facing structure, including raw item counts, before any
     # mutation. The canonical validator remains responsible for UTF-8 byte limits.
     from forensic_assistant.ai.openai_schema import request_schema
     from forensic_assistant.ai.response_contract import validator
     from . import d2_schema
-    schema=request_schema('openai',quality.SCHEMA if packet is None else d2_schema.from_packet(packet))
+    schema=request_schema('openai',quality.schema(version) if packet is None else d2_schema.from_packet(packet,version))
     error=next(validator(schema).iter_errors(value),None)
     if error is None:return
     failure=ValueError('D2_RAW_SCHEMA')
@@ -57,12 +57,13 @@ def _structural(value, packet=None):
     raise failure
 
 
-def canonicalize(raw,packet,*,typed=False):
+def canonicalize(raw,packet,*,typed=False,version=quality.VERSION):
     """No original evidence mutation, alias repair, or post-dedup size admission."""
     info=receipt()
+    value=None
     try:
         value=contracts.loads(raw,max_bytes=d2_contracts.RESPONSE_BYTES)
-        _structural(value,packet if typed else None)
+        _structural(value,packet if typed else None,version)
         refs={s['alias'] for s in packet['content']['supports']}
         interpretations={s['alias'] for s in packet['content']['interpretations']}
         count=0
@@ -85,4 +86,5 @@ def canonicalize(raw,packet,*,typed=False):
         return result,info
     except Exception as exc:
         exc.d2_normalization=info
+        exc.d2_outcome=quality.outcome_detail(value,'structural_invalid')
         raise

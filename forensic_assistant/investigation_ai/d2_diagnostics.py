@@ -14,7 +14,10 @@ CODES = frozenset(('none', 'malformed_json', 'duplicate_key', 'missing_field', '
     'unknown_support', 'incomplete_interpretation', 'incomplete_relationship', 'request_binding',
     'provider_refusal', 'output_truncated', 'provider_failure', 'timeout', 'cancelled',
     'invalid_response_envelope', 'ipc_failure', 'diagnostic_limit', 'unknown_internal_validation_error'))
-ENUMS = dict(stage=STAGES, code=CODES, origin={'child','parent'}, failure_stage=STAGES,
+ENUMS = dict(outcome={'new_inference','competing_explanations','no_material_inference','insufficient_packet_support'},
+    root_reason_state={'empty','nonempty','invalid'},
+    outcome_rule={'inference_reason_forbidden','abstention_reason_required','account_count_mismatch','competing_alternative_required','structural_invalid'},
+    stage=STAGES, code=CODES, origin={'child','parent'}, failure_stage=STAGES,
     reference_namespace={'O','I'},reference_reason={'wrong_namespace','not_in_current_packet','malformed_reference'},
     expected_type={'object','array','string','integer','boolean','null'},
     observed_type={'dict','list','str','int','bool','NoneType','float','other'},
@@ -26,7 +29,7 @@ ENUMS = dict(stage=STAGES, code=CODES, origin={'child','parent'}, failure_stage=
 NUMBERS = {'characters','utf8_bytes','maximum_bytes','response_bytes'}
 REQUIRED = {'contract','stage','code','origin','provider_response_received','json_extraction',
     'json_parsing','completion','usage_availability','worker_outcome','cleanup'}
-FIELDS = REQUIRED | set(ENUMS) | NUMBERS | {'pointer','normalization','other_namespace_member'}
+FIELDS = REQUIRED | set(ENUMS) | NUMBERS | {'pointer','normalization','other_namespace_member','account_count','account_count_consistent'}
 # A schema-derived path whitelist: model keys never become diagnostic pointers.
 KEYS = frozenset(('v','o','a','r','s','e','c','i','u','d','n','g','l','response','contract',
     'request_id','packet_digest','items','assessment','local_id','kind','statement','support_refs',
@@ -51,6 +54,8 @@ def validate(value):
         if key in value and (type(value[key]) is not str or value[key] not in choices):raise ValueError('D2_DIAGNOSTIC_ENUM')
     if value['provider_response_received'] is not None and type(value['provider_response_received']) is not bool:raise ValueError('D2_DIAGNOSTIC_RECEIPT')
     if 'other_namespace_member' in value and type(value['other_namespace_member']) is not bool:raise ValueError('D2_DIAGNOSTIC_RECEIPT')
+    if 'account_count' in value and (type(value['account_count']) is not int or not 0<=value['account_count']<=2):raise ValueError('D2_DIAGNOSTIC_COUNT')
+    if 'account_count_consistent' in value and type(value['account_count_consistent']) is not bool:raise ValueError('D2_DIAGNOSTIC_COUNT')
     refs={'reference_namespace','reference_reason','other_namespace_member'}
     if refs & value.keys():
         if (not refs<=value.keys() or type(value.get('pointer')) is not str
@@ -151,6 +156,12 @@ def failure(exc,*,stage='compact_schema',origin='child',received=None,reported=N
     if result['stage']=='json_parsing':result['json_parsing']='failed'
     if token in ('D2_RESPONSE_BYTES','Model response exceeds content limit'):result['json_parsing']='not_attempted'
     if origin=='parent' and stage!='ipc':result['failure_stage']=result['stage'];result['stage']='parent_canonical_revalidation'
+    outcome=getattr(exc,'d2_outcome',None)
+    if type(outcome) is dict:
+        for key in ('outcome','root_reason_state','outcome_rule'):
+            if type(outcome.get(key)) is str and outcome[key] in ENUMS[key]:result[key]=outcome[key]
+        if type(outcome.get('account_count')) is int and 0<=outcome['account_count']<=2:result['account_count']=outcome['account_count']
+        if type(outcome.get('account_count_consistent')) is bool:result['account_count_consistent']=outcome['account_count_consistent']
     normalized=getattr(exc,'d2_normalization',None)
     if normalized is not None:
         from .d2_normalization import validate_receipt
@@ -162,6 +173,7 @@ def failure(exc,*,stage='compact_schema',origin='child',received=None,reported=N
 def line(value):
     validate(value)
     result=value['stage']+' / '+value['code']
+    if 'outcome_rule' in value:result+='; '+value['outcome_rule']+'; '+value.get('outcome','unknown')+'; reason '+value.get('root_reason_state','invalid')
     if 'failure_stage' in value:result+=' ('+value['failure_stage']+')'
     if 'reference_reason' in value:result+='; expected '+value['reference_namespace']+' / '+value['reference_reason']
     if value.get('pointer'):result+=' at '+value['pointer']
