@@ -226,3 +226,5 @@ report-bundles/
 !/docs/briefing-canonical-schema.json
 
 !/docs/briefing-review-exchange-schema.json
+
+!/docs/LOCARD_6_130_EVIDENCE_SELECTION_QUALITY.md

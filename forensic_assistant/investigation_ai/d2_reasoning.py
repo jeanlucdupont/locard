@@ -70,7 +70,8 @@ def main():
     if args.cross_artifact:
         from . import d2_cross
         if not args.execute:
-            print(json.dumps(d2_cross.preview(args.root,args.run_id,args.question,load()),ensure_ascii=True,indent=2));return
+            value=d2_cross.preview(args.root,args.run_id,args.question,load())
+            print(json.dumps(value,ensure_ascii=True,indent=2) if args.json else d2_cross.render_preview(value));return
         prepared=d2_cross.prepare(args.root,args.run_id,args.question,load())
     else:
         prepared=service.prepare(args.root,args.run_id,args.issue,load(),exploratory=args.exploratory)
@@ -84,6 +85,7 @@ def main():
             print('Question: '+_safe(value['question']))
             print('Artifact families: '+', '.join(value['families']))
             print('Omissions: '+str(value['selection']['omitted_counts']))
+            if 'sufficiency' in value['selection']:print('Context sufficiency: '+value['selection']['sufficiency']['status'])
         print('Source: '+value['source']['run_id']+'; frontier: '+str(value['source']['event_head']))
         print('Issue: '+value['issue']['id']+'; packet: '+value['packet_digest'])
         print('Complete request: '+str(value['body_bytes'])+' / '+str(value['limits']['body_bytes'])+' bytes; 1024 output tokens; 60 seconds including cleanup.')
@@ -98,5 +100,7 @@ def main():
 
 if __name__=='__main__':
     try:main()
-    except (ValueError,OSError):
+    except (ValueError,OSError) as exc:
+        if str(exc)=='D2_CROSS_CONTEXT_INSUFFICIENT':
+            raise SystemExit('Required comparison inputs are missing. Use the provider-free --json preview to inspect omitted and unavailable roles.') from None
         raise SystemExit('D2 request rejected before a validated result. Check source, selection, provider and budget.') from None

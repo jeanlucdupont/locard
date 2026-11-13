@@ -44,7 +44,8 @@ def test_three_family_final_gate_and_repeatability():
     assert preview['families']==['browser','evtx','mft']
     assert 5600<len(p.body)<=16384
     assert len(p.packet['content']['supports'])==8
-    assert len(p.packet['content']['relationships'])==3
+    assert [r['predicate'] for r in p.packet['content']['relationships']]==['exact_recorded_path']
+    assert p.packet['selection']['sufficiency']['status']=='comparison_inputs_present'
     assert x.expand_view(json.loads(p.messages[1]['content']),p.packet)==p.packet['content']
     assert p.history._ctx.manifest['question']!=QUESTION
     assert preview['original_s3']==p.history._original
@@ -261,7 +262,7 @@ def test_interpretation_atomic_premises_and_qualifications():
 
 
 def test_relationship_original_endpoints_and_temporal_qualifiers():
-    p=prepared();body=p.packet['content']
+    p=prepared(question=QUESTION+' Compare the subsequent chronology.');body=p.packet['content']
     represented=set(body['clauses'].values())
     for edge in body['relationships']:
         assert set(edge['endpoints'])<=represented
@@ -269,8 +270,9 @@ def test_relationship_original_endpoints_and_temporal_qualifiers():
         assert edge['id'] in p._response_context['registered']
     assert any('Clock synchronization' in q for q in body['qualifications'])
     records=rows();records[1]['timestamps'][0]['utc']='2026-10-12T08:00:02'
-    uncertain=prepared(records)
-    assert len(uncertain.packet['content']['relationships'])<len(body['relationships'])
+    uncertain=prepared(records,question=QUESTION+' Compare the subsequent chronology.')
+    uncertain_ids={c['id'] for c in uncertain.history._ctx.factual['clauses'] if c['supports'][0]['source_type']=='mft' and c['supports'][0].get('field',{}).get('pointer')=='/timestamps/0/utc'}
+    assert all(not (set(r['endpoints']) & uncertain_ids) for r in uncertain.packet['content']['relationships'] if r['predicate']=='recorded_time_before')
 
 
 def test_registered_contradiction_is_closed_not_silently_resolved():
@@ -294,9 +296,10 @@ def test_registered_contradiction_is_closed_not_silently_resolved():
 
 def test_question_changes_selection_and_binding():
     first=prepared(question='What does the recorded viewer.exe process show?')
-    second=prepared(question='What does the invoice.zip browser download show?')
+    second=prepared(question='Compare the invoice.zip download and filesystem observations.')
     assert first.packet['content']['issue']['id']!=second.packet['content']['issue']['id']
-    assert first.packet['selected_units']!=second.packet['selected_units']
+    assert first.packet['content']['issue']['context_sufficiency']['pattern']!=second.packet['content']['issue']['context_sufficiency']['pattern']
+    assert first.body!=second.body
     assert first.packet['selection']['relevance']!=second.packet['selection']['relevance']
     assert first.history._original==second.history._original
 
