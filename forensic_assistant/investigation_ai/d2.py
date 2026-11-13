@@ -39,7 +39,7 @@ def open_history(root, identity):
     root = Path(root)
     manifest, events = _read(root, identity)
     anchor = _anchor(manifest, events)
-    facts = s1._Reducer()
+    facts = s1._Reducer(recorded_view=s1.validate_evidence_state(manifest.get('evidence_state')))
     retained = State(Budget())
     accepted = set()
     def consume(state, delta, exposure):

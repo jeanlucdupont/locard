@@ -103,9 +103,9 @@ def _body(view, predicate, support, *, interpretation=None):
 class _Reducer:
     """Private accepted-delta sink; never an importer of model/cached clauses."""
 
-    def __init__(self):
+    def __init__(self, *, recorded_view=None):
         self.clauses = {}
-        self.view = None
+        self.view = deepcopy(validate_evidence_state(recorded_view)) if recorded_view is not None else None
         self.batches = 0
         self.previous = None
         self.summary = {}
@@ -211,8 +211,14 @@ class _Reducer:
 def reconstruct(root, identity):
     """Read/validate a saved Stage A transcript; never open the evidence database."""
     from .autonomous import reconstruct as replay
-    reducer = _Reducer()
+    from .transcript import load
+    manifest, _ = load(root, identity)
+    view = validate_evidence_state(manifest.get('evidence_state'))
+    reducer = _Reducer(recorded_view=view)
     replay(root, identity, _on_validated=reducer.consume)
+    after, _ = load(root, identity)
+    if manifest != after:
+        raise ValueError('Recorded investigation changed during factual reconstruction')
     return reducer.finish()
 
 
