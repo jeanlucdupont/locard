@@ -51,7 +51,13 @@ def main():
     parser.add_argument('--question',help='Analyst question for --cross-artifact')
     parser.add_argument('--execute',action='store_true',help='Ask to authorize one cloud request; no automatic approval')
     parser.add_argument('--json',action='store_true')
+    parser.add_argument('--findings-workspace',help='Existing source-bound findings directory; saving requires a separate choice after execution')
+    parser.add_argument('--findings-actor',help='Locally asserted actor for optional capture; not authenticated identity')
     args=parser.parse_args()
+    if args.findings_workspace and (not args.execute or not args.findings_actor):
+        parser.error('--findings-workspace requires --execute and --findings-actor')
+    if args.findings_actor and not args.findings_workspace:
+        parser.error('--findings-actor requires --findings-workspace')
     if args.cross_artifact:
         if not args.question or args.issue:parser.error('--cross-artifact requires --question and excludes --issue')
     elif args.question:parser.error('--question requires --cross-artifact')
@@ -89,13 +95,41 @@ def main():
         print('Source: '+value['source']['run_id']+'; frontier: '+str(value['source']['event_head']))
         print('Issue: '+value['issue']['id']+'; packet: '+value['packet_digest'])
         print('Complete request: '+str(value['body_bytes'])+' / '+str(value['limits']['body_bytes'])+' bytes; 1024 output tokens; 60 seconds including cleanup.')
-        print('Recorded evidence will be disclosed to this provider. No retries, lookups, fallback or persistence.')
+        print('Recorded evidence will be disclosed to this provider. No retries, lookups, fallback or persistence.' if not args.findings_workspace else
+              'Recorded evidence will be disclosed to this provider. No retries, lookups or fallback. Saving requires a separate choice afterward.')
         return input('Authorize this exact request? [y/N] ').strip().casefold()=='y'
-    result=service.execute(service.authorize(prepared,approve))
+    def display(result, prepared):
+        if args.json:
+            from . import d2_presentation
+            print(json.dumps(dict(contract='d2-quality-result-v1',result=result,view=d2_presentation.view(result,prepared)),ensure_ascii=True))
+        else:print(render(result,prepared))
+    if not args.findings_workspace:
+        display(service.execute(service.authorize(prepared,approve)),prepared)
+        return
+    from . import finding_capture
+    def capture_approval(offer):
+        print(str(offer['count'])+' validated, unverified AI proposal accounts are eligible for capture.')
+        print('Findings workspace: '+offer['workspace_id']+'; revision: '+str(offer['revision']))
+        print('Directory: '+_safe(offer['directory']))
+        print('Registration leaves findings proposed; analyst acceptance remains separate.')
+        return input('Register these proposals? [y/N] ').strip().casefold()=='y'
+    outcome=finding_capture.run(prepared,approve,directory=args.findings_workspace,
+        actor=args.findings_actor,capture_confirmation=capture_approval,display=display)['capture']
     if args.json:
-        from . import d2_presentation
-        print(json.dumps(dict(contract='d2-quality-result-v1',result=result,view=d2_presentation.view(result,prepared)),ensure_ascii=True))
-    else:print(render(result,prepared))
+        print(json.dumps(dict(contract='d2-finding-capture-v1',**outcome),ensure_ascii=True))
+    elif outcome['status']=='captured':
+        print('Registered proposed findings: '+', '.join(outcome['finding_ids'])+'; revision: '+str(outcome['revision']))
+    else:
+        print({'no_inferential_findings':'No inferential findings to capture.',
+               'not_eligible':'This result is not eligible for capture.',
+               'declined':'Capture declined; workspace unchanged.',
+               'cancelled':'Capture cancelled; no findings registered.',
+               'conflict':'Workspace revision changed; capture rejected. No retry was performed.',
+               'already_captured':'These accounts were already registered; no duplicates saved.',
+               'duplicate_accounts':'The response contains duplicate accounts; no findings registered. Review the result explicitly.',
+               'failed':'Capture failed; no findings registered. The investigation result remains available.',
+               'storage_uncertain':'Capture storage could not be confirmed. Inspect the workspace before trying again; no automatic retry was performed.',
+               'already_handled':'Capture already handled in this session.'}[outcome['status']])
 
 
 if __name__=='__main__':

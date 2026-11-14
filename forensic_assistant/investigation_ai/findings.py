@@ -355,12 +355,14 @@ class Workspace:
         return dict(revision=result['revision'], source_binding_status=result['source_binding_status'],
             history=[e for e in result['history'] if identity is None or e['finding_id'] == identity or e['payload'].get('replaces') == identity])
 
-    def _write(self, action, actor, expected_revision, build, finding_id=None):
+    def _write(self, action, actor, expected_revision, build, finding_id=None, *, expected_workspace_id=None):
         _text(actor, 256)
         if type(expected_revision) is not int or expected_revision < 0:
             raise ValueError('FINDINGS_EXPECTED_REVISION')
         with self._connection(True) as conn:
             metadata, state = self._load(conn)
+            if expected_workspace_id is not None and metadata['id'] != expected_workspace_id:
+                raise ValueError('FINDINGS_WORKSPACE_CHANGED')
             if state['revision'] != expected_revision:
                 raise ValueError('FINDINGS_STALE_REVISION')
             h, status = self._source(metadata)
@@ -368,17 +370,24 @@ class Workspace:
                 raise ValueError('FINDINGS_' + status.upper())
             for f in state['findings']:
                 _validate_candidate(h, f['candidate'])
-            fid = uuid.uuid4().hex if finding_id is None else _id(finding_id)
             payload = build(h, state)
-            e = dict(contract=CONTRACT, workspace_id=metadata['id'], sequence=state['revision'] + 1,
-                     previous=state['head'], timestamp=_stamp(), actor=actor, action=action, finding_id=fid, payload=payload)
-            raw = encoded(e)
+            batch = type(payload) is list
+            payloads = payload if batch else [payload]
+            if not 1 <= len(payloads) <= 2 or (batch and (action != 'propose' or finding_id is not None)):
+                raise ValueError('FINDINGS_INVALID_BATCH')
             # Validate transitions before writing, using the same deterministic replay.
             rows = conn.execute('SELECT sequence, body, hash FROM events ORDER BY sequence').fetchall()
-            _reduce(metadata, rows + [(e['sequence'], raw, digest(e))])
+            additions, identities = [], []
+            for item in payloads:
+                fid = uuid.uuid4().hex if finding_id is None else _id(finding_id)
+                e = dict(contract=CONTRACT, workspace_id=metadata['id'], sequence=state['revision'] + 1,
+                         previous=state['head'], timestamp=_stamp(), actor=actor, action=action, finding_id=fid, payload=item)
+                additions.append((e['sequence'], encoded(e), digest(e)))
+                identities.append(fid)
+                state = _reduce(metadata, rows + additions)
             h._check()
-            conn.execute('INSERT INTO events VALUES (?,?,?)', (e['sequence'], raw, digest(e)))
-        return fid
+            conn.executemany('INSERT INTO events VALUES (?,?,?)', additions)
+        return identities if batch else identities[0]
 
     def register(self, *, actor, expected_revision, kind, statement, supporting_ids, contrary_ids=(), explanation='', limitations=()):
         return self._write('propose', actor, expected_revision,
@@ -390,18 +399,29 @@ class Workspace:
         A claimed status=accepted JSON object is not accepted as an input capability.
         This verifies mechanical validity, not that a provider actually authored text.
         """
+        return self._import_d2(prepared, response_text, [item_index], actor=actor,
+                               expected_revision=expected_revision, batch=False)
+
+    def _import_d2(self, prepared, response_text, indices, *, actor, expected_revision, batch, expected_workspace_id=None):
         from .d2_execution import Prepared
         if type(prepared) is not Prepared:
             raise ValueError('FINDINGS_PREPARED_REQUIRED')
         prepared.check()
         capsule = dict(model=prepared.config['model'], profile=prepared.profile, version=prepared.response_version,
             options=deepcopy(prepared.options), question=prepared.packet['content']['question'], raw=response_text,
-            request_id=prepared.packet['request_id'], packet_digest=prepared.packet['packet_digest'], item=item_index)
+            request_id=prepared.packet['request_id'], packet_digest=prepared.packet['packet_digest'], item=0)
         def build(h, state):
             if prepared.packet['content']['source'] != h._anchor or prepared.packet['content']['view'] != h._ctx.factual['evidence_state']:
                 raise ValueError('FINDINGS_AI_SOURCE_BINDING')
-            return dict(candidate=_ai(h, capsule))
-        return self._write('propose', actor, expected_revision, build)
+            payloads = [dict(candidate=_ai(h, dict(capsule, item=index))) for index in indices]
+            if batch:
+                keys = {self._proposal_key(p['candidate']['ai']['validated']) for p in payloads}
+                for finding in state['findings']:
+                    ai = finding['candidate']['ai']
+                    if ai and self._proposal_key(ai['validated']) in keys:
+                        raise ValueError('FINDINGS_ALREADY_CAPTURED')
+            return payloads if batch else payloads[0]
+        return self._write('propose', actor, expected_revision, build, expected_workspace_id=expected_workspace_id)
 
     def import_result(self, prepared, validated_result, item_index, *, actor, expected_revision):
         """Import an available D2 quality result, not provider logs or usage metadata.
@@ -409,7 +429,35 @@ class Workspace:
         Re-encode its lossless structured fields and require exact revalidation of
         the entire result before registering one candidate. No execute() changes.
         """
-        from . import d2_execution as ex, d2_quality as quality, d2_wire as wire
+        raw = self._validated_result_text(prepared, validated_result)
+        return self.import_d2(prepared, raw, item_index, actor=actor, expected_revision=expected_revision)
+
+    def import_results(self, prepared, validated_result, *, actor, expected_revision, expected_workspace_id=None):
+        """All accounts in one transaction; any existing account rejects the batch."""
+        raw = self._validated_result_text(prepared, validated_result)
+        indices = self._capture_indices(validated_result)
+        return self._import_d2(prepared, raw, indices, actor=actor,
+                               expected_revision=expected_revision, batch=True, expected_workspace_id=expected_workspace_id)
+
+    @staticmethod
+    def _proposal_key(proposal):
+        return digest([proposal['request_id'], proposal['packet_digest'],
+            {k: v for k, v in proposal['item'].items() if k != 'local_id'},
+            proposal['dependencies'], proposal['mandatory_qualifications']])
+
+    @staticmethod
+    def _capture_indices(validated_result):
+        proposals = validated_result['proposals']
+        if not 1 <= len(proposals) <= 2:
+            raise ValueError('FINDINGS_NO_INFERENTIAL_ACCOUNTS')
+        identities = [Workspace._proposal_key(p) for p in proposals]
+        if len(set(identities)) != len(identities):
+            raise ValueError('FINDINGS_DUPLICATE_ACCOUNTS')
+        return list(range(len(proposals)))
+
+    @staticmethod
+    def _validated_result_text(prepared, validated_result):
+        from . import d2_execution as ex, d2_wire as wire
         if type(prepared) is not ex.Prepared or type(validated_result) is not dict:
             raise ValueError('FINDINGS_VALIDATED_RESULT_REQUIRED')
         if validated_result.get('contract') != 'd2-quality-validation-v1':
@@ -430,7 +478,7 @@ class Workspace:
             raise ValueError('FINDINGS_INVALID_VALIDATED_RESULT') from exc
         if checked != validated_result:
             raise ValueError('FINDINGS_VALIDATED_RESULT_CHANGED')
-        return self.import_d2(prepared, raw, item_index, actor=actor, expected_revision=expected_revision)
+        return raw
 
     def review(self, identity, decision, *, actor, expected_revision, rationale=''):
         if decision not in ('accept', 'reject'):
