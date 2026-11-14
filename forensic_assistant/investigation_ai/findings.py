@@ -1,7 +1,7 @@
 """Explicit analyst review of recorded findings. No provider or evidence DB access.
 
 The SQLite file is derived local application state, not a source of evidence authority.
-All mutations use an expected workspace revision and an append-only transaction.
+All mutations use a pinned workspace identity, expected revision and append-only transaction.
 """
 from contextlib import contextmanager
 from copy import deepcopy
@@ -251,12 +251,41 @@ def _reduce(metadata, events):
 
 
 class Workspace:
-    """Reusable service. Retrieval opens SQLite read-only; writes never create files."""
+    """An explicitly selected workspace, pinned by UUID and original source binding.
+
+    Opening validates local structure/integrity without requiring source availability.
+    Public reads reject substitution; writes additionally revalidate recorded support.
+    """
     def __init__(self, directory):
+        self._paths(directory)
+        with self._connection() as conn:
+            metadata, _ = self._load(conn)
+            self._pin(metadata)
+
+    def _paths(self, directory):
         self.directory = local_path(directory)
         if self.directory.suffix != '.findings':
             raise ValueError('FINDINGS_DIRECTORY_SUFFIX')
         self.path = self.directory / 'findings.sqlite3'
+        self._selection = None
+
+    def _pin(self, metadata):
+        self._selection = (metadata['id'], deepcopy(metadata['binding']), metadata['source_root'])
+
+    def _selected(self, metadata, expected_workspace_id=None):
+        selection = getattr(self, '_selection', None)
+        if (type(selection) is not tuple or len(selection) != 3 or
+                type(selection[0]) is not str or not re.fullmatch('[a-f0-9]{32}', selection[0])):
+            raise ValueError('FINDINGS_EXPECTED_WORKSPACE_ID')
+        if expected_workspace_id is not None:
+            if type(expected_workspace_id) is not str or not re.fullmatch('[a-f0-9]{32}', expected_workspace_id):
+                raise ValueError('FINDINGS_EXPECTED_WORKSPACE_ID')
+            if expected_workspace_id != selection[0]:
+                raise ValueError('FINDINGS_WORKSPACE_CHANGED')
+        if metadata['id'] != selection[0]:
+            raise ValueError('FINDINGS_WORKSPACE_CHANGED')
+        if metadata['binding'] != selection[1] or metadata['source_root'] != selection[2]:
+            raise ValueError('FINDINGS_WORKSPACE_BINDING_CHANGED')
 
     @contextmanager
     def _connection(self, write=False):
@@ -330,6 +359,7 @@ class Workspace:
     def export(self):
         with self._connection() as conn:
             metadata, state = self._load(conn)
+            self._selected(metadata)
         h, status = self._source(metadata)
         if h is not None:
             for f in state['findings']:
@@ -361,8 +391,7 @@ class Workspace:
             raise ValueError('FINDINGS_EXPECTED_REVISION')
         with self._connection(True) as conn:
             metadata, state = self._load(conn)
-            if expected_workspace_id is not None and metadata['id'] != expected_workspace_id:
-                raise ValueError('FINDINGS_WORKSPACE_CHANGED')
+            self._selected(metadata, expected_workspace_id)
             if state['revision'] != expected_revision:
                 raise ValueError('FINDINGS_STALE_REVISION')
             h, status = self._source(metadata)
@@ -506,7 +535,10 @@ def create(directory, source_root, run_id, *, actor):
     """Exclusively reserve a new directory; never reuse or overwrite an evidence file."""
     _text(actor, 256)
     h = d2.open_history(source_root, run_id)
-    workspace = Workspace(directory)
+    # Creation pins the UUID we generated, never a replacement read from the path.
+    # The public constructor is reserved for selecting an existing valid store.
+    workspace = Workspace.__new__(Workspace)
+    workspace._paths(directory)
     source_root = local_path(source_root)
     # Do not write below a transcript root, case workspace, or a recorded case path.
     if workspace.directory.is_relative_to(source_root):
@@ -536,6 +568,7 @@ def create(directory, source_root, run_id, *, actor):
                 raise
             finally:
                 conn.close()
+    workspace._pin(metadata)
     return workspace
 
 

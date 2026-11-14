@@ -188,7 +188,9 @@ def test_store_replaced_during_confirmation(workspace,source):
             db.execute('UPDATE metadata SET value=?',(json.dumps(metadata),))
         return True
     assert c.finish(result(p),replace,actor='Analyst')['status']=='failed'
-    assert workspace.export()['revision']==0
+    with pytest.raises(ValueError, match='^FINDINGS_WORKSPACE_CHANGED$'):
+        workspace.export()
+    assert f.Workspace(workspace.directory).export()['revision']==0
 
 
 _CHILD=ex._child
