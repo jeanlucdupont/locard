@@ -1,12 +1,9 @@
 """Narrow recorded-history facade. No provider, case opener or source writer.
 
-Private reconstruction/restoration contracts are confined here. A serialized
-projection is never accepted as a replacement for this source boundary.
+Recorded reconstruction belongs to the neutral investigation service. A
+serialized projection never replaces this source/workspace boundary.
 """
-from copy import deepcopy
-import time
-
-from forensic_assistant.investigation_ai import d2, findings, packets, organization, explanation
+from forensic_assistant.investigation_ai import recorded, findings
 from forensic_assistant.investigation_ai.storage import local_path
 from forensic_assistant.investigation_ai.transcript import digest
 
@@ -14,8 +11,8 @@ from forensic_assistant.investigation_ai.transcript import digest
 class Source:
     def __init__(self, root, run_id, workspace=None):
         self.root = local_path(root)
-        self.history = d2.open_history(self.root, run_id)
-        self.binding = findings._binding(self.history)
+        self.history = recorded.open_history(self.root, run_id)
+        self.binding = self.history.binding()
         self.workspace = findings.Workspace(workspace) if workspace is not None else None
         self.snapshot = self._snapshot()
         if self.snapshot is not None:
@@ -37,60 +34,15 @@ class Source:
         return dict(metadata=metadata, **state)
 
     def check(self):
-        self.history._check()
+        self.history.verify()
         if self._snapshot() != self.snapshot:
             raise ValueError('RECORDED_REPORT_WORKSPACE_CHANGED')
 
     def restore(self):
-        """Restore all accepted clauses, without B1 packet-selection omissions."""
-        ctx = self.history._ctx
-        packets._validate_context(ctx)
-        meter = packets.Meter(packets.Limits(), time.monotonic)
-        restored = {}
-        for clause in ctx.factual['clauses']:
-            bundle = packets._rehydrate(clause, ctx, meter)
-            if bundle is None:
-                raise ValueError('RECORDED_REPORT_SUPPORT_UNAVAILABLE')
-            restored[clause['id']] = bundle
-        # Every registered relationship must have its original endpoints restored.
-        for relation in ctx.related['relationships']:
-            if not set(relation['endpoints']) <= restored.keys():
-                raise ValueError('RECORDED_REPORT_INCOMPLETE_DEPENDENCY')
-        return deepcopy(restored)
+        return self.history.restore_all_support()
 
     def state(self):
-        ctx = self.history._ctx
-        manifest = ctx.manifest
-        org = None
-        pages = []
-        # Organization is a B2 contract. Earlier Stage A histories retain their
-        # validated S1/S2/S3 state without inventing a C1 checkpoint.
-        if manifest['engine'] == 'incremental-s4-b2-v1' and manifest.get('organization_profile') is not None:
-            org = organization.reconstruct(self.root, self.binding['source']['run_id'])
-            session = explanation._Session(explanation._TOKEN, manifest, ctx.factual, org)
-            cursor = None
-            while True:
-                page = explanation.page(session, cursor)
-                pages.append(page)
-                if len(pages) > explanation.MAX_STATEMENTS + 1:
-                    raise ValueError('RECORDED_REPORT_PAGE_LIMIT')
-                cursor = page['next_cursor']
-                if cursor is None:
-                    break
-        self.check()
-        _, events = d2._read(self.root, self.binding['source']['run_id'])
-        terminal = next((e['data'] for e in reversed(events) if e['kind'] == 'terminal'), {})
-        execution = dict(manifest_status=manifest['status'], terminal_present=bool(terminal),
-                         recorded={k: deepcopy(terminal[k]) for k in ('termination', 'primary_termination',
-                             'analysis_coverage', 'controller_diagnostic', 'limitations', 'cleanup') if k in terminal})
-        self.check()
-        return dict(factual=deepcopy(ctx.factual), related=deepcopy(ctx.related),
-                    original_assessment=deepcopy(self.history._original),
-                    question=manifest['question'], engine=manifest['engine'],
-                    frontiers=dict(manifest_chain=deepcopy(manifest['chain']),
-                                   accepted=sorted([list(v) for v in ctx.accepted])),
-                    organization=org, explanation_pages=pages, execution=execution,
-                    historical_proposals=deepcopy((terminal.get('synthesis') or {}).get('accepted', [])))
+        return self.history.report_state()
 
     def protected_paths(self):
         """Known input containers only; never query a live case for locations."""
@@ -112,6 +64,5 @@ class Source:
             elif isinstance(value, list):
                 for child in value:
                     visit(child)
-        visit(self.history._ctx.manifest)
-        visit(list(self.history._ctx.state.records.values()))
+        visit(self.history.recorded_inputs())
         return paths

@@ -400,6 +400,14 @@ def reconstruct(root, identity, *, _explanation=False):
     """Validate original B2 history first; no grant renewal, provider or database access."""
     from . import synthesis_consumer as b2, autonomous
     manifest,events=load(root,identity)
+    validated_b2=b2.reconstruct(root,identity,_validate_organization=False)
+    return _replay(manifest, events, validated_b2, _explanation=_explanation)
+
+
+def _replay(manifest, events, validated_b2, *, _explanation=False):
+    """Replay C1/D1 against the same validated B2 source frontier."""
+    from . import synthesis_consumer as b2, autonomous
+    identity = manifest['investigation_id']
     explanation_observer=None
     if manifest.get('explanation_profile') is not None:
         from .explanation_live import Replay
@@ -408,7 +416,6 @@ def reconstruct(root, identity, *, _explanation=False):
     if profile=='local-organization-v1':
         raise LegacyOrganizationProfile('Legacy C1 v1 checkpoints require their original rules; v2 will not reinterpret their digests')
     if profile not in (None,PROFILE):raise ValueError('Unknown organization profile')
-    validated_b2=b2.reconstruct(root,identity,_validate_organization=False)
     if manifest.get('engine')!=b2.ENGINE:raise ValueError('Organization requires B2 history')
     sources=_Sources(manifest);org=_Reducer(sources);facts=s1._Reducer();state=State(Budget())
     exposure=None;packet=None;last_source=None;terminal=None

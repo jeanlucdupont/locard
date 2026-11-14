@@ -4,59 +4,21 @@ Public entry point is open_history(), never a deserialized evidence/packet impor
 No backend, SQLite opener, grant issuer, journal writer or investigation executor.
 """
 from copy import deepcopy
-from pathlib import Path
 import argparse
 import json
 import re
-import stat
 import time
 
-from . import packets as b1, synthesis as s1, relationships as s2, autonomous
-from . import decomposition, question_assessment as s3, d2_contracts as c
-from .state import State, Budget, encoded
-from .transcript import load, digest
-
-
-def _anchor(manifest, events):
-    return dict(run_id=manifest['investigation_id'], manifest_sha256=digest(manifest),
-                event_head=events[-1]['hash'] if events else None)
-
-
-def _read(root, identity):
-    # load validates the identifier and chain; check redirection before reading.
-    if not re.fullmatch('[a-f0-9]{32}', identity):
-        raise ValueError('D2_INVALID_RUN')
-    for path in (Path(root), Path(root)/identity,
-                 Path(root)/identity/'manifest.json', Path(root)/identity/'events.jsonl'):
-        info = path.lstat()
-        if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
-            raise ValueError('D2_REDIRECTED_SOURCE')
-    return load(root, identity)
+from . import packets as b1, relationships as s2, d2_contracts as c
+from .state import encoded
+from .transcript import digest
+from .recorded import History as RecordedHistory, _anchor, _read, _closure
 
 
 def open_history(root, identity):
-    """Rebuild accepted originals, including the existing B2/C1/D1b validators."""
-    root = Path(root)
-    manifest, events = _read(root, identity)
-    anchor = _anchor(manifest, events)
-    facts = s1._Reducer(recorded_view=s1.validate_evidence_state(manifest.get('evidence_state')))
-    retained = State(Budget())
-    accepted = set()
-    def consume(state, delta, exposure):
-        nonlocal retained
-        facts.consume(state, delta, exposure)
-        retained = state
-        accepted.add((delta['id'], delta['disclosure_sha256'], delta['batch']))
-    autonomous.reconstruct(root, identity, _on_validated=consume)
-    decision = decomposition.validate_journal(manifest, events)
-    factual = facts.finish()
-    ctx = b1.Context(retained, factual, s2._build(factual), manifest,
-                     decision.get('mapping') if decision['status'] == 'accepted' else None, accepted)
-    original = s3._assess(manifest['question'], identity, ctx.related)
-    after, later = _read(root, identity)
-    if anchor != _anchor(after, later):
-        raise ValueError('D2_SOURCE_CHANGED')
-    return _History(ctx, anchor, original, decision['status'], root)
+    """Compatibility adapter over the neutral recorded-history service."""
+    from . import recorded
+    return _History.adapt(recorded.open_history(root, identity))
 
 
 def _encode(ctx, anchor, original, issue, selected, selection):
@@ -104,50 +66,14 @@ def _encode(ctx, anchor, original, issue, selected, selection):
         actually_disclosed=False, dispatch_authorized=False)
 
 
-def _closure(unit, clauses, hydrated, conflicts, meter):
-    """B1 closure plus a fixed point over recognized conflicting endpoints."""
-    initial = b1._bundle(unit, clauses, hydrated, conflicts)
-    if initial is None:
-        return None
-    bundles = [initial]
-    seen = set(initial['clauses'])
-    pending = sorted(seen)
-    while pending:
-        meter.check()
-        cid = pending.pop(0)
-        for edge in conflicts.get(cid, []):
-            if set(edge['endpoints']) <= seen:
-                continue
-            extra = b1._bundle(edge, clauses, hydrated, conflicts)
-            if extra is None:
-                return None
-            pending.extend(sorted(set(extra['clauses'])-seen))
-            seen.update(extra['clauses'])
-            bundles.append(extra)
-    return dict(clauses=sorted(seen), **{key: [v for b in bundles for v in b[key]] for key in
-        ('leaves', 'interpretations', 'qualifications', 'relationships')})
-
-
-class _History:
-    """Internal trusted reconstruction handle, not a serialized import interface."""
-    def __init__(self, ctx, anchor, original, mapping_status, root=None):
-        self._ctx, self._anchor, self._original = ctx, deepcopy(anchor), deepcopy(original)
-        self._mapping_status, self._root = mapping_status, root
-        self._seal = self._digest()
-
-    def _digest(self):
-        ctx = self._ctx
-        return digest([ctx.manifest, ctx.factual, ctx.related, ctx.mapping,
-                       ctx.state.records, ctx.state.exposed, sorted(ctx.accepted),
-                       self._anchor, self._original, self._mapping_status])
-
-    def _check(self):
-        if self._digest() != self._seal:
-            raise ValueError('D2_TRUSTED_STATE_CHANGED')
-        if self._root is not None:
-            m, es = _read(self._root, self._anchor['run_id'])
-            if _anchor(m, es) != self._anchor:
-                raise ValueError('D2_SOURCE_CHANGED')
+class _History(RecordedHistory):
+    """D2 behavior attached to an independently validated recorded operation."""
+    @classmethod
+    def adapt(cls, history):
+        history.verify()
+        result = cls.__new__(cls)
+        result.__dict__ = deepcopy(history.__dict__)
+        return result
 
     def preview(self, *, exploratory=False, issue_ids=(), _clock=time.monotonic):
         self._check()

@@ -363,6 +363,17 @@ def reconstruct(root, identity, *, _validate_organization=True):
     factual=reducer.finish()
     ctx=packets.Context(retained,factual,relationships._build(factual),manifest,
                         mapping.get('mapping') if mapping['status']=='accepted' else None,accepted)
+    out = _replay(manifest, events, ctx)
+    after,_=load(root,identity)
+    if not same(after,manifest):raise ValueError('Transcript changed during replay')
+    return out
+
+
+def _replay(manifest, events, ctx):
+    """Validate B2 transitions using already validated original analysis."""
+    from . import decomposition
+    identity = manifest['investigation_id']
+    mapping = decomposition.validate_journal(manifest, events)
     preview=materialize(ctx)
     out=initial();out['status']='skipped_no_packet';out['omissions']=preview['selections']
     stage='idle';index=0;packet=None;response=None;begun=False;failed=False
@@ -433,6 +444,4 @@ def reconstruct(root, identity, *, _validate_organization=True):
             out=deepcopy(terminal)
     if stage in ('prepared','attempt','response'):
         out['status']='partial_failed';out['termination']='INCOMPLETE_SYNTHESIS_JOURNAL'
-    after,_=load(root,identity)
-    if not same(after,manifest):raise ValueError('Transcript changed during replay')
     return out

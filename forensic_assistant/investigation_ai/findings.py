@@ -11,10 +11,9 @@ import os
 from pathlib import Path
 import re
 import sqlite3
-import time
 import uuid
 
-from . import d2, packets as b1
+from . import d2, recorded
 from .storage import local_path, DirectoryGuard
 from .transcript import digest
 from .state import encoded
@@ -62,43 +61,12 @@ def _refs(values):
 
 
 def _binding(history):
-    history._check()
-    return dict(source=deepcopy(history._anchor), view=deepcopy(history._ctx.factual['evidence_state']))
+    history.verify()
+    return history.binding()
 
 
 def _bundle(history, refs):
-    """Original B1 support including relationship/contradiction closure, never aliases."""
-    clauses = {c['id']: c for c in history._ctx.factual['clauses']}
-    edges = {r['id']: r for r in history._ctx.related['relationships']}
-    units = {**clauses, **edges}
-    if not set(refs) <= units.keys():
-        raise ValueError('FINDINGS_UNKNOWN_ORIGINAL_REFERENCE')
-    meter = b1.Meter(b1.Limits(), time.monotonic)
-    needed = set(refs) & clauses.keys()
-    for ref in refs:
-        needed.update(edges.get(ref, {}).get('endpoints', []))
-    conflicts = {}
-    for edge in edges.values():
-        if edge['predicate'] == 'incompatible_recorded_field':
-            for cid in edge['endpoints']:
-                conflicts.setdefault(cid, []).append(edge)
-    # Closure must preserve contrary endpoints even when not explicitly cited.
-    pending = list(needed)
-    while pending:
-        cid = pending.pop()
-        for edge in conflicts.get(cid, []):
-            for endpoint in edge['endpoints']:
-                if endpoint not in needed:
-                    needed.add(endpoint)
-                    pending.append(endpoint)
-    hydrated = {cid: b1._rehydrate(clauses[cid], history._ctx, meter) for cid in sorted(needed)}
-    bundles = []
-    for ref in refs:
-        value = d2._closure(units[ref], clauses, hydrated, conflicts, meter)
-        if value is None:
-            raise ValueError('FINDINGS_SUPPORT_UNAVAILABLE')
-        bundles.append(value)
-    return bundles
+    return history.restore_support(refs)
 
 
 def _manual(history, kind, statement, supports, contrary, explanation='', limitations=None):
@@ -114,8 +82,8 @@ def _manual(history, kind, statement, supports, contrary, explanation='', limita
     for line in limitations:
         _text(line, 2048)
     if kind != 'analyst_hypothesis':
-        clauses = {c['id']: c for c in history._ctx.factual['clauses']}
-        relations = {r['id'] for r in history._ctx.related['relationships']}
+        clauses = {c['id']: c for c in history.factual_state()['clauses']}
+        relations = {r['id'] for r in history.relationship_state()['relationships']}
         expected = 'observation' if kind == 'original_observation' else 'deterministic_interpretation'
         if not all(ref in relations if kind == 'deterministic_relationship'
                    else clauses.get(ref, {}).get('type') == expected for ref in supports):
@@ -135,7 +103,7 @@ def _prepared(history, capsule):
     if type(capsule['item']) is not int or not 0 <= capsule['item'] < 4:
         raise ValueError('FINDINGS_AI_ITEM')
     h = (cross.History(history, capsule['question'], capsule['model'], capsule['version'])
-         if capsule['profile'] == cross.VERSION else history)
+         if capsule['profile'] == cross.VERSION else d2._History.adapt(history))
     preview = h.preview(**capsule['options'])
     packet = next((p for p in preview['packets'] if p['request_id'] == capsule['request_id']), None)
     if packet is None or packet['packet_digest'] != capsule['packet_digest']:
@@ -347,7 +315,7 @@ class Workspace:
 
     def _source(self, metadata):
         try:
-            h = d2.open_history(metadata['source_root'], metadata['binding']['source']['run_id'])
+            h = recorded.open_history(metadata['source_root'], metadata['binding']['source']['run_id'])
             if _binding(h) != metadata['binding']:
                 return None, 'invalid_source_binding'
             return h, 'valid_recorded_binding'
@@ -364,7 +332,7 @@ class Workspace:
         if h is not None:
             for f in state['findings']:
                 _validate_candidate(h, f['candidate'])
-            h._check()
+            h.verify()
         return dict(contract=CONTRACT, metadata=metadata, source_binding_status=status,
                     source_validation='verified against recorded history' if h else 'support not revalidated; do not treat as evidence',
                     authority='local analyst decisions, not forensic verification', **state)
@@ -414,7 +382,7 @@ class Workspace:
                 additions.append((e['sequence'], encoded(e), digest(e)))
                 identities.append(fid)
                 state = _reduce(metadata, rows + additions)
-            h._check()
+            h.verify()
             conn.executemany('INSERT INTO events VALUES (?,?,?)', additions)
         return identities if batch else identities[0]
 
@@ -440,7 +408,7 @@ class Workspace:
             options=deepcopy(prepared.options), question=prepared.packet['content']['question'], raw=response_text,
             request_id=prepared.packet['request_id'], packet_digest=prepared.packet['packet_digest'], item=0)
         def build(h, state):
-            if prepared.packet['content']['source'] != h._anchor or prepared.packet['content']['view'] != h._ctx.factual['evidence_state']:
+            if prepared.packet['content']['source'] != h.binding()['source'] or prepared.packet['content']['view'] != h.binding()['view']:
                 raise ValueError('FINDINGS_AI_SOURCE_BINDING')
             payloads = [dict(candidate=_ai(h, dict(capsule, item=index))) for index in indices]
             if batch:
@@ -534,7 +502,7 @@ class Workspace:
 def create(directory, source_root, run_id, *, actor):
     """Exclusively reserve a new directory; never reuse or overwrite an evidence file."""
     _text(actor, 256)
-    h = d2.open_history(source_root, run_id)
+    h = recorded.open_history(source_root, run_id)
     # Creation pins the UUID we generated, never a replacement read from the path.
     # The public constructor is reserved for selecting an existing valid store.
     workspace = Workspace.__new__(Workspace)
@@ -561,7 +529,7 @@ def create(directory, source_root, run_id, *, actor):
                 conn.execute('CREATE TABLE metadata (value TEXT NOT NULL)')
                 conn.execute('CREATE TABLE events (sequence INTEGER PRIMARY KEY, body TEXT NOT NULL, hash TEXT NOT NULL)')
                 conn.execute('INSERT INTO metadata VALUES (?)', (encoded(metadata),))
-                h._check()
+                h.verify()
                 conn.commit()
             except BaseException:
                 conn.rollback()

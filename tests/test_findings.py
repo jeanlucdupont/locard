@@ -225,10 +225,10 @@ def test_corruption(workspace, source, mutation):
 def test_unavailable_and_mismatched_source(workspace, source, monkeypatch):
     fid=register(workspace,source)
     def unavailable(*args): raise FileNotFoundError()
-    monkeypatch.setattr(d2,'open_history',unavailable)
+    monkeypatch.setattr(f.recorded,'open_history',unavailable)
     assert workspace.get(fid)['source_binding_status']=='unresolved_source_unavailable'
     with pytest.raises(ValueError,match='UNRESOLVED'): workspace.review(fid,'accept',actor='Analyst',expected_revision=1)
-    monkeypatch.setattr(d2,'open_history',lambda *args: source[2])
+    monkeypatch.setattr(f.recorded,'open_history',lambda *args: source[2])
     binding=f._binding
     monkeypatch.setattr(f,'_binding',lambda h: {**binding(h), 'view':{}})
     assert workspace.export()['source_binding_status']=='invalid_source_binding'

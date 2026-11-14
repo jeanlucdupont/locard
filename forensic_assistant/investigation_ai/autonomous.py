@@ -379,6 +379,11 @@ def reconstruct(root,identity, *, _on_validated=None, _b2_checked=False):
         consumer.reconstruct(root,identity)
     if manifest['engine'] in (decomposition.ENGINE,consumer.ENGINE):
         decomposition.validate_journal(manifest,events)
+    return _replay(manifest, events, identity, _on_validated=_on_validated)
+
+
+def _replay(manifest, events, identity, *, _on_validated=None):
+    """Validate analysis from a caller-owned, chain-validated recorded input."""
     state=State(Budget());deltas=[];exposure=None
     for event in events:
         d=event['data']
