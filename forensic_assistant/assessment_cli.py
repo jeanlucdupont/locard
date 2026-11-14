@@ -8,25 +8,19 @@ from .briefing_workflow import read_answer
 
 
 def run(args, *, worker_factory=None):
-    worker_factory=worker_factory or a.ForensicWorker
-    if any((args.ai,args.allow_cloud,args.save,args.discover,args.approve,args.artifact,args.discovery_after,
-            args.revision,args.briefing_correction,args.export_json,args.deterministic)):
-        raise ValueError('Assessment options cannot combine with briefing analysis/discovery options')
-    review=bool(args.assessment_show or args.assessment_history)
-    if review and (args.start or args.end):raise ValueError('Saved assessment review does not accept a new time scope')
     store=AssessmentStore(args.db)
     briefing=Store(args.db);state=briefing.load();revision=state['revisions'][-1] if state else None
-    if args.assessment_history:
+    if args.workflow == 'list':
         return dict(kind='assessment_history',assessments=[dict(id=r['id'],created=r['created'],status=r['status'],revision=r['plan']['revision']) for r in store.history()])
     previous=None
-    selected=args.assessment_show or args.assessment_resume
+    selected=getattr(args,'assessment',None)
     if selected:
         if selected=='latest':
             history=store.history()
             if not history:return {'kind':'case_assessment','message':'No saved assessments.'}
             previous=store.load(history[-1]['id'])
         else:previous=store.load(selected)
-    if args.assessment_show:
+    if args.workflow == 'show':
         previous['briefing_stale']=not revision or revision['digest']!=previous['plan']['digest']
         if not args.json and 'editorial_summary' not in previous['plan'] and state:
             original=next((r for r in state['revisions'] if r['digest']==previous['plan']['digest']),None)
@@ -35,26 +29,36 @@ def run(args, *, worker_factory=None):
                 if summary['status']=='accepted':
                     previous['briefing_report_context']={'editorial_summary':summary['text']}
         return previous
+    return assess(args.db, read=getattr(args,'_confirm',None) or (input if sys.stdin.isatty() else None),
+                  start=getattr(args,'start',None), end=getattr(args,'end',None), previous=previous, details=getattr(args,'details',False),
+                  json_output=args.json, worker_factory=worker_factory)
+
+
+def assess(case, *, read, start=None, end=None, previous=None, details=False,
+           json_output=False, worker_factory=None):
+    """Reusable assessment orchestration with explicit input/approval callback."""
+    if not callable(read): raise ValueError('Assessment requires explicit plan approval')
+    worker_factory=worker_factory or a.ForensicWorker
+    store=AssessmentStore(case)
+    briefing=Store(case);state=briefing.load();revision=state['revisions'][-1] if state else None
     if not revision or not revision['content'].get('canonical'):
         raise ValueError('Accept a structured briefing before assessment')
-    read=getattr(args,'_confirm',None) or (input if sys.stdin.isatty() else None)
-    if read is None:raise ValueError('Assessment requires interactive plan approval')
-    stream=sys.stderr if args.json else sys.stdout
+    stream=sys.stderr if json_output else sys.stdout
     def display(text):print(text,file=stream,flush=True)
     from .interactive.console import safe
     display('Reported time remains analyst input; an unknown timezone is not converted to UTC.')
     from .assessment_display import reported_time,Progress
     for line in reported_time(revision['content']['canonical']['document']['categories']['when']):display(line)
     if previous:
-        if previous['plan']['digest']!=revision['digest']:raise ValueError('Briefing changed; start a new --assess plan')
-        if args.start or args.end:raise ValueError('Resume retains the previously approved time scope')
+        if previous['plan']['digest']!=revision['digest']:raise ValueError('Briefing changed; start a new investigation assess plan')
+        if start or end:raise ValueError('Reauthorization retains the previously approved time scope')
         start,end=previous['plan']['start'],previous['plan']['end']
-        display('Resume starts a new read view and restarts approved searches. Prior results and cursors remain separate.')
+        display('Reauthorization starts a new read view and restarts approved searches. Prior results and cursors remain separate.')
     else:
-        start=args.start or read_answer(read,'Authorized start (ISO timestamp with timezone): ').strip()
-        end=args.end or read_answer(read,'Authorized end (ISO timestamp with timezone; at most 24 hours): ').strip()
+        start=start or read_answer(read,'Authorized start (ISO timestamp with timezone): ').strip()
+        end=end or read_answer(read,'Authorized end (ISO timestamp with timezone; at most 24 hours): ').strip()
     a.briefing.window(start,end,source='explicit assessment authorization')
-    available=a.inventory(args.db,worker_factory)
+    available=a.inventory(case,worker_factory)
     p=a.plan(revision,store.identity,available,start,end)
     if previous:
         old=previous['plan']
@@ -81,6 +85,6 @@ def run(args, *, worker_factory=None):
     if not current or current['revisions'][-1]['digest']!=revision['digest']:
         raise ValueError('Briefing changed during approval; no searches executed')
     store.check_case()
-    progress=Progress(stream,details=args.details)
+    progress=Progress(stream,details=details)
     try:return a.execute(p,store,worker_factory=worker_factory,progress=progress,parent=previous['id'] if previous else None)
     finally:progress.finish()

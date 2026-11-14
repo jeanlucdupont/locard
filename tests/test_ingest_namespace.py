@@ -24,32 +24,29 @@ def choices(parser):
 
 @pytest.mark.parametrize('interactive', [False, True])
 @pytest.mark.parametrize('kind', KINDS)
-def test_aliases_share_parser_options_and_stable_internal_command(kind, interactive):
-    parser = build_parser(interactive=interactive)
-    root = choices(parser)
-    assert choices(root['ingest'])[kind] is root['ingest-' + kind]
-    options = ['synthetic path', '--source', 'src-example', '--hostname', 'lab', '--user', 'analyst',
-               '--volume-root', 'C:', '--record-size', '1024', '--parser-timeout', '42', '--json']
-    if kind == 'browser':
-        options += ['--browser', 'edge', '--profile', 'Profile 1']
-    canonical = vars(parser.parse_args(['ingest', kind, *options]))
-    alias = vars(parser.parse_args(['ingest-' + kind, *options]))
-    assert canonical.pop('ingest_type') == kind
-    assert canonical == alias
-    assert canonical['command'] == 'ingest-' + kind
-    assert '--source' in choices(root['ingest'])[kind].format_help()
+def test_canonical_options_and_stable_internal_command(kind, interactive):
+    parser=build_parser(interactive=interactive)
+    options=['synthetic path','--source','src-example','--hostname','lab','--user','analyst',
+             '--volume-root','C:','--parser-timeout','42','--json']
+    if kind in ('all','mft'):options+=['--record-size','1024']
+    if kind=='browser':options+=['--browser','edge','--profile','Profile 1']
+    result=parser.parse_args(['evidence','ingest',kind,*options])
+    assert result.command=='ingest-'+kind and result.parser_timeout==42
+    with pytest.raises((SystemExit,__import__('forensic_assistant.cli_parser',fromlist=['UnknownCommand']).UnknownCommand)):parser.parse_args(['ingest-'+kind,*options])
 
 
 def test_bare_ingest_help_and_invalid_type_never_create_case(tmp_path, capsys):
     database = tmp_path / 'absent.db'
-    assert main(['--db', str(database), 'ingest']) == 0
+    with pytest.raises(SystemExit) as help_exit:
+        main(['--db', str(database), 'evidence','ingest','--help'])
+    assert help_exit.value.code == 0
     text = capsys.readouterr().out
     assert all(kind in text for kind in (*KINDS, 'wizard'))
     assert not database.exists()
     with pytest.raises(SystemExit) as exc:
-        main(['--db', str(database), 'ingest', 'not-a-type'])
+        main(['--db', str(database), 'evidence','ingest', 'not-a-type'])
     assert exc.value.code == 2 and not database.exists()
-    assert main(['--db', str(database), 'ingest', 'wizard']) == 2
+    assert main(['--db', str(database), 'evidence','ingest', 'wizard']) == 2
     assert not database.exists()
 
 
@@ -58,13 +55,13 @@ def test_direct_mft_alias_preserves_ids_counters_json_source_and_audit(tmp_path,
     original = artifact.read_bytes()
     database = tmp_path / 'case.db'
     base = ['--db', str(database)]
-    assert main([*base, 'ingest', 'mft', str(artifact), '--hostname', 'lab', '--json']) == 0
+    assert main([*base, 'evidence','ingest', 'mft', str(artifact), '--hostname', 'lab', '--json']) == 0
     first = json.loads(capsys.readouterr().out)
     with closing(connect(database)) as db:
         ids = [r[0] for r in db.execute('SELECT evidence_id FROM evidence_records ORDER BY evidence_id')]
         source = sources.listing(db)['sources'][0]
     assert ids and source['hostname'] == 'lab'
-    assert main([*base, 'ingest-mft', str(artifact), '--source', source['source_id'], '--json']) == 0
+    assert main([*base, 'evidence','ingest','mft', str(artifact), '--source', source['source_id'], '--json']) == 0
     second = json.loads(capsys.readouterr().out)
     assert first.keys() == second.keys()
     assert sum(r['inserted'] for r in first['results']) == len(ids)
@@ -87,7 +84,7 @@ def test_historical_mode_events_remain_verifiable_and_new_shell_adds_none(tmp_pa
     session.record('SHELL_MODE', mode='AI')
     session.end()
     before = activity.sidecar(database).read_bytes()
-    shell = Shell(State(None), Input(str(database), 'ai', 'expert', 'ingest', 'help ingest wizard', 'help ask', 'exit'), no_color=True)
+    shell = Shell(State(None), Input(str(database), 'ai status', 'help evidence ingest wizard', 'help', 'quit'), no_color=True)
     assert shell.run() == 0
     after = activity.sidecar(database).read_bytes()
     assert after.startswith(before)

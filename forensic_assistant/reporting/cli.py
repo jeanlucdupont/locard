@@ -7,19 +7,22 @@ from .model import Limits
 def configure(commands, *, interactive=False):
     report = commands.add_parser('report', help=COMMANDS['report'])
     sub = report.add_subparsers(dest='report_command', required=True)
-    recorded = sub.add_parser('recorded', help='Provider-free report from a validated recorded investigation')
+    recorded = sub.add_parser('from-history', help='Provider-free report from a validated recorded investigation')
+    recorded.set_defaults(report_command='recorded')
     recorded.add_argument('--transcript-root', required=True)
     recorded.add_argument('--run', required=True)
     recorded.add_argument('--workspace', help='Optional matching .findings directory')
     recorded.add_argument('--profile', choices=('executive', 'technical', 'handover'), default='technical')
     recorded.add_argument('--output', required=True, help='Fresh local bundle directory')
     recorded.add_argument('--protect-root', action='append', default=[], help='Additional evidence directory to exclude from destinations (repeatable)')
-    recorded_check = sub.add_parser('inspect-recorded', help='Inspect bundle consistency; optionally revalidate recorded sources')
+    recorded_check = sub.add_parser('verify-history', help='Inspect bundle consistency; optionally revalidate recorded sources')
+    recorded_check.set_defaults(report_command='inspect-recorded')
     recorded_check.add_argument('directory')
     recorded_check.add_argument('--transcript-root')
     recorded_check.add_argument('--run')
     recorded_check.add_argument('--workspace')
-    create = sub.add_parser('generate')
+    create = sub.add_parser('from-case')
+    create.set_defaults(report_command='generate')
     output = create.add_mutually_exclusive_group()
     output.add_argument('--json', dest='json', action='store_true', help='Structured generation result')
     output.add_argument('--text', dest='json', action='store_false', help='Human generation result')
@@ -55,7 +58,8 @@ def configure(commands, *, interactive=False):
     create.add_argument('--endpoint', default=None)
     view = sub.add_parser('show')
     view.add_argument('directory', help='Report bundle directory, not a report ID')
-    check = sub.add_parser('validate')
+    check = sub.add_parser('verify')
+    check.set_defaults(report_command='validate')
     check.add_argument('directory')
     check.add_argument('--case', help='Optional existing schema-3 case for fingerprint and grounding checks')
     check.add_argument('--transcript-root', help='Original transcripts for investigation-report grounding')
@@ -78,7 +82,7 @@ def _dispatch(args):
     if args.report_command == 'show':
         import re
         if re.fullmatch(r'[a-fA-F0-9]{32}', args.directory) and not Path(args.directory).is_dir():
-            raise ValueError('report show expects a report directory, not a report ID. Use the directory returned by report generate.')
+            raise ValueError('report show expects a report directory, not a report ID. Use the directory returned by report from-case.')
         report, _ = inspect(args.directory)
         return dict(
             report_id=report['report_id'],
@@ -133,4 +137,4 @@ def render_result(result, args, palette):
                       '', 'Report ID:', '  ' + result['report_id'], '', 'Scope:', '  ' + scope,
                       '  Completion applies to this bounded report, not a complete forensic examination.',
                       '', 'Files:', *('  ' + name for name in FILES), '', 'Use:',
-                      '  report show "' + directory + '"', '  report validate "' + directory + '"'])
+                      '  report show "' + directory + '"', '  report verify "' + directory + '"'])

@@ -40,7 +40,7 @@ def mixed_case(tmp_path):
                 sid = sources.create(db, name=kind, hostname='HOST-A', username=user)
                 sids.append(sid)
             result, code = v2_cli.dispatch(db, build_parser().parse_args([
-                'ingest-' + kind, str(path), '--source', sid]))
+                'evidence', 'ingest', kind, str(path), '--source', sid]))
             assert code == 0, result
         pfid = db.execute('SELECT evidence_id FROM prefetch_records').fetchone()[0]
         uaid = db.execute('SELECT evidence_id FROM registry_values WHERE value_name=?', ('grfg.rkr',)).fetchone()[0]

@@ -79,17 +79,14 @@ def _dispatch(args):
             'terminal': next((e['data'] for e in reversed(events) if e['kind'] == 'terminal'), None)
         }
         result['implementation_matches'] = all(manifest.get(k) == v for k, v in implementation().items())
-        from .runner import ForensicWorker
-        if manifest.get('evidence_state') is not None:
-            result['current_case_status'] = {'matches_recorded_fingerprint': None,
-                'reason': 'Read-view transcript has no whole-case digest; current content equality cannot be checked.'}
-        else:
-            try:
-                with ForensicWorker({'case_path': args.db, 'semantic_enabled': False}) as worker:
-                    current = worker.call('check', seconds=45)
-                result['current_case_status'] = {'matches_recorded_fingerprint': current['fingerprint'] == manifest.get('evidence_fingerprint')}
-            except (OSError, ValueError) as exc:
-                result['current_case_status'] = {'unavailable': str(exc)[:300]}
+        result['current_case_status'] = {'checked':False,'reason':'Recorded review does not open the live case; use history replay explicitly.'}
+        from . import autonomous, decomposition, synthesis_consumer
+        if manifest.get('engine') in (autonomous.ENGINE, decomposition.ENGINE, synthesis_consumer.ENGINE):
+            from .recorded import open_history
+            history = open_history(root, args.investigation_id)
+            result['reconstructed'] = dict(binding=history.binding(), facts=history.factual_state(),
+                relationships=history.relationship_state(), assessment=history.question_assessment(),
+                organization=history.organization_state(), explanation=history.explanation_pages())
         if args.explain:
             result['events'] = events
         return result

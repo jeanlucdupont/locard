@@ -86,12 +86,12 @@ def test_discovery_readable_original_and_derived(count,incomplete):
 def test_cli_json_unchanged_and_exact_approval_mapping(capsys, monkeypatch):
     expected=b.extract('sample.ps1')
     monkeypatch.setattr(briefing_cli, 'run', lambda args: expected)
-    assert main(['briefing','--text','sample.ps1','--json','--details'])==0
+    assert main(['investigation','briefing','inspect','--text','sample.ps1','--json','--details'])==0
     p=json.loads(capsys.readouterr().out)
     assert p==expected
-    assert main(['briefing','--text','sample.ps1'])==0
+    assert main(['investigation','briefing','inspect','--text','sample.ps1'])==0
     output=capsys.readouterr().out
     assert '--approve '+p['leads'][0]['id'] in output
     with pytest.raises(ValueError,match='Unknown approved'):
         b.discover(p,'unused.db',['1'],'evtx',START,END)
-    assert build_parser().parse_args(['briefing','--text','x','--details']).details
+    assert build_parser().parse_args(['investigation','briefing','inspect','--text','x','--details']).details

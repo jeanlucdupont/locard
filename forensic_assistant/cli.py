@@ -65,7 +65,8 @@ def build_parser(*, interactive=False):
                         help='Show effective source and installed metadata versions (JSON)')
     parser.add_argument("--db", default=Config.database)
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling (also respects NO_COLOR)')
-    commands = parser.add_subparsers(dest="command", required=True)
+    from forensic_assistant.command_surface import Operations
+    commands = Operations(parser)
     from forensic_assistant import briefing_cli
     briefing_cli.configure(commands)
     from forensic_assistant import dump_cli
@@ -87,7 +88,7 @@ def build_parser(*, interactive=False):
     search.add_argument(
         '--ids',
         action='store_true',
-        help='Include full copyable evidence IDs, numbered to match table rows; display paths may be shortened. Use show for details, --json for the existing structured projection, --raw for available raw payloads.'
+        help='Include full copyable evidence IDs, numbered to match table rows; display paths may be shortened. Use evidence show for details, --json for the existing structured projection, --raw for available raw payloads.'
     )
     search.add_argument('--evtx-text', help='Explicit literal, case-sensitive EVTX field search; requires --artifact evtx and a paired time window <=24 hours; bounded coverage, no raw/offset')
     search.add_argument('--evtx-match', choices=('exact', 'contains'), help='Whole-value exact or literal substring match; default contains')
@@ -144,8 +145,7 @@ def build_parser(*, interactive=False):
     show.add_argument("--raw", action="store_true")
     commands.add_parser("status", help=COMMANDS['status'])
     ask_parser = commands.add_parser("ask", help=COMMANDS['ask'], description=(
-        'Deprecated CLI compatibility command; use ! in the interactive shell for advisory guidance. '
-        'This legacy CLI command retains its existing evidence retrieval behavior. '
+        'Advanced bounded local query with deterministic planning and optional semantic retrieval. '
         'Deterministic search retrieves evidence by exact/filter-based criteria. '
         'Semantic retrieval discovers meaning-based candidate leads, not evidence for the queried concept. '
         'The local LLM analyzes only the bounded supplied bundle. Model analysis is not evidence.'))
@@ -178,10 +178,12 @@ def build_parser(*, interactive=False):
     ai_cli.configure(commands)
     from forensic_assistant.output import configure
     configure(commands)
-    from forensic_assistant.cli_parser import configure_ingest_namespace
-    configure_ingest_namespace(commands)
+    from forensic_assistant.workflow_cli import configure as configure_workflows
+    configure_workflows(commands, interactive=interactive)
     if interactive:
         configure_interactive(parser)
+    from forensic_assistant.cli_parser import classify_help
+    classify_help(parser)
     return parser
 
 
@@ -225,6 +227,23 @@ def dispatch(args, *, existing_only=False):
         # Recorded reporting must not attach the active case/activity sidecar.
         from forensic_assistant.reporting.recorded import cli
         return cli(args)
+    recorded_only = (args.command == 'ai-history' and args.investigation_command == 'show') or (
+        args.command == 'workflow' and args.workflow in ('findings','reason','version','audit-verify'))
+    if recorded_only:
+        try:
+            if args.command == 'ai-history':
+                from forensic_assistant.investigation_ai.cli import dispatch as review
+                value=review(args)
+                print(json.dumps(value,ensure_ascii=True,indent=2))
+            else:
+                from forensic_assistant.workflow_cli import run,render
+                value=run(args)
+                if value is not None:print(json.dumps(value,ensure_ascii=True,indent=2) if getattr(args,'json',False) else render(value))
+            return 2 if isinstance(value,dict) and value.get('valid') is False else 0
+        except (ValueError,OSError,sqlite3.Error) as exc:
+            from forensic_assistant.terminal import message
+            message(human_error(exc),args)
+            return 2
     from forensic_assistant.ai.backend import restart_confirmation
     read = getattr(args, '_confirm', None)
     if read is None and sys.stdin.isatty():
@@ -252,13 +271,6 @@ def _dispatch_command(args, *, existing_only=False):
         from forensic_assistant.dump_cli import HELP
         print(HELP)
         return 0
-    if args.command == 'ingest':
-        parser = build_parser(interactive=existing_only)
-        next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction)).choices['ingest'].print_help()
-        return 0
-    if args.command == 'ingest-wizard':
-        print('ingest wizard requires the interactive shell.', file=sys.stderr)
-        return 2
     if args.command in ('ingest-mft', 'ingest-all'):
         from forensic_assistant.artifacts.ntfs_acquisition import mounted_volume
         volume = mounted_volume(args.path)
@@ -306,6 +318,13 @@ def _dispatch(args, output, *, existing_only=False):
     from forensic_assistant.investigation_ai import cli as investigation_cli
     from forensic_assistant.reporting import cli as report_cli
     try:
+        if args.command == 'workflow':
+            from forensic_assistant import workflow_cli
+            result = workflow_cli.run(args)
+            if result is not None:
+                if args.json: emit(result)
+                else: output.write(workflow_cli.render(result))
+            return 0
         if args.command == 'briefing':
             from forensic_assistant import briefing_cli
             result = briefing_cli.run(args)

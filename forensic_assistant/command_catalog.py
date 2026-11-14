@@ -1,27 +1,17 @@
-"""Canonical top-level help metadata; no parser or forensic dependencies."""
+"""Stable internal operation descriptions; no parser or forensic dependencies."""
 
 from types import MappingProxyType
 
 
 COMMANDS = MappingProxyType({
     'briefing': 'Review analyst incident leads and approve bounded evidence discovery',
-    'add-evidence': 'Compatibility alias for ingest wizard',
-    'ingest-wizard': 'Guided evidence discovery and ingestion',
     'ai': 'Configure AI provider and local runtime',
-    'expert': 'Compatibility notice: the shell has no mode switch',
-    '?': 'Show help for a command',
     'activity': 'Review and verify analyst activity',
     'analyze-timeline': 'Analyze a bounded timeline bundle using the local AI model',
     'around': 'Show evidence near a specific event or timestamp',
     'ask': 'Ask the local AI questions about case evidence',
-    'case': 'Open or create a case',
-    'new-case': 'Create a case with guided evidence discovery and ingestion',
-    'color': 'Turn terminal colors on or off',
     'detections': 'Show evidence matching Locard detection rules',
     'dump': 'Export retained evidence to case-local CSV files',
-    'exit': 'Exit Locard',
-    'help': 'Show help for a command',
-    'ingest': 'Ingest evidence directly or launch guided ingestion',
     'ingest-all': 'Import all supported forensic artifacts',
     'ingest-browser': 'Ingest Chrome or Edge browsing history and downloads',
     'ingest-evtx': 'Import Windows Event Logs (EVTX)',
@@ -33,7 +23,6 @@ COMMANDS = MappingProxyType({
     'ai-history': 'Review or replay saved AI investigations',
     'logons': 'Review Windows logon-related activity from normalized Windows Event Log evidence',
     'process-tree': 'Reconstruct process parent-child relationships',
-    'quit': 'Exit Locard',
     'report': 'Generate a forensic investigation report',
     'search': 'Search case evidence',
     'semantic': 'Search case evidence by meaning',
@@ -42,22 +31,6 @@ COMMANDS = MappingProxyType({
     'source': 'Manage evidence sources',
     'status': 'Show case ingestion and evidence status',
     'timeline': 'Browse evidence chronologically',
-    'version': 'Show the Locard version',
-})
-
-
-# Shell-only commands participate in the same catalog without adding CLI parsers.
-SHELL_COMMANDS = MappingProxyType({
-    name: COMMANDS[name]
-    for name in ('?', 'add-evidence', 'ingest-wizard', 'expert', 'case', 'new-case', 'color', 'exit', 'help', 'quit', 'version')
-})
-
-
-COMMAND_ALIASES = MappingProxyType({
-    'add-evidence': 'ingest wizard',
-    'expert': '!', 'ask': '!',
-    **{'ingest-' + kind: 'ingest ' + kind for kind in
-       ('all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'wizard')},
 })
 
 
@@ -80,8 +53,6 @@ INVESTIGATION_INPUTS = MappingProxyType({
 
 def investigation_capabilities():
     """Small catalog projection for advisory use only; no command execution."""
-    return {name: {'purpose': COMMANDS[name], 'usage': usage, 'input': expected}
+    from .command_surface import syntax
+    return {syntax(name): {'purpose': COMMANDS[name], 'usage': syntax(name) + usage[len(name):], 'input': expected}
             for name, (usage, expected) in INVESTIGATION_INPUTS.items()}
-
-# Hidden from ordinary discovery, still directly callable and documented.
-ADVANCED_COMMANDS = frozenset({'investigate-ai'})

@@ -135,6 +135,6 @@ def test_registry_value_retains_inherited_timestamp():
 def test_continuation_requires_explicit_scope_in_cli():
     from forensic_assistant.cli import build_parser
     from forensic_assistant.briefing_cli import run as cli_run
-    arguments=build_parser().parse_args(['briefing','--text','baje.ps1','--discovery-after','bad'])
+    arguments=build_parser().parse_args(['investigation','briefing','inspect','--text','baje.ps1','--discovery-after','bad'])
     with pytest.raises(ValueError,match='requires --discover'):
         cli_run(arguments)

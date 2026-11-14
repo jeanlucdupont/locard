@@ -54,8 +54,8 @@ def test_create_reopen_export_new_process(workspace, source):
     assert original['findings']==[]
     fid = register(workspace, source)
     assert workspace.export()==f.Workspace(workspace.directory).export()
-    out = subprocess.run([sys.executable, '-B', '-m', 'forensic_assistant.investigation_ai.findings',
-        str(workspace.directory), 'export'], capture_output=True, text=True, check=True)
+    out = subprocess.run([sys.executable, '-B', '-m', 'forensic_assistant.cli', 'investigation', 'findings', 'list',
+        '--workspace', str(workspace.directory), '--json'], capture_output=True, text=True, check=True)
     assert json.loads(out.stdout)==workspace.export()
     assert workspace.get(fid)['findings'][0]['state']=='proposed'
 

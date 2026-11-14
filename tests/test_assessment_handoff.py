@@ -28,7 +28,7 @@ def saved(tmp_path):
             artifact(db,family,number=number)
     accepted(case)
     with closing(connect(case)) as db:
-        result=assessment_cli.run(arguments(case,'--assess','--start',START,'--end',END,answers=['','y']),worker_factory=factory(db))
+        result=assessment_cli.run(arguments(case,'assess','--start',START,'--end',END,answers=['','y']),worker_factory=factory(db))
     return case,result
 
 
@@ -150,7 +150,8 @@ def test_cli_decline_no_model_no_worker(saved,monkeypatch):
     from forensic_assistant import briefing_cli
     case,result=saved
     monkeypatch.setattr(h,'investigate',lambda *a,**k:pytest.fail('declined started investigation'))
-    value=briefing_cli.run(arguments(case,'--investigate',result['id'],'--question','Inspect E1',answers=['n']))
+    from forensic_assistant import assessment_handoff_cli
+    value=assessment_handoff_cli.execute(case,result['id'],'Inspect E1',read=lambda _: 'n')
     assert 'cancelled' in value['message']
     assert 'cancelled' in briefing_cli.render(value)
 

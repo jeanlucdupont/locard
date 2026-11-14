@@ -24,11 +24,11 @@ from forensic_assistant.reporting.transcripts import safe_path
 
 TYPES = ('browser', 'evtx', 'mft', 'prefetch', 'registry')
 HELP = '''Usage:
-  dump <type> [--force]
+  evidence export <type> [--force]
 
 Types: browser, evtx, mft, prefetch, registry, all
 
-Examples: dump browser; dump evtx; dump mft; dump prefetch; dump registry; dump all
+Examples: evidence export browser; evidence export evtx; evidence export mft; evidence export prefetch; evidence export registry; evidence export all
 Fixed destination: <case database directory>/dump/<type>.csv
 Existing files require --force. Empty categories are skipped.
 CSV files are derived analyst output, not evidence.'''

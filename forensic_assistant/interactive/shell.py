@@ -71,7 +71,7 @@ class Shell:
             print('More evidence needs to be inspected.\n\n'
                   'Locard may propose additional forensic lookups.\n'
                   'You will be asked to approve each one before it runs.')
-            words = ['investigate-ai', '--approve-tools', '--', request]
+            words = ['investigation', 'advanced', 'current-case', '--approve-tools', '--', request]
             args = build_parser(interactive=True).parse_args(['--db', str(self.active), *words])
             args.no_color = self.no_color
             args._argv = words
@@ -201,8 +201,8 @@ class Shell:
         return self.menu()
 
     def new(self):
-        from .creation import create
-        return create(self)
+        from .workspace import create_empty
+        return create_empty(self)
 
     def menu(self):
         while True:
@@ -213,8 +213,7 @@ class Shell:
                 if choice in ("", "3", "exit", "quit"):
                     return False
                 if choice == '1':
-                    from .setup import create
-                    if create(self):
+                    if self.new():
                         return True
                 elif choice == "2":
                     if self.choose():
@@ -292,87 +291,22 @@ class Shell:
                         executing = True
                         self.request_advice(request)
                         continue
-                    if stripped == 'ask' or stripped.startswith(('ask ', 'ask\t')):
-                        print('`ask` is deprecated. Prefix AI requests with ! instead.')
-                        executing = True
-                        self.request_advice(stripped[3:].lstrip())
-                        continue
                     words = split(line)
                     if not words:
                         continue
-                    if words[0] == 'expert':
+                    if words[0] == 'quit':
                         if len(words) != 1:
-                            raise ValueError(words[0] + ' takes no arguments')
-                        print('Locard now uses a single shell mode. No mode change is required.')
-                        self.last_status = 0
-                        continue
-                    if words[0] in ('exit', 'quit'):
-                        if len(words) != 1:
-                            raise ValueError('exit takes no arguments')
+                            raise ValueError('quit takes no arguments')
                         return 0
-                    if words[0] == 'version':
-                        if len(words) != 1:
-                            raise ValueError('version takes no arguments')
-                        from forensic_assistant import __version__
-                        print('Locard version ' + __version__)
-                        self.audit.record('COMMAND', command='version', argv=words)
-                        self.last_status = 0
-                        continue
-                    if words[0] == 'case':
-                        if len(words) > 2:
-                            raise ValueError('Use case or case "database path"')
-                        if len(words) == 2 and words[1] == 'new':
-                            self.new()
-                        else:
-                            self.choose(words[1] if len(words) == 2 else None)
-                        continue
-                    if words[0] in ('ingest-wizard', 'add-evidence') or words[:2] == ['ingest', 'wizard']:
-                        if len(words) != (2 if words[0] == 'ingest' else 1):
-                            raise ValueError('ingest wizard takes no arguments')
-                        if words[0] != 'ingest':
-                            print('`' + words[0] + '` is deprecated. Use `ingest wizard`.')
-                        from .setup import add_evidence
-                        self.last_status = 0 if add_evidence(self) else 1
-                        continue
-                    if words[0] == 'new-case':
-                        if len(words) != 1:
-                            raise ValueError('new-case takes no arguments')
-                        from .setup import create
-                        create(self)
-                        continue
-                    if words[0] == 'color':
-                        if len(words) > 2 or (len(words) == 2 and words[1] not in ('on', 'off')):
-                            raise ValueError('Usage: color [on|off]')
-                        if len(words) == 2:
-                            self.no_color = words[1] == 'off'
-                        if words == ['color', 'on'] and 'NO_COLOR' in os.environ:
-                            print('Color remains disabled because NO_COLOR is set.')
-                        elif words == ['color', 'on'] and not enabled(self):
-                            print('Color remains disabled because the terminal does not support styling.')
-                        else:
-                            print('Color: ' + ('on' if enabled(self) else 'off'))
-                        self.audit.record('COMMAND', command='color', argv=words)
-                        continue
                     if words[0] in ('help', '?'):
-                        from .help import catalog, command_help, SHELL_COMMANDS
-                        if len(words) == 1:
-                            print(catalog(build_parser(interactive=True), Palette(enabled(self))))
+                        from .help import catalog, command_help
+                        if len(words) == 1 or words[1:] == ['all']:
+                            print(catalog(build_parser(interactive=True), Palette(enabled(self)), all_commands=len(words)>1))
                             self.audit.record('COMMAND', command='help', argv=words)
                             self.last_status = 0
                             continue
-                        if words[1:] == ['ingest', 'wizard']:
-                            print(command_help('ingest-wizard'))
-                            self.audit.record('COMMAND', command='help', argv=words)
-                            self.last_status = 0
-                            continue
-                        if len(words) == 2 and words[1] == 'ask':
-                            print('`ask` is deprecated. Prefix AI requests with ! instead. Interactive ask uses the same AI routing.')
-                            self.audit.record('COMMAND', command='help', argv=words)
-                            self.last_status = 0
-                            continue
-                        if len(words) == 2 and words[1] in SHELL_COMMANDS:
+                        if len(words) == 2 and words[1] in ('help','?','quit','!'):
                             print(command_help(words[1]))
-                            self.audit.record('COMMAND', command='help', argv=words)
                             continue
                         words = words[1:] + ['--help']
                     parser = build_parser(interactive=True)
@@ -392,13 +326,24 @@ class Shell:
                         args.no_color = True
                     # Also rejects argparse global-option abbreviations/equals forms.
                     if args.db != str(self.active) or any(w == '--db' or w.startswith('--db=') for w in words):
-                        raise ValueError('Use case to change the active database')
-                    if args.command == 'ask':
-                        # Quoted command names/global flags must not reach legacy CLI retrieval.
-                        print('`ask` is deprecated. Prefix AI requests with ! instead.')
-                        executing = True
-                        self.request_advice(args.question)
-                        continue
+                        raise ValueError('Use case open to change the active database')
+                    if args.command == 'workflow':
+                        if args.workflow == 'case-open':
+                            self.choose(args.path)
+                            continue
+                        if args.workflow == 'case-new':
+                            self.new()
+                            continue
+                        if args.workflow == 'ingest-wizard':
+                            from .setup import add_evidence
+                            self.last_status = 0 if add_evidence(self) else 1
+                            continue
+                        if args.workflow == 'color':
+                            if args.setting:
+                                self.no_color = args.setting == 'off'
+                            print('Color: ' + ('on' if enabled(self) else 'off'))
+                            self.audit.record('COMMAND', command='color', argv=words)
+                            continue
                     executing = True
                     from .sources import prepare
                     from forensic_assistant import activity

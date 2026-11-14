@@ -8,7 +8,7 @@ from forensic_assistant.cli import build_parser, get_thin
 from forensic_assistant.database.db import connect
 from forensic_assistant.interactive import creation, setup, setup_display, workspace
 from forensic_assistant.interactive.completion import complete
-from forensic_assistant.interactive.help import catalog, command_help
+from forensic_assistant.interactive.help import catalog, paths
 from forensic_assistant.interactive.shell import Shell
 from forensic_assistant.interactive.state import State
 from forensic_assistant.terminal import Palette
@@ -43,12 +43,11 @@ def rows(shell, table):
 
 
 def test_navigation_documentation_and_completion():
-    assert 'ingest' in catalog(build_parser()) and 'ingest-wizard' not in catalog(build_parser())
+    assert 'evidence' in catalog(build_parser()) and 'ingest-wizard' not in catalog(build_parser())
     assert 'add-evidence' not in catalog(build_parser())
-    text = command_help('ingest-wizard')
-    for phrase in ('current case', 'manual', 'source metadata', 'preserved', '$MFT', 'cancel'):
-        assert phrase in text
-    assert complete('ingest w', 8).text == 'ingest wizard '
+    text = dict(paths(build_parser()))[('evidence','ingest','wizard')].format_help()
+    assert 'Guided evidence selection; confirmation required' in text
+    assert complete('evidence ingest w', 17).text == 'evidence ingest wizard '
     # Interactive workflow does not introduce a JSON/non-interactive command.
     with pytest.raises(SystemExit):
         build_parser().parse_args(['add-evidence'])
@@ -207,10 +206,10 @@ def test_semantic_completion_colors_and_zero_record_outcome():
 def test_shell_dispatch_prompt_and_reject_arguments(opened, monkeypatch, capsys):
     shell = opened
     monkeypatch.setattr(shell, 'startup', lambda: True)
-    shell.reader = Input('help add-evidence', 'add-evidence unexpected', 'add-evidence', 'cancel', 'exit')
+    shell.reader = Input('help evidence ingest wizard', 'evidence ingest wizard unexpected', 'evidence ingest wizard', 'cancel', 'quit')
     assert shell.run() == 0
     text = capsys.readouterr().out
-    assert 'ingest wizard takes no arguments' in text
+    assert 'Invalid arguments' in text
     assert 'Add evidence to case: Human case' in text
     assert not hasattr(shell, 'mode')
     assert '[Human case]' + '> ' in shell.reader.prompts
@@ -297,7 +296,7 @@ def test_shell_success_returns_to_same_case(opened, tmp_path, monkeypatch, capsy
     path.parent.mkdir()
     mft_file(path)
     monkeypatch.setattr(opened, 'startup', lambda: True)
-    opened.reader = Input('add-evidence', *manual(path), 'exit')
+    opened.reader = Input('evidence ingest wizard', *manual(path), 'quit')
     assert opened.run() == 0
     assert not hasattr(opened, 'mode') and opened.last_status == 0
     assert rows(opened, 'evidence_records')

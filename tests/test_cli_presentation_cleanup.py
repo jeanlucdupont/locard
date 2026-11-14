@@ -66,7 +66,7 @@ def test_source_narrow_long_values_warnings():
     data.update(total=10, truncated=True)
     plain = source_cli.render_list(data, width=40)
     assert max(map(len, plain.splitlines())) <= 40 and '...' in plain
-    assert 'source list --ids' not in plain and 'Showing 2 of 10' in plain
+    assert 'evidence source list --ids' not in plain and 'Showing 2 of 10' in plain
     assert 'conflicting host' in plain and 'multiple source' in plain
     full = source_cli.render_list(data, width=40, ids=True)
     assert all(r['source_id'] in full for r in data['sources'])
@@ -119,32 +119,32 @@ def test_clean_header_and_detail_preservation():
 def test_usage_and_local_argument_errors(monkeypatch, capsys):
     monkeypatch.setattr('sys.argv', [r'C:\Synthetic install\.venv\Scripts\locard'])
     with pytest.raises(SystemExit) as exc:
-        build_parser().parse_args(['source', 'assign', '--help'])
+        build_parser().parse_args(['evidence', 'source', 'assign', '--help'])
     assert exc.value.code == 0
     text = capsys.readouterr().out
-    assert text.startswith('usage: locard source assign') and '.venv' not in text and 'python.exe' not in text
+    assert text.startswith('usage: locard evidence source assign') and '.venv' not in text and 'python.exe' not in text
     parser = build_parser(interactive=True)
     with pytest.raises(SystemExit):
-        parser.parse_args(['source', 'assign', '--help'])
-    assert capsys.readouterr().out.startswith('usage: source assign')
+        parser.parse_args(['evidence', 'source', 'assign', '--help'])
+    assert capsys.readouterr().out.startswith('usage: evidence source assign')
     with pytest.raises(InvalidArguments) as exc:
-        parser.parse_args(['source', 'assign'])
-    assert 'usage: source assign' in str(exc.value) and 'ingest-all' not in str(exc.value)
+        parser.parse_args(['evidence', 'source', 'assign'])
+    assert 'usage: evidence source assign' in str(exc.value) and 'ingest-all' not in str(exc.value)
     with pytest.raises(InvalidArguments) as exc:
-        parser.parse_args(['source', 'assign', 'src-test', '--reason', 'x', '--bogus'])
-    assert 'usage: source assign' in str(exc.value)
+        parser.parse_args(['evidence', 'source', 'assign', 'src-test', '--reason', 'x', '--bogus'])
+    assert 'usage: evidence source assign' in str(exc.value)
     with pytest.raises(SystemExit) as exc:
-        build_parser().parse_args(['source', 'assign'])
-    assert exc.value.code == 2 and 'locard source assign' in capsys.readouterr().err
+        build_parser().parse_args(['evidence', 'source', 'assign'])
+    assert exc.value.code == 2 and 'locard evidence source assign' in capsys.readouterr().err
 
 
 def test_unknown_command_and_session_recovery(tmp_path, capsys):
-    reader = Input(str(case(tmp_path)), 'donotexist', 'source assign', 'help source assign', 'status', 'exit')
+    reader = Input(str(case(tmp_path)), 'donotexist', 'evidence source assign', 'help evidence source assign', 'case status', 'quit')
     assert Shell(State(None), reader).run() == 0
     text = capsys.readouterr().out
     error = text.split('Unknown command: donotexist', 1)[1].split('Invalid arguments.', 1)[0]
     assert 'Type `help`' in error and 'usage:' not in error and 'ingest-evtx' not in error
-    assert 'usage: source assign' in text and 'CASE STATUS' in text and 'Total evidence records:' in text
+    assert 'usage: evidence source assign' in text and 'CASE STATUS' in text and 'Total evidence records:' in text
     with pytest.raises(UnknownCommand):
         build_parser(interactive=True).parse_args(['--no-color', 'donotexist'])
 
@@ -158,7 +158,7 @@ def test_source_output_modes_and_session_color(tmp_path, monkeypatch, capsys):
         expected = sources.listing(db)
     monkeypatch.delenv('NO_COLOR', raising=False)
     monkeypatch.setattr(terminal, 'capable', lambda stream: True)
-    base = ['--db', str(path), 'source', 'list']
+    base = ['--db', str(path), 'evidence', 'source', 'list']
     assert main(base + ['--json']) == 0
     assert json.loads(capsys.readouterr().out) == expected
     assert main(base + ['--output', str(dest)]) == 0
@@ -169,7 +169,7 @@ def test_source_output_modes_and_session_color(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     assert main(base + ['--page']) == 0
     assert terminal.SGR.sub('', capsys.readouterr().out) == plain
-    reader = Input(str(path), 'color on', 'source list', 'color off', 'source list', 'exit')
+    reader = Input(str(path), 'settings color on', 'evidence source list', 'settings color off', 'evidence source list', 'quit')
     assert Shell(State(None), reader).run() == 0
     text = capsys.readouterr().out
     before, after = before_shutdown(text).split('Color: off\n')

@@ -6,31 +6,57 @@ from forensic_assistant.interactive.console import safe
 
 
 def configure(commands):
-    from forensic_assistant.command_catalog import COMMANDS
-    p=commands.add_parser('briefing',help=COMMANDS['briefing'])
+    p=commands.add_parser('briefing',help='Saved analyst briefing and explicit lead discovery; not forensic findings')
+    sub=p.add_subparsers(dest='briefing_operation',required=True)
+    defaults=dict(briefing_file=None,briefing_text=None,interview=False,show=False,edit=False,analyze=False,
+                  import_json=None,export_json=None,save=False,deterministic=False,revision=None,
+                  briefing_correction=[],ai=False,discover=False,approve=[],artifact=None,discovery_after=None,
+                  start=None,end=None,details=False,json=False)
+    p=sub.add_parser('show',help='Briefing show');p.set_defaults(**defaults)
+    p.set_defaults(show=True)
+    p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
+    p.add_argument('--json',action='store_true',help='Include original narrative, spans, leads, packet and plan; sensitive derived output')
+    p=sub.add_parser('edit',help='Briefing edit');p.set_defaults(**defaults)
+    p.set_defaults(edit=True)
+    p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
+    p.add_argument('--json',action='store_true',help='Include original narrative, spans, leads, packet and plan; sensitive derived output')
+    p=sub.add_parser('interview',help='Briefing interview');p.set_defaults(**defaults)
+    p.set_defaults(interview=True)
+    p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
+    p.add_argument('--json',action='store_true',help='Include original narrative, spans, leads, packet and plan; sensitive derived output')
+    p=sub.add_parser('import',help='Briefing import');p.set_defaults(**defaults)
     source=p.add_mutually_exclusive_group(required=True)
-    source.add_argument('--file',dest='briefing_file',help='UTF-8 analyst narrative, at most 32 KiB; not evidence')
-    source.add_argument('--text',dest='briefing_text',help='Short inline analyst narrative; use --file for paragraphs')
-    for action in ('interview', 'wizard', 'show', 'edit', 'analyze'):
-        source.add_argument('--'+action, action='store_true', help=('Recommended adaptive briefing interview' if action=='interview' else 'Legacy questionnaire' if action=='wizard' else 'Use the selected case briefing: '+action))
-    source.add_argument('--investigate',nargs='?',const='latest',metavar='ASSESSMENT_ID',help='Investigate a saved assessment using the existing grounded AI controller')
-    p.add_argument('--autonomous',action='store_true',help='Stage A: one scoped authorization, incremental read-only inspection of assessment references (OpenAI only)')
-    p.add_argument('--decompose',action='store_true',help='S4-A: explicitly authorize one question-only AI decomposition with --investigate --autonomous; proposed intent remains provisional')
-    p.add_argument('--synthesize',action='store_true',help='S4-B2: authorize up to two evidence-consuming organization requests with --investigate --autonomous --decompose; proposals remain unverified')
-    p.add_argument('--live-explanation',action='store_true',help='Persist bounded local explanation references with --synthesize; no additional AI calls or evidence lookups')
-    p.add_argument('--question',help='First assessment investigation question; otherwise prompted interactively')
-    source.add_argument('--assess',action='store_true',help='Plan, approve and save deterministic initial case assessment')
-    source.add_argument('--assessment-show',nargs='?',const='latest',metavar='ID',help='Review a saved assessment (default: latest)')
-    source.add_argument('--assessment-history',action='store_true',help='List saved assessments')
-    source.add_argument('--assessment-resume',nargs='?',const='latest',metavar='ID',help='Reauthorize an earlier plan in a separate fresh read view')
-    source.add_argument('--import-json',help='Import editable canonical briefing JSON after confirmation')
-    source.add_argument('--export-json',help='Export accepted canonical briefing or an empty template; no overwrite')
-    p.add_argument('--save',action='store_true',help='Explicitly import --file/--text as saved narrative after confirmation')
+    source.add_argument('--file',dest='briefing_file',help='UTF-8 analyst narrative, at most 32 KiB')
+    source.add_argument('--text',dest='briefing_text',help='Inline analyst narrative')
+    p.set_defaults(save=True)
+    p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
+    p.add_argument('--json',action='store_true',help='Include original narrative, spans, leads, packet and plan; sensitive derived output')
+    p=sub.add_parser('export',help='Briefing export');p.set_defaults(**defaults)
+    p.add_argument('export_json',help='Fresh JSON destination; no overwrite')
+    p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
+    p.add_argument('--json',action='store_true',help='Include original narrative, spans, leads, packet and plan; sensitive derived output')
+    p=sub.add_parser('import-json',help='Briefing import-json');p.set_defaults(**defaults)
+    p.add_argument('import_json',help='Canonical JSON file; confirmation required')
+    p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
+    p.add_argument('--json',action='store_true',help='Include original narrative, spans, leads, packet and plan; sensitive derived output')
+    p=sub.add_parser('analyze',help='Briefing analyze');p.set_defaults(**defaults)
+    p.set_defaults(analyze=True)
     p.add_argument('--deterministic',action='store_true',help='Analyze saved briefing without AI')
     p.add_argument('--revision',type=int,help='Required current briefing revision for saved-briefing discovery approval')
+    p.add_argument('--discover',action='store_true',help='Execute approved lead lookups; requires --approve, --artifact, --start and --end')
+    p.add_argument('--approve',action='append',default=[],metavar='LEAD_ID',help='Approve exactly this reviewed lead; repeat for at most six leads')
+    p.add_argument('--artifact',choices=(*briefing.ARTIFACTS,'all'),help='Search one family or all available families (six queries total; review unsearched coverage)')
+    p.add_argument('--discovery-after',help='Resume one explicitly approved lead/family using its discovery continuation token')
+    p.add_argument('--start',help='Authorized search start with UTC/offset; never inferred from narrative')
+    p.add_argument('--end',help='Authorized search end with UTC/offset; maximum 24-hour window')
+    p.add_argument('--details',action='store_true',help='Show full provenance, search packets and validation diagnostics')
+    p.add_argument('--json',action='store_true',help='Include original narrative, spans, leads, packet and plan; sensitive derived output')
+    p=sub.add_parser('inspect',help='Briefing inspect');p.set_defaults(**defaults)
+    source=p.add_mutually_exclusive_group(required=True)
+    source.add_argument('--file',dest='briefing_file',help='UTF-8 analyst narrative, at most 32 KiB')
+    source.add_argument('--text',dest='briefing_text',help='Inline analyst narrative')
     p.add_argument('--correction',dest='briefing_correction',action='append',default=[],help='Separate analyst correction; original wording remains intact')
     p.add_argument('--ai',action='store_true',help='One bounded narrative interpretation using the configured provider; no tools')
-    p.add_argument('--allow-cloud',action='store_true',help='Legacy disclosure flag; unnecessary after provider configuration acknowledgment')
     p.add_argument('--discover',action='store_true',help='Execute approved lead lookups; requires --approve, --artifact, --start and --end')
     p.add_argument('--approve',action='append',default=[],metavar='LEAD_ID',help='Approve exactly this reviewed lead; repeat for at most six leads')
     p.add_argument('--artifact',choices=(*briefing.ARTIFACTS,'all'),help='Search one family or all available families (six queries total; review unsearched coverage)')
@@ -42,39 +68,24 @@ def configure(commands):
 
 
 def run(args):
-    if getattr(args,'live_explanation',False) and not getattr(args,'synthesize',False):
-        raise ValueError('--live-explanation requires --synthesize')
-    if getattr(args,'synthesize',False) and not (getattr(args,'decompose',False) and getattr(args,'autonomous',False) and getattr(args,'investigate',None)):
-        raise ValueError('--synthesize requires briefing --investigate --autonomous --decompose')
-    if getattr(args,'decompose',False) and not (getattr(args,'autonomous',False) and getattr(args,'investigate',None)):
-        raise ValueError('--decompose requires briefing --investigate --autonomous')
-    if getattr(args,'autonomous',False) and not getattr(args,'investigate',None):
-        raise ValueError('--autonomous requires briefing --investigate')
-    if getattr(args,'investigate',None):
-        from .assessment_handoff_cli import run
-        return run(args)
-    if getattr(args,'question',None):raise ValueError('--question requires briefing --investigate')
-    if args.assess or args.assessment_show or args.assessment_history or args.assessment_resume:
-        from .assessment_cli import run as assessment_run
-        return assessment_run(args)
     if getattr(args,'import_json',None) or getattr(args,'export_json',None):
-        if any((args.ai,args.allow_cloud,args.save,args.deterministic,args.discover,args.approve,args.artifact,args.start,args.end,args.revision,args.briefing_correction,args.discovery_after)):
+        if any((args.ai,args.save,args.deterministic,args.discover,args.approve,args.artifact,args.start,args.end,args.revision,args.briefing_correction,args.discovery_after)):
             raise ValueError('JSON exchange cannot combine with analysis or search options.')
         from .briefing_canonical import exchange
         return exchange(args)
     if args.discovery_after and (not args.discover or args.artifact!='all' or len(args.approve)!=1):
         raise ValueError('--discovery-after requires --discover --artifact all and one approved lead')
-    saved = any(getattr(args, name, False) for name in ('interview','wizard','show','edit','analyze'))
-    writing = args.interview or args.wizard or args.edit or args.save
+    saved = any(getattr(args, name, False) for name in ('interview','show','edit','analyze'))
+    writing = args.interview or args.edit or args.save
     if args.deterministic and (not args.analyze or args.ai):
-        raise ValueError('--deterministic requires --analyze and cannot combine with --ai.')
+        raise ValueError('--deterministic requires briefing analyze and cannot combine with --ai.')
     if args.save and saved:
         raise ValueError('--save imports --file or --text only.')
     if saved and args.briefing_correction:
         raise ValueError('Edit the saved briefing instead of using transient --correction.')
     if args.save and args.briefing_correction:
         raise ValueError('Import narrative first; corrections are not silently persisted.')
-    if (args.interview or args.wizard or args.edit or args.show or args.save) and (args.ai or args.discover or args.approve or args.artifact or args.start or args.end or args.revision):
+    if (args.interview or args.edit or args.show or args.save) and (args.ai or args.discover or args.approve or args.artifact or args.start or args.end or args.revision):
         raise ValueError('Briefing entry/display cannot combine with analysis or search options.')
     if args.revision is not None and not (args.analyze and args.discover):
         raise ValueError('--revision is for approved discovery of saved content.')
@@ -93,8 +104,6 @@ def run(args):
             if args.interview:
                 from forensic_assistant.briefing_interview import interview
                 value=interview(current,read,details=args.details)
-            elif args.wizard:
-                value=workflow.wizard(current,read)
             elif args.edit:
                 value=workflow.edit(store,current,read)
             else:
@@ -103,7 +112,7 @@ def run(args):
                 if value is None:return {'kind':'saved_briefing','message':'Briefing unchanged; save cancelled.'}
                 return workflow.view(store.save(value,revision['digest'] if revision else None))
         if args.analyze:
-            if revision is None:raise ValueError('No saved briefing. Use briefing --interview or --edit first.')
+            if revision is None:raise ValueError('No saved briefing. Use investigation briefing interview or edit first.')
             if args.discover and args.revision != revision['revision']:
                 raise ValueError('Review current briefing and explicitly supply its --revision for discovery.')
             if current.get('canonical') and not sources(revision):return workflow.view(state)
@@ -148,7 +157,7 @@ def run(args):
     if use_ai:
         from forensic_assistant.ai.backend import ModelBackend
         client=ModelBackend(timeout=45)
-        briefing.interpret(packet,client,allow_cloud=args.allow_cloud)
+        briefing.interpret(packet,client,allow_cloud=False)
     if args.discover:
         if not all((args.approve,args.artifact,args.start,args.end)):
             raise ValueError('Discovery requires reviewed --approve IDs, --artifact, --start and --end.')

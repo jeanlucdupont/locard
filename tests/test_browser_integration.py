@@ -11,7 +11,7 @@ from test_browser_parser import history
 
 
 def ingest(db, path, product='chrome', profile='Default', host='host-a', source=None):
-    options = ['ingest-browser', str(path), '--browser', product, '--profile', profile]
+    options = ['evidence','ingest','browser', str(path), '--browser', product, '--profile', profile]
     options += ['--source', source] if source else ['--hostname', host, '--user', product + '-user']
     return v2_cli.ingest_sources(db, build_parser().parse_args(options))[0]
 

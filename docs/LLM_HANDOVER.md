@@ -1,3 +1,5 @@
+> CLI update: 6.142 intentionally replaces older syntax in this historical handover. Read [consolidation](LOCARD_6_142_CLI_CONSOLIDATION.md) and [the generated reference](LOCARD_SHELL_COMMAND_REFERENCE.md). Canonical paths are built by command_surface.Operations over stable internal service IDs. Guided orchestration uses explicit assessment/handoff functions. Do not restore retired aliases or rename persisted contracts to match CLI paths.
+
 # Locard — project handover for a successor LLM
 
 Prepared on 2026-10-25 against commit

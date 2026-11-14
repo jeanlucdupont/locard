@@ -117,13 +117,13 @@ def test_progress_throttles_but_reports_failure_and_details():
 
 def test_saved_show_same_render_no_queries(case):
     with closing(connect(case)) as db:
-        result=cli.run(arguments(case,'--assess','--start','2026-09-30T00:00:00Z','--end','2026-09-30T23:59:59Z',answers=['','y']),worker_factory=factory(db))
+        result=cli.run(arguments(case,'assess','--start','2026-09-30T00:00:00Z','--end','2026-09-30T23:59:59Z',answers=['','y']),worker_factory=factory(db))
     before=AssessmentStore(case).load(result['id'])
-    shown=cli.run(arguments(case,'--assessment-show',result['id']),worker_factory=lambda _:pytest.fail('query'))
+    shown=cli.run(arguments(case,'show',result['id']),worker_factory=lambda _:pytest.fail('query'))
     assert a.render(result)==a.render(shown)
     assert before==AssessmentStore(case).load(result['id'])
     assert 'presentation' in next(iter(result['records'].values()))
-    assert cli.run(arguments(case,'--assessment-history'))['assessments'][0]['id']==result['id']
+    assert cli.run(arguments(case,'list'))['assessments'][0]['id']==result['id']
 
 
 def test_render_measurement():
@@ -141,7 +141,7 @@ def test_historical_editorial_context_exact_revision_and_json(case):
     document['summary'].update(status='accepted',text='Review reported arrival and execution.',statement='Review reported arrival and execution.')
     revision=store.save(content(dict.fromkeys(FIELDS,''),'',canonical=canonical.envelope(document)),old['digest'])['revisions'][-1]
     with closing(connect(case)) as db:
-        result=cli.run(arguments(case,'--assess','--start','2026-09-30T00:00:00Z','--end','2026-09-30T23:59:59Z',answers=['','y']),worker_factory=factory(db))
+        result=cli.run(arguments(case,'assess','--start','2026-09-30T00:00:00Z','--end','2026-09-30T23:59:59Z',answers=['','y']),worker_factory=factory(db))
     assert result['plan']['editorial_summary']==document['summary']['text']
     result['plan'].pop('editorial_summary')  # Historical presentation shape.
     result['authorization']['plan_digest']=a.digest(result['plan'])
@@ -149,11 +149,11 @@ def test_historical_editorial_context_exact_revision_and_json(case):
     before=AssessmentStore(case).load(result['id'])
     document['summary']['text']='Different current editorial context.'
     store.save(content(dict.fromkeys(FIELDS,''),'',canonical=canonical.envelope(document)),revision['digest'])
-    shown=cli.run(arguments(case,'--assessment-show',result['id']),worker_factory=lambda _:pytest.fail('query'))
+    shown=cli.run(arguments(case,'show',result['id']),worker_factory=lambda _:pytest.fail('query'))
     text=a.render(shown)
     assert 'Review reported arrival and execution.' in text and 'Different current editorial' not in text
     assert shown['briefing_stale'] and 'Structured objectives unavailable' in text
-    machine=cli.run(arguments(case,'--assessment-show',result['id'],'--json'))
+    machine=cli.run(arguments(case,'show',result['id'],'--json'))
     assert 'briefing_report_context' not in machine
     assert AssessmentStore(case).load(result['id'])==before
 

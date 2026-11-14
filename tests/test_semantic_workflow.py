@@ -33,7 +33,7 @@ def args(command, *extra, interactive=True):
         if '--model-path' in extra:
             values['model_path'] = extra[extra.index('--model-path')+1]
         return SimpleNamespace(**values)
-    return build_parser(interactive=interactive).parse_args(['semantic', command, *extra])
+    return build_parser(interactive=interactive).parse_args(['evidence', 'semantic', command, *extra])
 
 
 def manifest():
@@ -358,7 +358,7 @@ def test_cli_status_json_plain(environment, monkeypatch, capsys):
     path = environment / 'case.db'
     connect(path).close()
     monkeypatch.setattr(terminal, 'capable', lambda stream: True)
-    assert main(['--db', str(path), 'semantic', 'status', '--json']) == 0
+    assert main(['--db', str(path), 'evidence', 'semantic', 'status', '--json']) == 0
     text = capsys.readouterr().out
     assert '\x1b' not in text
     assert json.loads(text)['state'] == 'model_missing'

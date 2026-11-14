@@ -6,7 +6,6 @@ All mutations use a pinned workspace identity, expected revision and append-only
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
-import argparse
 import os
 from pathlib import Path
 import re
@@ -538,32 +537,3 @@ def create(directory, source_root, run_id, *, actor):
                 conn.close()
     workspace._pin(metadata)
     return workspace
-
-
-def main():
-    p = argparse.ArgumentParser(description='Local analyst findings; no provider calls or evidence lookups')
-    p.add_argument('directory')
-    sub = p.add_subparsers(dest='command', required=True)
-    c = sub.add_parser('create'); c.add_argument('source_root'); c.add_argument('run_id'); c.add_argument('--actor', required=True)
-    sub.add_parser('export')
-    for name in ('propose', 'accept', 'reject', 'supersede'):
-        q = sub.add_parser(name); q.add_argument('--actor', required=True); q.add_argument('--revision', type=int, required=True)
-        if name != 'propose': q.add_argument('finding_id')
-        if name in ('propose', 'supersede'):
-            q.add_argument('--statement', required=True); q.add_argument('--support', action='append', required=True)
-            q.add_argument('--contrary', action='append', default=[])
-        if name == 'propose': q.add_argument('--kind', default='analyst_hypothesis', choices=KINDS[:3] + ('analyst_hypothesis',))
-        else: q.add_argument('--rationale', default='')
-    a = p.parse_args()
-    if a.command == 'create': result = create(a.directory, a.source_root, a.run_id, actor=a.actor).export()
-    else:
-        w = Workspace(a.directory)
-        if a.command == 'export': result = w.export()
-        elif a.command == 'propose': result = w.register(actor=a.actor, expected_revision=a.revision, kind=a.kind, statement=a.statement, supporting_ids=a.support, contrary_ids=a.contrary)
-        elif a.command == 'supersede': result = w.supersede(a.finding_id, actor=a.actor, expected_revision=a.revision, rationale=a.rationale, statement=a.statement, supporting_ids=a.support, contrary_ids=a.contrary)
-        else: result = w.review(a.finding_id, a.command, actor=a.actor, expected_revision=a.revision, rationale=a.rationale)
-    print(encoded(result))
-
-
-if __name__ == '__main__':
-    main()

@@ -61,17 +61,17 @@ def test_auto_source_per_invocation_metadata_and_duplicates(tmp_path):
 def test_unknown_then_corrected_hostname_and_source_search(tmp_path, capsys):
     artifact = prefetch_file(tmp_path / 'one.pf')
     case = tmp_path / 'case.db'
-    assert main(['--db', str(case), 'ingest-prefetch', str(artifact)]) == 0
+    assert main(['--db', str(case), 'evidence', 'ingest', 'prefetch', str(artifact)]) == 0
     capsys.readouterr()
     with closing(connect(case)) as db:
         sid = sources.listing(db)['sources'][0]['source_id']
         eid = db.execute('SELECT evidence_id FROM evidence_records').fetchone()[0]
         assert sources.current(db, sid)['hostname'] is None
         original = bytes(db.execute('SELECT raw_file FROM prefetch_records').fetchone()[0])
-    around = ['--db', str(case), 'around', eid, '--timestamp-slot', 'run:0']
+    around = ['--db', str(case), 'evidence', 'around', eid, '--timestamp-slot', 'run:0']
     assert main(around) == 2
     capsys.readouterr()
-    update = ['--db', str(case), 'source', 'update', sid, '--hostname', 'HostA', '--json']
+    update = ['--db', str(case), 'evidence', 'source', 'update', sid, '--hostname', 'HostA', '--json']
     assert main(update) == 0
     assert json.loads(capsys.readouterr().out)['applied'] is False
     assert main(update + ['--yes']) == 0
@@ -81,7 +81,7 @@ def test_unknown_then_corrected_hostname_and_source_search(tmp_path, capsys):
     assert main([
         '--db',
         str(case),
-        'source',
+        'evidence', 'source',
         'update',
         sid,
         '--hostname',
@@ -107,13 +107,13 @@ def test_unknown_then_corrected_hostname_and_source_search(tmp_path, capsys):
 
 @pytest.mark.parametrize(
     'command',
-    ['ingest-evtx', 'ingest-all', 'ingest-prefetch', 'ingest-mft', 'ingest-registry']
+    ['evtx','all','prefetch','mft','registry']
 )
 def test_existing_commands_without_source_create_empty_batch(tmp_path, capsys, command):
     directory = tmp_path / 'empty'
     directory.mkdir()
     case = tmp_path / 'case.db'
-    assert main(['--db', str(case), command, str(directory)]) == 1
+    assert main(['--db', str(case), 'evidence','ingest',command, str(directory)]) == 1
     with closing(connect(case)) as db:
         src = sources.listing(db)['sources'][0]
         assert src['creation_basis'] == 'automatic'
@@ -193,7 +193,7 @@ def test_confirmed_update_rejects_intervening_state_change(tmp_path):
     with closing(connect(':memory:')) as db:
         with db:
             sid = sources.create(db)
-        args = build_parser().parse_args(['source', 'update', sid, '--hostname', 'lab'])
+        args = build_parser().parse_args(['evidence', 'source', 'update', sid, '--hostname', 'lab'])
         preview = source_cli.dispatch(db, args)
         with db:
             sources.create(db)
@@ -210,11 +210,11 @@ def test_source_output_json_and_plain_export(tmp_path, capsys):
     with closing(connect(path)) as db:
         with db:
             sid = sources.create(db, name='Synthetic \x1b[31m label')
-    assert main(['--db', str(path), 'source', 'list', '--json', '--output', str(out)]) == 0
+    assert main(['--db', str(path), 'evidence', 'source', 'list', '--json', '--output', str(out)]) == 0
     data = json.loads(out.read_text())
     assert data['sources'][0]['source_id'] == sid
     assert '\x1b' not in out.read_text()
-    assert main(['--db', str(path), 'source', 'show', sid, '--limit', '1', '--json']) == 0
+    assert main(['--db', str(path), 'evidence', 'source', 'show', sid, '--limit', '1', '--json']) == 0
     assert json.loads(capsys.readouterr().out)['source_id'] == sid
 
 
@@ -229,7 +229,7 @@ def test_around_spans_same_host_sources_without_merging_provenance(tmp_path, cap
         for s in sources.listing(db)['sources']:
             with db:
                 sources.update(db, s['source_id'], display_name='Same label')
-    assert main(['--db', str(case), 'around', ids[0], '--timestamp-slot', 'run:0', '--seconds', '60']) == 0
+    assert main(['--db', str(case), 'evidence', 'around', ids[0], '--timestamp-slot', 'run:0', '--seconds', '60']) == 0
     result = json.loads(capsys.readouterr().out)
     assert {r['id'] for r in result['records']} == set(ids)
     memberships = {tuple(r['context']['source_ids']) for r in result['records']}
@@ -274,18 +274,18 @@ def test_interactive_source_update_decline_then_confirm(tmp_path):
     with closing(connect(path)) as db:
         with db:
             sid = sources.create(db)
-    command = f'source update {sid} --hostname changed'
-    shell = Shell(State(None), Input(str(path), command, 'n', 'exit'))
+    command = f'evidence source update {sid} --hostname changed'
+    shell = Shell(State(None), Input(str(path), command, 'n', 'quit'))
     assert shell.run() == 0
     with closing(connect(path)) as db:
         assert sources.current(db, sid)['hostname'] is None
-    shell = Shell(State(None), Input(str(path), command, 'yes', 'exit'))
+    shell = Shell(State(None), Input(str(path), command, 'yes', 'quit'))
     assert shell.run() == 0
     with closing(connect(path)) as db:
         assert sources.current(db, sid)['hostname'] == 'changed'
 
 
-def test_legacy_replay_uses_recorded_schema(tmp_path):
+def test_legacy_case_read_view_cannot_claim_exact_state_replay(tmp_path):
     from schema_fixtures import legacy
     from forensic_assistant.database.db import register_source
     from test_ingest import SHA
@@ -301,7 +301,8 @@ def test_legacy_replay_uses_recorded_schema(tmp_path):
             register_source(db, SHA, 1, 'synthetic.evtx')
         process(db, 1, '20')
     result = run(config(path), 'PowerShell', root, client=Scripted([final]))
-    assert replay(config(path), root, result['investigation_id'])['termination'] == 'REPLAY_MATCH'
+    with pytest.raises(ValueError,match='Exact-state replay requires a fingerprint-backed transcript'):
+        replay(config(path), root, result['investigation_id'])
 
 
 def test_source_conflict_report_retains_closed_contract_and_redaction(tmp_path):

@@ -21,7 +21,7 @@ def value(text='sample.ps1'):
 
 
 def args(store,*words):
-    return build_parser().parse_args(['--db',str(store.case),'briefing',*words])
+    return build_parser().parse_args(['--db',str(store.case),'investigation','briefing',*words])
 
 
 def test_revisions_atomic_unchanged_and_case_bytes(store,monkeypatch):
@@ -81,19 +81,18 @@ def test_wizard_skip_clear_retain_cancel(store):
     assert result['answers']['people']=='Person' and result['answers']['systems']=='' and result['narrative']==v['narrative']
     with pytest.raises(KeyboardInterrupt):workflow.wizard(v,lambda prompt:'cancel')
     assert not store.root.exists()
-    a=args(store,'--wizard');sequence=iter(['']*9+['yes']);a._confirm=lambda p:next(sequence)
-    assert cli.run(a)['revision']['revision']==1
+    with pytest.raises(SystemExit):args(store,'wizard')
 
 
 def test_show_no_analysis_and_staleness(store,monkeypatch):
     from forensic_assistant.ai.backend import ModelBackend
     monkeypatch.setattr(ModelBackend,'complete',lambda *a:pytest.fail('model called'))
-    assert 'No saved briefing' in cli.run(args(store,'--show'))['message']
+    assert 'No saved briefing' in cli.run(args(store,'show'))['message']
     first=store.save(value(),None)['revisions'][-1]
     store.record_analysis(first,{'ai_status':'partial'})
     store.save(value('changed'),first['digest'])
     before=store.path.read_bytes()
-    result=cli.run(args(store,'--show'))
+    result=cli.run(args(store,'show'))
     assert result['analysis_stale'] and 'outdated' in cli.render(result)
     assert store.path.read_bytes()==before
 
@@ -106,21 +105,21 @@ def test_analyze_deterministic_and_fake_ai(store,monkeypatch):
     monkeypatch.setattr(settings,'load',lambda:{**settings.defaults(),'provider':'openai','model':'fake','cloud_acknowledged':True})
     monkeypatch.setenv('OPENAI_API_KEY','synthetic')
     monkeypatch.setattr(ModelBackend,'complete',lambda *a:(calls.append(a) or '{"items":[]}'))
-    p=cli.run(args(store,'--analyze','--deterministic'))
+    p=cli.run(args(store,'analyze','--deterministic'))
     assert not calls and p['inputs']=={'narrative':'sample.ps1'} and p['saved_briefing']['revision']==1
-    p=cli.run(args(store,'--analyze'))
+    p=cli.run(args(store,'analyze'))
     assert len(calls)==1 and p['ai_status']=='success'
     assert len(store.load()['analyses'])==2
     with pytest.raises(ValueError,match='revision'):
-        cli.run(args(store,'--analyze','--discover','--revision','2'))
+        cli.run(args(store,'analyze','--discover','--revision','2'))
     assert len(calls)==1
 
 
 def test_import_explicit_and_legacy_transient(store):
     before=store.case.read_bytes()
-    assert cli.run(args(store,'--text','sample.ps1'))['leads']
+    assert cli.run(args(store,'inspect','--text','sample.ps1'))['leads']
     assert not store.root.exists()
-    a=args(store,'--text','sample.ps1','--save');a._confirm=lambda p:'yes'
+    a=args(store,'import','--text','sample.ps1');a._confirm=lambda p:'yes'
     assert cli.run(a)['revision']['content']['narrative']=='sample.ps1'
     assert store.case.read_bytes()==before
 
@@ -190,15 +189,15 @@ def test_copied_sidecar_rejected_and_tamper_detected(store,tmp_path):
 
 def test_read_only_state_and_editor_options_never_run_discovery(store,monkeypatch):
     monkeypatch.setattr(briefing,'discover',lambda *a:pytest.fail('unauthorized discovery'))
-    for flag in ('--show','--wizard','--edit'):
-        with pytest.raises(ValueError):cli.run(args(store,flag,'--discover'))
+    for flag in ('show','interview','edit'):
+        with pytest.raises(SystemExit):args(store,flag,'--discover')
     assert not store.root.exists()
 
 
 def test_all_empty_and_fresh_revision_binding(store):
     first=store.save(value(''),None)['revisions'][-1]
-    assert cli.run(args(store,'--show'))['revision']['content']['narrative']==''
-    with pytest.raises(ValueError,match='no content'):cli.run(args(store,'--analyze','--deterministic'))
+    assert cli.run(args(store,'show'))['revision']['content']['narrative']==''
+    with pytest.raises(ValueError,match='no content'):cli.run(args(store,'analyze','--deterministic'))
     store.save(value('new.ps1'),first['digest'])
     with pytest.raises(ValueError,match='revision'):
-        cli.run(args(store,'--analyze','--deterministic','--discover','--revision','1'))
+        cli.run(args(store,'analyze','--deterministic','--discover','--revision','1'))

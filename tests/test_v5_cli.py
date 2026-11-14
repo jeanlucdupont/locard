@@ -12,7 +12,7 @@ def test_cli_never_creates_missing_database(tmp_path, capsys):
         '--db',
         str(path),
         'report',
-        'generate',
+        'from-case',
         '--evidence',
         'unknown',
         '--output',
@@ -25,11 +25,11 @@ def test_cli_generate_show_validate(tmp_path, capsys):
     case = tmp_path / 'case.db'
     event = make_case(case)
     output = tmp_path / 'report'
-    assert main(['--db', str(case), 'report', 'generate', '--evidence', event['id'], '--output', str(output)]) == 0
+    assert main(['--db', str(case), 'report', 'from-case', '--evidence', event['id'], '--output', str(output)]) == 0
     assert json.loads(capsys.readouterr().out)['input_mode'] == 'explicit_evidence_ids'
     assert main(['report', 'show', str(output)]) == 0
     assert 'No complete investigation' in json.loads(capsys.readouterr().out)['scope']
-    assert main(['report', 'validate', str(output), '--case', str(case)]) == 0
+    assert main(['report', 'verify', str(output), '--case', str(case)]) == 0
     assert json.loads(capsys.readouterr().out)['evidence_grounding'] == 'PASS'
 
 def test_same_state_multiple_investigations_and_validation(tmp_path):

@@ -45,15 +45,20 @@ def configure(commands):
             help='Append rendered output to a derived UTF-8 file'
         )
     for name, parser in commands.choices.items():
+        if name == 'ai-history':
+            for action in parser._actions:
+                if isinstance(action, argparse._SubParsersAction):
+                    add(action.choices['replay'])
+            continue  # Recorded review exports use the guarded recorded-report backend.
         if name in ('dump', 'ai'):
             continue  # Fixed case-local destinations; no generic output redirection.
         add(parser)
         for action in parser._actions:
             if isinstance(action, argparse._SubParsersAction):
                 for child_name, child in action.choices.items():
-                    if name == 'report' and child_name in ('recorded', 'inspect-recorded'):
+                    if name == 'report' and child_name in ('from-history', 'verify-history'):
                         continue  # Recorded bundles have their own no-overwrite publication.
-                    add(child, report_generate=name == 'report' and child_name == 'generate')
+                    add(child, report_generate=name == 'report' and child_name == 'from-case')
 
 
 @contextmanager

@@ -1,5 +1,10 @@
 # Locard Forensics — AI-Assisted Forensics
 
+**Current command surface:** `case`, `evidence`, `analyze`, `investigation`, `report`, `ai`, `audit`, `settings`. Start with `help`, `case new`, `evidence ingest wizard`, then `investigation start`.
+
+[Current shell reference](docs/LOCARD_SHELL_COMMAND_REFERENCE.md) · [6.142 migration and acceptance](docs/LOCARD_6_142_CLI_CONSOLIDATION.md). Historical feature discussions do not authorize new evidence or provider access.
+
+
 
 # THIS PAGE IS A HOT MESS!
 # THAT'S OK. LOCARD IS UNDER _HEAVY_ DEVELOPMENT
@@ -32,11 +37,11 @@ See [bounded investigation diagnostics](docs/v4.md#budgets-and-termination).
 
 ## Reminders
 
-Analyst incident narratives can now be reviewed with `briefing --file PATH`.
+Analyst incident narratives can now be reviewed with `investigation briefing inspect --file PATH`.
 See [briefing review, explicit discovery approval, and manual acceptance](docs/LOCARD_6_73_BRIEFING.md).
 Default briefing analysis is model-free; narrative claims are never forensic findings.
 
-The bounded `investigate-ai` engine is assessed in [the investigation architecture
+The bounded `investigation advanced current-case` engine is assessed in [the investigation architecture
 and safety review](V4.md), including its tool inventory, limits, privacy boundaries
 and requirements for future reuse. The normal `!` interface supports advisory guidance and bounded investigation with per-tool approval.
 
@@ -47,7 +52,7 @@ PowerShell acceptance commands](V4.md#664-startup-correction--pending-manual-acc
 Startup uses the remaining overall budget; it is not capped by the 45-second
 tool-operation watchdog. Fingerprints still cover all authoritative case content.
 
-`investigate-ai --max-seconds` uses one deadline, including local model calls,
+`investigation advanced current-case --max-seconds` uses one deadline, including local model calls,
 worker startup, tools, transcript finalization and analyst approval waiting.
 Cancellation/timeout has an additional maximum five-second cleanup allowance.
 Inspect the returned `termination`; command completion does not mean a supported
@@ -152,8 +157,8 @@ evidence is malicious, benign, or significant. Executable names and detection
 values do not acquire new severity judgments through coloring.
 
 ```text
-search --artifact prefetch --no-color
-show <evidence-id> --page --no-color
+evidence search --artifact prefetch --no-color
+evidence show <evidence-id> --page --no-color
 ```
 
 Color requires an interactive ANSI-capable terminal. Windows consoles must already
@@ -169,17 +174,17 @@ styles when calculating line width. Colors are reset before pager prompts. No
 external pager, new dependency, or terminal configuration change is required.
 The active-case prompt uses the configured prompt style when color is
 enabled; its style resets before typed input. In the interactive shell, use
-`color` to report the effective state, `color off` to disable styling, and
-`color on` to restore it on a capable terminal. This preference is session-only,
+`color` to report the effective state, `settings color off` to disable styling, and
+`settings color on` to restore it on a capable terminal. This preference is session-only,
 can override startup `--no-color`, and is never saved. `NO_COLOR` remains
-authoritative; `color on` explains when it prevents styling. A command-specific
+authoritative; `settings color on` explains when it prevents styling. A command-specific
 `--no-color` remains supported and does not change the session preference.
 Interactive command help omits the repeated color option; `help` and `help color`
 document it. Direct CLI help continues listing `--no-color`.
 
 The command prompt shows only the selected database basename, for example
 `[mixeddesktop]>` or `[my 3rd case]>`, retaining the current prompt style. A valid case
-is still required before entering the command loop. Normal `exit`, `quit`, or EOF
+is still required before entering the command loop. Normal `quit`, `quit`, or EOF
 prints `Locard session ended.` and the selected case path, if any. Ctrl+C continues
 to cancel the current input or command without ending the session.
 
@@ -195,7 +200,7 @@ describe these shell-only commands; they are not OS command execution.
 ### Guided case and evidence setup
 
 The startup menu offers **[1] Create a case**, **[2] Open a case**, and **[3] Exit**.
-Create a case opens guided setup; `new-case` opens it from the interactive shell.
+Create a case opens guided setup; `case new` opens it from the interactive shell.
 `case new` and direct ingestion commands remain available. The wizard
 creates/ingests, then returns to the normal prompt for investigation and reporting.
 It never calls a model automatically.
@@ -204,7 +209,7 @@ With a case open, type `ingest wizard` to append evidence using the same guided
 scan or manual evidence selection. It preserves the active case, human case name,
 analyst/organization labels and prior evidence. It never creates another workspace
 or calls a model. `help ingest wizard` describes the workflow; it takes no arguments.
-`ingest-wizard` and `add-evidence` remain compatibility aliases with a short notice.
+`evidence ingest wizard` and `evidence ingest wizard` remain compatibility aliases with a short notice.
 Navigation help and completion prefer `ingest wizard`.
 
 Use the existing direct `ingest mft`, `ingest registry`, `ingest prefetch`,
@@ -220,7 +225,7 @@ file with new records and no duplicates, errors or limitations gets a terse
 completion: the overall outcome and elapsed time follow the category result.
 Multi-file, duplicate, partial, unsupported and failed outcomes retain useful
 detail. Completion omits redundant case/workspace labels and source paths;
-source provenance remains available through the source/detail commands. Both initial ingestion and guided additions
+evidence source provenance remains available through the source/detail commands. Both initial ingestion and guided additions
 report whole-second elapsed time, measured with a monotonic clock after final
 confirmation through ingestion and summary calculations; navigation time is excluded.
 Durations under one second display `<1 sec`.
@@ -270,7 +275,7 @@ require selecting one. Root discovery is bounded to 256 directories; inventories
 
 On Windows, non-elevated scans offer cancellation/restart or explicit continuation
 with limited access. Locard never elevates or requests credentials. Administrator
-status does not guarantee access. User-profile counts distinguish inaccessible paths
+case status does not guarantee access. User-profile counts distinguish inaccessible paths
 from skipped junction/reparse entries. Details remain available in path review;
 recognized unsupported artifacts have their own informational section.
 
@@ -301,7 +306,7 @@ on the source volume is rejected. Existing MFT parser limits are unchanged.
 Acquisition does not freeze a live volume: metadata may change while reading.
 Boot/base-record rechecks detect some changes, not whole-stream consistency.
 This limitation and acquisition timestamps, hashes, geometry and run metadata are
-retained in `artifact_runs.parameters_json`; `show <id> --json` exposes native
+retained in `artifact_runs.parameters_json`; `evidence show <id> --json` exposes native
 acquisition provenance. Unsupported attribute lists, extra extents and compressed/
 encrypted data fail explicitly rather than producing a partial acquired file.
 
@@ -336,8 +341,8 @@ as unsupported; automatic discovery is not a claim of complete acquisition.
 
 Bare `ingest` shows usage without ingesting anything. `help ingest` lists all seven
 subcommands; `help ingest mft` (or `locard ingest mft --help`) shows direct options.
-The flat aliases `ingest-all`, `ingest-browser`, `ingest-evtx`, `ingest-mft`,
-`ingest-prefetch`, and `ingest-registry` remain accepted for existing scripts with
+The flat aliases `evidence ingest all`, `evidence ingest browser`, `evidence ingest evtx`, `evidence ingest mft`,
+`evidence ingest prefetch`, and `evidence ingest registry` remain accepted for existing scripts with
 unchanged arguments, counters, provenance and JSON. They reuse the same parsers and
 implementations; no deprecation text is added to scripted JSON output.
 
@@ -360,12 +365,9 @@ The first `!` and one optional following space are removed; remaining text is pa
 literally. Unprefixed text, including command typos, stays a Locard command. Empty
 requests never invoke the model. `!` is never an OS shell escape.
 
-`ai` controls provider/runtime settings. `expert` retains its single-mode compatibility notice.
-Interactive `ask <question>` prints a deprecation notice and forwards to the same
-advisory path as `!`. These compatibility names are hidden from primary help and
-completion; `help ask` and `help expert` explain compatibility behavior; `help ai` documents provider controls. Separately, the
-hidden **non-interactive** `locard ask` command retains its existing bounded
-retrieval behavior and options for scripts; this does not add retrieval to `!`.
+`ai` controls provider/runtime settings. Use `! <question>` for direct advisory
+routing. `investigation advanced local-query` retains the distinct bounded local
+retrieval workflow. Retired `ask` and `expert` names are not accepted aliases.
 
 New sessions no longer emit `SHELL_MODE` UI transition events because no transition
 occurs. Historical activity entries remain readable and verifiable with the same
@@ -380,10 +382,10 @@ order are shown with exact total/shown counts; each label/metadata field is capp
 160 characters and truncation is explicit. Source assertions are not verified findings.
 Compact command purposes and input/usage guidance come from the command catalog.
 Inventory questions can be answered directly from the supplied counts without first
-running `status`. Zero means no retained records in this case, not that the source
+running `case status`. Zero means no retained records in this case, not that the source
 system never contained that artifact. Case inventory, record inspection, and forensic
 conclusions are separate: inventory alone establishes no conclusion.
-For filename lookup, use `search --path coreupdater.exe --ids`; use `show <evidence-id>` only
+For filename lookup, use `evidence search --path coreupdater.exe --ids`; use `evidence show <evidence-id>` only
 after obtaining an actual record ID. `artifact_inventory` is an internal context field,
 not a command. This guidance reduces invalid recommendations but cannot guarantee
 that a small model will always follow instructions. When concrete filenames are supplied,
@@ -393,10 +395,10 @@ without additional record retrieval. Advisory instructions use the counts and su
 may be mentioned only as unavailable limitations, not recommended as available evidence.
 Positive counts permit relevant inspection but do not establish that a particular event
 or filename is present. Artifact categories are distinct from analysis commands such as
-`process-tree`, `timeline`, `search` and `show`.
+`analyze process-tree`, `evidence timeline`, `evidence search` and `evidence show`.
 
 For relationship questions, guidance should test the analyst's hypothesis: locate each
-entity, inspect returned IDs with `show`, establish record meaning, timestamps and any
+entity, inspect returned IDs with `evidence show`, establish record meaning, timestamps and any
 execution-specific evidence, then correlate. With no individual records inspected, the
 prompt prefers an empty assessment and prospective steps over unsupported entity-level
 claims from aggregate counts. A generic sequence example reinforces inspection before correlation. File/ZIP presence alone establishes neither
@@ -434,8 +436,8 @@ Prefetch and EVTX, then ask both questions directly:
 For the Standard2 manual scenario, use its actual inventory (approximately 825,888
 Registry, 40,917 EVTX, 196 Prefetch, 82 MFT and zero browser records). Repeat the inventory
 request to check consistency; a successful transient-read retry should be invisible.
-Expect concrete `search --path coreupdater.exe --ids` and `search --path loot.zip --ids`
-examples for the investigation question, followed by `show <evidence-id>` only when an
+Expect concrete `evidence search --path coreupdater.exe --ids` and `evidence search --path loot.zip --ids`
+examples for the investigation question, followed by `evidence show <evidence-id>` only when an
 ID is known. Timeline/session suggestions must follow their documented selectors.
 
 Expect the first answer to give available categories/counts directly, acknowledge that
@@ -474,7 +476,7 @@ Current assessment
 ```
 
 The example is synthetic. Zero means no retained records in the case, not that the
-source system never contained that artifact. Version/mode metadata is omitted from
+evidence source system never contained that artifact. Version/mode metadata is omitted from
 normal answers; unsolicited model echoes are rejected. Explicit version/mode questions
 may include it. Interpretive guidance uses strict structured local-model JSON:
 
@@ -536,10 +538,10 @@ Goal
 
 Suggested approach
   1. Locate both filenames.
-     search --path coreupdater.exe --ids
-     search --path loot.zip --ids
+     evidence search --path coreupdater.exe --ids
+     evidence search --path loot.zip --ids
   2. Inspect returned records, then compare timing and execution indicators.
-     show <evidence-id>
+     evidence show <evidence-id>
 
 Important cautions
   - MFT presence alone does not prove execution.
@@ -572,9 +574,9 @@ and is excluded from artifact discovery. Protect it as analyst work product:
 explicit query filters, paths, and source assertions can themselves be sensitive.
 
 ```text
-activity
-activity --limit 50 --json
-activity --verify
+audit activity
+audit activity --limit 50 --json
+audit activity --verify
 ```
 
 Records contain an audit-format version, microsecond UTC `timestamp_utc`, a unique
@@ -616,7 +618,7 @@ there retains the database and reports failure without automatically activating 
 
 Each entry hashes canonical JSON (sorted keys, compact separators, ASCII escapes,
 no non-finite numbers), excluding its own `entry_hash` and including
-`previous_entry_hash`; the first previous hash is `null`. `activity --verify`
+`previous_entry_hash`; the first previous hash is `null`. `audit activity --verify`
 streams and checks every entry, sequence and link and reports the first invalid
 entry. Ordinary appends validate only the tail for bounded work, not the entire
 history. Verification detects altered, reordered or missing interior records and
@@ -625,7 +627,7 @@ it cannot detect deletion of a valid suffix, deletion of the whole log, or a
 fully recomputed replacement chain. This is tamper evidence, not signing or
 non-repudiation. No automatic repair or history rewriting occurs.
 
-`activity` displays a verified snapshot with at most 20 recent records by default
+`audit activity` displays a verified snapshot with at most 20 recent records by default
 (maximum requested limit 1000). Its own command-completion event is appended
 after the snapshot, so it appears on the next invocation. Verification is linear
 in log size; routine appends do not rescan the evidence database or audit history.
@@ -645,7 +647,7 @@ Existing directories are rejected with a create-specific destination message.
 
 On a capable terminal, case-creation phases use the existing cyan key style;
 successful counts/completion use green, limitations use yellow, and actual errors
-use red. Prompts reuse the existing prompt style. `color off`, `NO_COLOR`, and
+use red. Prompts reuse the existing prompt style. `settings color off`, `NO_COLOR`, and
 redirected output suppress these styles. JSON, audit records, and exported files
 receive no presentation escape sequences.
 
@@ -663,8 +665,8 @@ limitations, the summary says **completed with limitations**; actual errors and
 partial/failed runs remain explicit. No transaction-log replay is performed.
 
 Tab completion after `help` or `?` reuses the same command/parser hierarchy:
-`help sour<Tab>`, `help source <Tab>`, and `help source up<Tab>` navigate to
-`source` and its subcommands. Help-target completion does not suggest options.
+`help evid<Tab>`, `help evidence source <Tab>`, and `help evidence source up<Tab>` navigate to
+`evidence source` and its subcommands. Help-target completion does not suggest options.
 
 ### Sources, ingestion batches, and evidence identity (0.10.0)
 
@@ -688,19 +690,19 @@ New cases use schema **5**. Schema-3 and schema-4 cases remain readable without
 changes to their schema. In-place case upgrades are not supported. Source management
 requires schema 4 or 5; browser ingestion requires schema 5. To use features unavailable
 in an older case, create a new case and ingest the original evidence with explicit
-source metadata. Preserve the older case and its provenance separately.
+evidence source metadata. Preserve the older case and its provenance separately.
 
 Inside an active case, or prefixed with `locard --db case.db`:
 
 ```text
-source create --name "Workstation 01"
-source list
-source show <source-id> --limit 50 --offset 0
+evidence source create --name "Workstation 01"
+evidence source list
+evidence source show <source-id> --limit 50 --offset 0
 ingest prefetch extracted-prefetch --source <source-id>
 ingest evtx extracted-events --source <source-id>
-source update <source-id> --hostname dfir-lab-01
-source update <source-id> --hostname dfir-lab-01 --yes
-search --source <source-id>
+evidence source update <source-id> --hostname dfir-lab-01
+evidence source update <source-id> --hostname dfir-lab-01 --yes
+evidence search --source <source-id>
 ```
 
 For **non-interactive ingestion without `--source`**, every invocation creates a
@@ -710,7 +712,7 @@ the existing ingestion arguments; supplied values are recorded as analyst metada
 The creation basis explicitly records that Locard created the source automatically.
 Locard never reuses a source by matching hostname, path, display name, or earlier
 imports. To group several commands under one source, explicitly repeat its
-`--source` ID. Metadata changes to an existing source use `source update`, not
+`--source` ID. Metadata changes to an existing source use `evidence source update`, not
 ingestion metadata flags alongside `--source`.
 
 Interactive case creation asks for a source name and optional metadata when ingesting evidence.
@@ -719,11 +721,11 @@ interactive ingestion offers existing sources or a new source; selection is not
 retained as an implicit default for later commands. A blank name produces a neutral
 label, never a guessed hostname. Cancelled creation does not activate the new case.
 
-`source update` supports `--name`, `--hostname`, `--user` and `--volume-root`.
+`evidence source update` supports `--name`, `--hostname`, `--user` and `--volume-root`.
 Human results summarize the actual old/new values and retained prior assertion;
 `--json` returns the complete structured result.
 Use an empty quoted value to clear optional metadata to unknown. Updates append
-revisions linked by supersession; old assertions remain available in `source show`.
+revisions linked by supersession; old assertions remain available in `evidence source show`.
 Raw evidence and artifact-derived fields are never rewritten. Legacy file-level
 assertions remain intact and can still expose conflicts; a new source assertion
 does not silently supersede a legacy assertion of uncertain scope.
@@ -734,28 +736,28 @@ applying it. Interactive mode shows the preview and requests confirmation unless
 If the case changes after the interactive preview, the action is rejected so the
 analyst can review it again. Source commands reuse `--page`,
 `--output`, `--append`, `--json` and `--no-color`; JSON remains plain structured data.
-`source list` file counts are distinct content hashes, not path or import counts.
+`evidence source list` file counts are distinct content hashes, not path or import counts.
 Its aligned table adapts to terminal width and uses restrained, optional colors.
 Shortened display fields end in `...`; abbreviated IDs must not be used as command
-arguments. `source list --ids` provides full copyable IDs, and `--json` retains all
+arguments. `evidence source list --ids` provides full copyable IDs, and `--json` retains all
 values. Very narrow terminals use labelled rows instead of a wide table.
-`source show` paginates revision history, batches, file occurrences and retrospective
+`evidence source show` paginates revision history, batches, file occurrences and retrospective
 assignments rather than dumping every file by default.
 
 Batches distinguish complete, partial, failed, empty and cancelled operations.
 Unconfirmed worker cleanup has its own `cleanup_unconfirmed` outcome and warning.
 Already committed evidence survives later failures or cancellation. Abnormal
-termination can leave a batch unfinished; `status` reports that limitation rather
+termination can leave a batch unfinished; `case status` reports that limitation rather
 than inferring success or retroactively grouping file runs.
 
 For historical evidence, deliberately create a source and select existing file
-SHA-256 hashes (shown by `show <evidence-id>`). For example, for the earlier Prefetch
+SHA-256 hashes (shown by `evidence show <evidence-id>`). For example, for the earlier Prefetch
 case, repeat `--file-hash` for each of the files you have reviewed:
 
 ```text
-source create --name "DFIR Lab 01" --hostname dfir-lab-01
-source assign <source-id> --file-hash <sha256> --file-hash <another-sha256> --reason "Analyst reviewed selected files"
-source assign <source-id> --file-hash <sha256> --file-hash <another-sha256> --reason "Analyst reviewed selected files" --yes
+evidence source create --name "DFIR Lab 01" --hostname dfir-lab-01
+evidence source assign <source-id> --file-hash <sha256> --file-hash <another-sha256> --reason "Analyst reviewed selected files"
+evidence source assign <source-id> --file-hash <sha256> --file-hash <another-sha256> --reason "Analyst reviewed selected files" --yes
 ```
 
 There is no assign-everything default. Assignment applies to all records of each
@@ -770,8 +772,8 @@ For bulk retrospective selection, `--path` searches only historical
 current filesystem. Preview before applying:
 
 ```text
-source assign <source-id> --path "C:\Evidence\PC01\Prefetch" --reason "Analyst reviewed legacy collection"
-source assign <source-id> --path "C:\Evidence\PC01\Prefetch" --reason "Analyst reviewed legacy collection" --yes --confirmation-fingerprint <preview-fingerprint>
+evidence source assign <source-id> --path "C:\Evidence\PC01\Prefetch" --reason "Analyst reviewed legacy collection"
+evidence source assign <source-id> --path "C:\Evidence\PC01\Prefetch" --reason "Analyst reviewed legacy collection" --yes --confirmation-fingerprint <preview-fingerprint>
 ```
 
 Repeat `--path` or combine it with repeated `--file-hash`: selectors form a
@@ -806,13 +808,13 @@ selections explicitly.
 
 Schema 4 is unchanged. Path-selected assignments retain the original analyst
 reason and store the supplied paths and explicit hash selectors as JSON text
-appended to the existing retrospective `basis` field. `source show` exposes this
+appended to the existing retrospective `basis` field. `evidence source show` exposes this
 in its bounded assignment history. The selected content hashes remain in
 `source_assignment_files`; no historical batches or ingestion-run batch IDs are
-created. `status`, `search --source`, and `around` use the existing membership and
+created. `case status`, `evidence search --source`, and `evidence around` use the existing membership and
 ambiguity rules.
 
-`search --source` filters provenance membership. `search --hostname` searches
+`evidence search --source` filters provenance membership. `evidence search --hostname` searches
 artifact/active analyst hostname assertions; it remains distinct and may find
 records with conflicting assertions, which are shown in their context. The filters
 can be combined. Superseded source revisions do not act as current metadata.
@@ -823,13 +825,13 @@ artifact hostname remains conflicted. With only one available hostname, existing
 artifact-derived or analyst-supplied context is retained; with neither, it stays
 unknown. Superseded source revisions are retained for audit, not current resolution.
 Source `artifact_hostnames` and `host_conflict` remain coverage diagnostics: a mixed
-source does not invalidate its agreeing records. Same-host timeline, around, and
-investigate selection use resolved record hosts. Broad `search --hostname` still
+evidence source does not invalidate its agreeing records. Same-host timeline, around, and
+analyze correlate selection use resolved record hosts. Broad `evidence search --hostname` still
 finds artifact/analyst assertions, including conflicts. Short names and FQDNs are
 not aliases; no DNS, NetBIOS, or fuzzy matching is performed. Same source does not
 imply same host, and temporal proximity does not establish causality.
 
-`around` requires an unambiguous effective hostname and retrieves all supported
+`evidence around` requires an unambiguous effective hostname and retrieves all supported
 artifact families within the requested window on that host, including different
 sources. A shared source or display name alone does not establish the host.
 Multiple source occurrences, record-level conflicting hostnames, and unknown
@@ -837,16 +839,16 @@ hostnames still block same-host selection. Each neighbor retains its own evidenc
 identity, source membership, user attribution and timestamp semantics. Temporal
 proximity does not establish causality or a combined execution.
 
-Mixed `timeline --text` and `around --text` show artifact types, meaningful objects,
+Mixed `evidence timeline --text` and `evidence around --text` show artifact types, meaningful objects,
 short source labels and exact timestamp slots in chronological order. Excess
 generic Registry LastWrite observations are summarized after three rows per page,
 with an explicit omitted count; the selected anchor is never summarized away.
-Use JSON/raw observation pagination, `around --text --ids`, or a Registry-only
-timeline to inspect all observations. Text windows are bounded to 10,000 timestamp
+Use JSON/raw observation pagination, `evidence around --text --ids`, or a Registry-only
+evidence timeline to inspect all observations. Text windows are bounded to 10,000 timestamp
 observations, with complete MFT/EVTX display groups. Around text reserves an anchor
 group and selects the nearest remaining groups before displaying them chronologically.
 
-`around <evidence-id> --timestamp-slot <slot> --text` presents temporal context
+`evidence around <evidence-id> --timestamp-slot <slot> --text` presents temporal context
 with a concise object/window header, source label, and selected-slot anchor marker.
 Compact timestamps and deltas are rounded to the nearest millisecond, with exact
 ties rounded away from zero; deltas are calculated from the original nanosecond
@@ -856,7 +858,7 @@ Shared methodology is omitted, while mixed source/artifact/timestamp meanings st
 visible per observation. Duplicate source labels include their IDs to distinguish
 them within the displayed context. Long objects may be shortened with `...`.
 Use `--text --ids` for full evidence/source IDs, timestamp slots, original timestamp
-precision and shared timestamp meaning; `show <id>` provides details. JSON and raw retain
+precision and shared timestamp meaning; `evidence show <id>` provides details. JSON and raw retain
 their existing complete structured/detail output (`--raw --text` retains the
 legacy detailed text view). `--page`, `--output FILE` and `--append FILE` work with
 the compact view; file exports contain no color codes. Shared context describes
@@ -868,7 +870,7 @@ Sysmon Event 11 (qualified by its provider and Operational channel) is normalize
 as `file_create`: **file creation/overwrite**, not proof of a previously absent
 file, execution, download, or malicious activity. `Image` is the actor process;
 `TargetFilename` is a separate `file_create_target` object. Process search matches
-the actor; path search can match the target. `show` exposes the actor PID/GUID,
+the actor; path search can match the target. `evidence show` exposes the actor PID/GUID,
 target, and timestamp meanings without inferring a username from a path or SID.
 The primary EVTX time remains `SystemTime`. When present, `Sysmon.UtcTime` and
 `Sysmon.CreationUtcTime` preserve separate payload observations, original values,
@@ -876,8 +878,8 @@ and source precision. Timeline retains both even when their values coincide.
 For temporal context, explicitly choose the intended slot, for example:
 
 ```text
-around <event11-id> --timestamp-slot SystemTime --text
-investigate <event11-id> --timestamp-slot SystemTime
+evidence around <event11-id> --timestamp-slot SystemTime --text
+analyze correlate <event11-id> --timestamp-slot SystemTime
 ```
 
 Distinct times require disambiguation; investigation without a selected slot
@@ -908,7 +910,7 @@ appropriate; successful validation still does not prove forensic conclusions.
 
 **Search summarizes. Show explains. Raw exposes.**
 
-Normal deterministic `search` displays compact, escaped artifact tables.
+Normal deterministic `evidence search` displays compact, escaped artifact tables.
 Add `--ids` for full copyable evidence IDs. Prefetch summaries show the executable, latest retained
 execution timestamp, recorded run count, effective host, and a candidate path
 when present in the bounded evidence projection. A candidate path is not a proven
@@ -921,25 +923,25 @@ latest run does not change its existing search sort order.
 Use these commands inside Locard, or prefix them with `locard --db case.db`:
 
 ```text
-search --artifact prefetch
-search --artifact prefetch --raw --page
-show <evidence-id> --page
-search --artifact prefetch --output prefetch.txt
-search --artifact prefetch --raw --output prefetch-details.txt
-search --artifact prefetch --json --output results.json
-detections --append investigation.txt
-timeline --start 2020-01-01T00:00:00Z --end 2020-01-02T00:00:00Z --page
+evidence search --artifact prefetch
+evidence search --artifact prefetch --raw --page
+evidence show <evidence-id> --page
+evidence search --artifact prefetch --output prefetch.txt
+evidence search --artifact prefetch --raw --output prefetch-details.txt
+evidence search --artifact prefetch --json --output results.json
+analyze detections --append investigation.txt
+evidence timeline --start 2020-01-01T00:00:00Z --end 2020-01-02T00:00:00Z --page
 ```
 
-`search` defaults to 20 evidence records across all artifacts, including JSON.
+`evidence search` defaults to 20 evidence records across all artifacts, including JSON.
 Use `--limit` and `--offset` to select another page; `--ids` retains copyable IDs.
 
-`search --process` performs convenient exact matching. These are equivalent
+`evidence search --process` performs convenient exact matching. These are equivalent
 case-insensitive searches for the Prefetch executable `POWERSHELL.EXE`:
 
 ```text
-search --artifact prefetch --process powershell
-search --artifact prefetch --process powershell.exe
+evidence search --artifact prefetch --process powershell
+evidence search --artifact prefetch --process powershell.exe
 ```
 
 A bare name without an extension matches that literal name or its `.exe` form.
@@ -947,10 +949,10 @@ Explicit filenames, including other extensions such as `tool.com`, stay exact;
 existing full-path searches also stay exact. `--process power` does not match
 `powershell.exe`, `powercfg.exe`, or `powerpnt.exe`.
 
-`search --process-contains` performs explicit partial matching:
+`evidence search --process-contains` performs explicit partial matching:
 
 ```text
-search --artifact prefetch --process-contains power
+evidence search --artifact prefetch --process-contains power
 ```
 
 This matches a case-insensitive literal substring of the executable basename and
@@ -961,13 +963,13 @@ match still uses a candidate path and does not prove that path's identity.
 Matching alone implies neither suspiciousness nor execution: existing MFT
 filename and Registry target roles retain their artifact-specific meaning.
 Other filters and JSON structure are unchanged. This convenience applies to
-deterministic `search`, including the interactive shell; timeline and AI retrieval
+deterministic `evidence search`, including the interactive shell; timeline and AI retrieval
 retain their existing matching behavior.
 
-`show` presents an artifact-aware human summary, including full evidence ID and source path, populated timestamp slots, and a bounded reference sample. `--raw` retains the existing
+`evidence show` presents an artifact-aware human summary, including full evidence ID and source path, populated timestamp slots, and a bounded reference sample. `--raw` retains the existing
 verbose/raw representation, including its established retrieval bounds.
 Explicit `--json` preserves the structured interface; scripts consuming search
-results should request it. Plain `source show` also uses a human summary; `--details` or `--json` preserves its existing structured view.
+results should request it. Plain `evidence source show` also uses a human summary; `--details` or `--json` preserves its existing structured view.
 
 Registry search supports `--key "Software\Example"` for an exact literal key
 path and `--key-contains "Example"` for a literal substring. Both use SQLite
@@ -978,19 +980,19 @@ artifact filter. `--path` retains its existing filesystem/target-path meaning.
 `--value-name` (exact) and `--value-name-contains` (literal substring) match raw
 value names and, only under UserAssist GUID/Count keys, ROT13-decoded names.
 They use the same NOCASE rules and can be combined with `--source` and key
-filters. For example: `search --artifact registry --value-name-contains coreupdater --ids`.
+filters. For example: `evidence search --artifact registry --value-name-contains coreupdater --ids`.
 The search default remains 20 records.
 Registry search identifies Key/Value rows and shows dirty-hive warnings once
 per hive/source context; structured warnings remain per record.
 
-Registry `show` uses friendly type names and literal string backslashes without
+Registry `evidence show` uses friendly type names and literal string backslashes without
 expanding environment variables or interpreting escapes. Values inherit their
-containing key's LastWrite, never a fabricated value creation time. Key `show`
+containing key's LastWrite, never a fabricated value creation time. Key `evidence show`
 lists at most 20 values with explicit omission/truncation notices. Text data is
 bounded to 240 characters (and 10 entries for multi-strings); the key-value
 projection reads at most 4,096 JSON characters per value. Binary data is
-summarized rather than printed. `show --json` retains full provenance, numeric
-types and existing value IDs; `show --raw` retains the raw projection.
+summarized rather than printed. `evidence show --json` retains full provenance, numeric
+types and existing value IDs; `evidence show --raw` retains the raw projection.
 
 UserAssist Count values additionally expose `detail.userassist`, including the
 decoded name, declared format, interpretation status and supported binary fields.
@@ -1002,7 +1004,7 @@ retain their raw data without invented execution fields. Zero/invalid FILETIMEs
 do not produce a usable execution time. Known-folder GUIDs are not expanded.
 
 `UserAssist.LastExecution` is attached to the existing Registry value ID, separate
-from inherited key `LastWrite`. Both are eligible timeline observations; `around`
+from inherited key `LastWrite`. Both are eligible timeline observations; `evidence around`
 requires `--timestamp-slot` when multiple populated semantics exist, even when
 their times coincide. Search continues to display **key time**, not silently
 substitute the UserAssist time. New ingestion stores supported slots in the
@@ -1022,8 +1024,8 @@ flag; populated Count keys remain readable. The flag alone therefore does not
 establish unreadable data, and it is not suppressed for other keys. See the
 [upstream flag implementation](https://github.com/libyal/libregf/blob/main/libregf/libregf_key_item.c).
 
-Normal `status` is a bounded human summary of evidence, ingestion attempts,
-sources, unfinished batches and limitations. `status --json` preserves the
+Normal `case status` is a bounded human summary of evidence, ingestion attempts,
+sources, unfinished batches and limitations. `case status --json` preserves the
 existing structured status interface. Historical ingestion statuses are never
 rewritten by this view.
 
@@ -1038,24 +1040,24 @@ be inconsistent, which does not itself mean corruption. Older companion-log
 attempts are labeled historical in human status, retaining their original
 statuses/errors in the database and JSON output.
 
-MFT text uses Allocated/Unallocated state and SI/FN timestamp labels; `show`
-retains exact copyable timestamp slots. `timeline --text` and `around --text`
+MFT text uses Allocated/Unallocated state and SI/FN timestamp labels; `evidence show`
+retains exact copyable timestamp slots. `evidence timeline --text` and `evidence around --text`
 group only observations with the same evidence ID and exact timestamp value.
 For MFT text timelines, limits and offsets count complete groups. MFT text
-`around` always includes the anchor within the limit, fills remaining places
+`evidence around` always includes the anchor within the limit, fills remaining places
 with nearest groups, and displays them chronologically. Its offset skips
 nearest non-anchor groups; the anchor remains visible even past the last page.
-EVTX text timelines and EVTX-anchored text `around` also paginate complete
+EVTX text timelines and EVTX-anchored text `evidence around` also paginate complete
 groups, retaining each timestamp slot's label. Equal-valued Event 11
 CreationUtcTime/UtcTime observations share a display group; a different
 SystemTime remains separate. Process parent/child paths and file actor/target
 paths are shown separately, with optional restrained type/anchor coloring.
-EVTX text `around` keeps the selected anchor within the limit; offsets skip
+EVTX text `evidence around` keeps the selected anchor within the limit; offsets skip
 nearest non-anchor groups. Prefetch/Registry observations remain separate.
 Complete text windows are bounded to 10,000 timestamp observations; narrow the window/filters if that
 bound is exceeded. JSON/raw retain observation-level pagination, individual
 observations and full precision.
-Multiple MFT timestamp slots require an explicit `--timestamp-slot` for `around`,
+Multiple MFT timestamp slots require an explicit `--timestamp-slot` for `evidence around`,
 even when their values coincide. Timeline arguments require ISO 8601 with `Z`
 or an explicit UTC offset; timezone-less input is rejected.
 
@@ -1098,7 +1100,7 @@ These are safeguards for known inputs, not a way to identify every possible
 unregistered evidence file. Choose a separate analyst output path.
 
 For nested commands, destination options can follow the final subcommand. One
-existing option is deliberately preserved: `report generate --output` still names
+existing option is deliberately preserved: `report from-case --output` still names
 the new report **bundle directory**. Bundles remain create-only; `--force` does
 not replace an existing bundle. To also save its console result, put the new
 file destination before `generate`:
@@ -1111,7 +1113,7 @@ report show report-bundle --output report-summary.txt
 Locard's interactive interface is a command interpreter, not a general-purpose
 operating-system shell. Use these explicit options instead of `| more`, `>`, or
 `>>`; pipelines, shell operators, substitutions, and arbitrary execution remain
-unsupported. Run `help search` inside Locard or `locard search --help` for options.
+unsupported. Run `help evidence search` inside Locard or `locard evidence search --help` for options.
 
 ### Platform support
 
@@ -1209,9 +1211,9 @@ Generate a bounded, derived report from explicit evidence IDs or selected same-s
 investigations. Explicit evidence selection does **not** imply a complete investigation.
 
 ```text
-report generate --evidence <evidence-id> --output "C:\Cases\reports\selected-records"
+report from-case --evidence <evidence-id> --output "C:\Cases\reports\selected-records"
 report show "C:\Cases\reports\selected-records"
-report validate "C:\Cases\reports\selected-records" --case "C:\Cases\case.db"
+report verify "C:\Cases\reports\selected-records" --case "C:\Cases\case.db"
 ```
 
 Repeat `--evidence` for multiple records, or use repeatable `--investigation` with
@@ -1289,9 +1291,9 @@ Copyright © 2026 Jean-Luc Dupont
 
 ### Compact evidence and source views
 
-Normal `search` uses artifact-specific tables with millisecond timestamps.
-`search --ids` places each full copyable evidence ID directly beneath its result
-for every artifact family, for use with `show` and `around`. IDs are never moved
+Normal `evidence search` uses artifact-specific tables with millisecond timestamps.
+`evidence search --ids` places each full copyable evidence ID directly beneath its result
+for every artifact family, for use with `evidence show` and `evidence around`. IDs are never moved
 into a detached numbered list. Without `--ids`, compact tables remain available;
 JSON selection, ordering, and fields are unchanged.
 
@@ -1302,13 +1304,13 @@ replayed and the snapshot may be inconsistent. Record-specific anomalies, includ
 key-corruption flags, stay beneath their records. Full warnings/provenance remain
 in JSON; UserAssist interpretation and timestamp semantics are unchanged.
 Table paths may be shortened for terminal width; full projected values remain
-available through `show`, `--json`, and `--raw`. No values in evidence are changed.
-`around --text` begins with anchor time and source/artifact context; `--ids`
+available through `evidence show`, `--json`, and `--raw`. No values in evidence are changed.
+`evidence around --text` begins with anchor time and source/artifact context; `--ids`
 retains exact timestamps and slot identifiers. Complete result pages have no
 pagination footer; partial pages report the displayed count or range.
 
-Plain `show <id>` is human-readable. Scripts should specify `show <id> --json`.
-`show --raw` preserves the existing structured raw representation with available
+Plain `evidence show <id>` is human-readable. Scripts should specify `evidence show <id> --json`.
+`evidence show --raw` preserves the existing structured raw representation with available
 XML/artifact bytes. Neither mode changes the established retrieval bounds:
 objects, Prefetch references, and Registry key value IDs are limited to 100,
 with the existing truncation flags (and reference total where available).
@@ -1316,14 +1318,14 @@ These are bounded projections, not exhaustive collection exports. Human Prefetch
 summaries display up to five references and observed source paths, with counts.
 Use the existing structured views to inspect the larger projected lists.
 
-`source show <id>` summarizes current analyst metadata and provenance counts.
+`evidence source show <id>` summarizes current analyst metadata and provenance counts.
 Effective hostname is resolved for each evidence record, including file-specific
 assertions; a source label alone does not establish a host. Distinct source files
 and retrospective assignment-to-file links are separate counts: overlapping
 assignments legitimately produce more links than distinct files.
-`source show <id> --details` or `--json` exposes the existing provenance structure;
+`evidence source show <id> --details` or `--json` exposes the existing provenance structure;
 use `--limit`/`--offset` to page its histories and file/hash lists.
-`source list --ids` provides complete command IDs; table abbreviations are for
+`evidence source list --ids` provides complete command IDs; table abbreviations are for
 presentation only. All human views support the existing pager and plain UTF-8
 output/append destinations and session color controls.
 
@@ -1337,7 +1339,7 @@ still warn when that field is unavailable in the bounded projection or when
 context/data-quality problems affect interpretation. JSON/raw projection fields
 and existing bounds are unchanged.
 
-Evidence `show` keeps source names and host basis, showing source IDs only for
+Evidence `evidence show` keeps source names and host basis, showing source IDs only for
 multiple source memberships. Full source IDs remain in `--json`/`--raw`.
 A meaning shared by all displayed timestamp slots is printed once; differing
 meanings remain attached to their slots. Referenced files remain the first five
@@ -1351,7 +1353,7 @@ identifier, and record offset, in the existing event normalization warnings and
 evidence warning projection. This difference alone establishes neither corruption
 nor failed ingestion. Ingestion results expose aggregate `validation_notes`, and
 interactive case creation summarizes the retained notes once. Search does not
-repeat them; evidence `show` and JSON/raw retain the detail.
+repeat them; evidence `evidence show` and JSON/raw retain the detail.
 
 Missing or invalid XML identifiers with an available header identifier continue
 through the existing ingestion-error path; the header is never substituted for
@@ -1362,8 +1364,8 @@ runs or replace deduplicated evidence.
 
 ### Authentication and investigation text views
 
-In the interactive shell, `logons`, `detections`, `session`, `process-tree`, and
-`investigate` default to human-readable text. Direct CLI invocations retain their
+In the interactive shell, `analyze logons`, `analyze detections`, `analyze session`, `analyze process-tree`, and
+`analyze correlate` default to human-readable text. Direct CLI invocations retain their
 JSON default. Explicit `--json` and `--text` select the format in either context
 and remain mutually exclusive. `--raw` retains its existing diagnostic behavior,
 defaulting to JSON even in the shell; `--raw --text` retains the detailed legacy
@@ -1375,7 +1377,7 @@ direct CLI paging requires `--text`. JSON paging is not supported. Audit argv
 records what the analyst entered, without an invented `--text`; the existing
 command parameters separately record the resolved `text`/`json` flags.
 
-`logons` reviews the normalized Windows Event Log kinds `logon`, `failed_logon`,
+`analyze logons` reviews the normalized Windows Event Log kinds `logon`, `failed_logon`,
 `privileged_logon`, `explicit_credentials`, `logoff_request`, and `logoff`.
 The human view groups category, time, user, available logon type/source IP/process
 and host with the full evidence ID. No service/system-account noise filter is
@@ -1387,7 +1389,7 @@ Partial ingestion history for file bytes represented on the page is noted once
 per file, without claiming which run created each event or that every partial
 attempt was a recovery. This text-only context does not change JSON.
 
-`detections --text` groups each finding with its complete detection/evidence IDs,
+`analyze detections --text` groups each finding with its complete detection/evidence IDs,
 reason, and record-specific limitations. Shared cautions appear once. Severity
 is static review priority: high is red, medium yellow, low cyan; it is not
 confidence or probability of compromise. **DETECTION != COMPROMISE.** Missing
@@ -1396,37 +1398,37 @@ rules, rules with displayed matches, candidate evaluations across rules (not
 unique evidence), and candidate truncation. Counts are bounded by evaluation and
 display limits; full rule coverage remains in JSON.
 
-`process-tree --text` presents supported parent/child links with Unicode tree
+`analyze process-tree --text` presents supported parent/child links with Unicode tree
 connectors (ASCII fallback), four-space metadata indentation, and an accented anchor,
 retaining `CONFIRMED` versus `LIKELY` status and reasons. Unresolved or undisplayed
 relationships remain separate with full references; no missing parent or child
 is invented. PID lookback, child window, maximum nodes/depth, and reached limits
 are explicit. Color emphasizes structure rather than maliciousness.
 
-Human EVTX `show` displays the full stored normalized Logon ID whenever present,
+Human EVTX `evidence show` displays the full stored normalized Logon ID whenever present,
 without shortening it or extracting additional identifiers from raw XML. Account
 names retain literal backslashes and readable Unicode; control characters remain
 escaped. Structured JSON continues using standard JSON escaping.
 
-`search --kind logons --ids` displays the normalized target Windows Logon ID
-for successful logons, in hexadecimal for reuse with `session --logon-id`.
+`evidence search --kind logons --ids` displays the normalized target Windows Logon ID
+for successful logons, in hexadecimal for reuse with `analyze session --logon-id`.
 Subject and linked IDs are not substituted. Failed authentication does not
 establish a session; unavailable IDs display as `-`. Numbered search rows still
 map to full evidence IDs for that output only, not persistent shell identifiers.
 
-`session --logon-id 0x123 --text` distinguishes an observed, confirmed logoff
+`analyze session --logon-id 0x123 --text` distinguishes an observed, confirmed logoff
 from a correlation boundary. A fallback ceiling, restart or later logon is not
 shown as an observed session end. Missing or uncertain logoff evidence remains
 explicit, together with the maximum correlation window and result limits.
 
-`investigate <evidence-id> --text` shows the anchor, relationships with their
+`analyze correlate <evidence-id> --text` shows the anchor, relationships with their
 existing statuses and reasons, temporal neighbors, unresolved relationships,
 deterministic detections and retrieval coverage. Nearby evidence is not causal
 evidence. Multiple in-window timestamps retain their slot labels; ambiguous
 anchor timestamps still require explicit selection for temporal analysis.
 Unresolved anchors return their available timestamp slots before correlation,
 detection evaluation or temporal retrieval. Resolved temporal retrieval uses the
-same bounded, strict same-host window as `around`. Nearby observations are shown
+same bounded, strict same-host window as `evidence around`. Nearby observations are shown
 nearest first, with stable timestamp, evidence-ID and slot tie-breakers.
 The compact text view shows meaningful artifact objects and summarizes excess
 Registry LastWrite observations with an omitted count. UserAssist and other
@@ -1435,7 +1437,7 @@ Artifact-family forensic notes and parser warnings are grouped rather than repea
 Coverage and absent detections describe the bounded returned result, not a
 complete forensic examination.
 
-`investigate --text` adds a deterministic Investigation summary after the anchor.
+`analyze correlate --text` adds a deterministic Investigation summary after the anchor.
 It selects at most eight already-retrieved, same-host observations in the selected
 window, then displays those selections chronologically. Selection ranks exact
 object comparisons first, followed by semantic class (service, process, file
@@ -1465,7 +1467,7 @@ Both commands retain JSON as their direct CLI default and use human text by
 default in the interactive shell. `--json` preserves the structured contract
 and `--raw` retains detailed evidence. Human text uses existing color,
 `--page`, `--output` and `--append` behavior; output files are plain text.
-Process-tree reconstruction semantics are unchanged. The mixed-artifact `around` view is described above.
+Process-tree reconstruction semantics are unchanged. The mixed-artifact `evidence around` view is described above.
 
 #### Linked logons: investigated, not correlated
 
@@ -1478,11 +1480,11 @@ Logon IDs; reciprocal linked values do not change those associations.
 
 A future evidence-driven implementation could expose an explicit **paired-session
 reference** in session output and investigation context. It should not merge
-activity windows, replace ProcessGuid relationships or infer causation, token
+audit activity windows, replace ProcessGuid relationships or infer causation, token
 elevation or maliciousness. Before implementation, define and test host/boot
 scope and identifier reuse, duplicate-field rejection, unique target anchors,
 missing/nonreciprocal references, contradictory accounts, duplicate exports and
-source provenance. Documentation establishes the field's meaning, but these
+evidence source provenance. Documentation establishes the field's meaning, but these
 Locard identity and ambiguity rules need a separate design and validation task.
 
 ### EVTX recovery and Service Control Manager
@@ -1496,7 +1498,7 @@ accepted only while both chunk record ranges continue consecutively. Clean,
 stale, discontinuous, unsupported, and unvalidated tails are not imported.
 
 Parser anomalies keep an ingestion partial even when later records are recovered.
-`status --json` exposes existing ingestion-error rows with optional structured
+`case status --json` exposes existing ingestion-error rows with optional structured
 EVTX diagnostics: chunk/file offsets, binary record numbers, resume offset, and
 successful XML records parsed after the anomaly. This last count describes parser
 recovery, not necessarily new inserts (normalization failures, duplicate ingestion,
@@ -1507,8 +1509,8 @@ differences remain non-fatal validation notes.
 
 EVTX recovery retains forward-only bounds and now runs in a supervised worker.
 For EVTX, `--parser-timeout` means seconds without forward parser-position progress
-(default 300), rather than total runtime. `--evtx-hard-timeout` on `ingest-evtx`
-and `ingest-all` sets the independent emergency ceiling (default 21600 seconds,
+(default 300), rather than total runtime. `--evtx-hard-timeout` on `evidence ingest evtx`
+and `evidence ingest all` sets the independent emergency ceiling (default 21600 seconds,
 six hours). A hang inside XML decoding can be terminated; liveness and spinner
 refreshes do not reset the stall timer. Complete records already spooled before
 termination are processed through existing normalization and publication, with an
@@ -1519,7 +1521,7 @@ Service Control Manager Event 7045 in the System channel is normalized as `servi
 and rendered as a service-installation observation. Its preserved EventData provides
 service name, image path, service type, start type and service account; the account
 is not assigned as the actor username and the image is not treated as an observed
-process execution. `search --kind services` includes these records. The existing
+process execution. `evidence search --kind services` includes these records. The existing
 `LOCARD-SVC-001` service-installation observation rule (now version 2) also recognizes
 7045; no separate duplicate rule is added. Installation alone does not prove that
 the service successfully started or executed. Host context follows the per-record
@@ -1558,9 +1560,9 @@ and record-specific warnings directly under each result. Exact shared forensic
 notes appear once per result set; readable Unicode is retained while terminal
 controls remain escaped. JSON retains the complete structured records.
 
-Use actual IDs returned by `search --ids`/JSON. Omission of `--source` in scripts
+Use actual IDs returned by `evidence search --ids`/JSON. Omission of `--source` in scripts
 creates a new automatic source for each invocation; use an existing explicit
-source ID to retain an unambiguous source across repeated ingestion.
+evidence source ID to retain an unambiguous source across repeated ingestion.
 
 Browser ingestion requires schema 5. Existing cases are **never upgraded by
 ingestion**. For an older case, create a new case and ingest the original evidence.
@@ -1624,8 +1626,8 @@ stores are outside this feature.
 In the interactive shell, start with:
 
 ```text
-semantic search "core updater executable"
-semantic status
+evidence semantic search "core updater executable"
+evidence semantic status
 ```
 
 Semantic search uses a small local embedding model, separate from the analysis
@@ -1646,7 +1648,7 @@ The case-specific index remains `<database-path>.semantic-index`.
 Optional runtime packages remain optional: neither the base installer nor a running
 Locard process installs Torch/FAISS automatically. Native libraries may already be
 loaded, and an interrupted in-place installation cannot reliably be rolled back.
-`semantic status` checks actual importability and the project's pinned versions in
+`evidence semantic status` checks actual importability and the project's pinned versions in
 this process, reports the actual Python executable, and provides its exact pinned
 pip command from installed Locard package metadata. Run that command, then restart
 Locard. Models are not bundled with the source or package. Setup explicitly downloads
@@ -1660,8 +1662,8 @@ locard --db case.db semantic search "core updater executable" --text
 locard --db case.db semantic status --json
 ```
 
-Only `semantic search` and `semantic status` are public commands. Interactive
-search offers model download and index build/rebuild with explicit confirmation.
+Only `evidence semantic search` and `evidence semantic status` are public commands. Interactive
+evidence search offers model download and index build/rebuild with explicit confirmation.
 Scripts require prepared local assets and never silently download or build.
 Use `--model-path`, `--index`, and `--max-vectors` on search/status as applicable.
 `--max-vectors N` is a hard safety cap, not sampling: exceeding it aborts without
@@ -1697,7 +1699,7 @@ IDs and forensic conclusions are unchanged. See [semantic architecture](docs/v3.
 ### Legacy CLI ASK and semantic presentation
 
 The hidden non-interactive compatibility command `locard ask "question"` uses deterministic retrieval first and the same reusable model
-configuration and case index as `semantic search`. Precise supported queries do
+configuration and case index as `evidence semantic search`. Precise supported queries do
 not need embeddings. Set up the optional model and case index explicitly before
 using semantic retrieval in this compatibility command; it never prompts. Missing optional runtime
 dependencies require manual installation; no package installation is automatic.
@@ -1714,15 +1716,15 @@ without changing the saved model preference.
 Human ASK separates selected evidence, deterministic relationships, detections,
 unresolved relationships and model analysis. Full evidence IDs remain visible.
 Limitations disclose omitted records, fields, relationships and bounded retrieval.
-Use `show <ID>` for the full normalized record; EVTX raw XML is available through
-`show <ID> --raw`. Other artifacts have their own parsed context, not event XML.
+Use `evidence show <ID>` for the full normalized record; EVTX raw XML is available through
+`evidence show <ID> --raw`. Other artifacts have their own parsed context, not event XML.
 MFT presence/access timestamps do not prove execution. Model confidence is retained
 in JSON as model assessment metadata only; it is not shown as forensic certainty.
 Citation validation checks references, not the factual correctness of model prose.
 
 JSON, CLI text, and saved/appended text keep the original question for
-context. Interactive `ask` follows the advisory behavior documented above instead. Human plans say `deterministic search` for exact/filter-based retrieval
-or `semantic` for meaning-based discovery; internal JSON planner values remain
+context. Interactive `investigation advanced local-query` follows the advisory behavior documented above instead. Human plans say `deterministic search` for exact/filter-based retrieval
+or `evidence semantic` for meaning-based discovery; internal JSON planner values remain
 compatible.
 
 Semantic-only selections are shown separately as candidate leads, with full IDs
@@ -1773,13 +1775,13 @@ model/representation combinations retain all results with the same caution.
 
 ### Case-local CSV dumps
 
-Use `dump browser`, `dump mft`, or `dump all` to export retained records. Supported
+Use `evidence export browser`, `evidence export mft`, or `evidence export all` to export retained records. Supported
 categories are browser, evtx, mft, prefetch and registry. Files always go beside
 the active case database in `dump/<type>.csv`; managed cases use
 `%LOCALAPPDATA%\Locard\cases\<case>\dump\`. There is no output-path or filename option.
 For scripts: `locard --db C:\Cases\Example\case.db dump all`.
 
-Single-category dumps report elapsed time. `dump all` also reports elapsed time
+Single-category dumps report elapsed time. `evidence export all` also reports elapsed time
 beside each created CSV and a total. Durations use a monotonic clock. Per-category
 times include attributed validation, reads, normalization, CSV encoding/write,
 publication, checksumming and output-audit work. Shared setup and small unassigned
@@ -1797,7 +1799,7 @@ not a CPU profiler. Timings contain no paths, SQL or evidence values and are not
 added to CSVs or audit records. Compare repeated runs with cache/filesystem
 variability in mind before choosing an optimization.
 
-For detailed Registry diagnostics, run a single `dump registry` with the dump
+For detailed Registry diagnostics, run a single `evidence export registry` with the dump
 logger enabled. From the repository's PowerShell prompt:
 
 ```powershell
@@ -1833,11 +1835,11 @@ and primary-row counters likewise count materialized rows across calls. No globa
 ID set is retained. The configured page size is 128; the summary also reports the
 largest and average nonempty page sizes. Detailed Registry metrics are enabled
 only for the single-category command above, so totals cannot accidentally include
-other categories from `dump all`. No query plans or evidence content are logged.
+other categories from `evidence export all`. No query plans or evidence content are logged.
 
 These CSV files are **derived analyst output, not evidence**. Each row includes its
-canonical evidence ID for `show <evidence-id>`. Zero-record categories produce no
-file. `dump all` reports those categories as skipped. Existing files require
+canonical evidence ID for `evidence show <evidence-id>`. Zero-record categories produce no
+file. `evidence export all` reports those categories as skipped. Existing files require
 `--force` and must have the expected dump header; linked paths, hard-linked targets,
 known source evidence, and database/artifact destinations are rejected.
 
@@ -1880,7 +1882,7 @@ publication. No checkpoint or database repair is performed.
 
 ### Bounded-investigation consistency and grounding
 
-`investigate-ai` holds one worker-owned read-only SQLite transaction for all tools.
+`investigation advanced current-case` holds one worker-owned read-only SQLite transaction for all tools.
 An initial read pins the evidence view; completion checks the transaction and case
 file identity. Normal deterministic investigation no longer hashes the whole case
 at startup or completion. This guarantees a consistent view, **not cryptographic
@@ -1890,7 +1892,7 @@ verification and may remain expensive. WAL can retain pages; rollback-journal
 writers may be blocked until cleanup. Avoid concurrent ingestion.
 
 New `sqlite-read-view-v1` transcripts retain their hash chain and grounded evidence,
-but have no whole-case digest. They can be inspected with `ai-history show`; exact
+but have no whole-case digest. They can be inspected with `investigation history show`; exact
 state replay and fingerprint-backed report import reject them explicitly. Existing
 fingerprint-backed reports/transcripts retain their original validation contracts.
 Use explicit evidence selection for a newly grounded report; this does not certify
@@ -1908,11 +1910,11 @@ remains machine-readable. The `!` routing described below reuses this same bound
 Use `! What evidence is available in this case?` for deterministic inventory.
 General guidance and uncertain questions remain advisory. Clear factual queries
 beginning with `did`, `was`, `were`, `has`, `have`, `when did`, `when was`,
-`which records`, `show evidence for`, or `inspect evidence for`, together with a
+`which records`, `evidence show evidence for`, or `inspect evidence for`, together with a
 recognized file extension or canonical evidence-ID reference, use bounded
 investigation. Examples include `! Did example.exe execute?` and
 `! Inspect evidence for EVTX:<hash>:Offset:<offset>`. This deliberately narrow
-routing is not a general intent classifier; use `investigate-ai` explicitly for
+routing is not a general intent classifier; use `investigation advanced current-case` explicitly for
 questions outside it.
 
 Locard announces this transition and asks **[y/N] before each proposed tool**.
@@ -1924,11 +1926,11 @@ second prefix. Default bounds are 8 steps, 6 tool calls and 300 seconds; `!` add
 no advanced flags. The explicit command retains its existing advanced controls
 and policy; use `--approve-tools` for per-operation approval there.
 
-`investigate-ai "question"` now renders concise human text, including canonical
+`investigation advanced current-case "question"` now renders concise human text, including canonical
 IDs, completed operations, rejection notices, termination, exceptional integrity warnings and
 material limitations. Observed values are reported fields, not proof of execution or
 causation. Unverified model hypotheses/unknowns remain in the full JSON, labelled
-as unverified. `investigate-ai --json "question"` preserves the complete result;
+as unverified. `investigation advanced current-case --json "question"` preserves the complete result;
 approval interaction uses stderr and requires an interactive stdin. Redirected
 human output is static; JSON has no animation or human summary. Transcript review
 commands retain their existing output.
@@ -1974,17 +1976,17 @@ explicitly; do not equate size/mtime equality with cryptographic integrity.
 
 ### AI command discovery
 
-Use deterministic commands such as `investigate <evidence_id>` to gather and
+Use deterministic commands such as `analyze correlate <evidence_id>` to gather and
 correlate bounded evidence without AI. Use `! <question>` for interactive AI
 assistance, with approval required for each proposed forensic lookup.
-`investigate-ai` remains a hidden Advanced / Diagnostic interface.
+`investigation advanced current-case` remains a hidden Advanced / Diagnostic interface.
 
-`ai-history show <investigation-id>` reviews saved derived AI records;
-`ai-history replay <investigation-id>` replays their lookups against the current
+`investigation history show <investigation-id>` reviews saved derived AI records;
+`investigation history replay <investigation-id>` replays their lookups against the current
 case. These records support audit/review/replay and are not source evidence.
-Use the canonical `ai-history` command for saved AI records.
+Use the canonical `investigation history` command for saved AI records.
 
-`analyze-timeline --start <timestamp> --end <timestamp>` remains a specialized
+`investigation advanced timeline --start <timestamp> --end <timestamp>` remains a specialized
 workflow: bounded deterministic time-range retrieval/correlation followed by
 configured-provider AI analysis. `--dry-run` builds the bundle without calling the model.
 
@@ -2129,7 +2131,7 @@ are shown separately. The supervisor persists its non-secret active configuratio
 (including path identities, actual port, and fingerprint) alongside existing private
 control state and returns it through authenticated status. Normal output does not
 display fingerprints or control credentials. Older state without this snapshot
-show active settings as unavailable rather than guessing. External servers show only
+evidence show active settings as unavailable rather than guessing. External servers show only
 Locard's **configured options**; their active GPU/context settings are unknown.
 
 `ai logs` shows recent private diagnostics from
@@ -2138,11 +2140,11 @@ are drained, but raw lines are **not retained**: only fixed lifecycle and warnin
 categories are recorded to avoid exposing forensic prompts, paths, or credentials.
 This intentionally limits diagnostic detail. External runtime logs are not captured.
 
-`!`, `investigate-ai`, `analyze-timeline`, hidden scripted `ask`, and optional report
+`!`, `investigation advanced current-case`, `investigation advanced timeline`, hidden scripted `investigation advanced local-query`, and optional report
 narrative assistance share the backend. An explicit `--endpoint` on supported
 advanced commands selects that numeric-loopback endpoint for that invocation only;
 Locard neither manages nor terminates that external server. No session preference
-changes implicitly. Human `ai-history show`/`replay` uses the shared activity indicator;
+changes implicitly. Human `investigation history show`/`replay` uses the shared activity indicator;
 JSON and non-terminal output remain spinner-free.
 
 Locard controls evidence retrieval, disclosure, tool authorization, approval, and
@@ -2314,11 +2316,11 @@ Real responses still undergo wire, canonical, grounding and authorization checks
 Direct cloud commands certify before their first inference; supervised cloud investigations
 certify before starting their forensic execution clock. Startup probes retain their own
 15/45-second limits, independent of the 300-second investigation budget. Local startup
-and timing are unchanged. `analyze-timeline` retains its existing local-client path.
+and timing are unchanged. `investigation advanced timeline` retains its existing local-client path.
 Successful continuation steps reuse readiness. DEBUG can show `compatibility_cache=hit`;
 default logs do not add a handshake for each worker or model step.
 
-Bounded lookup outcomes (6.69 pre-acceptance): `around` preserves strict same-host
+Bounded lookup outcomes (6.69 pre-acceptance): `evidence around` preserves strict same-host
 requirements. Missing/conflicting host context, multiple source occurrences, or
 missing/ambiguous timestamps return zero records with an explicit limitation. They
 never trigger cross-host fallback or create evidence. The bounded loop can continue
@@ -2336,7 +2338,7 @@ Successful verification stays quiet; incomplete verification has specific wordin
 A dead worker is not restarted and budgets are not increased to force verification.
 
 Diagnosis of the reported Standard2 sequence: the fourth approved proposal was
-`around`. The prior adapter raised missing-host errors as execution failures; the
+`evidence around`. The prior adapter raised missing-host errors as execution failures; the
 controller then explicitly skipped final checking for TOOL_FAILURE. This reproduces
 the reported combination synthetically. The supplied summary alone does not establish
 whether that live call failed host validation or timestamp selection: anchor_time runs
@@ -2553,7 +2555,7 @@ or whole-value `--evtx-match exact`. Match details identify original versus
 normalized fields, original ordinals, excerpts and truncation.
 
 ```text
-search --artifact evtx --evtx-text "example.ps1" --start 2026-01-01T00:00:00Z --end 2026-01-02T00:00:00Z --ids
+evidence search --artifact evtx --evtx-text "example.ps1" --start 2026-01-01T00:00:00Z --end 2026-01-02T00:00:00Z --ids
 ```
 
 Both time bounds are required, with a maximum 24-hour span. Existing host,
@@ -2584,7 +2586,7 @@ boundary. If a timeout occurs before progress, narrow the time window or filters
 matches in this batch, not a full-period count; inspect `content_search`,
 `total_is_lower_bound`, `truncated` and `limits`.
 
-Ordinary `show` now displays bounded original EventData with names and ordinals.
+Ordinary `evidence show` now displays bounded original EventData with names and ordinals.
 The AI `search_evidence` tool accepts `evtx_text`, `evtx_match` and `evtx_after`;
 `show_evidence` accepts an optional `event_data_offset` (original ordinal 0..255).
 Model projections retain at most 12 fields and 1 KiB of encoded field entries
@@ -2645,12 +2647,12 @@ on existing IDs can still reach the existing no-new-evidence limit (Stage B).
 Manual supervised example, after selecting the intended case:
 
 ```text
-investigate-ai --no-semantic --approve-tools "Investigate Microsoft Defender Event ID 1121 on September 30, 2026, between 14:05:40 and 14:06:10 UTC. Find original EVTX EventData mentioning baje.ps1. Determine what Defender recorded about attempted PowerShell execution and cite the supporting evidence."
+investigation advanced current-case --no-semantic --approve-tools "Investigate Microsoft Defender Event ID 1121 on September 30, 2026, between 14:05:40 and 14:06:10 UTC. Find original EVTX EventData mentioning baje.ps1. Determine what Defender recorded about attempted PowerShell execution and cite the supporting evidence."
 ```
 
 ### Briefing presentation and cloud consent
 
-`briefing --file PATH --ai` reuses the configured provider's durable disclosure
+`investigation briefing inspect --file PATH --ai` reuses the configured provider's durable disclosure
 acknowledgment. An API key alone does not authorize cloud use. Provider changes
 require the existing acknowledgment workflow. `--allow-cloud` remains accepted
 for compatibility; it does not bypass backend configuration validation.
@@ -2668,8 +2670,8 @@ are labels only, not approval tokens. No automatic investigation follows.
 
 ### Saved case briefing (6.76)
 
-With a case selected, prefer `briefing --interview`, `briefing --show`,
-`briefing --edit`, and `briefing --analyze`. Outside the shell specify
+With a case selected, prefer `investigation briefing interview`, `investigation briefing show`,
+`investigation briefing edit`, and `investigation briefing analyze`. Outside the shell specify
 `locard --db PATH briefing ...`. Wizard questions are optional: Enter retains
 existing text, `/clear` clears it, and `cancel` abandons the workflow. Saving
 requires an affirmative confirmation. Wizard answers and narrative coexist.
@@ -2700,7 +2702,7 @@ discovery packets and previous rendered reports are not cached: export them
 explicitly with existing output options if needed. `--details` describes the
 current command's result, never an earlier AI response. `--json` gives the complete
 current result. Saved discovery requires a fresh explicit current revision:
-`briefing --analyze --deterministic --revision N --discover --approve LEAD_ID
+`investigation briefing analyze --deterministic --revision N --discover --approve LEAD_ID
 --artifact evtx --start START --end END`. Prior searches are not declared invalid,
 and no approvals are replayed automatically.
 
@@ -2729,7 +2731,7 @@ copies: their own persistence behavior is outside Locard's control.
 
 ### AI-guided briefing interview (6.77)
 
-`briefing --interview` is the recommended interactive entry point. It starts with
+`investigation briefing interview` is the recommended interactive entry point. It starts with
 “Tell me what happened?” and uses the configured, disclosure-authorized provider
 to select one follow-up question at a time. It does not search evidence or execute
 tools. API-key presence alone is not consent. `--wizard` remains a legacy optional
@@ -2781,7 +2783,7 @@ available to analysis and in the JSON packet. No AI summary is saved as analyst 
 Example (illustrative, not a recorded model response):
 
 ```text
-briefing --interview
+investigation briefing interview
 Locard: Tell me what happened?
 Analyst: A suspicious invoice download was followed by script activity. I want to establish whether the script executed.
 Locard: When did this happen?
@@ -2792,8 +2794,8 @@ Analyst: done
 Save, correct, full review, or cancel? [cancel]: save
 ```
 
-No automatic analysis or discovery follows saving. Use `briefing --show`, then
-`briefing --analyze --deterministic` or `briefing --analyze` explicitly.
+No automatic analysis or discovery follows saving. Use `investigation briefing show`, then
+`investigation briefing analyze --deterministic` or `investigation briefing analyze` explicitly.
 
 ### Evidence-oriented interview assessment (6.78)
 
@@ -2846,7 +2848,7 @@ but preserve the interview for review/save. Six decision calls, 180 seconds of
 accumulated model-call time, eight conversational answers, twelve total turns and
 all existing byte/token limits remain unchanged.
 
-`briefing --interview --details` displays sanitized interview failure categories,
+`investigation briefing interview --details` displays sanitized interview failure categories,
 request byte counts and decision counts. Categories distinguish response structure,
 question rejection/repetition, output truncation, provider failure, context/time
 bounds and authorization. No exception text, raw response or narrative is included
@@ -2872,7 +2874,7 @@ assuming a budget problem or weakening canonical response validation.
 IP candidates must pass `ipaddress` validation before becoming leads; clock times
 and malformed addresses are not shown as IP addresses. Approximate clock references
 remain separate, preserving source spans and no inferred timezone or authorized
-search window. Date/time discovery still requires explicit scope arguments.
+evidence search window. Date/time discovery still requires explicit scope arguments.
 
 Windows path parsing recognizes quoted paths and conservative file-extension/prose
 boundaries. It preserves directory/file spaces and excludes trailing sentence prose.
@@ -2897,7 +2899,7 @@ Use `--edit` or a subsequent supplement interview for further content.
 
 The earlier repeated-question diagnostics cannot establish whether the model used
 similar wording or triggered a broader topic guard: question text was not retained.
-The checks remain enabled. `briefing --interview --details` now distinguishes a
+The checks remain enabled. `investigation briefing interview --details` now distinguishes a
 supplied/declined topic, the per-topic question limit, and similar question wording.
 No raw rejected question is printed or logged. Conversation history already includes
 AI and fallback questions; no stale-request or duplicate-request defect was proven.
@@ -2905,7 +2907,7 @@ AI and fallback questions; no stale-request or duplicate-request defect was prov
 
 ### AI-assisted semantic briefing analysis (6.82)
 
-`briefing --analyze` reuses the configured, authorized provider for **one bounded
+`investigation briefing analyze` reuses the configured, authorized provider for **one bounded
 structured response** containing interpretations and up to 24 typed candidates.
 It does not add an extraction request after each interview answer. People,
 reported accounts, systems, activities, alerts, delivery context, objectives,
@@ -2923,7 +2925,7 @@ hypotheses do not need verbatim phrasing. Duplicate classifications merge source
 references; opposing assertions remain visible and conflicting leads are not
 eligible for discovery. Different semantic classifications remain unverified.
 
-`briefing --analyze --deterministic` remains model-free. Its reduced semantic
+`investigation briefing analyze --deterministic` remains model-free. Its reduced semantic
 coverage is explicit: technical strings and explicitly labeled hosts remain useful,
 but bare machine-like strings and personal names in prose are not promoted into
 entity leads. Original analyst text remains available. Interview readiness is
@@ -2934,7 +2936,7 @@ Human output groups accepted candidates under People, Systems, Files, Network
 indicators, Time references, Reported activity, Investigative objectives and
 Unresolved. `--details` and `--json` retain source IDs, spans, validation outcomes,
 polarity and diagnostics. Exact source support proves provenance, not truth or
-semantic entailment. Existing saved revisions and case identity remain unchanged.
+evidence semantic entailment. Existing saved revisions and case identity remain unchanged.
 
 Candidate IDs (`C-...`) are context identifiers, **not approval IDs**. Only an
 eligible lead ID (`L-...`), explicit artifact family and authorized time window can
@@ -2953,7 +2955,7 @@ No live-provider fit or extraction quality is claimed by synthetic tests.
 
 ### Canonical case briefing (6.83)
 
-Normal `briefing --analyze` output now presents one proposed canonical document,
+Normal `investigation briefing analyze` output now presents one proposed canonical document,
 including collected information, explicit unknowns, approximation, conflicts,
 ambiguity and missing categories. A missing category means no accepted value was
 extracted into this representation; the model may have omitted supplied prose.
@@ -2964,7 +2966,7 @@ The categories are incident, when, person, account, systems, user_experience,
 user_actions, files, websites, origin, activity, alerts, indicators, scope,
 response, records, objectives and context. Each holds zero or more entries with:
 
-- `status`: provided, approximate, unknown, not_provided, not_applicable,
+- `case status`: provided, approximate, unknown, not_provided, not_applicable,
   conflicting, or ambiguous;
 - `value`: an exact analyst literal (empty for unknown/missing/inapplicable);
 - `kind`: the technical or semantic type, e.g. person, account, hostname,
@@ -2980,7 +2982,7 @@ format. Import additionally validates technical syntax, exact literal support,
 uncertainty/value consistency, 48 total entries, 24 per category, 64 KiB document
 size and bounded provenance. ISO date ranges use `YYYY-MM-DD to YYYY-MM-DD`;
 these never imply UTC or authorize a search window. Other approximate descriptions
-can remain contextual `activity` entries in the When category.
+can remain contextual `audit activity` entries in the When category.
 
 For example, a Files entry may be:
 
@@ -3006,14 +3008,14 @@ analysis remains unsaved: use the existing confirmed `--save` import and then
 `--analyze` for persistent review.
 
 ```text
-briefing --analyze
-briefing --show
-briefing --export-json C:\tmp\incident.json
-briefing --import-json C:\tmp\incident-edited.json
+investigation briefing analyze
+investigation briefing show
+investigation briefing export C:\tmp\incident.json
+investigation briefing import-json C:\tmp\incident-edited.json
 ```
 
 Export writes a clean editable document, without internal revisions, hashes,
-source IDs or search approvals. If no accepted document exists, it exports an
+evidence source IDs or search approvals. If no accepted document exists, it exports an
 empty template. Export never overwrites an existing file or a protected case
 input/SQLite sidecar. Import validates and previews the entire document and asks
 for confirmation before replacing the accepted representation. Previous revisions
@@ -3057,14 +3059,14 @@ keyword matching: possible gaps are shown for review, without inventing entries.
 Empty categories mean extraction coverage is unknown, not that the original
 narrative lacked the information. Rejected candidate categories and related
 information assigned elsewhere are distinguished. These checks cannot prove
-semantic completeness. Summary checks flag missing exact person/system names;
+evidence semantic completeness. Summary checks flag missing exact person/system names;
 experience and objective coverage still require analyst review.
 
 Unknown values display a short label such as `Timezone: Unknown`; original
 statements remain in provenance/JSON. Actual multiline text renders on separate
 lines. Literal backslash sequences (including Windows paths) are never unescaped.
 
-During `briefing --analyze`, use `move` to select the current category, 1-based item
+During `investigation briefing analyze`, use `move` to select the current category, 1-based item
 number and destination category. Value, polarity and source references survive
 that correction. Only `accept` saves a new revision. Acceptance means accepted
 for use, not verified: AI-derived classifications retain their origin, while
@@ -3094,7 +3096,7 @@ A narrow person-validation correction resolves the legacy literal scanner's
 exact full name is already a source-supported `person` candidate. It does not
 accept invented names, infer an account, or exempt explicit account/username
 attribution or other technical literals from validation. Person identity and
-semantic meaning remain unverified; source support is not proof.
+evidence semantic meaning remain unverified; source support is not proof.
 
 The single interpretation call requests a summary even for sparse input. Missing
 summary diagnostics distinguish omitted/empty output, structural failure, source
@@ -3148,7 +3150,7 @@ a `person` filed under Account does not become an authenticated account or an
 account-search lead. All 18 categories remain optional.
 
 Concrete candidates still require valid exposed source IDs, exact contiguous
-source support, existing boundary checks and technical syntax validation where
+evidence source support, existing boundary checks and technical syntax validation where
 applicable. Unsupported/invalid candidates are retained as **excluded
 suggestions**, not canonical values or search inputs. Review them with `--json`,
 correct/add an explicit analyst assertion, or `reject` an `excluded` item. Accepting
@@ -3165,7 +3167,7 @@ attribution, chronology or causality. No new deterministic semantic validator or
 AI self-validation call was introduced. The analyst owns those decisions.
 
 Description/uncertainty text, summary text and excluded suggestions never supply
-search values. Canonical reanalysis uses retained source statements, excluding the
+evidence search values. Canonical reanalysis uses retained source statements, excluding the
 summary; notes and suggestions are not re-extracted as approved inputs. Existing
 explicit discovery approvals and forensic evidence-grounding controls are
 unchanged. An analyst who adds/corrects an entry supplies a new unverified analyst
@@ -3198,7 +3200,7 @@ claim check with a set difference from the technical-literal scanner. That scann
 could misread explanatory phrases as identifiers. The exact live rejected text
 was not retained, so no particular phrase is asserted to have caused that run.
 Validation uses synthetic facts and fake providers; live narrative quality and
-semantic faithfulness require manual acceptance.
+evidence semantic faithfulness require manual acceptance.
 
 
 ### Briefing summary and review readability (6.87)
@@ -3215,7 +3217,7 @@ unchanged (700-byte AI summary text, 300-byte uncertainty, 1,200-character
 canonical summary). A draft at the byte boundary without terminal punctuation
 gets a **possibly incomplete** notice. Its text and source are preserved, and the
 analyst can correct or reject it. This is a boundary hint, not grammatical or
-semantic validation. No sentence is repaired, removed or automatically completed.
+evidence semantic validation. No sentence is repaired, removed or automatically completed.
 Over-limit summaries receive an explicit `omitted_over_limit` /
 `summary_size_limit` diagnostic when available at local validation; the existing
 structural rejection remains fail-closed. Provider-side rejection can occur
@@ -3258,7 +3260,7 @@ references/unresolved references. Valid references prove only that the IDs were
 exposed to the model, not semantic accuracy or forensic truth.
 
 The old `failed_source_validation` path checked exact ID membership in the exposed
-source inventory. New detailed diagnostics distinguish an unknown ID from a known
+evidence source inventory. New detailed diagnostics distinguish an unknown ID from a known
 but unexposed ID and from missing references. Missing/empty summary references are
 allowed as review-only drafts by briefing interpretation contract 5; concrete
 candidate and interpretation-item references remain strict. Malformed reference
@@ -3307,14 +3309,14 @@ no evidence database migration or transcript change is involved.
 
 Default output shows the readable draft and its editorial/provenance status.
 Reference IDs and detailed failure categories remain in `--details`/`--json`.
-`--details` performs a new analysis; `briefing --show --json` inspects a saved
+`--details` performs a new analysis; `investigation briefing show --json` inspects a saved
 revision. No additional provider call repairs a draft. Synthetic/fake-provider
 tests cannot establish live narrative quality; the analyst remains responsible
 for reviewing the briefing's meaning and uncertainty.
 
 ### Cross-artifact briefing discovery (6.90)
 
-`briefing --analyze --deterministic --revision N --discover --approve LEAD_ID
+`investigation briefing analyze --deterministic --revision N --discover --approve LEAD_ID
 --artifact all --start ISO_TIME --end ISO_TIME` searches available ingested
 families using existing deterministic retrieval. Review the current saved
 briefing first; use its current revision and exact lead IDs. The window must be
@@ -3343,7 +3345,7 @@ Records lacking an eligible timestamp cannot match a bounded time window.
 Budgets remain aggregate: at most six approved leads, **six queries total**,
 ten primary matches per query (at most 60 returned matches), 90 seconds total,
 15 seconds per query, and 192 KiB for returned evidence projections. EVTX content
-search additionally retains its 1,000-candidate, five-second, 8 MiB payload bounds.
+evidence search additionally retains its 1,000-candidate, five-second, 8 MiB payload bounds.
 No new AI requests are made by discovery. Availability uses indexed existence
 probes within the same supervised read-only transaction as the searches.
 Indexed object searches run first, other supported lookups next, and broad EVTX
@@ -3388,7 +3390,7 @@ leads still require separate explicitly approved invocations.
 After reviewing and accepting the canonical briefing, run:
 
 ```text
-briefing --assess
+investigation assess
 ```
 
 Locard requests explicit start/end timestamps (at most 24 hours) if not supplied
@@ -3404,7 +3406,7 @@ Assessment is deterministic and model-free. Accepted, affirmative, syntactically
 validated technical values supply exact search leads. Accepted activity values
 may supply contextual EVTX search terms. Summary prose, excluded suggestions,
 negated, ambiguous, conflicting or approximate entries do not supply exact
-search inputs. The original accepted briefing is not rewritten by assessment.
+evidence search inputs. The original accepted briefing is not rewritten by assessment.
 
 The controller reuses the supervised read-only worker, existing search adapters,
 indexed object-basename candidates and EVTX EventData continuation. Indexed
@@ -3449,10 +3451,10 @@ A JSON checksum detects content inconsistency; it does not prove forensic truth
 or authenticate the analyst. Treat the directory as sensitive derived work product.
 
 ```text
-briefing --assessment-show
-briefing --assessment-history
-briefing --assessment-show ASSESSMENT_ID
-briefing --assessment-resume
+investigation show
+investigation list
+investigation show ASSESSMENT_ID
+investigation reauthorize
 ```
 
 Review performs no searches or provider requests. `--json` exposes the structured
@@ -3464,7 +3466,7 @@ the original bounded plan and requests fresh approval. Because equality with a
 closed SQLite read view cannot be established cheaply, resume creates a linked
 **new pass**, restarts approved searches, and never merges old evidence or cursors
 with the new read view. Unavailable families from the earlier authorization are
-not silently added. After a briefing change, use a new `--assess` plan instead.
+not silently added. After a briefing change, use a new `investigation assess` plan instead.
 
 Saved assessments always describe historical read views. Current evidence
 freshness is **unknown**, without whole-case hashing. An older briefing revision
@@ -3484,7 +3486,7 @@ from a completed forensic investigation. MFT creation metadata, Prefetch file
 references and recorded Defender blocking actions retain their distinct meanings;
 matching basenames or nearby timestamps do not establish execution or causation.
 
-Use `briefing --assessment-show [ID] --details` for full saved fields, timestamp
+Use `investigation show [ID] --details` for full saved fields, timestamp
 sets, source context, coverage and continuation metadata. `--json` remains the
 machine-readable view. Review does not search evidence or call a model.
 Historical assessments cannot supply labels they did not retain: for example,
@@ -3503,9 +3505,9 @@ per-query messages. Discovery budgets, scheduling and approval remain unchanged.
 ### Investigate a saved assessment (6.93)
 
 ```text
-briefing --investigate
-briefing --investigate ASSESSMENT_ID --question "What supports the reported sequence? Inspect E2."
-briefing --investigate ASSESSMENT_ID --start 2026-09-30T00:00:00Z --end 2026-09-30T23:59:59Z
+investigation run
+investigation run ASSESSMENT_ID --question "What supports the reported sequence? Inspect E2."
+investigation run ASSESSMENT_ID --start 2026-09-30T00:00:00Z --end 2026-09-30T23:59:59Z
 ```
 
 Omitting the ID selects the latest saved assessment; omitting `--question` prompts
@@ -3534,7 +3536,7 @@ No additional initial discovery searches run automatically.
 
 New transcripts retain the originating assessment ID, digest, briefing revision,
 authorization, selected references and revalidation outcomes. Historical sidecars
-are not rewritten. `ai-history show INVESTIGATION_ID` reviews the transcript;
+are not rewritten. `investigation history show INVESTIGATION_ID` reviews the transcript;
 current read-view transcripts retain the existing restrictions on exact-state
 replay and fingerprint-backed report import. `--details`/`--json` on the briefing
 command expose the investigation result. This release supports one first question
@@ -3682,9 +3684,8 @@ are condensed only in the human view. Filesystem metadata, Prefetch references,
 security blocking and causal hypotheses remain distinct. Model-proposed
 uncertainty remains explicitly unverified. No extra model summary is requested.
 
-Use `investigate-ai ... --details` for technical rendering, or `--json` for
-structured results. Existing `briefing ... --details` retains its structured
-detail view. `ai-history show <investigation-id> --json` reviews a saved result
+Use `investigation advanced current-case ... --details` for technical rendering, or `--json` for
+structured results. Use `investigation advanced assessment ... --details` for the distinct per-tool assessment handoff. `investigation history show <investigation-id> --json` reviews a saved result
 without a new investigation. Old transcripts retain their legacy display.
 
 All prompts remain bounded to 5,600 bytes. The projection can omit fields or
@@ -3756,7 +3757,7 @@ hypothesis statements. That presentation limitation is unchanged by this fix.
 ### Opt-in autonomous incremental inspection (6.102 Stage A)
 
 ```text
-briefing --investigate --autonomous --question "What evidence supports the reported activity?" --start 2026-09-30T00:00:00Z --end 2026-09-30T23:59:59Z
+investigation run --question "What evidence supports the reported activity?" --start 2026-09-30T00:00:00Z --end 2026-09-30T23:59:59Z
 ```
 
 Stage A uses the configured, acknowledged OpenAI provider/model. Verify investigation
@@ -3806,12 +3807,12 @@ output. Cleanup failures remain explicit. There is no detached service, issued r
 grant token, automatic renewal or restart continuation in Stage A.
 
 Journals use the existing guarded derived transcript directory, with an explicit engine
-contract. `ai-history show ID --json` inspects the recorded terminal state; it does not
+contract. `investigation history show ID --json` inspects the recorded terminal state; it does not
 revalidate the case. The application reconstruction helper rechecks packet/delta grounding
 against recorded retrievals, not a live database. Legacy replay and report import refuse
 Stage A journals explicitly. Durable restart and report adapters remain later stages.
 
-The legacy command without `--autonomous` preserves its approval and execution behavior.
+The advanced per-tool assessment command preserves its distinct approval and execution behavior.
 No evidence schema, normalization, ingestion or database-writing behavior changes.
 
 Stage A startup hardening (6.103): the execution clock and grant expire 300 seconds
@@ -3833,37 +3834,8 @@ synthesis request or global answer-completeness assessment. Finishing the author
 plan does not establish a complete forensic conclusion. The presentation correction
 does not change stored findings, grounding, request budgets or historical transcripts.
 
-### Opt-in question decomposition (S4-A)
+### Guided investigation and recorded follow-up
 
-Add `--decompose` to a new `briefing --investigate --autonomous` run to authorize
-one question-only AI request proposing up to four scoped objectives. Its new grant
-allows six analysis requests plus one decomposition, zero organization requests,
-and no retries. The existing five-minute deadline, six lookups, 5,600-byte input
-and 1,024-token output limits remain; finalization receives a time reservation.
+Use `investigation start` for briefing, explicit scope, assessment and staged authorization, or `investigation run latest` for a saved assessment. Cloud disclosure, decomposition and synthesis are separate choices before the engine's exact grant. Do not compose internal S4/C1/D1 flags.
 
-Proposed intent stays provisional. Exact source spans do not establish semantic
-completeness. Registered typed objectives are assessed with existing deterministic
-S3 rules, while unknown roles, negation and unsupported objectives remain explicit.
-The original question and its separate deterministic assessment are preserved.
-Omitting `--decompose` preserves existing Stage A behavior. Recorded inspection
-never makes provider calls. See [S4-A contracts and manual acceptance](docs/LOCARD_6_108_DECOMPOSITION.md).
-
-### Local synthesis packet previews (S4-B1)
-
-The independent synthesis diagnostic accepts `--packet-preview` (and `--json`)
-to reconstruct bounded support packets from a saved investigation. This is local
-inspection, not AI synthesis: it makes no provider requests, opens no case database,
-and does not mark packet contents as disclosed. Exact historical projections that
-are no longer available remain unavailable; budget omissions are explicit.
-See [packet contracts, limits and commands](docs/LOCARD_6_109_PACKET_PREVIEWS.md).
-
-### Authorized incremental synthesis (S4-B2)
-
-Add `--synthesize` to `briefing --investigate latest --autonomous --decompose`
-to explicitly authorize up to two additional OpenAI requests consuming bounded
-original-support packets. The selected assessment supplies the source/time scope
-unless an explicit permitted window is provided. Review the new authorization:
-six analysis, one decomposition and two synthesis attempts, no refill or retry.
-Model groups, hypotheses and questions appear separately as **unverified** proposals.
-Existing workflows without this option are unchanged. See
-[contracts, deadlines and manual acceptance](docs/LOCARD_6_110_SYNTHESIS.md).
+`investigation history show RUN --transcripts ROOT` reviews recorded disclosures. `history replay` is current-case replay, not continuation. `investigation reason ROOT RUN` retains provider-free D2 preview and explicitly approved execution/capture. `investigation findings` manages source-bound analyst decisions. `report from-case` and `report from-history` retain separate forensic contracts.

@@ -92,3 +92,25 @@ def case_label(path):
     except (OSError, ValueError):
         pass
     return fallback
+
+
+def create_empty(shell):
+    """Confirm a case workspace independently of evidence discovery/ingestion."""
+    from forensic_assistant import activity, __version__
+    from .console import safe
+    from forensic_assistant.briefing_workflow import read_answer
+    read=lambda prompt: read_answer(shell.reader.read,prompt).strip()
+    name=read('Case name: ')
+    path=target(name)
+    analyst=read('Analyst name (optional): ')
+    organization=read('Organization (optional): ')
+    print('Create empty case: '+safe(name)+'\nDatabase: '+safe(path))
+    if read('Create this case? [y/N]: ').casefold() not in ('y','yes'):
+        return False
+    initialize(path)
+    session=activity.Session(path)
+    session.record('CASE_CREATE',required=True,case_path=str(path),case_name=name,
+                   analyst=analyst,organization=organization,application_version=__version__,selected_files=0)
+    shell.activate(path,activity_session=session)
+    print('Use evidence ingest wizard to add evidence.')
+    return True

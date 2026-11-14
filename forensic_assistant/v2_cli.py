@@ -25,7 +25,10 @@ def configure(commands):
         if name in ('ingest-evtx', 'ingest-all'):
             p.add_argument('--evtx-hard-timeout', type=int, default=21600,
                            help='EVTX emergency absolute ceiling in seconds (default: 21600)')
-        p.add_argument('--record-size', type=int)
+        if name in ('ingest-mft', 'ingest-all'):
+            p.add_argument('--record-size', type=int)
+        else:
+            p.set_defaults(record_size=None)
         p.add_argument('--json', action='store_true')
     for name in ('search', 'timeline'):
         p = commands.choices[name]
@@ -87,7 +90,7 @@ def _ingest_sources(db, args, progress=None):
     supplied = {k: getattr(args, k, None) for k in ('hostname', 'user', 'volume_root')}
     # Existing-source metadata is changed only by an explicit source update action.
     if source_id and any(v is not None for v in supplied.values()):
-        raise ValueError('Use source update to change metadata on an existing --source')
+        raise ValueError('Use evidence source update to change metadata on an existing --source')
     batch_id = sources.identifier('batch')
     with db:
         if source_id:

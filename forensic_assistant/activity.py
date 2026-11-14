@@ -419,7 +419,7 @@ def configure(commands):
     parser = commands.add_parser('activity', help=COMMANDS['activity'])
     parser.add_argument('--limit', type=int, default=20)
     parser.add_argument('--json', action='store_true')
-    parser.add_argument('--verify', action='store_true', help='Verify every entry and chain link in the activity sidecar')
+    parser.set_defaults(verify=False)
 
 
 def render(result, *, verify=False, palette=None):

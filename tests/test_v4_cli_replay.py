@@ -37,22 +37,22 @@ def test_cli_never_uses_write_opener(tmp_path, monkeypatch, capsys):
         raise AssertionError('V4 used write-capable opener')
     monkeypatch.setattr('forensic_assistant.cli.connect', forbidden)
     monkeypatch.setattr('forensic_assistant.investigation_ai.cli.LocalClient', lambda *args: Scripted([final]))
-    assert main(['--db', str(path), 'investigate-ai', 'PowerShell', '--no-semantic', '--json']) == 0
+    assert main(['--db', str(path), 'investigation', 'advanced', 'current-case', 'PowerShell', '--no-semantic', '--json']) == 0
     result = json.loads(capsys.readouterr().out)
     assert result['termination'] == 'ANSWER_SUPPORTED'
-    assert main(['--db', str(path), 'ai-history', 'show', result['investigation_id'], '--explain']) == 0
+    assert main(['--db', str(path), 'investigation', 'history', 'show', result['investigation_id'], '--explain']) == 0
     reviewed = json.loads(capsys.readouterr().out)
-    assert reviewed['events'] and reviewed['current_case_status']['matches_recorded_fingerprint'] is None
-    assert 'no whole-case digest' in reviewed['current_case_status']['reason']
-    assert main(['--db', str(path), 'ai-history', 'replay', result['investigation_id'], '--no-semantic']) == 2
+    assert reviewed['events'] and reviewed['current_case_status']['checked'] is False
+    assert 'does not open the live case' in reviewed['current_case_status']['reason']
+    assert main(['--db', str(path), 'investigation', 'history', 'replay', result['investigation_id'], '--no-semantic']) == 2
     assert 'fingerprint-backed transcript' in capsys.readouterr().err
 
 def test_missing_database_never_created_and_noninteractive_approval_rejected(tmp_path, capsys):
     path = tmp_path / 'absent.db'
-    assert main(['--db', str(path), 'investigate-ai', 'PowerShell', '--approve-tools']) == 2
+    assert main(['--db', str(path), 'investigation', 'advanced', 'current-case', 'PowerShell', '--approve-tools']) == 2
     assert not path.exists()
     assert 'interactive' in capsys.readouterr().err
-    assert main(['--db', str(path), 'investigate-ai', 'PowerShell', '--no-semantic']) == 2
+    assert main(['--db', str(path), 'investigation', 'advanced', 'current-case', 'PowerShell', '--no-semantic']) == 2
     assert not path.exists()
 
 def test_optional_dependencies_not_imported_by_v4_deterministic(monkeypatch, tmp_path):

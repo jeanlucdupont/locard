@@ -1,64 +1,32 @@
-"""Interactive navigation built from the same parser used for dispatch."""
+"""Help derived from the canonical parser tree."""
 import argparse
 from forensic_assistant.terminal import Palette
-from forensic_assistant.retrieval.presentation import safe
-from forensic_assistant.command_catalog import COMMANDS, SHELL_COMMANDS, COMMAND_ALIASES, ADVANCED_COMMANDS
+from forensic_assistant.command_surface import FAMILIES
 
-# Argument syntax stays with the interactive command implementation.
-SHELL_USAGE = {
-    'add-evidence': 'add-evidence',
-    'ingest-wizard': 'ingest wizard',
-    'expert': 'expert',
-    '?': '? [command]',
-    'case': 'case [path|new]',
-    'new-case': 'new-case',
-    'color': 'color [on|off]',
-    'exit': 'exit',
-    'help': 'help [command]',
-    'version': 'version',
-    'quit': 'quit',
-}
+SHELL_COMMANDS = {'help': 'Show command help', '?': 'Show command help', 'quit': 'End the session', '!': 'Ask AI; existing disclosure and tool approvals apply'}
 
 
 def command_help(name):
-    result = SHELL_USAGE[name] + ': ' + COMMANDS[name]
-    if name == 'add-evidence':
-        return result + '\nUse help ingest wizard for documentation.'
-    if name == 'ingest-wizard':
-        result += ('\nAppend evidence to the current case using guided mounted/extracted Windows scanning or manual '
-                   'evidence selection. Existing evidence and case metadata are preserved. Optional source metadata '
-                   'applies to the new source only. Mounted $MFT requires extraction as a standard file. '
-                   'Type cancel to return without ingestion before confirmation. After ingestion starts, committed '
-                   'work is retained on interruption. No arguments are accepted. Direct ingest subcommands accept a known artifact and explicit options. '
-                   'Source metadata is analyst supplied; identities are never inferred from directory names.')
-    if name == 'new-case':
-        result += ('\nGuided setup: create a case and ingest evidence, investigate using commands or ! AI requests, '
-                   'then generate a report. Scan a mounted/extracted Windows filesystem, select evidence manually, '
-                   'or skip ingestion. A case name creates a managed workspace; analyst/organization are optional. '
-                   'Select browser profiles explicitly. Mounted $MFT may require extraction. Administrator '
-                   'access is recommended, not guaranteed. Type cancel to stop; Enter accepts defaults. '
-                   'Review candidates and confirm before anything is created or ingested. '
-                   'Disk images must be mounted/extracted separately. Existing case new and direct ingest '
-                   'commands remain available for adding evidence later. Prefix natural-language requests with !. '
-                   'The prompt uses the human case name when available. No model is called during setup.')
-    if name == 'expert':
-        result += ('\nPrefix a natural-language request with ! to ask the configured AI assistant. '
-                   'Inventory and uncertain questions stay advisory; record-level questions use bounded investigation with approval before each proposed tool. '
-                   'The prompt remains >; no mode change is needed.')
-    return result
+    return name + ': ' + SHELL_COMMANDS[name]
 
 
-def catalog(parser, palette=None):
-    palette = palette or Palette()
-    commands = {name: text for name, text in SHELL_COMMANDS.items() if name not in COMMAND_ALIASES}
+def paths(parser, prefix=()):
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
-            for name in action.choices:
-                if name not in set(COMMAND_ALIASES) | ADVANCED_COMMANDS:
-                    commands[name] = COMMANDS[name]
-    width = max(map(len, commands))
+            for name, child in action.choices.items():
+                path = (*prefix, name)
+                yield path, child
+                yield from paths(child, path)
+
+
+def catalog(parser, palette=None, *, all_commands=False):
+    palette = palette or Palette()
     lines = ['']
-    for name, description in sorted(commands.items()):
-        lines.append('  ' + palette('key', name.ljust(width)) + '  ' + safe(description))
-    return '\n'.join([*lines, '', 'Prefix a natural-language request with ! to ask the configured AI assistant (approval required for each proposed tool).',
-                      '', 'Type `help <command>` for details.\n'])
+    entries = [(' '.join(path), child.description or '') for path, child in paths(parser)] if all_commands else list(FAMILIES.items())
+    entries += list(SHELL_COMMANDS.items())
+    width = max(len(name) for name, _ in entries)
+    for name, description in entries:
+        lines.append('  ' + palette('key', name.ljust(width)) + '  ' + description)
+    lines.extend(['', 'Use help <family> <operation> for options; help all lists advanced operations.',
+                  'AI proposals are not evidence. Mutations and cloud disclosure retain their explicit approvals.', ''])
+    return '\n'.join(lines)

@@ -63,7 +63,7 @@ def test_requires_valid_case_before_prompt_and_remembers(tmp_path, capsys):
     good = case(tmp_path)
     missing = tmp_path / 'missing.db'
     state = State(tmp_path / 'ui.json')
-    reader = Input(str(missing), str(good), 'status', 'exit')
+    reader = Input(str(missing), str(good), 'case status', 'quit')
     before = good.read_bytes()
     assert Shell(state, reader).run() == 0
     assert 'Cannot select' in capsys.readouterr().out
@@ -78,7 +78,7 @@ def test_remembered_accept_or_decline(tmp_path, response):
     b = case(tmp_path, 'b.db')
     state = State(None)
     state.remember(a)
-    reader = Input(response, *([str(b)] if response == 'n' else []), 'exit')
+    reader = Input(response, *([str(b)] if response == 'n' else []), 'quit')
     shell = Shell(state, reader)
     assert shell.run() == 0
     assert shell.active == (b if response == 'n' else a)
@@ -96,13 +96,13 @@ def test_unusable_remembered_path_reselects(tmp_path, remembered):
     good = case(tmp_path)
     state = State(None)
     state.remember(old)
-    reader = Input(str(good), 'exit')
+    reader = Input(str(good), 'quit')
     shell = Shell(state, reader)
     assert shell.run() == 0 and shell.active == good
     assert not any(p.startswith('Use this database?') for p in reader.prompts)
 
 
-@pytest.mark.parametrize('cancel', ['', EOFError(), KeyboardInterrupt(), 'exit'])
+@pytest.mark.parametrize('cancel', ['', EOFError(), KeyboardInterrupt(), 'quit'])
 def test_startup_can_exit_without_main_prompt(tmp_path, cancel):
     reader = Input(cancel)
     assert Shell(State(None), reader).run() == 0
@@ -119,12 +119,12 @@ def test_switch_isolates_defaults_and_preserves_report_case_semantics(tmp_path, 
     monkeypatch.setattr('forensic_assistant.cli.dispatch', dispatch)
     reader = Input(
         str(a),
-        'semantic status --index custom-index',
-        f'case "{b}"',
-        'semantic status',
-        'investigate-ai "question" --no-semantic',
-        'report validate bundle',
-        'exit'
+        'evidence semantic status --index custom-index',
+        f'case open "{b}"',
+        'evidence semantic status',
+        'investigation advanced current-case "question" --no-semantic',
+        'report verify bundle',
+        'quit'
     )
     shell = Shell(State(None), reader)
     assert shell.run() == 0
@@ -141,13 +141,13 @@ def test_errors_help_interrupt_cancel_switch_and_eof(tmp_path, capsys):
     reader = Input(
         str(a),
         'bogus',
-        'show not-an-id',
+        'evidence show not-an-id',
         'ask "',
-        'help report validate',
-        'case',
+        'help report verify',
+        'case open',
         '',
         KeyboardInterrupt(),
-        'status',
+        'case status',
         EOFError()
     )
     shell = Shell(State(None), reader)
@@ -161,8 +161,8 @@ def test_disappearing_active_case_never_recreated(tmp_path):
     b = case(tmp_path, 'b.db')
     def remove():
         a.unlink()
-        return 'status'
-    reader = Input(str(a), remove, str(b), 'exit')
+        return 'case status'
+    reader = Input(str(a), remove, str(b), 'quit')
     shell = Shell(State(None), reader)
     assert shell.run() == 0 and shell.active == b and not a.exists()
 
@@ -173,7 +173,7 @@ def test_db_override_blocked_and_unexpected_failure_visible(tmp_path, monkeypatc
     def fail(*args, **kwargs):
         raise RuntimeError('internal fault')
     monkeypatch.setattr('forensic_assistant.cli.dispatch', fail)
-    reader = Input(str(a), f'--db "{b}" status', 'status')
+    reader = Input(str(a), f'--db "{b}" status', 'case status')
     with pytest.raises(RuntimeError, match='internal fault'):
         Shell(State(None), reader).run()
     assert not b.exists() and reader.cleared >= 2
@@ -182,15 +182,15 @@ def test_db_override_blocked_and_unexpected_failure_visible(tmp_path, monkeypatc
 def test_redirected_bare_cli_and_scripted_cli(tmp_path, capsys):
     assert main([]) == 2
     path = case(tmp_path)
-    assert main(['--db', str(path), 'status']) == 0
+    assert main(['--db', str(path), 'case','status']) == 0
     with pytest.raises(SystemExit) as result:
         main(['--help'])
     assert result.value.code == 0
 
 
 def test_memory_only_editor_navigation_and_timeout():
-    assert edit(iter(['UP', '\r']), history=['status'], output=io.StringIO()) == 'status'
-    assert edit(iter(['UP', 'DOWN', 'x', '\r']), history=['status'], output=io.StringIO()) == 'x'
+    assert edit(iter(['UP', '\r']), history=['case status'], output=io.StringIO()) == 'case status'
+    assert edit(iter(['UP', 'DOWN', 'x', '\r']), history=['case status'], output=io.StringIO()) == 'x'
     with pytest.raises(TimeoutError):
         edit(iter('partial'), output=io.StringIO())
     with pytest.raises(KeyboardInterrupt):

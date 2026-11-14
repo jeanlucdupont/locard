@@ -210,7 +210,7 @@ def test_real_mixed_ingestion_partial_retention_metadata_and_ids(tmp_path, capsy
         assert tuple(evtx_run) == ('partial', 0, 1)
         before_ids = {r[0] for r in db.execute('SELECT evidence_id FROM evidence_records WHERE source_type="mft"')}
         from forensic_assistant.cli import build_parser
-        result = v2_cli.ingest_sources(db, build_parser().parse_args(['ingest-mft', str(root / '$MFT'), '--source', source['source_id']]))
+        result = v2_cli.ingest_sources(db, build_parser().parse_args(['evidence', 'ingest', 'mft', str(root / '$MFT'), '--source', source['source_id']]))
         assert result[0]['duplicates'] and not result[0]['inserted']
         assert before_ids == {r[0] for r in db.execute('SELECT evidence_id FROM evidence_records WHERE source_type="mft"')}
     text = capsys.readouterr().out
@@ -307,15 +307,16 @@ def test_readonly_destination_and_repeat_limitations(tmp_path):
 
 
 def test_help_completion_and_shell_entry(tmp_path, monkeypatch, capsys):
-    from forensic_assistant.interactive.help import command_help
+    from forensic_assistant.cli import build_parser
+    from forensic_assistant.interactive.help import paths
     from forensic_assistant.interactive.completion import complete
-    assert 'mounted/extracted' in command_help('new-case')
-    assert 'confirm' in command_help('new-case')
-    assert complete('new-c', 5).text.startswith('new-case')
+    parser=dict(paths(build_parser()))[('case','new')]
+    assert 'no evidence ingestion' in parser.format_help()
+    assert complete('case n', 6).text == 'case new '
     calls = []
-    monkeypatch.setattr(setup, 'create', lambda shell: calls.append(shell) or False)
+    monkeypatch.setattr(workspace, 'create_empty', lambda shell: calls.append(shell) or False)
     old = case(tmp_path)
-    shell = Shell(State(None), Input(str(old), 'new-case', 'exit'))
+    shell = Shell(State(None), Input(str(old), 'case new', 'quit'))
     assert shell.run() == 0 and calls == [shell]
     assert shell.active == old
 

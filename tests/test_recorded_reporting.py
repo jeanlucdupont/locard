@@ -321,7 +321,7 @@ def test_cli_bypasses_case_activity(tmp_path, source, monkeypatch, capsys):
     def forbidden(*a, **kw): raise AssertionError('case/activity path')
     monkeypatch.setattr(activity.Command, '__enter__', forbidden)
     monkeypatch.setattr(sqlite3, 'connect', forbidden)
-    args = cli.build_parser().parse_args(['report', 'recorded', '--transcript-root', str(source[0]),
+    args = cli.build_parser().parse_args(['report', 'from-history', '--transcript-root', str(source[0]),
         '--run', source[1], '--output', str(tmp_path/'bundle'), '--profile', 'executive'])
     assert cli.dispatch(args) == 0
     assert 'PUBLISHED' in capsys.readouterr().out

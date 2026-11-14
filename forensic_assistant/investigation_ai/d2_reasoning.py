@@ -1,5 +1,4 @@
 """Explicit post-investigation D2 UI. Importing/previewing never dispatches."""
-import argparse
 import json
 from . import d2, d2_execution as service
 from .explanation import _safe
@@ -43,8 +42,7 @@ def render(result, prepared):
     return '\n'.join(lines)
 
 
-def main():
-    parser=argparse.ArgumentParser(description='Provider-free D2 preview or explicitly approved one-shot reasoning')
+def configure(parser):
     parser.add_argument('root');parser.add_argument('run_id')
     parser.add_argument('--issue');parser.add_argument('--exploratory',action='store_true')
     parser.add_argument('--cross-artifact',action='store_true',help='Use the separate 16384-byte policy over saved authorized evidence')
@@ -53,16 +51,19 @@ def main():
     parser.add_argument('--json',action='store_true')
     parser.add_argument('--findings-workspace',help='Existing source-bound findings directory; saving requires a separate choice after execution')
     parser.add_argument('--findings-actor',help='Locally asserted actor for optional capture; not authenticated identity')
-    args=parser.parse_args()
+
+
+def run(args, *, read=None):
+    if args.execute and not callable(read):raise ValueError('Explicit interactive provider approval required')
     if args.findings_workspace and (not args.execute or not args.findings_actor):
-        parser.error('--findings-workspace requires --execute and --findings-actor')
+        raise ValueError('--findings-workspace requires --execute and --findings-actor')
     if args.findings_actor and not args.findings_workspace:
-        parser.error('--findings-actor requires --findings-workspace')
+        raise ValueError('--findings-actor requires --findings-workspace')
     if args.cross_artifact:
-        if not args.question or args.issue:parser.error('--cross-artifact requires --question and excludes --issue')
-    elif args.question:parser.error('--question requires --cross-artifact')
+        if not args.question or args.issue:raise ValueError('--cross-artifact requires --question and excludes --issue')
+    elif args.question:raise ValueError('--question requires --cross-artifact')
     if not args.issue and not args.cross_artifact:
-        if args.execute:parser.error('--execute requires an explicit --issue')
+        if args.execute:raise ValueError('--execute requires an explicit --issue')
         preview=d2.open_history(args.root,args.run_id).preview(exploratory=args.exploratory)
         from . import d2_issues
         from forensic_assistant.ai.settings import load
@@ -97,7 +98,7 @@ def main():
         print('Complete request: '+str(value['body_bytes'])+' / '+str(value['limits']['body_bytes'])+' bytes; 1024 output tokens; 60 seconds including cleanup.')
         print('Recorded evidence will be disclosed to this provider. No retries, lookups, fallback or persistence.' if not args.findings_workspace else
               'Recorded evidence will be disclosed to this provider. No retries, lookups or fallback. Saving requires a separate choice afterward.')
-        return input('Authorize this exact request? [y/N] ').strip().casefold()=='y'
+        return read('Authorize this exact request? [y/N] ').strip().casefold()=='y'
     def display(result, prepared):
         if args.json:
             from . import d2_presentation
@@ -112,7 +113,7 @@ def main():
         print('Findings workspace: '+offer['workspace_id']+'; revision: '+str(offer['revision']))
         print('Directory: '+_safe(offer['directory']))
         print('Registration leaves findings proposed; analyst acceptance remains separate.')
-        return input('Register these proposals? [y/N] ').strip().casefold()=='y'
+        return read('Register these proposals? [y/N] ').strip().casefold()=='y'
     outcome=finding_capture.run(prepared,approve,directory=args.findings_workspace,
         actor=args.findings_actor,capture_confirmation=capture_approval,display=display)['capture']
     if args.json:
@@ -130,11 +131,3 @@ def main():
                'failed':'Capture failed; no findings registered. The investigation result remains available.',
                'storage_uncertain':'Capture storage could not be confirmed. Inspect the workspace before trying again; no automatic retry was performed.',
                'already_handled':'Capture already handled in this session.'}[outcome['status']])
-
-
-if __name__=='__main__':
-    try:main()
-    except (ValueError,OSError) as exc:
-        if str(exc)=='D2_CROSS_CONTEXT_INSUFFICIENT':
-            raise SystemExit('Required comparison inputs are missing. Use the provider-free --json preview to inspect omitted and unavailable roles.') from None
-        raise SystemExit('D2 request rejected before a validated result. Check source, selection, provider and budget.') from None

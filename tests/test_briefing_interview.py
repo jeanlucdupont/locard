@@ -119,7 +119,7 @@ def test_save_revision_analyze_and_editor_preserves(case_store,monkeypatch):
     result,_,_=run(['supplement','Please investigate sample.ps1','done','save'],[finish()],old)
     saved=case_store.save(result,first['digest'])
     assert len(saved['revisions'])==2 and case_store.load()==saved
-    packet=briefing_cli.run(args(case_store,'--analyze','--deterministic'))
+    packet=briefing_cli.run(args(case_store,'analyze','--deterministic'))
     assert packet['interview_provenance']==result['interviews']
     assert packet['analyst_source_relations'][0]['purpose']=='supplement'
     assert 'original analyst responses' in workflow.render(workflow.view(saved))
@@ -150,7 +150,7 @@ def test_oversize_answer_can_finish_without_losing_previous():
 def test_cancel_preserves_saved_case(case_store,monkeypatch):
     from forensic_assistant import briefing_cli
     first=case_store.save(current(),None);before=case_store.path.read_bytes()
-    a=args(case_store,'--interview');a._confirm=lambda p:'cancel'
+    a=args(case_store,'interview');a._confirm=lambda p:'cancel'
     monkeypatch.setattr(briefing,'discover',lambda *a:pytest.fail('unexpected search'))
     with pytest.raises(KeyboardInterrupt):briefing_cli.run(a)
     assert case_store.path.read_bytes()==before
@@ -192,7 +192,7 @@ def test_cli_interview_persists_and_no_search(case_store,monkeypatch):
     monkeypatch.setattr(briefing,'discover',lambda *a:pytest.fail('unexpected discovery'))
     before=case_store.case.read_bytes()
     reader=iter(['Reported script activity; establish timing.','done','save'])
-    a=args(case_store,'--interview');a._confirm=lambda p:next(reader)
+    a=args(case_store,'interview');a._confirm=lambda p:next(reader)
     result=briefing_cli.run(a)
     assert result['revision']['revision']==1
     assert case_store.case.read_bytes()==before

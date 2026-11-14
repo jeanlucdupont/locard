@@ -20,24 +20,24 @@ from forensic_assistant.retrieval import search_display
 from forensic_assistant.retrieval.registry_display import DIRTY_WARNING, KEY_CORRUPTION
 from forensic_assistant.terminal import Palette, SGR
 from test_interactive_shell import Input
-from test_evtx_recovery import decode, chunk, file_bytes
+from test_evtx_recovery import decode, chunk, file_bytes, local_decoder_for_unit_tests
 from test_userassist import RAW_NAME, binary
 from v2_fixtures import registry_file
 
 
 def test_direct_ingestion_commands_and_shell_wizard(capsys):
     kinds = {'all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'wizard'}
-    assert set(completion.complete('ingest ', 7).candidates) == kinds
-    assert set(completion.complete('help ingest ', 12).candidates) == kinds
+    assert set(completion.complete('evidence ingest ', 16).candidates) == kinds
+    assert set(completion.complete('help evidence ingest ', 21).candidates) == kinds
     assert not completion.complete('ingest-', 7).candidates
     with pytest.raises(SystemExit) as exc:
         main(['ingest', 'unused'])
     assert exc.value.code == 2
     help_text = build_parser().format_help()
-    assert 'ingest' in help_text and 'ingest-mft' not in help_text
+    assert 'evidence' in help_text and 'ingest-mft' not in help_text
 
 
-def test_evtx_discovery_preserves_damaged_and_renamed_attempts(tmp_path, decode, capsys):
+def test_evtx_discovery_preserves_damaged_and_renamed_attempts(tmp_path, decode, capsys, local_decoder_for_unit_tests):
     evidence = tmp_path / 'evidence'
     evidence.mkdir()
     damaged = evidence / 'damaged.EVTX'
@@ -51,7 +51,7 @@ def test_evtx_discovery_preserves_damaged_and_renamed_attempts(tmp_path, decode,
     assert list(discover(damaged, 'evtx')) == [(damaged, 'evtx')]
     before = {p: p.read_bytes() for p in evidence.iterdir()}
     case = tmp_path / 'case.db'
-    assert main(['--db', str(case), 'ingest-evtx', str(evidence), '--json']) == 1
+    assert main(['--db', str(case), 'evidence', 'ingest', 'evtx', str(evidence), '--json']) == 1
     result = json.loads(capsys.readouterr().out)
     assert sum(r['inserted'] for r in result['results']) == 2
     failed = next(r for r in result['results'] if Path(r['source_file']).name == damaged.name)
@@ -119,9 +119,9 @@ def test_registry_coreupdater_cli_grouping_and_json_unchanged(tmp_path, capsys):
                                      (codecs.encode(r'C:\Other\coreupdater.exe', 'rot_13'), 3, binary())],
                          userassist_version=5)
     case = tmp_path / 'case.db'
-    assert main(['--db', str(case), 'ingest-registry', str(hive)]) == 0
+    assert main(['--db', str(case), 'evidence', 'ingest', 'registry', str(hive)]) == 0
     capsys.readouterr()
-    args = ['--db', str(case), 'search', '--artifact', 'registry', '--value-name-contains', 'coreupdater']
+    args = ['--db', str(case), 'evidence', 'search', '--artifact', 'registry', '--value-name-contains', 'coreupdater']
     assert main(args + ['--json']) == 0
     expected = json.loads(capsys.readouterr().out)
     assert len(expected['records']) == 2
@@ -215,7 +215,7 @@ def test_registry_creation_groups_companions_and_respects_color(tmp_path, capsys
     assert actions[0] == 'CASE_CREATE' and actions.index('INGEST') < actions.index('CASE_OPEN') < actions.index('SESSION_START')
     assert all(p.read_bytes() == data for p, data in original.items())
     exported = tmp_path / 'status.json'
-    assert main(['--db', str(case), 'status', '--json', '--output', str(exported)]) == 0
+    assert main(['--db', str(case), 'case', 'status', '--json', '--output', str(exported)]) == 0
     assert '\x1b' not in exported.read_text() and json.loads(exported.read_text())
 
 

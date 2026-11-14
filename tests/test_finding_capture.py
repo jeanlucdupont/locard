@@ -239,8 +239,8 @@ def test_windows_supervised_sdk_capture(workspace,source,monkeypatch):
     assert returned['capture']['status']=='captured' and len(offers)==1
     saved=workspace.export()
     assert saved['findings'][0]['state']=='proposed'
-    reopened=subprocess.run([sys.executable,'-B','-m','forensic_assistant.investigation_ai.findings',
-        str(workspace.directory),'export'],capture_output=True,text=True,check=True)
+    reopened=subprocess.run([sys.executable,'-B','-m','forensic_assistant.cli',
+        'investigation','findings','list','--workspace',str(workspace.directory),'--json'],capture_output=True,text=True,check=True)
     assert json.loads(reopened.stdout)==saved
     fid=returned['capture']['finding_ids'][0]
     workspace.review(fid,'accept',actor='Synthetic reviewer',expected_revision=saved['revision'],rationale='Separate test decision.')
@@ -259,7 +259,9 @@ def test_cli_without_workspace_unchanged(source,monkeypatch,capsys):
     monkeypatch.setattr('builtins.input',lambda _: 'y')
     monkeypatch.setattr(capture,'Capture',lambda *a:pytest.fail('capture initialized'))
     monkeypatch.setattr(sys,'argv',['d2',str(source[0]),source[1],'--cross-artifact','--question','Question','--execute'])
-    cli.main();text=capsys.readouterr().out
+    from forensic_assistant.cli import build_parser
+    args=build_parser().parse_args(['investigation','reason',*sys.argv[1:]])
+    cli.run(args,read=__import__('builtins').input);text=capsys.readouterr().out
     assert cli.render(out,p) in text and 'No retries, lookups, fallback or persistence.' in text
     assert 'Register these proposals' not in text
 
@@ -275,6 +277,8 @@ def test_cli_capture_defaults_no(workspace,source,monkeypatch,capsys):
     monkeypatch.setattr('builtins.input',input)
     monkeypatch.setattr(sys,'argv',['d2',str(source[0]),source[1],'--cross-artifact','--question','Question','--execute',
         '--findings-workspace',str(workspace.directory),'--findings-actor','Synthetic analyst'])
-    cli.main();text=capsys.readouterr().out
+    from forensic_assistant.cli import build_parser
+    args=build_parser().parse_args(['investigation','reason',*sys.argv[1:]])
+    cli.run(args,read=__import__('builtins').input);text=capsys.readouterr().out
     assert len(prompts)==2 and prompts[1].endswith('[y/N] ')
     assert 'Capture declined; workspace unchanged.' in text and workspace.export()['revision']==0

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from os.path import commonprefix
 
-from forensic_assistant.command_catalog import COMMANDS, COMMAND_ALIASES, ADVANCED_COMMANDS
+from forensic_assistant.command_surface import FAMILIES
 
 
 class MetadataUnavailable(ValueError):
@@ -156,9 +156,9 @@ def complete(text, cursor):
         if prefix.startswith('-'):
             return unchanged
     if not words:
-        names = [name for name in COMMANDS if name not in set(COMMAND_ALIASES) | ADVANCED_COMMANDS]
+        names = [*FAMILIES, 'help', '?', 'quit'] + (['all'] if help_target else [])
     else:
-        if words[0] not in COMMANDS:
+        if words[0] not in FAMILIES:
             return unchanged
         try:
             context = _context(words)

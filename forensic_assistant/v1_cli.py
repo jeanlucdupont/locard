@@ -26,7 +26,7 @@ def configure(commands):
     tree = commands.add_parser("process-tree", help=COMMANDS['process-tree'])
     tree.missing_selector_guidance = (
         'process-tree requires either:\n  --evidence <process-creation evidence ID>\n'
-        'or:\n  --process <name> --around <timestamp>\n\nType `help process-tree` for details.')
+        'or:\n  --process <name> --around <timestamp>\n\nType `help analyze process-tree` for details.')
     selector = tree.add_mutually_exclusive_group(required=True)
     selector.add_argument("--evidence")
     selector.add_argument("--process")

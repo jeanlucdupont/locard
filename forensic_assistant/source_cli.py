@@ -108,9 +108,9 @@ def render_list(data, palette=None, *, ids=False, width=None):
     notices = [footer] if footer else []
     for r in data['sources']:
         if r.get('host_conflict'):
-            notices.append(safe(r['source_id']) + ': conflicting host assertions; inspect source show.')
+            notices.append(safe(r['source_id']) + ': conflicting host assertions; inspect evidence source show.')
         if r.get('ambiguous_files'):
-            notices.append(safe(r['source_id']) + f": {r['ambiguous_files']} files have multiple source memberships; inspect source show.")
+            notices.append(safe(r['source_id']) + f": {r['ambiguous_files']} files have multiple source memberships; inspect evidence source show.")
     for notice in notices:
         lines.extend(textwrap.wrap(notice, terminal_width(width), break_on_hyphens=False))
     return '\n'.join(lines) + '\n'
@@ -243,7 +243,7 @@ def render_assignment(data, palette=None):
             'Preview only. Repeat with --yes to apply; add --confirmation-fingerprint below to require this case state.',
             data['confirmation_fingerprint']
         ]
-    lines.append('Use --json for the full selected hash and matched-location lists; source show exposes bounded assignment history.')
+    lines.append('Use --json for the full selected hash and matched-location lists; evidence source show exposes bounded assignment history.')
     return '\n'.join(lines)
 
 

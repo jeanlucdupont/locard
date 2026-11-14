@@ -6,19 +6,20 @@ from .briefing_workflow import read_answer
 from .interactive.console import safe
 
 
-def run(args):
-    if any((args.ai,args.allow_cloud,args.save,args.deterministic,args.discover,args.approve,args.artifact,
-            args.revision,args.briefing_correction,args.discovery_after)):
-        raise ValueError('Assessment investigation cannot combine with briefing analysis/discovery options')
-    read = getattr(args, '_confirm', None) or (input if sys.stdin.isatty() else None)
-    if read is None:
-        raise ValueError('Assessment investigation requires interactive scope and tool approvals')
-    selected = service.select(args.db, args.investigate)
-    stream = sys.stderr if args.json else sys.stdout
+def execute(case, identity, question=None, *, read, start=None, end=None, autonomous=False,
+            decompose=False, synthesize=False, live_explanation=False, details=False,
+            json_output=False, presentation=None):
+    """Shared terminal orchestration over the existing authorized handoff service."""
+    if not callable(read):raise ValueError('Explicit interactive authorization required')
+    if live_explanation and not synthesize:raise ValueError('Live explanation requires synthesis')
+    if synthesize and not (autonomous and decompose):raise ValueError('Synthesis requires autonomous decomposition')
+    if decompose and not autonomous:raise ValueError('Decomposition requires autonomous execution')
+    selected = service.select(case, identity)
+    stream = sys.stderr if json_output else sys.stdout
     print('Using saved assessment ' + selected['id'], file=stream)
-    question = args.question or read_answer(read, 'What would you like to investigate? ')
-    handoff = service.prepare(args.db, selected['id'], question, args.start, args.end)
-    if getattr(args,'autonomous',False):
+    question = question or read_answer(read, 'What would you like to investigate? ')
+    handoff = service.prepare(case, selected['id'], question, start, end)
+    if autonomous:
         from .investigation_ai.autonomous import start
         from .ai.backend import backend
         from .terminal_activity import ActivityIndicator
@@ -49,16 +50,16 @@ def run(args):
             else:
                 print('  Limits: 6 AI requests, 6 lookups, 8 steps, 5 minutes; 5600 prompt bytes and 1024 output tokens per request.',file=stream)
             print('  View established after approval; expires after 5 minutes. No restart continuation or automatic scope expansion.',file=stream)
-            if getattr(args,'live_explanation',False):
+            if live_explanation:
                 print('  Local explanation persistence enabled; no additional model requests or evidence lookups.',file=stream)
-            if args.details:
+            if details:
                 import json
                 print(json.dumps(grant,ensure_ascii=True,indent=2),file=stream)
             return read_answer(read,'Authorize this bounded autonomous investigation? [y/N] ').strip().casefold() in ('y','yes')
-        with ActivityIndicator('Preparing investigation...',args=args) as indicator:
-            extra = {'decompose':True} if getattr(args,'decompose',False) else {}
-            if getattr(args,'synthesize',False):extra['synthesize']=True
-            if getattr(args,'live_explanation',False):extra['live_explanation']=True
+        with ActivityIndicator('Preparing investigation...',args=presentation) as indicator:
+            extra = {'decompose':True} if decompose else {}
+            if synthesize:extra['synthesize']=True
+            if live_explanation:extra['live_explanation']=True
             result=start(handoff,selected,backend(),authorize_envelope,status=indicator.phase,**extra)
         return {'kind':'assessment_investigation',**({'result':result} if result is not None else {'message':'Investigation cancelled; no evidence retrieved or model called.'})}
     def confirm(plan):
@@ -73,7 +74,7 @@ def run(args):
     from .investigation_ai.cli import approve
     from .ai.backend import backend, status_callback, waiting_label, restart_confirmation
     from .terminal_activity import ActivityIndicator
-    with ActivityIndicator('Preparing investigation...', args=args) as indicator, status_callback(indicator.update), restart_confirmation(read, indicator):
-        result = service.investigate(approved, client=backend(), approval=partial(approve,args=args),
+    with ActivityIndicator('Preparing investigation...', args=presentation) as indicator, status_callback(indicator.update), restart_confirmation(read, indicator):
+        result = service.investigate(approved, client=backend(), approval=partial(approve,args=presentation),
                                     status=lambda phase: indicator.start(waiting_label()) if phase=='model' else indicator.phase(phase))
     return {'kind':'assessment_investigation', 'result':result}

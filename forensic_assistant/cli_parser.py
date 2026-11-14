@@ -75,7 +75,7 @@ class InteractiveParser(LocardParser):
         return super().parse_known_args(args, namespace)
 
     def _check_value(self, action, value):
-        if isinstance(action, argparse._SubParsersAction) and action.dest == 'command' and value not in action.choices:
+        if isinstance(action, argparse._SubParsersAction) and action.dest == 'family' and value not in action.choices:
             raise UnknownCommand('Unknown command: ' + safe(value) + '\nType `help` to list available commands.')
         return super()._check_value(action, value)
 
@@ -102,23 +102,20 @@ def configure_interactive(parser, path=(), context=None):
                 configure_interactive(child, (*path, name), context)
 
 
-def configure_ingest_namespace(commands):
-    """Expose the same fully configured parsers through a canonical namespace.
-
-    Internal command IDs remain stable for provenance/audit and existing dispatch.
-    Compatibility choices remain parseable, but are omitted from primary help.
-    """
-    from forensic_assistant.command_catalog import COMMANDS, COMMAND_ALIASES, ADVANCED_COMMANDS
-    family = commands.add_parser('ingest', help=COMMANDS['ingest'], description=COMMANDS['ingest'])
-    kinds = family.add_subparsers(dest='ingest_type', metavar='{all,browser,evtx,mft,prefetch,registry,wizard}')
-    commands.add_parser('ingest-wizard', help=COMMANDS['ingest-wizard'],
-                        description='Guided ingestion in the interactive shell; no arguments.')
-    for kind in ('all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'wizard'):
-        name = 'ingest-' + kind
-        child = commands.choices[name]
-        child.set_defaults(command=name)
-        kinds._name_parser_map[kind] = child
-        kinds._choices_actions.append(kinds._ChoicesPseudoAction(kind, [], COMMANDS[name]))
-        child.prog = family.prog + ' ' + kind
-    commands._choices_actions[:] = [a for a in commands._choices_actions if a.dest not in set(COMMAND_ALIASES) | ADVANCED_COMMANDS]
-    commands.metavar = '{' + ','.join(name for name in commands.choices if name not in set(COMMAND_ALIASES) | ADVANCED_COMMANDS) + '}'
+def classify_help(parser):
+    """Group presentation/diagnostic controls without changing parse semantics."""
+    advanced = {'--raw', '--details', '--offset', '--evtx-after', '--parser-timeout',
+                '--record-size', '--max-files', '--max-file-size', '--append', '--force'}
+    parser._optionals.title = 'Common options'
+    selected = [a for a in parser._optionals._group_actions
+                if advanced.intersection(a.option_strings)]
+    if selected:
+        group = parser.add_argument_group('Advanced options',
+            'Diagnostic, resource or output controls; existing validation still applies.')
+        for action in selected:
+            parser._optionals._group_actions.remove(action)
+            group._group_actions.append(action)
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for child in action.choices.values():
+                classify_help(child)

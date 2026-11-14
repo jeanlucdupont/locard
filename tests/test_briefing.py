@@ -119,12 +119,12 @@ def test_unmapped_and_unknown_leads_do_not_execute():
 def test_cli_defaults_no_ai_or_db_and_audit_privacy(monkeypatch,capsys):
     from forensic_assistant.ai.backend import ModelBackend
     monkeypatch.setattr(ModelBackend,'complete',lambda *_:pytest.fail('unexpected provider'))
-    assert main(['--db','missing.db','briefing','--text','Secret baje.ps1','--json'])==0
+    assert main(['--db','missing.db','investigation','briefing','inspect','--text','Secret baje.ps1','--json'])==0
     result=json.loads(capsys.readouterr().out)
     assert result['inputs']['original']=='Secret baje.ps1' and 'discovery' not in result
-    assert 'Secret' not in str(activity.redact_argv(['briefing','--text','Secret']))
+    assert 'Secret' not in str(activity.redact_argv(['investigation','briefing','inspect','--text','Secret']))
     assert 'Secret' not in str(activity.clean({'briefing_text':'Secret','briefing_correction':['Secret']}))
-    args=build_parser(interactive=True).parse_args(['briefing','--text','baje.ps1'])
+    args=build_parser(interactive=True).parse_args(['investigation','briefing','inspect','--text','baje.ps1'])
     assert args.command=='briefing'
 
 

@@ -70,7 +70,7 @@ def make_case(path, count=3):
 
 def args(sid, *selectors):
     return build_parser().parse_args([
-        'source',
+        'evidence', 'source',
         'assign',
         sid,
         *selectors,
@@ -186,7 +186,7 @@ def test_preview_apply_196_integrity_and_correlations(tmp_path):
         assert all(r[0] is None for r in db.execute('SELECT batch_id FROM ingestion_runs'))
         assert EvidenceQueries(db).search(source_id=sid, limit=1000).total == 196
         anchor = 'PREFETCH:' + hashes[0] + ':File'
-        around = build_parser().parse_args(['around', anchor, '--timestamp-slot', 'run:0', '--limit', '1000'])
+        around = build_parser().parse_args(['evidence', 'around', anchor, '--timestamp-slot', 'run:0', '--limit', '1000'])
         result, _ = v2_cli.dispatch(db, around)
         assert len(result['records']) == 196
         assert 'PREFETCH:' + hashes[-1] + ':File' not in {r['id'] for r in result['records']}
@@ -295,7 +295,7 @@ def test_selection_bounds_and_atomic_failure(tmp_path, monkeypatch):
 def test_cli_token_same_state_and_missing_selector(tmp_path, capsys):
     path = tmp_path / 'case.db'
     sid, hashes = make_case(path)
-    base = ['--db', str(path), 'source', 'assign', sid, '--reason', 'Reviewed', '--json']
+    base = ['--db', str(path), 'evidence', 'source', 'assign', sid, '--reason', 'Reviewed', '--json']
     assert main(base) == 2
     assert 'at least one' in capsys.readouterr().err
     assert main(base + ['--path', ROOT]) == 0
@@ -322,7 +322,7 @@ def test_output_modes_and_interactive_confirmation(tmp_path, monkeypatch, capsys
     path = tmp_path / 'case.db'
     sid, hashes = make_case(path)
     target = tmp_path / 'preview.txt'
-    base = ['--db', str(path), 'source', 'assign', sid, '--path', ROOT, '--reason', 'Reviewed']
+    base = ['--db', str(path), 'evidence', 'source', 'assign', sid, '--path', ROOT, '--reason', 'Reviewed']
     monkeypatch.delenv('NO_COLOR', raising=False)
     monkeypatch.setattr(terminal, 'capable', lambda stream: True)
     assert main(base) == 0
@@ -342,10 +342,10 @@ def test_output_modes_and_interactive_confirmation(tmp_path, monkeypatch, capsys
     data = json.loads(capsys.readouterr().out)
     assert data['preview']['file_hashes'] == sorted(hashes[:-1])
     assert '\x1b' not in json.dumps(data)
-    command = f'source assign {sid} --path "{ROOT}" --reason Reviewed'
-    assert Shell(State(None), Input(str(path), command, 'n', 'exit')).run() == 0
+    command = f'evidence source assign {sid} --path "{ROOT}" --reason Reviewed'
+    assert Shell(State(None), Input(str(path), command, 'n', 'quit')).run() == 0
     with closing(connect(path)) as db:
         assert sources.summary(db, sid)['files'] == 0
-    assert Shell(State(None), Input(str(path), command, 'yes', 'exit')).run() == 0
+    assert Shell(State(None), Input(str(path), command, 'yes', 'quit')).run() == 0
     with closing(connect(path)) as db:
         assert sources.summary(db, sid)['files'] == 3
