@@ -10,7 +10,7 @@ from forensic_assistant.investigation_ai.transcript import validate_evidence_sta
 from forensic_assistant.investigation_ai.projection import same
 
 CONTRACT = 'recorded-investigation-report-v1'
-RENDERER = 'recorded-html-v1'
+RENDERER = 'recorded-html-v2'
 TYPES = ('executive', 'technical', 'handover')
 MAX_PROJECTION = 32 * 1024 * 1024
 MAX_HTML = 32 * 1024 * 1024
@@ -19,10 +19,13 @@ MAX_NODES = 400000
 MAX_TEXT = 262144
 MAX_SUPPORTS = 4096
 MAX_BLOCKS = 16384
-POLICY = dict(output_version=RENDERER, redaction='none', display_clipping=False,
+LEGACY_POLICY = dict(output_version='recorded-html-v1', redaction='none', display_clipping=False,
               ordering='stable source identity; findings creation revision',
               local_paths='workspace storage paths in audit projection only',
               evidence_paths='original recorded values retained')
+POLICY = dict(LEGACY_POLICY, output_version=RENDERER,
+              ordering='audience sections; stable identity references; exact question text deduplication')
+POLICIES = {'recorded-html-v1': LEGACY_POLICY, RENDERER: POLICY}
 CAUTION = ('Recorded investigation only; not a revalidation of the current case. '
            'Analyst acceptance does not establish forensic truth. AI-origin findings remain unverified inferences. '
            'Citations do not prove entailment. Completed authorized processing is not whole-case completeness. '
@@ -90,6 +93,7 @@ def validate(projection):
     keys(projection, 'contract content content_digest generation')
     if projection['contract'] != CONTRACT:
         raise ValueError('RECORDED_REPORT_VERSION')
+    keys(projection['generation'], 'generated_utc validation_utc application_version renderer_version')
     c = projection['content']
     keys(c, 'report_type source view engine frontiers question original_assessment factual related organization explanation_pages supports units workspace validation policy caution execution historical_proposals')
     if type(c['historical_proposals']) is not list or len(c['historical_proposals']) > 8:
@@ -103,7 +107,10 @@ def validate(projection):
     if c['report_type'] not in TYPES or c['caution'] != CAUTION:
         raise ValueError('RECORDED_REPORT_TYPE')
     keys(c['policy'], 'output_version redaction display_clipping ordering local_paths evidence_paths')
-    if c['policy'] != POLICY:
+    renderer = projection['generation']['renderer_version']
+    if type(renderer) is not str or renderer not in POLICIES:
+        raise ValueError('RECORDED_REPORT_RENDERER')
+    if c['policy'] != POLICIES[renderer]:
         raise ValueError('RECORDED_REPORT_POLICY')
     keys(c['validation'], 'source_binding support_reconstruction workspace semantic_truth')
     if c['validation'] != dict(source_binding='valid_recorded_binding', support_reconstruction='validated',
@@ -206,7 +213,7 @@ def validate(projection):
     keys(projection['generation'], 'generated_utc validation_utc application_version renderer_version')
     timestamp(projection['generation']['generated_utc'])
     timestamp(projection['generation']['validation_utc'])
-    if projection['generation']['renderer_version'] != RENDERER or type(projection['generation']['application_version']) is not str:
+    if projection['generation']['renderer_version'] not in POLICIES or type(projection['generation']['application_version']) is not str:
         raise ValueError('RECORDED_REPORT_RENDERER')
     if projection['content_digest'] != digest(c):
         raise ValueError('RECORDED_REPORT_CONTENT_DIGEST')

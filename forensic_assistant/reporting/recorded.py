@@ -29,12 +29,15 @@ def _build(source, report_type, generation):
     restored = source.restore()
     state = source.state()
     supports, units = model.support_map(restored, source.binding['view'])
+    renderer = generation['renderer_version'] if generation is not None else model.RENDERER
+    if renderer not in model.POLICIES:
+        raise ValueError('RECORDED_REPORT_RENDERER')
     content = dict(report_type=report_type, source=deepcopy(source.binding['source']),
                    view=deepcopy(source.binding['view']), supports=supports, units=units,
                    workspace=deepcopy(source.snapshot), **state,
                    validation=dict(source_binding='valid_recorded_binding', support_reconstruction='validated',
                                    workspace='validated' if source.snapshot is not None else 'not_attached', semantic_truth='not_certified'),
-                   policy=deepcopy(model.POLICY), caution=model.CAUTION)
+                   policy=deepcopy(model.POLICIES[renderer]), caution=model.CAUTION)
     now = datetime.now(timezone.utc).isoformat()
     envelope = deepcopy(generation) if generation is not None else dict(generated_utc=now, validation_utc=now,
                       application_version=__version__, renderer_version=model.RENDERER)

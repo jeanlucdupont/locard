@@ -156,7 +156,9 @@ def test_html_injection_and_original_fields(tmp_path, source):
     w.review(fid, 'accept', actor='Analyst', expected_revision=1)
     p = r.build(source[0], source[1], workspace=w.directory)
     html = r.render_html(p).decode()
-    assert '<script' not in html and '<a ' not in html and '<img ' not in html
+    assert '<script' not in html and '<img ' not in html
+    import re
+    assert all(target.startswith('#') for target in re.findall(r'href="([^"]*)"', html))
     assert '&lt;script' in html and '&quot;' in html and '漢字' in html
     assert 'src="https' not in html
     for leaf in p['content']['supports'].values():
