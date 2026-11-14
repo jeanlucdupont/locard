@@ -215,6 +215,10 @@ def _main(argv=None):
 
 
 def dispatch(args, *, existing_only=False):
+    if args.command == 'report' and args.report_command in ('recorded', 'inspect-recorded'):
+        # Recorded reporting must not attach the active case/activity sidecar.
+        from forensic_assistant.reporting.recorded import cli
+        return cli(args)
     from forensic_assistant.ai.backend import restart_confirmation
     read = getattr(args, '_confirm', None)
     if read is None and sys.stdin.isatty():

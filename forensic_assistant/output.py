@@ -51,6 +51,8 @@ def configure(commands):
         for action in parser._actions:
             if isinstance(action, argparse._SubParsersAction):
                 for child_name, child in action.choices.items():
+                    if name == 'report' and child_name in ('recorded', 'inspect-recorded'):
+                        continue  # Recorded bundles have their own no-overwrite publication.
                     add(child, report_generate=name == 'report' and child_name == 'generate')
 
 
