@@ -26,8 +26,8 @@ STYLES = {
 EVIDENCE_PREFIXES = ('EVTX:', 'PREFETCH:', 'MFT:', 'REGISTRY:')
 
 
-def windows_ansi(stream):
-    """Only trust the actual console mode; do not mutate console settings."""
+def windows_ansi(stream, *, enable=False):
+    """Inspect output-console mode, optionally enabling VT without clearing flags."""
     import ctypes
     import msvcrt
     from ctypes import wintypes
@@ -35,7 +35,29 @@ def windows_ansi(stream):
     kernel.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
     kernel.GetConsoleMode.restype = wintypes.BOOL
     mode = wintypes.DWORD()
-    return bool(kernel.GetConsoleMode(msvcrt.get_osfhandle(stream.fileno()), ctypes.byref(mode)) and mode.value & 4)
+    handle = msvcrt.get_osfhandle(stream.fileno())
+    if not kernel.GetConsoleMode(handle, ctypes.byref(mode)):
+        return False
+    if enable and not mode.value & 4:
+        kernel.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.SetConsoleMode.restype = wintypes.BOOL
+        if not kernel.SetConsoleMode(handle, mode.value | 4):
+            return False
+        if not kernel.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+    return bool(mode.value & 4)
+
+
+def initialize():
+    """Idempotent shared entry-point setup; never change redirected handles."""
+    if os.name != 'nt' or os.environ.get('TERM') == 'dumb':
+        return
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream.isatty():
+                windows_ansi(stream, enable=True)
+        except (OSError, ValueError, AttributeError, ImportError):
+            pass  # Capability checks retain the plain-text fallback.
 
 
 def capable(stream):

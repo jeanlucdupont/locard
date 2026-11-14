@@ -17,7 +17,7 @@ from forensic_assistant.terminal import Palette, enabled
 from forensic_assistant.cli import get_thin
 from .metadata import read_volume_root
 
-WORKFLOW = (get_thin() + '\nA Locard investigation has three steps:\n  1. Create a case and ingest evidence\n'
+WORKFLOW = ('A Locard investigation has three steps:\n  1. Create a case and ingest evidence\n'
             '  2. Investigate using commands or ! advisory requests\n  3. Generate a report\n\n'
             'This guided setup will help you complete step 1.')
 
@@ -39,6 +39,10 @@ class Plan:
     considered: set = field(default_factory=set)
 
 
+def _separator(palette):
+    return get_thin(SimpleNamespace(no_color=not palette.enabled))
+
+
 def outside_evidence(target, roots):
     for root in roots:
         root = discovery.input_path(root)
@@ -49,7 +53,7 @@ def outside_evidence(target, roots):
 
 def inventory_text(inventory, *, details=False, palette=None, manual=False):
     palette = palette or Palette()
-    print('\n' + get_thin())
+    print('\n' + _separator(palette))
     lines = [palette('key', 'Selected evidence' if manual else 'Artifacts found (contents checked during ingestion)')]
     for kind in discovery.CATEGORIES:
         items = [i for i in inventory.candidates if i.kind == kind]
@@ -124,7 +128,7 @@ def choice(read, prompt, allowed, default=None):
 def access_guidance(read, palette):
     if workspace.elevated() is not False:
         return
-    print('\n' + get_thin())
+    print('\n' + _separator(palette))
     print(palette('warning', 'Limited access may prevent complete Windows artifact discovery.'))
     print('Administrator privileges are recommended for mounted Windows evidence.\n'
           'Administrator status does not guarantee access to every evidence path.\n'
@@ -194,11 +198,11 @@ def collect(shell, *, adding=False):
         target = validate(shell.active)
         name = shell.case_label or workspace.case_label(target)
         analyst = organization = ''
-        print('\n' + get_thin())
+        print('\n' + _separator(palette))
         print(palette('key', 'Add evidence to case: ' + safe(name)))
         print('Type cancel at any prompt to return to the case. Nothing is ingested before confirmation.')
     else:
-        print(palette('key', WORKFLOW))
+        print(palette('key', _separator(palette) + '\n' + WORKFLOW))
         print('Type cancel at any prompt to stop setup.\nNothing is created before final confirmation.\n')
         while True:
             name = read('Case name: ', required=True)
@@ -212,7 +216,7 @@ def collect(shell, *, adding=False):
     plan = Plan(name, analyst, organization, target,
                 metadata=dict(name=None, hostname=None, username=None, volume_root=None))
     while True:
-        print('\n' + get_thin())
+        print('\n' + _separator(palette))
         print(palette('key', 'How would you like to add evidence?'))
         print('1. Scan a mounted Windows volume or folder (recommended)\n'
               '2. Select evidence manually\n3. ' + ('Cancel' if adding else 'Skip ingestion for now'))
@@ -311,7 +315,7 @@ def collect(shell, *, adding=False):
                                  volume_root=read_volume_root(read, 'Original volume root, e.g. C: (optional): ', palette))
             sources.metadata(**plan.metadata)
         break
-    print('\n' + get_thin())
+    print('\n' + _separator(palette))
     if adding:
         print(palette('key', 'Add evidence to case') + '\n  ' + safe(plan.name))
     else:
@@ -394,7 +398,7 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
             source_id = sources.create(db, **plan.metadata)
             event.update(source_id=source_id, assertion=sources.current(db, source_id))
     outcomes = {i.kind: i.access for i in plan.deferred}
-    print('\n' + get_thin())
+    print('\n' + _separator(palette))
     print(palette('key', 'Ingestion is starting.'))
     if not incremental:
         print('Large evidence sets can take several minutes.')
@@ -530,7 +534,7 @@ def create(shell):
         if elapsed is not None and stored:
             print('Elapsed time: ' + setup_display.duration(elapsed))
         ingestion_summary(plan, outcomes, palette)
-        print("\n" + get_thin() + '\nYou can add more evidence at any time, or start investigating now.\n\n'
+        print("\n" + _separator(palette) + '\nYou can add more evidence at any time, or start investigating now.\n\n'
               'Use Locard commands directly. Prefix a natural-language request with ! to ask the local AI assistant.')
         return True
     except (KeyboardInterrupt, EOFError):

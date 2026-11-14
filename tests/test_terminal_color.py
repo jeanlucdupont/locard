@@ -187,12 +187,11 @@ def test_shell_no_color_session(case, color, capsys):
 
     captured = capsys.readouterr().out
 
-    # Committed startup decoration (banner and menu separator) may use ANSI.
-    # Command output and prompts must still honor no_color.
+    # Decoration, command output and prompts all honor no_color.
     from forensic_assistant.cli import get_liner, get_thin
     from forensic_assistant import __version__
-    banner = '                         Version ' + __version__ + '\n' + get_liner() + '\n'
-    startup = banner + '\n' + get_thin() + '\n'
+    banner = '                         Version ' + __version__ + '\n' + get_liner(shell) + '\n'
+    startup = banner + '\n' + get_thin(shell) + '\n'
     assert captured.startswith(startup)
 
     session_output = before_shutdown(captured)[len(startup):]

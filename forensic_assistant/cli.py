@@ -29,25 +29,28 @@ def get_banner() -> str:
         .read_text(encoding="utf-8")
     )
 
-def get_liner() -> str:
-    return (
+def get_liner(args=None) -> str:
+    from forensic_assistant.terminal import banner
+    return banner(
         files("forensic_assistant")
         .joinpath("resources/liner.txt")
-        .read_text(encoding="utf-8")
+        .read_text(encoding="utf-8"), args
     )
 
-def get_thin() -> str:
-    return (
+def get_thin(args=None) -> str:
+    from forensic_assistant.terminal import banner
+    return banner(
         files("forensic_assistant")
         .joinpath("resources/thin.txt")
-        .read_text(encoding="utf-8")
+        .read_text(encoding="utf-8"), args
     )
 
-def get_ender() -> str:
-    return (
+def get_ender(args=None) -> str:
+    from forensic_assistant.terminal import banner
+    return banner(
         files("forensic_assistant")
         .joinpath("resources/ender.txt")
-        .read_text(encoding="utf-8")
+        .read_text(encoding="utf-8"), args
     )
 
 def build_parser(*, interactive=False):
@@ -183,6 +186,8 @@ def build_parser(*, interactive=False):
 
 
 def main(argv=None):
+    from forensic_assistant.terminal import initialize
+    initialize()
     from forensic_assistant.ai import runtime, raw_diagnostics
     from forensic_assistant.investigation_ai.lifecycle import CleanupError, cleanup_message
     raw_diagnostics.initialize()

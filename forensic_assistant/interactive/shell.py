@@ -172,7 +172,7 @@ class Shell:
     def startup(self):
         from forensic_assistant import __version__
         print('                         Version ' + __version__)
-        print(get_liner())
+        print(get_liner(self))
         if self.state.warning:
             print(safe(self.state.warning))
         if self.state.recent:
@@ -206,7 +206,7 @@ class Shell:
 
     def menu(self):
         while True:
-            print('\n' + get_thin())
+            print('\n' + get_thin(self))
             print("[1] Create a case\n[2] Open a case\n[3] Exit")
             try:
                 choice = self.reader.read("Selection or case path: ").strip()
@@ -241,7 +241,7 @@ class Shell:
         print('\nLocard session ended.')
         if self.active is not None:
             print('Case: ' + safe(self.active))
-        print(get_ender())
+        print(get_ender(self))
         return result
 
     def _run_session(self):
