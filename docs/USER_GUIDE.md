@@ -5,6 +5,11 @@ defaults and argument constraints below were checked against the actual parsers.
 The application version is defined in `pyproject.toml`; run `locard --version`
 or `version` inside the shell to identify your installed build. Reinstall after
 changing a non-editable checkout so the launcher uses the updated code.
+For editable development, source/version-only updates need only `git pull` and
+a new process. Launch with `python locard.py`, `python -m forensic_assistant.cli`,
+or `locard` using the intended environment. Reinstall for dependency, entry-point,
+or packaging changes. `--version-details` distinguishes the effective source
+version from installed metadata; a mismatch does not certify dependency readiness.
 
 ## Contents
 
@@ -402,6 +407,7 @@ usage: locard [--version] [--db DB] [--no-color]
 |---|---|---|
 | `-h, --help` | Display help and exit (accepted even when omitted from ordinary help). |  |
 | `--version` | show program's version number and exit |  |
+| `--version-details` | show effective/source/installed metadata versions as JSON without opening a case |  |
 | `--db` | Case database path. In the shell, switch with case instead. | Default: data/forensic.db |
 | `--no-color` | Disable terminal styling (also respects NO_COLOR) | Default: False |
 

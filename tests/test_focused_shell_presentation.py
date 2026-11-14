@@ -46,9 +46,9 @@ def test_shell_help_and_detailed_help(case, monkeypatch, capsys, setting, no_col
     shell = Shell(State(None), Input(str(case[0]), 'color ' + setting, 'help', 'help source assign', 'exit'))
     assert shell.run() == 0
     from forensic_assistant.cli import get_liner, get_thin
-    from importlib.metadata import version
+    from forensic_assistant import __version__
     text = capsys.readouterr().out
-    startup = '                         Version ' + version('locard-forensics') + '\n' + get_liner() + '\n'
+    startup = '                         Version ' + __version__ + '\n' + get_liner() + '\n'
     # The committed startup menu separator is decoration, not help output.
     startup += '\n' + get_thin() + '\n'
     assert text.startswith(startup)

@@ -16,9 +16,7 @@ from forensic_assistant import v1_cli
 from forensic_assistant import v2_cli
 from forensic_assistant.correlation.models import get_event
 from importlib.resources import files
-from importlib.metadata import version
-
-__version__ = version("locard-forensics")
+from forensic_assistant import __version__
 
 def emit(value):
     # Escape control sequences from untrusted log content for terminal safety.
@@ -59,6 +57,9 @@ def build_parser(*, interactive=False):
         description="Locard — local evidence-first Windows forensics"
     )
     parser.add_argument("--version", action="version", version="Locard " + __version__)
+    from forensic_assistant.cli_parser import VersionDetails
+    parser.add_argument('--version-details', action=VersionDetails, nargs=0,
+                        help='Show effective source and installed metadata versions (JSON)')
     parser.add_argument("--db", default=Config.database)
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling (also respects NO_COLOR)')
     commands = parser.add_subparsers(dest="command", required=True)

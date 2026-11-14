@@ -8,7 +8,7 @@ from test_v4_controller import Scripted, final
 
 
 def test_release_provenance_does_not_replace_format_compatibility(tmp_path):
-    from importlib.metadata import version
+    from forensic_assistant import __version__
     case = tmp_path / 'case.db'
     make_case(case)
     root = tmp_path / 'runs'
@@ -16,9 +16,9 @@ def test_release_provenance_does_not_replace_format_compatibility(tmp_path):
     iid = result['investigation_id']
     path = root / iid / 'manifest.json'
     original = json.loads(path.read_text())
-    assert original['application_version'] == version('locard-forensics')
+    assert original['application_version'] == __version__
     # Historical and hypothetical future releases using the same format contract.
-    for release in (version('locard-forensics'), '0.8.1', '42.7', '42.8'):
+    for release in (__version__, '0.8.1', '42.7', '42.8'):
         path.write_text(json.dumps({**original, 'application_version': release}))
         assert load(root, iid)['manifest']['application_version'] == release
     for key, value in (

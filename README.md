@@ -1152,6 +1152,20 @@ cd locard
 
 ### Two modes
 
+For development, activate the intended Python environment and install once with
+`python -m pip install -e .`. After later source/version-only updates, use
+`git pull` followed by `python locard.py`; reinstalling merely to refresh the
+application version is unnecessary. Dependency, entry-point or packaging changes
+still require installation. Locard never runs pip automatically.
+
+`python locard.py`, `python -m forensic_assistant.cli`, and the installed `locard`
+command share the same entry point. `locard.ps1` remains available as a Windows
+convenience wrapper. Plain `python` must select the interpreter with Locard's
+dependencies; the Python launcher does not create or activate an environment.
+Use `python locard.py --version-details` for local JSON diagnostics distinguishing
+the effective source version from possibly stale installed distribution metadata.
+See [launch and development details](docs/LOCARD_6_140_SIMPLIFIED_LAUNCH_AND_DEVELOPMENT.md).
+
 Locard can run with arguments or without arguments. Without argument, Locard switches to interactive (shell) mode.
 
 In the Windows interactive command editor, Tab completes commands, nested

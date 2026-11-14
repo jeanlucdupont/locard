@@ -11,6 +11,15 @@ class InvalidArguments(Exception):
     pass
 
 
+class VersionDetails(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        import json
+        import sys
+        from forensic_assistant.version import resolve
+        parser._print_message(json.dumps(resolve(), indent=2) + '\n', sys.stdout)
+        parser.exit()
+
+
 class LocardParser(argparse.ArgumentParser):
     """Retain standard help actions without advertising their switches."""
 

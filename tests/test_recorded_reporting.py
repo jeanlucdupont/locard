@@ -38,6 +38,8 @@ def projection(source):
 
 
 def test_history_only(projection):
+    from forensic_assistant import __version__
+    assert projection['generation']['application_version'] == __version__
     assert projection['content']['workspace'] is None
     assert projection['content']['supports']
     assert projection['content']['original_assessment']

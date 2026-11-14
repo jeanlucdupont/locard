@@ -281,9 +281,9 @@ class Session:
 
     def start(self):
         if not self.started:
-            from importlib.metadata import version
+            from forensic_assistant import __version__
             self.record('CASE_OPEN', case_path=str(self.case))
-            self.record('SESSION_START', case_path=str(self.case), application_version=version('locard-forensics'))
+            self.record('SESSION_START', case_path=str(self.case), application_version=__version__)
             self.started = True
 
     def end(self, reason='normal'):

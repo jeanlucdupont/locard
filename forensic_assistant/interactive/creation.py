@@ -286,10 +286,10 @@ def _attempt(shell):
         source_path(source, target)
         initializing = True
         initialize(target, parents, on_publish=mark_published)
-        from importlib.metadata import version
+        from forensic_assistant import __version__
         audit_session = activity.Session(target)
         audit_token = activity.CURRENT.set(audit_session)
-        audit_session.record('CASE_CREATE', required=True, case_path=str(target), application_version=version('locard-forensics'),
+        audit_session.record('CASE_CREATE', required=True, case_path=str(target), application_version=__version__,
                              evidence_path=str(source), selected_files=len(found),
                              metadata=dict(name=source_name, hostname=hostname, username=username, volume_root=volume) if found else {})
         if not found:

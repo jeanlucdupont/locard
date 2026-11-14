@@ -4,8 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "locard-forensics"
-version = "6.139"
-# To take the version into accoubt: python -m pip install -e .
+version = "6.140"
 description = "AI-Assisted Forensics: local-first Windows forensic analysis"
 requires-python = ">=3.11"
 license = "Apache-2.0"

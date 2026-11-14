@@ -190,8 +190,8 @@ def test_shell_no_color_session(case, color, capsys):
     # Committed startup decoration (banner and menu separator) may use ANSI.
     # Command output and prompts must still honor no_color.
     from forensic_assistant.cli import get_liner, get_thin
-    from importlib.metadata import version
-    banner = '                         Version ' + version('locard-forensics') + '\n' + get_liner() + '\n'
+    from forensic_assistant import __version__
+    banner = '                         Version ' + __version__ + '\n' + get_liner() + '\n'
     startup = banner + '\n' + get_thin() + '\n'
     assert captured.startswith(startup)
 

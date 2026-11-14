@@ -1,5 +1,5 @@
 """Locard: evidence is authoritative; model output is analysis."""
-from importlib.metadata import version
+from .version import resolve
 
-__version__ = version("locard-forensics")
+__version__ = resolve()['application_version']
 
