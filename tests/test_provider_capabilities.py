@@ -64,6 +64,7 @@ def test_probe_and_normal_use_identical_mode_and_canonical_contract(provider,mod
     mock_transport(monkeypatch, probe_responses(provider) + ['{"status":"ok","message":"locard"}'], calls)
     schema=copy.deepcopy(readiness.COMPAT_SCHEMA)
     before=copy.deepcopy(schema)
+    readiness.full_diagnostic(config(provider), authorized=True)
     client=ModelBackend(config=config(provider))
     assert json.loads(client.complete([{'role':'user','content':'SYNTHETIC EVIDENCE'}],schema))=={'status':'ok','message':'locard'}
     assert len(calls)==len(probe_responses(provider))+1
@@ -85,6 +86,7 @@ def test_probe_and_normal_use_identical_mode_and_canonical_contract(provider,mod
 def test_every_provider_response_locally_validated(provider,response,category,monkeypatch):
     calls=[]
     mock_transport(monkeypatch,probe_responses(provider)+[response],calls)
+    readiness.full_diagnostic(config(provider), authorized=True)
     client=ModelBackend(config=config(provider))
     with pytest.raises(ProviderFailure) as failure:
         client.complete([{'role':'user','content':'SECRET-EVIDENCE'}],readiness.COMPAT_SCHEMA)
@@ -98,6 +100,7 @@ def test_every_provider_response_locally_validated(provider,response,category,mo
 def test_failed_compatibility_blocks_evidence_and_cache(monkeypatch):
     calls=[]
     mock_transport(monkeypatch,['{"status":"ok"}','{"status":"ok"}'],calls)
+    readiness.full_diagnostic(config('deepseek'), authorized=True)
     client=ModelBackend(config=config('deepseek'))
     for _ in range(2):
         with pytest.raises(ProviderFailure,match='connected.*not compatible'):
@@ -112,6 +115,7 @@ def test_no_fallback_or_silent_reprobe_after_real_failure(monkeypatch):
     mock_transport(monkeypatch,probe_responses('openai')+[
         ProviderFailure('structured_output_unsupported'),'{"status":"wrong"}'],calls)
     provider='openai'
+    readiness.full_diagnostic(config(provider), authorized=True)
     client=ModelBackend(config=config(provider))
     with pytest.raises(ProviderFailure):client.complete([],readiness.COMPAT_SCHEMA)
     assert len(calls)==len(probe_responses(provider))+1
@@ -142,15 +146,15 @@ def test_key_model_and_mode_changes_require_new_check(monkeypatch):
     replies=['{"status":"ok"}','{"status":"ok","message":"locard"}']*4
     mock_transport(monkeypatch,replies,calls)
     value=config('deepseek')
-    readiness.check(value)
-    readiness.check(value)
+    readiness.full_diagnostic(value, authorized=True)
+    readiness.full_diagnostic(value, authorized=True)
     assert len(calls)==2
     monkeypatch.setenv('DEEPSEEK_API_KEY','NEW-PRIVATE-KEY')
-    readiness.check(value)
-    readiness.check({**value,'model':'new-model'})
+    readiness.full_diagnostic(value, authorized=True)
+    readiness.full_diagnostic({**value,'model':'new-model'}, authorized=True)
     assert len(calls)==6
     monkeypatch.setitem(capabilities.CAPABILITIES,'deepseek',capabilities.Capability('deepseek','json_schema',True,True))
-    readiness.check(value)
+    readiness.full_diagnostic(value, authorized=True)
     assert len(calls)==8
 
 
@@ -174,6 +178,7 @@ def test_schema_valid_ungrounded_conclusion_still_rejected(provider,tmp_path,mon
     reply = ([json.dumps({'selection':'final'}), json.dumps({'answer':unsupported()['answer']})] if provider == 'anthropic' else
              [json.dumps({'proposal': unsupported()} if provider == 'openai' else unsupported())])
     mock_transport(monkeypatch,probe_responses(provider)+reply,calls)
+    readiness.full_diagnostic(config(provider), authorized=True)
     client=ModelBackend(config=config(provider))
     result=controller.run({},'Inspect synthetic evidence',tmp_path/'runs',
         client=client,budget=Budget(steps=1),worker_factory=RecordingWorker)
@@ -184,5 +189,5 @@ def test_schema_valid_ungrounded_conclusion_still_rejected(provider,tmp_path,mon
 
 
 def test_cancelled_probe_preserves_cancellation(monkeypatch):
-    monkeypatch.setattr(readiness,'check',lambda *a,**kw:{'readiness_category':'cancelled'})
+    monkeypatch.setattr(readiness,'status',lambda *a,**kw:{'readiness_category':'cancelled'})
     with pytest.raises(KeyboardInterrupt):ModelBackend(config=config('deepseek')).prepare()

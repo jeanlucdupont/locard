@@ -31,9 +31,9 @@ def test_fixed_payload_cache_and_configuration_change(monkeypatch):
         return {'text':json.dumps({'status':'ok','message':'locard'} if schema==readiness.COMPAT_SCHEMA else {'status':'ok'}),'usage':{}}
     monkeypatch.setattr(ModelBackend,'_cloud',respond)
     value=config()
-    assert readiness.check(value)['provider_readiness']=='ready'
-    assert readiness.check(value)['provider_readiness']=='ready'
-    assert cli.status(value)['provider_readiness']=='ready'
+    assert readiness.full_diagnostic(value, authorized=True)['provider_readiness']=='ready'
+    assert readiness.full_diagnostic(value, authorized=True)['provider_readiness']=='ready'
+    assert cli.status(value)['connection_readiness']=='not checked'
     assert len(calls)==2
     assert calls[0][1]==[{'role':'user','content':'Return only this JSON object: {"status":"ok"}'}]
     assert calls[0][2]==readiness.SCHEMA
@@ -42,16 +42,16 @@ def test_fixed_payload_cache_and_configuration_change(monkeypatch):
     args=build_parser().parse_args(['ai','configure','--model','another-explicit-id'])
     args._confirm=lambda prompt:'y'
     cli.dispatch(args)
-    assert len(calls)==4 and calls[-1][0]=='another-explicit-id'
+    assert len(calls)==2  # Model selection does not run synthetic probes.
     assert settings.load()['model']=='another-explicit-id'
     readiness.reset()
-    readiness.check(settings.load())
-    assert len(calls)==6
+    readiness.full_diagnostic(settings.load(), authorized=True)
+    assert len(calls)==4
 
 
 def test_missing_key_and_local_never_call_cloud():
-    assert readiness.check(settings.defaults())=={}
-    result=readiness.check(config())
+    assert readiness.full_diagnostic(settings.defaults(), authorized=True)['provider_readiness']=='not supported'
+    result=readiness.full_diagnostic(config(), authorized=True)
     assert result['provider_readiness']=='unavailable'
     assert result['readiness_stage']=='configuration'
     assert 'key is missing' in result['readiness_reason']
@@ -70,7 +70,7 @@ def test_failure_categories_never_use_raw_exception(name,code,expected,monkeypat
     assert category==expected
     def fail(*a,**kw):raise ProviderFailure(category,'timeout' if category=='timeout' else 'provider_request')
     monkeypatch.setattr(ModelBackend,'_cloud',fail)
-    result=readiness.check(config())
+    result=readiness.full_diagnostic(config(), authorized=True)
     assert result['provider_readiness']=='unavailable'
     text=diagnostics.tail('provider.log')
     assert expected in text
@@ -84,7 +84,7 @@ def test_failure_categories_never_use_raw_exception(name,code,expected,monkeypat
 def test_response_parse_distinct_from_contract(monkeypatch,text,stage):
     monkeypatch.setenv('DEEPSEEK_API_KEY','secret')
     monkeypatch.setattr(ModelBackend,'_cloud',lambda *a,**k:{'text':text,'usage':{}})
-    result=readiness.check(config())
+    result=readiness.full_diagnostic(config(), authorized=True)
     assert result['provider_readiness']=='unavailable' and result['readiness_stage']==stage
     assert '"operation": "handshake"' in diagnostics.tail('provider.log')
 
@@ -133,9 +133,9 @@ def test_shell_startup_nonblocking_and_once(tmp_path,monkeypatch,capsys,provider
     output=capsys.readouterr().out
     assert 'Database:' in output and 'Locard version' in output
     if provider=='deepseek':
-        assert calls==[True]
-        assert output.count('Checking AI provider...')==1
-        assert 'AI provider unavailable' in output and 'Provider readiness: unavailable' in output, output
+        assert calls==[]
+        assert 'Checking AI provider...' not in output
+        assert 'Connection: not checked' in output and 'Model compatibility: not checked' in output
     else:assert not calls and 'Checking AI provider' not in output
 
 
@@ -184,4 +184,4 @@ def test_malformed_success_is_structured_failure(monkeypatch,result):
     monkeypatch.setenv('DEEPSEEK_API_KEY','synthetic-secret')
     with pytest.raises(ProviderFailure) as exc:
         cloud_worker.generate(dict(provider='deepseek',model='synthetic',messages=readiness.MESSAGES,schema=readiness.SCHEMA,timeout=15,handshake=True),SimpleNamespace(completion=lambda **k:result))
-    assert exc.value.category=='structured_validation_failed'
+    assert exc.value.category=='response_envelope_failed'

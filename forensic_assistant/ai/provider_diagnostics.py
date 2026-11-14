@@ -15,7 +15,7 @@ REASONS = {
     'compatibility_failed': "AI provider is connected, but the selected model is not compatible with Locard's required response format",
     'ready': 'Synthetic response check passed',
     'missing_credential': 'Required API key is missing',
-    'missing_dependency': 'Optional cloud dependencies are not installed; use pip install "locard-forensics[cloud]"',
+    'missing_dependency': 'Required AI integration dependencies are missing; reinstall locard-forensics',
     'authentication_failed': 'Authentication failed',
     'authorization_failed': 'Provider denied access',
     'model_rejected': 'The configured model was not accepted by the provider',

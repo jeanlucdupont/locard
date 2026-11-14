@@ -4,16 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "locard-forensics"
-version = "6.138"
+version = "6.139"
 # To take the version into accoubt: python -m pip install -e .
-description = "Local AI-assisted Windows multi-artifact forensic analysis"
+description = "AI-Assisted Forensics: local-first Windows forensic analysis"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-dependencies = ["python-evtx==0.8.1", "defusedxml==0.7.1", "dissect.ntfs==3.16", "dissect.cstruct==4.7", "dissect.util==3.24", "libscca-python==20260527", "libregf-python==20260526"]
+dependencies = ["python-evtx==0.8.1", "defusedxml==0.7.1", "dissect.ntfs==3.16", "dissect.cstruct==4.7", "dissect.util==3.24", "libscca-python==20260527", "libregf-python==20260526", "litellm==1.106.0", "openai==2.53.0", "jsonschema>=4.18,<5"]
 
 [project.optional-dependencies]
-cloud = ["litellm==1.106.0", "jsonschema>=4.18,<5"]
+cloud = []  # Compatibility extra; supported cloud integration is installed by default.
 test = ["pytest>=8,<10", "jsonschema>=4.18,<5"]
 semantic = ["sentence-transformers==5.7.0", "faiss-cpu==1.14.3", "torch==2.14.0", "transformers==5.17.0", "numpy==2.5.3", "huggingface-hub==1.32.0", "tokenizers==0.23.2", "safetensors==0.8.0"]
 

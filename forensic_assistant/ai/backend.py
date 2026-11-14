@@ -95,7 +95,7 @@ class ModelBackend:
 
     def supports_structured_output(self):
         # Model support is checked by the provider on each call; never drop schema.
-        return 'canonical local validation required; selected cloud mode must pass compatibility probe'
+        return 'canonical local validation required on every response; synthetic diagnostics are explicit'
 
     def prepare(self, phase=None):
         if self.provider_name == 'local' and not self.endpoint:
@@ -115,22 +115,23 @@ class ModelBackend:
                     raise ProviderFailure('compatibility_failed', 'configuration')
                 return self
             result = readiness.status(self.config)
-            if result.get('provider_readiness') == 'unchecked':
-                if self._request_started:
-                    raise ProviderFailure('compatibility_failed', 'configuration')
-                result = readiness.check(self.config, progress=phase)
-            import logging
-            logging.getLogger(__name__).debug('compatibility_cache=hit')
-            if result['readiness_category'] == 'cancelled':
+            if self._request_started and self._compatibility is None:
+                raise ProviderFailure('compatibility_failed', 'configuration')
+            # Explicit failed diagnostics remain visible and fail closed. An
+            # unchecked model is tested by the actual request's strict contract,
+            # never by an extra automatic synthetic completion.
+            if result.get('readiness_category') == 'cancelled':
                 raise KeyboardInterrupt()
-            ready = result.get(PREPARATION_FAMILY.get()+'_compatibility', result['locard_compatibility'])
-            if ready != 'ready':
-                raise ProviderFailure('compatibility_failed' if result['locard_compatibility'] == 'failed' else result['readiness_category'], result['readiness_stage'])
+            if result.get('provider_readiness') != 'unchecked':
+                ready = result.get(PREPARATION_FAMILY.get()+'_compatibility', result['locard_compatibility'])
+                if ready != 'ready':
+                    raise ProviderFailure('compatibility_failed' if result['locard_compatibility'] == 'failed' else result['readiness_category'], result['readiness_stage'])
+            self._compatibility = readiness.export(self.config)
         return self
 
     def descriptor(self):
         from . import readiness, raw_diagnostics
-        decision = readiness.export(self.config) if self.provider_name != 'local' else None
+        decision = (self._compatibility if self._request_started else readiness.export(self.config)) if self.provider_name != 'local' else None
         return dict(config=self.config, endpoint=self.endpoint, managed=self.managed,
                     provider=self.provider_name, compatibility=decision, raw_diagnostics=raw_diagnostics.enabled)
 
@@ -239,6 +240,7 @@ class ModelBackend:
             if not handshake:
                 from . import readiness
                 readiness.invalidate(self.config)
+                self._compatibility = None
                 record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
             raise ProviderFailure('provider_failure') from None
 

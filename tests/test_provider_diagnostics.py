@@ -93,8 +93,8 @@ def test_handshake_single_event_and_status(monkeypatch,capsys):
         calls.append(kw)
         raise pd.ProviderFailure('model_rejected',metadata={'http_status':400,'provider_code':'model_not_found'})
     monkeypatch.setattr(ModelBackend,'_cloud_request',fail)
-    readiness.present(config,SimpleNamespace(no_color=True))
-    readiness.check(config)
+    readiness.present_full(config,SimpleNamespace(no_color=True), authorized=True)
+    readiness.full_diagnostic(config, authorized=True)
     rows=[json.loads(line) for line in (settings.root()/'provider.log').read_text().splitlines()]
     assert len(rows)==len(calls)==1
     assert rows[0]['operation']=='handshake' and rows[0]['stage']=='provider_request'
@@ -102,7 +102,8 @@ def test_handshake_single_event_and_status(monkeypatch,capsys):
     output=capsys.readouterr().out
     assert 'Model: rejected' in output and 'AI provider unavailable' in output
     assert 'HTTP' not in output and 'model_not_found' not in output
-    state=cli.status(config)
+    assert cli.status(config)['connection_readiness']=='not checked'
+    state=readiness.status(config)
     assert state['provider_readiness']=='unavailable' and state['http_status']==400
     assert state['readiness_reason']==pd.REASONS['model_rejected']
     assert config['model']=='deepseek-v4-flash'
@@ -118,7 +119,7 @@ def test_startup_specific_labels(monkeypatch,capsys,category,label):
     monkeypatch.setenv('DEEPSEEK_API_KEY','synthetic-key')
     def fail(*a,**kw):raise pd.ProviderFailure(category)
     monkeypatch.setattr(ModelBackend,'_cloud',fail)
-    readiness.present(config,SimpleNamespace(no_color=True))
+    readiness.present_full(config,SimpleNamespace(no_color=True), authorized=True)
     assert label in capsys.readouterr().out
 
 
@@ -178,7 +179,7 @@ def test_worker_parent_metadata_round_trip(monkeypatch,capsys):
     monkeypatch.setattr(backend.subprocess,'Popen',lambda *a,**kw:Process())
     monkeypatch.setattr(backend,'WorkerJob',lambda pid:SimpleNamespace(close=lambda:None))
     config={**settings.defaults(),'provider':'deepseek','model':'deepseek-v4-flash','cloud_acknowledged':True}
-    result=readiness.check(config)
+    result=readiness.full_diagnostic(config, authorized=True)
     assert result['readiness_category']=='model_rejected' and result['http_status']==400
     rows=(settings.root()/'provider.log').read_text().splitlines()
     assert len(rows)==1 and json.loads(rows[0])['provider_code']=='model_not_found'
@@ -189,7 +190,7 @@ def test_schema_failures_have_distinct_categories(monkeypatch):
     config={**settings.defaults(),'provider':'deepseek','model':'unchanged','cloud_acknowledged':True}
     for response,category in [('not-json','response_parse_failed'),('{"status":"wrong"}','structured_validation_failed')]:
         monkeypatch.setattr(ModelBackend,'_cloud',lambda *a,**kw:{'text':response})
-        result=readiness.check(config,force=True)
+        result=readiness.full_diagnostic(config,force=True, authorized=True)
         assert result['readiness_category']==category
         assert 'http_status' not in result
 

@@ -1,4 +1,4 @@
-"""Session-only cloud readiness using a fixed, evidence-free synthetic request."""
+"""Local-only default readiness and explicitly authorized synthetic diagnostics."""
 import hashlib
 import json
 import os
@@ -38,6 +38,45 @@ _credentials = {}
 COMPATIBILITY_REVISION = 1
 
 
+def check(config, **_unused):
+    """Quick: local configuration only; neither import an SDK nor probe a model."""
+    from importlib.util import find_spec
+    result = dict(diagnostic_level='quick', connection_readiness='not checked',
+                  model_readiness='not checked', locard_compatibility='not checked')
+    try:
+        value = settings.validate(config)
+    except (ValueError, TypeError, KeyError):
+        return dict(result, provider='Unknown', model='not checked', api_key='not configured',
+                    provider_readiness='not configured', configuration='configured_invalid',
+                    readiness_category='invalid_configuration')
+    provider = value['provider']
+    variable = settings.PROVIDERS[provider][1]
+    key = bool(os.environ.get(variable, '').strip()) if variable else None
+    # Top-level module discovery does not execute the SDK or its dependencies.
+    try:
+        available = provider == 'local' or all(find_spec(name) is not None for name in ('litellm', 'openai', 'jsonschema'))
+    except (ImportError, ValueError):
+        available = False
+    configured = bool(value['executable'] and value['model_path']) if provider == 'local' else key
+    state = 'configured' if configured and available else 'not configured'
+    model = value['model'] if provider != 'local' else 'user-selected GGUF'
+    for _, name in settings.PROVIDERS.values():
+        secret = os.environ.get(name, '') if name else ''
+        if secret:
+            model = model.replace(secret, '[REDACTED]')
+    return dict(result, provider=settings.PROVIDERS[provider][0], model=model,
+                api_key='not applicable' if key is None else 'configured' if key else 'not configured',
+                integration='available' if available else 'missing dependency', provider_readiness=state,
+                configuration='configured_ready' if state == 'configured' else 'credential_missing' if key is False else 'not_configured',
+                configuration_detail=('Set '+variable+' before using AI.') if key is False else '',
+                readiness_category='configured' if state == 'configured' else 'missing_key' if key is False else 'missing_dependency' if not available else 'not_configured')
+
+
+def present(config, args=None, *, force=False):
+    from .cli import render
+    print(render(check(config), args))
+
+
 def reset():
     _cache.clear()
     _credentials.clear()
@@ -67,13 +106,18 @@ def credential_identity(config):
 
 def export(config):
     value = status(config)
-    if value.get('locard_compatibility') != 'ready': return None
+    if value.get('locard_compatibility') != 'ready':
+        if value.get('provider_readiness') != 'unchecked':
+            return None
+        return {'key': cache_key(config), 'configuration_only': True}
     return {'key': cache_key(config), 'ready': True}
 
 
 def accept(config, decision):
     return (type(decision) is dict and set(decision) == {'key','ready'}
-            and decision['ready'] is True and decision['key'] == cache_key(config))
+            and decision['ready'] is True and decision['key'] == cache_key(config)) or (
+                type(decision) is dict and set(decision) == {'key', 'configuration_only'}
+                and decision['configuration_only'] is True and decision['key'] == cache_key(config))
 
 
 def status(config):
@@ -87,8 +131,13 @@ def invalidate(config):
     _cache.pop(cache_key(config), None)
 
 
-def check(config, *, force=False, timeout=None, progress=None):
-    if config['provider'] == 'local': return {}
+def full_diagnostic(config, *, authorized=False, force=False, timeout=None, progress=None):
+    if authorized is not True:
+        raise ValueError("Full diagnostic sends potentially billable synthetic requests; explicit authorization required")
+    config = settings.validate(config)
+    if config['provider'] == 'local':
+        return dict(diagnostic_level='full', provider='Local', provider_readiness='not supported',
+                    connection_readiness='not checked', model_readiness='not checked', locard_compatibility='not checked')
     key = cache_key(config)
     if not force and status(config).get('provider_readiness') != 'unchecked': return _cache[key]
     started = time.monotonic()
@@ -153,7 +202,9 @@ def check(config, *, force=False, timeout=None, progress=None):
         category = 'cancelled'
     except (OSError, ValueError):
         category, stage = 'unknown_provider_error', 'provider_request'
-    result = dict(provider_readiness='ready' if category == 'ready' else 'unavailable',
+    from .backend import redact
+    result = dict(diagnostic_level='full', provider=settings.PROVIDERS[config['provider']][0], model=redact(config['model']),
+                  provider_readiness='ready' if category == 'ready' else 'unavailable',
                   readiness_reason=('Compatibility check timed out' if category == 'timeout' else REASONS[category]), readiness_stage=stage, readiness_category=category, connection_readiness=connection, model_readiness=model,
                   locard_compatibility=compatibility, structured_mode=mode, **families)
     if "http_status" in metadata: result["http_status"] = metadata["http_status"]
@@ -165,7 +216,7 @@ def check(config, *, force=False, timeout=None, progress=None):
     return result
 
 
-def present(config, args=None, *, force=False):
+def present_full(config, args=None, *, authorized=False, force=False):
     from forensic_assistant.terminal import Palette, enabled
     from forensic_assistant.terminal_activity import ActivityIndicator
     from forensic_assistant.retrieval.presentation import safe_text
@@ -174,7 +225,7 @@ def present(config, args=None, *, force=False):
     palette = Palette(enabled(args))
     print(palette('heading', 'Checking AI provider...'))
     with ActivityIndicator('Checking AI provider...', args=args) as activity:
-        result = check(config, force=force, progress=activity.update)
+        result = full_diagnostic(config, authorized=authorized, force=force, progress=activity.update)
     ready = result['provider_readiness'] == 'ready'
     print('  Provider: ' + settings.PROVIDERS[config['provider']][0])
     print('  Model: ' + safe_text(redact(config['model'])))

@@ -68,7 +68,7 @@ def test_startup_stages_capture(monkeypatch,tmp_path,failure_index):
         raw.capture(result.pop('raw_diagnostic'))
         return result
     monkeypatch.setattr(ModelBackend,'_cloud_request',transport)
-    readiness.check({**settings.defaults(),'provider':'anthropic','model':'synthetic','cloud_acknowledged':True})
+    readiness.full_diagnostic({**settings.defaults(),'provider':'anthropic','model':'synthetic','cloud_acknowledged':True}, authorized=True)
     assert len(calls)==failure_index+1
     text=raw.display()
     assert 'synthetic startup rejection' in text and 'synthetic-key' not in text

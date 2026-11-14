@@ -13,11 +13,16 @@ def configure(commands):
     parser = commands.add_parser('ai', help='Configure AI provider and local runtime',
         description='Local uses llama.cpp / llama-server with a compatible user-selected GGUF model. Status distinguishes configuration readiness from runtime state. Cloud use sends bounded model context to the selected provider.')
     subs = parser.add_subparsers(dest='ai_command')
-    for name in ('provider', 'status', 'configure', 'start', 'stop', 'logs'):
+    for name in ('provider', 'status', 'check', 'configure', 'start', 'stop', 'logs'):
         child = subs.add_parser(name, help={'provider':'View or select provider', 'status':'Show provider and runtime status',
-            'configure':'Configure provider/model or local paths', 'start':'Start the owned local runtime',
+            'check':'Check local configuration or explicitly diagnose the provider', 'configure':'Configure provider/model or local paths', 'start':'Start the owned local runtime',
             'stop':'Stop only the Locard-owned runtime', 'logs':'Show private runtime or cloud provider diagnostics'}[name])
         child.add_argument('--json', action='store_true')
+        if name == 'check':
+            levels = child.add_mutually_exclusive_group()
+            levels.add_argument('--connectivity', action='store_true', help='Non-generative authentication/reachability check')
+            levels.add_argument('--full', action='store_true', help='Potentially billable synthetic compatibility diagnostic')
+            child.add_argument('--authorize-diagnostic', action='store_true', help='Authorize synthetic model requests for this diagnostic only')
         if name == 'logs': child.add_argument('--raw', action='store_true', help='Enable session capture and display buffered cloud output; may contain case data')
         if name in ('provider', 'configure'):
             child.add_argument('provider', nargs='?', choices=list(settings.PROVIDERS))
@@ -56,12 +61,7 @@ def status(config):
             result['executable'] = config['executable']
     else:
         from . import readiness
-        available = bool(os.environ.get(settings.PROVIDERS[provider][1], '').strip())
-        result.update(model=config['model'], api_key='available' if available else 'missing',
-                      configuration='configured_ready' if available else 'credential_missing')
-        if not available:
-            result['configuration_detail'] = 'Set ' + settings.PROVIDERS[provider][1] + ' before starting Locard.'
-        result.update(readiness.status(config))
+        result.update(readiness.check(config))
     return result
 
 
@@ -96,14 +96,34 @@ def local_setup(config, read, args=None):
 
 
 def dispatch(args):
-    config = settings.load()
     operation = args.ai_command or 'status'
+    try:
+        config = settings.load()
+    except (ValueError, OSError):
+        if operation == 'check' and not getattr(args, 'full', False) and not getattr(args, 'connectivity', False):
+            from . import readiness
+            return readiness.check(None)
+        raise
     if operation in ('provider', 'configure'):
         try:
             return configure_settings(args, config, operation)
         except (SetupCancelled, EOFError, KeyboardInterrupt):
             print('AI configuration cancelled; previous settings retained.')
             return {'status': 'unchanged', **status(config)}
+    if operation == 'check':
+        from . import readiness
+        if getattr(args, 'full', False):
+            authorized = getattr(args, 'authorize_diagnostic', False) is True
+            read = getattr(args, '_confirm', None)
+            if not authorized and not args.json and callable(read):
+                authorized = read('Send potentially billable synthetic AI diagnostic requests? No case evidence is sent. [y/N]: ').strip().lower() in ('y', 'yes')
+            return readiness.full_diagnostic(config, authorized=authorized, force=True)
+        if getattr(args, 'authorize_diagnostic', False):
+            raise ValueError('--authorize-diagnostic requires --full')
+        if getattr(args, 'connectivity', False):
+            from .connectivity import check
+            return check(config)
+        return readiness.check(config)
     if operation == 'start':
         if config['provider'] != 'local':
             raise ValueError('Select Local before starting its runtime')
@@ -207,7 +227,11 @@ def offer_setup(read, args=None):
     from types import SimpleNamespace
     try:
         config = settings.load()
-        state = status(config)
+        from . import readiness
+        state = readiness.check(config)
+        if state.get('integration') == 'missing dependency':
+            print('AI integration dependencies are missing; reinstall locard-forensics. Deterministic commands remain available.')
+            return
         if state['configuration'] == 'configured_ready':
             return
         if state['configuration'] == 'credential_missing':
@@ -232,8 +256,8 @@ def render(value, args=None):
     palette = Palette(enabled(args))
     if 'logs' in value:
         return '\n'.join(safe_text(line) for line in value['logs'].splitlines())
-    labels = {'provider':'Provider', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
-              'api_key':'API key', 'provider_readiness':'Provider readiness', 'readiness_reason':'Reason', 'readiness_stage':'Stage', 'http_status':'HTTP status', 'connection_readiness':'Connection readiness', 'model_readiness':'Model readiness', 'advisory_compatibility':'Advisory compatibility', 'investigation_compatibility':'Investigation compatibility', 'locard_compatibility':'Locard compatibility', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
+    labels = {'diagnostic_level':'Diagnostic', 'provider':'Provider', 'integration':'Integration', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
+              'api_key':'API key', 'provider_readiness':'Status', 'readiness_reason':'Reason', 'readiness_stage':'Stage', 'http_status':'HTTP status', 'connection_readiness':'Connection', 'model_readiness':'Model compatibility', 'advisory_compatibility':'Advisory compatibility', 'investigation_compatibility':'Investigation compatibility', 'locard_compatibility':'Locard compatibility', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
     lines = [palette('heading', 'AI provider')]
     for key, label in labels.items():
         if key in value:

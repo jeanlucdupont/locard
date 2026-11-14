@@ -65,7 +65,7 @@ def test_truncation_stops_readiness(monkeypatch):
         raise d.ProviderFailure('output_truncated','provider_generation',metadata={'max_output_tokens':256})
     monkeypatch.setattr(ModelBackend,'_cloud',fail)
     monkeypatch.setattr(readiness,'record',lambda *a,**k:None)
-    result=readiness.check({**defaults(),'provider':'gemini','model':'synthetic','cloud_acknowledged':True})
+    result=readiness.full_diagnostic({**defaults(),'provider':'gemini','model':'synthetic','cloud_acknowledged':True}, authorized=True)
     assert len(calls)==1
     assert result['readiness_category']=='output_truncated'
     assert 'truncated' in result['readiness_reason']

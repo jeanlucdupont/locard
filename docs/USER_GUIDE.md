@@ -1523,6 +1523,23 @@ usage: locard ai status [--json]
 | `-h, --help` | Display help and exit (accepted even when omitted from ordinary help). |  |
 | `--json` | Request structured JSON output. | Default: False |
 
+### `ai check`
+
+`ai check` (also `ai check --json`) is local-only: configuration, key presence,
+and integration availability. Connection and model compatibility are **not checked**.
+No SDK import, network, synthetic response or evidence retrieval occurs.
+
+- `ai check --connectivity`: explicit non-generative check; currently OpenAI only,
+  unsupported elsewhere. It does not establish model or D2 compatibility.
+- `ai check --full`: explicitly authorized, potentially billable synthetic contract
+  diagnostic. Interactive use asks for confirmation.
+- `ai check --full --authorize-diagnostic --json`: explicit scripted authorization.
+
+Standard installation includes OpenAI integration (`pip install locard-forensics`
+or `pip install -e .`); `[cloud]` is no longer required. Semantic search and local
+model binaries/weights remain separate. Locard is **AI-Assisted Forensics**:
+local-first forensic software with investigator-controlled inference.
+
 ### `ai configure`
 
 Configure AI provider/model settings or local runtime paths and options.

@@ -1,4 +1,4 @@
-# Locard Forensics - Local AI-Assisted Digital Forensics
+# Locard Forensics — AI-Assisted Forensics
 
 
 # THIS PAGE IS A HOT MESS!
@@ -17,7 +17,7 @@ See [bounded investigation diagnostics](docs/v4.md#budgets-and-termination).
 
 |||
 | :---: | :--- |
-| <img width="60%" alt="image" src="https://github.com/user-attachments/assets/d98f7fa8-76a3-4d37-b796-9d2f9a27f28e" /><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Locard is a local Windows forensic investigation CLI, named after Edmond Locard and the principle that **every contact leaves a trace**.<br><br>Locard was designed around a foundational principle: **A forensic investigation should never require sending sensitive evidence to an external AI service.** To ensure trust and accuracy in the investigative process, Locard improves reliability through strict systemic safeguards rather than relying on LLM scale. It preserves source provenance, normalizes events into SQLite, retrieves evidence deterministically, and optionally asks MiniCPM5 through a local llama.cpp server to analyze retrieved records.<br><br>[Watch Locard's introduction video](https://youtube.com/shorts/UTP8ayRAmsk) <br><br><br><br><br><br><br><br>|
+| <img width="60%" alt="image" src="https://github.com/user-attachments/assets/d98f7fa8-76a3-4d37-b796-9d2f9a27f28e" /><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Locard is a local-first Windows forensic investigation CLI supporting investigator-controlled local or cloud AI inference, named after Edmond Locard and the principle that **every contact leaves a trace**.<br><br>Locard was designed around a foundational principle: **A forensic investigation should never require sending sensitive evidence to an external AI service.** To ensure trust and accuracy in the investigative process, Locard improves reliability through strict systemic safeguards rather than relying on LLM scale. It preserves source provenance, normalizes events into SQLite, retrieves evidence deterministically, and optionally sends explicitly authorized, bounded context to a selected local or cloud AI provider.<br><br>[Watch Locard's introduction video](https://youtube.com/shorts/UTP8ayRAmsk) <br><br><br><br><br><br><br><br>|
 
 
 | Safeguard Mechanism | Description |
@@ -1993,8 +1993,9 @@ Embedding/indexing remains separate and local regardless of generative provider.
 | xAI Grok | Cloud | `XAI_API_KEY` |
 
 Provider names/keys follow the [LiteLLM provider documentation](https://docs.litellm.ai/docs/providers).
-Install cloud support explicitly with `python -m pip install ".[cloud]"` from the
-checkout. The base installation does not install LiteLLM. Configure a model that
+Standard installation (`python -m pip install locard-forensics`) includes the supported
+OpenAI integration; use `python -m pip install -e .` for a development checkout.
+The `[cloud]` extra remains accepted for compatibility but is no longer required. Configure a model that
 supports the requested structured response format; unsupported models fail without
 switching provider or dropping the schema. Model availability is provider-specific.
 
@@ -2038,7 +2039,7 @@ MODEL --acknowledge-cloud`. Set credentials in the documented environment variab
 before launching Locard; never put a key in a command argument or configuration file.
 A provider/model can be saved without a key, but status reports `credential_missing`
 and the required variable name. Model calls fail without fallback until it is set. `ai status --json`
-reports configuration availability and any session-cached readiness result; it does not itself contact the provider. Interactive cloud startup performs the synthetic check described below.
+reports local configuration availability, with connection and model compatibility explicitly not checked. Interactive startup also performs only this local Quick check.
 
 Preferences are in `%LOCALAPPDATA%\Locard\ai\config.json`, outside cases.
 Runtime state uses format 1 in `runtime.json` in that private directory: a random
@@ -2154,21 +2155,29 @@ try { .\locard.ps1 } finally { $env:LOCALAPPDATA = $previousLocardAppData }
 The original configuration remains untouched. Test configuration persists only
 under that temporary directory; no model or executable is copied there.
 
-Cloud interactive startup performs evidence-free synthetic checks after case
-selection. Changing provider/model in human configuration runs them again. Local
-startup stays lazy. The first requests exactly `{"status":"ok"}`; the second requests
-`{"status":"ok","message":"locard"}`. Both use the selected provider mode and the
-same canonical JSON-schema validator as normal cloud responses. Each has a 64-token
-output limit. Startup connectivity allows 15 seconds; each structured probe allows
-45 seconds. Lazy checks inside a model request retain the shorter caller budget.
-No case data, tools, retries or fallback are included. Failed compatibility blocks
-normal cloud requests before evidence is sent; deterministic commands remain usable.
-Readiness is cached only in the current process for provider/model/key/selected mode;
-`ai status` never contacts the provider. An isolated investigation process receives a configuration-bound readiness decision
-from its parent and never performs synthetic compatibility probes. Successful compatibility proves only that
-the tiny synthetic contract passed, not support for every larger schema or forensic
-accuracy. Capability/contract failures invalidate readiness; timeouts do not erase successful
-compatibility. No failure silently triggers a probe inside a running request.
+Provider readiness has three explicit levels:
+
+```text
+ai check
+ai check --connectivity
+ai check --full
+ai check --full --authorize-diagnostic --json
+```
+
+Quick is the default, local-only check: no DNS/HTTP, SDK import, model loading,
+synthetic generation, tokens, or evidence access. Connectivity explicitly performs
+one non-generative authentication/reachability check (currently OpenAI only);
+other adapters report unsupported without substituting a completion. Model
+compatibility remains untested. Full diagnostics send potentially billable,
+synthetic requests only after confirmation, or `--authorize-diagnostic` in scripts.
+No forensic evidence is used. Full diagnostics retain provider/schema-specific
+checks, deadlines and sanitized failure logs; they do not authorize evidence
+inference. Startup, model selection and ordinary backend preparation never run
+these probes automatically. Every actual request retains canonical response
+validation; D2 additionally retains its exact-byte authorization and transport gates.
+
+See [installation and readiness](docs/LOCARD_6_139_AI_INSTALLATION_AND_READINESS.md)
+for dependencies, limits, compatibility semantics and acceptance commands.
 
 For cloud providers, `ai logs` reads the bounded private
 `%LOCALAPPDATA%\Locard\ai\provider.log`. It records fixed diagnostic categories
@@ -3737,8 +3746,8 @@ briefing --investigate --autonomous --question "What evidence supports the repor
 ```
 
 Stage A uses the configured, acknowledged OpenAI provider/model. Verify investigation
-compatibility first using the interactive startup compatibility check (`ai status`
-shows the cached result; there is no separate `ai check` command). The autonomous
+compatibility, when needed, using the explicit `ai check --full` diagnostic.
+`ai status` and `ai check` are local-only and do not certify compatibility. The autonomous
 run will not perform unaccounted readiness probes. Other providers and the legacy
 per-lookup investigation path are unchanged.
 

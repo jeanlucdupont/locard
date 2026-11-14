@@ -256,7 +256,7 @@ class Shell:
         offer_setup(self.reader.read, self)
         try:
             config = ai_settings.load()
-            if readiness.status(config).get("provider_readiness") == "unchecked":
+            if config["provider"] != "local":
                 readiness.present(config, self)
         except (OSError, ValueError):
             print("AI configuration unavailable; deterministic commands remain available.")

@@ -22,7 +22,7 @@ def test_worker_reuses_parent_decision_for_continuations(monkeypatch):
         return {'text':'{"status":"ok"}','usage':{}}
     monkeypatch.setattr(ModelBackend,'_cloud',cloud)
     for _ in range(3):assert worker.complete([],readiness.SCHEMA)=='{"status":"ok"}'
-    assert len(actual)==3 and len(calls)==4
+    assert len(actual)==3 and len(calls)==0
     assert all(c['timeout']==120 for c in actual)
 
 
@@ -43,6 +43,7 @@ def test_worker_rejects_stale_decision_without_probe(monkeypatch,change):
 
 def test_direct_request_certification_has_dedicated_clock(monkeypatch):
     calls=mock(monkeypatch,[1,44,44,44])
+    readiness.full_diagnostic(config(), authorized=True)
     parent=ModelBackend(config=config(),timeout=2)
     parent.prepare()
     assert calls==[15,45,45,45]
@@ -60,13 +61,14 @@ def test_cloud_certification_precedes_supervisor_clock(monkeypatch,tmp_path):
     monkeypatch.setattr(supervision.multiprocessing,'get_context',lambda *a:SimpleNamespace(Pipe=pipe))
     monkeypatch.setattr(supervision,'ExecutionClock',lambda started,deadline:captured.append((started,deadline)))
     with pytest.raises(Stop):supervision.run({},'synthetic',tmp_path,client=ModelBackend(config=config()))
-    assert calls==[15,45,45,45]
-    assert captured==[(133,433)]
+    assert calls==[]
+    assert captured==[(0,300)]
 
 
 def test_real_timeout_preserves_ready_cache(monkeypatch):
     real=ModelBackend._cloud
     mock(monkeypatch,[1]*4)
+    readiness.full_diagnostic(config(), authorized=True)
     client=ModelBackend(config=config());client.prepare()
     monkeypatch.setattr(ModelBackend,'_cloud',real)
     def fail(*a,**k):raise ProviderFailure('timeout','timeout')

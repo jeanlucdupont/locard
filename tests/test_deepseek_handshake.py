@@ -91,7 +91,7 @@ def test_readiness_success_checks_contract_compatibility(monkeypatch,capsys):
         seen.append((messages,schema,kw))
         return cloud_worker.generate(dict(provider='deepseek',model=self.model_name,messages=messages,schema=schema,timeout=15,handshake=kw['handshake']),SimpleNamespace(completion=lambda **args:sdk_response('{"status":"ok","message":"locard"}' if schema==readiness.COMPAT_SCHEMA else '{"status":"ok"}')))
     monkeypatch.setattr(ModelBackend,'_cloud',cloud)
-    readiness.present(config,SimpleNamespace(no_color=True))
+    readiness.present_full(config,SimpleNamespace(no_color=True), authorized=True)
     result=readiness.status(config)
     assert result['connection_readiness']==result['model_readiness']=='ready'
     assert result['locard_compatibility']=='ready'
@@ -105,6 +105,6 @@ def test_readiness_success_checks_contract_compatibility(monkeypatch,capsys):
 def test_no_plaintext_or_schema_validation_downgrade(monkeypatch,text,category):
     config={**settings.defaults(),'provider':'deepseek','model':'deepseek-flash','cloud_acknowledged':True}
     monkeypatch.setattr(ModelBackend,'_cloud',lambda *a,**kw:{'text':text})
-    result=readiness.check(config)
+    result=readiness.full_diagnostic(config, authorized=True)
     assert result['readiness_category']==category
     assert result['connection_readiness']=='ready' and result['provider_readiness']=='unavailable'

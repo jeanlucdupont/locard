@@ -130,7 +130,7 @@ def test_readiness_actual_families_and_gate(monkeypatch):
         assert schema==expected_schema
         return {'text':encode(expected,schema) if adapter.investigation(schema) else json.dumps(expected),'usage':{}}
     monkeypatch.setattr(ModelBackend,'_cloud_request',transport)
-    result=readiness.check(config())
+    result=readiness.full_diagnostic(config(), authorized=True)
     assert result['advisory_compatibility']==result['investigation_compatibility']==result['locard_compatibility']=='ready'
     assert len(calls)==4
     assert calls[2][1]==calls[3][1]==contracts.schema(list(contracts.TOOLS))
@@ -146,7 +146,7 @@ def test_advisory_ready_is_not_investigation_ready(monkeypatch):
         if schema==SCHEMA:return {'text':json.dumps(next(readiness.openai_probes())[2]),'usage':{}}
         raise ProviderFailure('invalid_request')
     monkeypatch.setattr(ModelBackend,'_cloud_request',transport)
-    result=readiness.check(config())
+    result=readiness.full_diagnostic(config(), authorized=True)
     assert result['advisory_compatibility']=='ready'
     assert result['investigation_compatibility']=='unavailable'
     assert result['locard_compatibility']!='ready'
@@ -180,7 +180,7 @@ def test_final_probe_failure_cannot_mark_investigation_ready(monkeypatch):
         expected=probes[len(calls)-2][2]
         return {'text':encode(expected,schema) if adapter.investigation(schema) else json.dumps(expected),'usage':{}}
     monkeypatch.setattr(ModelBackend,'_cloud_request',transport)
-    result=readiness.check(config())
+    result=readiness.full_diagnostic(config(), authorized=True)
     assert len(calls)==4
     assert result['advisory_compatibility']=='ready'
     assert result['investigation_compatibility']=='unavailable'

@@ -21,6 +21,10 @@ CAPABILITIES = {
     "xai": Capability("xai", "json_schema", True, True),
 }
 
+# Explicit non-generative diagnostics, independent of completion capabilities.
+# Missing adapters must report unsupported rather than fall back to generation.
+CONNECTIVITY_CHECKS = {'openai': 'models_list'}
+
 
 def configure(kwargs, provider, schema):
     capability = CAPABILITIES[provider]
