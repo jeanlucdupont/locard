@@ -396,6 +396,9 @@ def exchange(args):
     path=local_path(args.import_json)
     if not path.is_file() or path.stat().st_nlink!=1:raise ValueError('Import requires a regular, non-linked file.')
     with path.open('rb') as stream:raw=stream.read(MAX_DOCUMENT+1)
+    from .session_recording import imported
+    if len(raw) <= MAX_DOCUMENT:
+        imported(path, raw)
     if len(raw)>MAX_DOCUMENT:raise ValueError('Briefing import exceeds 64 KiB.')
     from .briefing_summary_review import import_document,approve
     document,imported=import_document(loads(raw.decode('utf-8-sig'),max_bytes=MAX_DOCUMENT))

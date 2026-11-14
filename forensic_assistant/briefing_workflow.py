@@ -110,6 +110,8 @@ def edit(store, current, read):
                 if not path.is_file() or path.stat().st_nlink != 1:raise ValueError('Editor output is not a private regular file.')
                 with path.open('rb') as stream:raw=stream.read(32769)
                 if len(raw)>32768:raise ValueError('Editor content exceeds 32 KiB; briefing unchanged.')
+                from .session_recording import imported
+                imported(path, raw, external_editor=True)
                 try:text=raw.decode('utf-8')
                 except UnicodeError:raise ValueError('Editor must save UTF-8; briefing unchanged.') from None
                 return content(current['answers'],text,current.get('interviews'),current.get('canonical') if text==current['narrative'] else None)

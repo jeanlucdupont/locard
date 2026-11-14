@@ -188,6 +188,14 @@ def build_parser(*, interactive=False):
 
 
 def main(argv=None):
+    from forensic_assistant.session_recording import execution
+    with execution(list(sys.argv[1:] if argv is None else argv)) as recording:
+        code = _recorded_main(argv)
+        recording.emit('application_result', dict(exit_code=code))
+        return code
+
+
+def _recorded_main(argv=None):
     from forensic_assistant.terminal import initialize
     initialize()
     from forensic_assistant.ai import runtime, raw_diagnostics
@@ -223,12 +231,23 @@ def _main(argv=None):
 
 
 def dispatch(args, *, existing_only=False):
+    from forensic_assistant.session_recording import operation
+    from forensic_assistant.activity import AuditError
+    try:
+        with operation(args):
+            return _dispatch_recorded(args, existing_only=existing_only)
+    except AuditError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+
+def _dispatch_recorded(args, *, existing_only=False):
     if args.command == 'report' and args.report_command in ('recorded', 'inspect-recorded'):
         # Recorded reporting must not attach the active case/activity sidecar.
         from forensic_assistant.reporting.recorded import cli
         return cli(args)
     recorded_only = (args.command == 'ai-history' and args.investigation_command == 'show') or (
-        args.command == 'workflow' and (args.workflow in ('findings','reason','version','audit-verify') or args.workflow.startswith('case-')))
+        args.command == 'workflow' and (args.workflow in ('findings','reason','version') or args.workflow.startswith(('case-', 'audit-'))))
     if recorded_only:
         try:
             if args.command == 'ai-history':

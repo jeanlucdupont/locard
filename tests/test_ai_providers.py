@@ -180,10 +180,11 @@ def test_removed_commands():
     import argparse
     parser=build_parser()
     choices=next(a.choices for a in parser._actions if isinstance(a,argparse._SubParsersAction))
-    assert 'investigation' not in choices and 'ai-history' in choices
-    semantic=next(a.choices for a in choices['semantic']._actions if isinstance(a,argparse._SubParsersAction))
+    assert 'investigation' in choices and 'ai-history' not in choices
+    evidence=next(a.choices for a in choices['evidence']._actions if isinstance(a,argparse._SubParsersAction))
+    semantic=next(a.choices for a in evidence['semantic']._actions if isinstance(a,argparse._SubParsersAction))
     assert set(semantic)=={'search','status'}
-    for words in (['investigation'],['semantic','setup'],['semantic','build'],['semantic','rebuild']):
+    for words in (['investigation'],['evidence','semantic','setup'],['evidence','semantic','build'],['evidence','semantic','rebuild']):
         with pytest.raises(SystemExit):parser.parse_args(words)
 
 

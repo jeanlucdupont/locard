@@ -98,6 +98,8 @@ class ModelBackend:
         return 'canonical local validation required on every response; synthetic diagnostics are explicit'
 
     def prepare(self, phase=None):
+        from forensic_assistant.session_recording import require
+        require()
         if self.provider_name == 'local' and not self.endpoint:
             startup = {**self.config, 'startup_seconds': min(self.config['startup_seconds'], max(1, int(self.timeout)))}
             self.endpoint, self.managed = runtime.acquire(startup, phase, RESTART.get())
@@ -148,6 +150,9 @@ class ModelBackend:
         return result
 
     def complete(self, messages, schema=None):
+        from forensic_assistant.session_recording import require, record
+        require()
+        record('provider_preparation', dict(provider=self.provider_name, model=self.model_name), required=True)
         # Existing callers enforce narrower question/evidence bounds. This ceiling
         # also bounds IPC and rejects accidentally passing database-sized payloads.
         payload = json.dumps({'messages': messages, 'schema': schema}, ensure_ascii=True).encode()
@@ -252,6 +257,10 @@ class ModelBackend:
         return self._cloud_request(messages, schema_for(messages), timeout=self.timeout, d2_body_sha256=body_sha256)
 
     def _cloud_request(self, messages, schema, *, timeout=None, handshake=False, d2_body_sha256=None):
+        from forensic_assistant.session_recording import require, record
+        require()
+        record('provider_dispatch_boundary', dict(provider=self.provider_name, model=self.model_name,
+               handshake=bool(handshake), exposure='attempt may follow; not transport confirmation'), required=True)
         from .provider_diagnostics import ProviderFailure, STAGES
         timeout = self.timeout if timeout is None else timeout
         from importlib.util import find_spec

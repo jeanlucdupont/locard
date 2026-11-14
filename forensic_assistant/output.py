@@ -328,9 +328,14 @@ class Output:
         ) if self.target or self.paged else None
 
     def write(self, text):
-        print(text, file=self.stream or sys.stdout)
+        from forensic_assistant.session_recording import output, suspended
+        output(str(text) + '\n', 'derived_file' if self.target else 'pager_content' if self.paged else 'result')
+        with suspended():
+            print(text, file=self.stream or sys.stdout)
 
     def json(self, value):
+        from forensic_assistant.session_recording import sanitized
+        sanitized(value)  # Register classified fields before rendered text capture.
         self.write(render_json(value, self.palette))
 
     def finish(self):
@@ -385,7 +390,9 @@ class Output:
                 record['new_sha256'] = file_hash(self.target)
             message('Output ' + verb + ': ' + safe_path(self.target), self.args, role='success')
         else:
-            page(self.stream, self.palette)
+            from forensic_assistant.session_recording import suspended
+            with suspended():
+                page(self.stream, self.palette)
 
     def close(self):
         if self.stream is not None:

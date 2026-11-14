@@ -559,8 +559,31 @@ plans. Normal case creation and ingestion remain deterministic.
 
 Existing derived activity records `SHELL_MODE` transitions and `AI_ADVICE` success/failure/
 cancellation with text lengths (response length counts structured text fields, not keys). Request/response prose is not written to the activity
-sidecar or evidence database. Ordinary in-memory shell recall remains available. Audit
+sidecar or evidence database. Bounded submitted input and displayed output are now retained in private, linked session recordings; treat these as sensitive analyst work product. Ordinary in-memory shell recall remains available. Audit
 hashing and chain verification are unchanged.
+
+### Session recording
+
+Locard records bounded submitted input, displayed text, application diagnostics and
+operation references in private case-local `logs/<database-name>/sessions/` files.
+Pre-case operations use `%LOCALAPPDATA%\Locard\logs`. The existing activity chain
+anchors recording checkpoints; investigation transcripts and evidence are unchanged.
+
+```text
+audit sessions
+audit session show latest --limit 100
+audit diagnostics latest --severity ERROR
+audit verify
+audit sessions --application
+```
+
+All these review commands support `--json`. Session/diagnostic review also supports
+`--since` and `--operation-id`. `--application` selects pre-case history. Output is
+bounded and secrets are redacted before persistence. Raw AI debug output and external
+editor keystrokes are excluded. Required actions stop when their audit admission fails;
+ordinary read-only commands can continue with a visible coverage warning. No logs are
+automatically deleted or uploaded. See [capture boundaries, integrity, limits, measured
+overhead and manual acceptance](docs/LOCARD_6_144_FORENSIC_AUDIT_AND_SESSION_RECORDING.md).
 
 ### Analyst activity
 
@@ -572,7 +595,7 @@ explicit query filters, paths, and source assertions can themselves be sensitive
 ```text
 audit activity
 audit activity --limit 50 --json
-audit activity --verify
+audit verify
 ```
 
 Records contain an audit-format version, microsecond UTC `timestamp_utc`, a unique
@@ -585,8 +608,8 @@ events precede activation. Historical log entries are never reordered.
 The dispatcher owns command invocation/completion and
 show/around/investigate anchors; the shell owns session/open/create events;
 source, ingestion, and output adapters own their semantic actions. Successful
-shell help/version/color commands are also recorded. Blank input, completion,
-unknown-command typos, and harmless menu navigation are not logged.
+shell help/version/color commands are also recorded. Submitted blank input,
+unknown-command typos, and menu navigation are captured in the bounded supplemental session recording when launched through the common entry point.
 
 Source updates record actual before/after values. Ingestion records batch and
 per-file outcomes/counts alongside the authoritative database provenance. Output
@@ -614,7 +637,7 @@ there retains the database and reports failure without automatically activating 
 
 Each entry hashes canonical JSON (sorted keys, compact separators, ASCII escapes,
 no non-finite numbers), excluding its own `entry_hash` and including
-`previous_entry_hash`; the first previous hash is `null`. `audit activity --verify`
+`previous_entry_hash`; the first previous hash is `null`. `audit verify`
 streams and checks every entry, sequence and link and reports the first invalid
 entry. Ordinary appends validate only the tail for bounded work, not the entire
 history. Verification detects altered, reordered or missing interior records and

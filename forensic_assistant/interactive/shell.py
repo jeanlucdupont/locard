@@ -53,7 +53,8 @@ def split(line):
 class Shell:
     def __init__(self, state, reader=None, *, no_color=False):
         self.state = state
-        self.reader = reader or Reader()
+        from forensic_assistant.session_recording import ReaderProxy
+        self.reader = ReaderProxy(reader or Reader())
         self.active = None
         self.case_label = None
         self.audit = None
@@ -64,6 +65,9 @@ class Shell:
         return Palette(enabled(self))('prompt', '[' + label + ']> ')
 
     def request_advice(self, request):
+        from forensic_assistant.session_recording import require, record
+        require()
+        record('advisory_submission', dict(request=request), required=True)
         from .ai_routing import needs_investigation
         if needs_investigation(request):
             from forensic_assistant.cli import build_parser, dispatch

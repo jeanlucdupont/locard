@@ -66,6 +66,9 @@ class ActivityIndicator:
     def phase(self, name):
         if type(name) is not str:
             return
+        if name == 'approval' or name in PHASES:
+            from .session_recording import record
+            record('execution_phase', dict(phase=name))
         if name == 'approval':
             self.stop()
         elif name in PHASES:

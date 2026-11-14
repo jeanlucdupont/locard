@@ -16,6 +16,8 @@ MESSAGES = {'starting': 'Starting managed llama-server.',
 
 
 def record(category):
+    from forensic_assistant.session_recording import record as record_session
+    record_session('diagnostic', dict(component='ai.runtime', severity='INFO', category=category, message=MESSAGES[category]))
     line = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()) + ' ' + MESSAGES[category] + '\n'
     append('llama-server.log', line)
 

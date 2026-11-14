@@ -1,6 +1,6 @@
 # Locard shell command reference
 
-Generated from the working-tree parser for Locard 6.143.
+Generated from the working-tree parser for Locard 6.144 (audit additions reviewed against the parser).
 
 Inventory: **93 canonical parser nodes**, **669 argument/option entries** including global options and repetition.
 
@@ -99,6 +99,9 @@ report
 audit
   audit activity
   audit verify
+  audit sessions
+  audit session show
+  audit diagnostics
 ai
   ai provider
   ai status
@@ -2033,7 +2036,7 @@ usage: report verify [--case CASE] [--transcript-root TRANSCRIPT_ROOT]
 ### audit
 
 ```text
-usage: audit {activity,verify} ...
+usage: audit {activity,verify,sessions,session,diagnostics} ...
 ```
 
 Analyst activity and integrity verification
@@ -2067,15 +2070,39 @@ Read-only examination by default; derived output files and activity records may 
 ### audit verify
 
 ```text
-usage: audit verify [--json]
+usage: audit verify [--json] [--application]
 ```
 
-Verify the existing analyst activity chain; read-only
+Verify the existing analyst activity chain and linked session recordings independently. Missing, corrupt, incomplete and unanchored recordings remain distinct. This is process integrity, not validation of forensic conclusions.
 
 | Argument / option | Meaning | Constraints / default |
 |---|---|---|
 | `--json` | Json. | arity: 0; default: False |
 
+
+
+### audit sessions / audit session show / audit diagnostics
+
+```text
+audit sessions [--json] [--application]
+audit session show [SESSION] [--limit LIMIT] [--since TIME] [--operation-id ID] [--json] [--application]
+audit diagnostics [SESSION] [--limit LIMIT] [--since TIME] [--operation-id ID] [--severity LEVEL] [--json] [--application]
+```
+
+| Argument / option | Meaning / constraint |
+|---|---|
+| `SESSION` | Exact 32-hex recording ID or `latest` (default); ordered by start UTC then ID. Application review excludes its own newly opened segment when an earlier one exists. |
+| `--limit` | Last matching records; integer 1–1000, default 100. Earlier omitted count is explicit. |
+| `--since` | Inclusive ISO 8601 timestamp with timezone. |
+| `--operation-id` | Exact command/operation correlation ID. |
+| `--severity` | Diagnostics only: DEBUG, INFO, WARNING, ERROR or CRITICAL. Capture gaps without severity remain available without this filter. |
+| `--json` | Structured process records and independent integrity/coverage metadata. |
+| `--application` | Pre-case application logs instead of the selected database's logs; also available on `audit verify`. |
+
+Session listings include completion, integrity, version, times and capture limitations.
+Session review rejects missing/corrupt/unverifiable recordings. Incomplete recordings
+can be reviewed, with the unanchored suffix count disclosed. Review output is excluded
+from recursive session capture. No evidence database is opened by these review services.
 
 
 ### ai

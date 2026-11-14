@@ -207,21 +207,38 @@ def tail(stream):
 
 
 def append(log_path, session_id, action, outcome, **fields):
+    return append_batch(log_path, session_id, [(action, outcome, fields)])[-1]
+
+
+def append_batch(log_path, session_id, records):
+    """One locked, synchronized append; detailed capture batches are bounded upstream.
+
+    Existing single-entry canonical serialization and rollback semantics are unchanged.
+    """
+    from .session_recording import sanitized
+    if not records or len(records) > 128:
+        raise AuditError('Audit append batch must contain 1..128 entries')
     with locked(log_path, write=True) as stream:
         previous = tail(stream)
-        entry = dict(clean(fields), audit_version=1,
-                     timestamp_utc=datetime.now(timezone.utc).isoformat(timespec='microseconds').replace('+00:00', 'Z'),
-                     session_id=session_id, sequence=previous['sequence'] + 1 if previous else 1,
-                     action=action, outcome=outcome, previous_entry_hash=previous['entry_hash'] if previous else None)
-        entry['entry_hash'] = hashlib.sha256(canonical(entry)).hexdigest()
-        raw = canonical(entry) + b'\n'
-        if len(raw) > MAX_ENTRY:
-            raise AuditError('Audit entry exceeds size limit')
+        entries, encoded = [], []
+        for action, outcome, fields in records:
+            entry = dict(clean(sanitized(fields)), audit_version=1,
+                         timestamp_utc=datetime.now(timezone.utc).isoformat(timespec='microseconds').replace('+00:00', 'Z'),
+                         session_id=session_id, sequence=previous['sequence'] + 1 if previous else 1,
+                         action=action, outcome=outcome, previous_entry_hash=previous['entry_hash'] if previous else None)
+            entry['entry_hash'] = hashlib.sha256(canonical(entry)).hexdigest()
+            raw = canonical(entry) + b'\n'
+            if len(raw) > MAX_ENTRY:
+                raise AuditError('Audit entry exceeds size limit')
+            entries.append(entry)
+            encoded.append(raw)
+            previous = entry
         stream.seek(0, os.SEEK_END)
         original_size = stream.tell()
         try:
-            if stream.write(raw) != len(raw):
-                raise OSError('Short audit write')
+            for raw in encoded:
+                if stream.write(raw) != len(raw):
+                    raise OSError('Short audit write')
             stream.flush()
             os.fsync(stream.fileno())
         except BaseException:
@@ -229,7 +246,7 @@ def append(log_path, session_id, action, outcome, **fields):
             stream.truncate(original_size)
             stream.flush()
             raise
-        return entry
+        return entries
 
 
 def inspect(path, limit=20):
@@ -270,7 +287,18 @@ class Session:
 
     def record(self, action, outcome='success', *, required=False, **fields):
         try:
-            return append(self.path, self.id, action, outcome, **fields)
+            from .session_recording import ACTIVE
+            recorder = ACTIVE.get()
+            if recorder and recorder.case != self.case:
+                recorder.open(self.case)
+            if recorder and required:
+                recorder.require()
+            entry = append(self.path, self.id, action, outcome, **fields)
+            if recorder:
+                recorder.emit('activity_reference', dict(action=action, outcome=outcome,
+                              activity_entry_hash=entry['entry_hash'], activity_sequence=entry['sequence'],
+                              activity_operation_id=fields.get('operation_id')))
+            return entry
         except (OSError, ValueError) as exc:
             message = 'Activity log unavailable: ' + str(exc)
             if required:
@@ -281,6 +309,9 @@ class Session:
 
     def start(self):
         if not self.started:
+            from .session_recording import ACTIVE
+            if ACTIVE.get():
+                ACTIVE.get().open(self.case)
             from forensic_assistant import __version__
             self.record('CASE_OPEN', case_path=str(self.case))
             self.record('SESSION_START', case_path=str(self.case), application_version=__version__)

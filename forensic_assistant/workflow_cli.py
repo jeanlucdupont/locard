@@ -37,6 +37,20 @@ def configure(operations, *, interactive=False):
             p.add_argument('--start');p.add_argument('--end')
     p=add(('audit',),'verify','audit-verify','Verify the existing analyst activity chain; read-only')
     p.add_argument('--json',action='store_true')
+    p.add_argument('--application', action='store_true', help='Review pre-case application logs instead of case logs')
+    for group, name, op in [(('audit',), 'sessions', 'audit-sessions'),
+                            (('audit', 'session'), 'show', 'audit-session'),
+                            (('audit',), 'diagnostics', 'audit-diagnostics')]:
+        p=add(group, name, op, 'Review bounded, linked process recordings; not original evidence')
+        p.add_argument('--json', action='store_true')
+        p.add_argument('--application', action='store_true', help='Review pre-case application logs instead of case logs')
+        if op != 'audit-sessions':
+            p.add_argument('session', nargs='?', default='latest', help='Exact recording ID or latest by start time then ID')
+            p.add_argument('--limit', type=int, default=100, help='Last matching records, 1..1000')
+            p.add_argument('--since', help='Include records since ISO 8601 time with timezone')
+            p.add_argument('--operation-id', help='Exact operation correlation ID')
+        if op == 'audit-diagnostics':
+            p.add_argument('--severity', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'))
     p=add(('settings',),'color','color','Inspect or set terminal styling')
     p.add_argument('setting',nargs='?',choices=('on','off'))
     p=add(('settings',),'version','version','Show effective version; optional source/installed diagnostics')
@@ -107,9 +121,14 @@ def run(args):
         return resolve() if args.details else {'application_version':__version__}
     if op in ('color','case-open','case-new','ingest-wizard'):
         raise ValueError('This navigation operation requires the interactive shell')
-    if op=='audit-verify':
-        from . import activity
-        return activity.inspect(activity.sidecar(args.db), limit=1)
+    if op.startswith('audit-'):
+        from . import session_recording
+        case = None if args.application else args.db
+        if op in ('audit-verify', 'audit-sessions'):
+            return session_recording.verify(case)
+        return session_recording.review(case, selector=args.session, limit=args.limit,
+               diagnostics=op=='audit-diagnostics', severity=getattr(args,'severity',None),
+               operation_id=args.operation_id, since=args.since)
     from . import assessment_cli
     if op in ('list','show','assess','reauthorize'):
         return assessment_cli.run(args)
@@ -129,6 +148,9 @@ def run(args):
 
 def render(value):
     if value is None:return ''
+    if isinstance(value,dict) and value.get('kind') in ('session_audit', 'session_review'):
+        from .session_recording import render as render_recording
+        return render_recording(value)
     from .briefing_cli import render as briefing_render
     from .retrieval.presentation import safe_text
     if isinstance(value,dict) and 'cases' in value:

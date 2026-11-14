@@ -136,6 +136,8 @@ def run(args):
             if not path.is_file():raise ValueError('Briefing input must be a regular UTF-8 file.')
             with path.open('rb') as stream:raw=stream.read(briefing.MAX_BYTES+1)
             if len(raw)>briefing.MAX_BYTES:raise ValueError('Briefing file exceeds 32768 bytes.')
+            from .session_recording import imported
+            imported(path, raw)
             text=raw.decode('utf-8')
         else:text=args.briefing_text
         if args.save:

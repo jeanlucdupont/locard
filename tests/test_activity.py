@@ -23,6 +23,12 @@ from test_interactive_shell import Input
 from test_output_ux import case
 
 
+@pytest.fixture(autouse=True)
+def isolated_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'application'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path / 'user'))
+
+
 def records(path):
     result = activity.inspect(activity.sidecar(path), 1000)
     assert result['valid'], result
@@ -137,9 +143,9 @@ def test_deterministic_secret_option_redaction(option):
 def test_interactive_lifecycle_commands_and_evidence_privacy(case, capsys):
     path, eid, _ = case
     before = path.read_bytes()
-    shell = Shell(State(None), Input(str(path), 'search --artifact prefetch --limit 1', f'show {eid}',
-                                     f'around {eid} --timestamp-slot run:1 --seconds 20',
-                                     f'investigate {eid} --timestamp-slot run:1', 'show missing', 'exit'))
+    shell = Shell(State(None), Input(str(path), 'evidence search --artifact prefetch --limit 1', f'evidence show {eid}',
+                                     f'evidence around {eid} --timestamp-slot run:1 --seconds 20',
+                                     f'analyze correlate {eid} --timestamp-slot run:1', 'evidence show missing', 'quit'))
     assert shell.run() == 0
     entries = records(path)
     assert [e['action'] for e in entries[:2]] == ['CASE_OPEN', 'SESSION_START']
@@ -160,7 +166,7 @@ def test_fatal_session_has_no_fake_end(case, monkeypatch):
         raise RuntimeError('synthetic fatal worker failure')
     monkeypatch.setattr('forensic_assistant.cli.dispatch', fatal)
     with pytest.raises(RuntimeError):
-        Shell(State(None), Input(str(path), 'status')).run()
+        Shell(State(None), Input(str(path), 'case status')).run()
     assert not any(e['action'] == 'SESSION_END' for e in records(path))
 
 
@@ -168,7 +174,7 @@ def test_case_switch_has_separate_session_identity(case, tmp_path):
     path, _, _ = case
     other = tmp_path / 'other.db'
     connect(other).close()
-    Shell(State(None), Input(str(path), f'case "{other}"', 'status', 'exit')).run()
+    Shell(State(None), Input(str(path), f'case open "{other}"', 'case status', 'quit')).run()
     a, b = records(path), records(other)
     assert a[-1]['action'] == b[-1]['action'] == 'SESSION_END'
     assert {e['session_id'] for e in a}.isdisjoint({e['session_id'] for e in b})
@@ -176,14 +182,14 @@ def test_case_switch_has_separate_session_identity(case, tmp_path):
 
 def test_activity_snapshot_precedes_own_command(case, capsys):
     path, _, _ = case
-    assert main(['--db', str(path), 'status']) == 0
+    assert main(['--db', str(path), 'case', 'status']) == 0
     capsys.readouterr()
-    assert main(['--db', str(path), 'activity', '--json', '--limit', '1000']) == 0
+    assert main(['--db', str(path), 'audit', 'activity', '--json', '--limit', '1000']) == 0
     snapshot = json.loads(capsys.readouterr().out)
     assert not any(e.get('command') == 'activity' for e in snapshot['records'])
     assert any(e.get('command') == 'activity' for e in records(path))
-    assert main(['--db', str(path), 'activity', '--verify']) == 0
-    assert 'Chain: valid' in capsys.readouterr().out
+    assert main(['--db', str(path), 'audit', 'verify']) == 0
+    assert 'Activity chain: verified' in capsys.readouterr().out
 
 
 def test_read_warns_but_source_mutation_fails_before_change(case, monkeypatch, capsys):
@@ -194,9 +200,9 @@ def test_read_warns_but_source_mutation_fails_before_change(case, monkeypatch, c
     def denied(*args, **kwargs):
         raise PermissionError('synthetic audit denial')
     monkeypatch.setattr(activity, 'append', denied)
-    assert main(['--db', str(path), 'status']) == 0
+    assert main(['--db', str(path), 'case', 'status']) == 0
     assert 'Warning: Activity log unavailable' in capsys.readouterr().err
-    assert main(['--db', str(path), 'source', 'update', sid, '--name', 'Forbidden', '--yes']) == 2
+    assert main(['--db', str(path), 'evidence', 'source', 'update', sid, '--name', 'Forbidden', '--yes']) == 2
     assert path.read_bytes() == before
 
 
@@ -204,12 +210,12 @@ def test_source_update_actual_values_and_declined_change(case, capsys):
     path, _, _ = case
     with closing(connect(path)) as db, db:
         sid = sources.create(db, name='Original')
-    assert main(['--db', str(path), 'source', 'update', sid, '--hostname', 'HOST-A', '--name', 'Renamed', '--yes']) == 0
+    assert main(['--db', str(path), 'evidence', 'source', 'update', sid, '--hostname', 'HOST-A', '--name', 'Renamed', '--yes']) == 0
     output = capsys.readouterr().out
     assert 'Previous assertion retained.' not in output and 'Name: Original -> Renamed' in output
     changes = [e['changes'] for e in records(path) if e['action'] == 'SOURCE_UPDATE' and e['outcome'] == 'success'][0]
     assert changes['hostname'] == dict(previous_value=None, new_value='host-a')
-    Shell(State(None), Input(str(path), f'source update {sid} --name Declined', 'n', 'exit')).run()
+    Shell(State(None), Input(str(path), f'evidence source update {sid} --name Declined', 'n', 'quit')).run()
     assert any(e['action'] == 'SOURCE_UPDATE' and e['outcome'] == 'cancelled' for e in records(path))
     with closing(connect(path)) as db:
         assert sources.current(db, sid)['display_name'] == 'Renamed'
@@ -226,7 +232,7 @@ def test_postcommit_audit_failure_is_explicit_and_intent_survives(case, monkeypa
             raise OSError('completion unavailable')
         return append(log_path, session_id, action, outcome, **fields)
     monkeypatch.setattr(activity, 'append', fail_completion)
-    assert main(['--db', str(path), 'source', 'update', sid, '--name', 'Committed', '--yes']) == 2
+    assert main(['--db', str(path), 'evidence', 'source', 'update', sid, '--name', 'Committed', '--yes']) == 2
     assert 'Action completed but its audit completion failed' in capsys.readouterr().err
     assert any(e['action'] == 'SOURCE_UPDATE' and e['phase'] == 'intent' for e in records(path))
     with closing(connect(path)) as db:
@@ -237,7 +243,7 @@ def test_audit_not_evidence_or_discovery(case, capsys):
     from forensic_assistant.artifacts.ingest import discover
     path, _, source = case
     before = path.read_bytes()
-    main(['--db', str(path), 'status'])
+    main(['--db', str(path), 'case', 'status'])
     audit = activity.sidecar(path)
     assert audit.exists()
     assert all(p != audit for p, _ in discover(path.parent, include_browser=True))
@@ -252,7 +258,7 @@ def test_ingestion_audits_summary_not_browser_payload(tmp_path, capsys):
     original = tmp_path / 'History'
     history(original).close()
     target = tmp_path / 'case.db'
-    assert main(['--db', str(target), 'ingest-browser', str(original), '--browser', 'chrome', '--profile', 'Default']) == 0
+    assert main(['--db', str(target), 'evidence', 'ingest', 'browser', str(original), '--browser', 'chrome', '--profile', 'Default']) == 0
     entries = records(target)
     result = next(e for e in entries if e['action'] == 'INGEST' and e['outcome'] == 'success')
     assert result['inserted'] == 2 and result['errors'] == 0 and result['artifact_type'] == 'browser'
@@ -271,7 +277,7 @@ def test_ingestion_finalizes_batch_when_source_audit_fails(case, tmp_path, monke
             raise OSError('synthetic audit completion failure')
         return append(log_path, session_id, action, outcome, **fields)
     monkeypatch.setattr(activity, 'append', denied)
-    assert main(['--db', str(path), 'ingest-browser', str(original), '--browser', 'chrome', '--profile', 'Default']) == 2
+    assert main(['--db', str(path), 'evidence', 'ingest', 'browser', str(original), '--browser', 'chrome', '--profile', 'Default']) == 2
     with closing(connect(path)) as db:
         batch = db.execute('SELECT status,finished_utc FROM ingestion_batches').fetchone()
         assert batch['status'] == 'failed' and batch['finished_utc']
@@ -284,7 +290,7 @@ def test_preparation_failure_has_one_failed_command(case, monkeypatch):
     def denied(*args):
         raise ValueError('synthetic preparation error')
     monkeypatch.setattr('forensic_assistant.interactive.sources.prepare', denied)
-    Shell(State(None), Input(str(path), 'status', 'exit')).run()
+    Shell(State(None), Input(str(path), 'case status', 'quit')).run()
     commands = [e for e in records(path) if e['action'] == 'COMMAND']
     assert len(commands) == 1 and commands[0]['outcome'] == 'failure'
     assert commands[0]['error_category'] == 'ValueError'
@@ -296,7 +302,7 @@ def test_interrupted_command_entry_restores_context(case, monkeypatch):
     def cancel(*args):
         raise KeyboardInterrupt
     monkeypatch.setattr('forensic_assistant.interactive.case.validate', cancel)
-    args = build_parser().parse_args(['--db', str(path), 'status'])
+    args = build_parser().parse_args(['--db', str(path), 'case', 'status'])
     with pytest.raises(KeyboardInterrupt):
         with activity.Command(args):
             pytest.fail('must not enter interrupted command')

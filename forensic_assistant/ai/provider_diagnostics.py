@@ -255,6 +255,8 @@ def record(provider, model, stage, category, elapsed=0, *, operation="request", 
                  status="success" if category in ("ready", "response_validated") else "failure",
                  elapsed_seconds=round(max(0, min(float(elapsed), 3600)), 3))
     value.update(safe_metadata(metadata))
+    from forensic_assistant.session_recording import record as record_session
+    record_session('diagnostic', dict(component='ai.provider', severity='INFO' if value['status']=='success' else 'WARNING', **value))
     if type(usage) is dict:
         value['usage'] = {key: usage[key] for key in ('prompt_tokens', 'completion_tokens', 'total_tokens')
                           if type(usage.get(key)) is int and 0 <= usage[key] <= 10000000}
