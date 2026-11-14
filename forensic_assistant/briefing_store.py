@@ -58,8 +58,13 @@ class Store:
     def load(self):
         try:
             return self._load()
+        except ValueError as exc:
+            if str(exc).startswith(('BRIEFING_', 'CASE_')):raise
+            raise ValueError('BRIEFING_MALFORMED: saved data failed structural validation; original preserved') from None
+        except OSError as exc:
+            raise ValueError('BRIEFING_INACCESSIBLE: saved file could not be read; permissions and data unchanged') from exc
         except (KeyError, TypeError, RecursionError, UnicodeError):
-            raise ValueError('Malformed briefing workspace; preserved without modification.') from None
+            raise ValueError('BRIEFING_MALFORMED: Malformed briefing workspace; preserved without modification.') from None
 
     def _load(self):
         self.check_case()
@@ -68,7 +73,7 @@ class Store:
         with DirectoryGuard(self.root):
             path = local_path(self.path)
             if not path.exists():
-                raise ValueError('Briefing workspace is incomplete; preserved for recovery.')
+                raise ValueError('BRIEFING_SIDECAR_MISSING: Briefing workspace is incomplete; preserved for recovery.')
             if not path.is_file() or path.stat().st_nlink != 1:
                 raise ValueError('Briefing state must be a private regular file.')
             with path.open('rb') as stream:
@@ -77,8 +82,12 @@ class Store:
                 raise ValueError('Briefing storage bound exceeded.')
             from forensic_assistant.investigation_ai.contracts import loads
             state = loads(raw.decode('utf-8'), max_bytes=MAX_STORE)
-            if type(state) is not dict or set(state) != {'format','case','revisions','analyses'} or state['format'] != 1 or state['case'] != self.identity:
-                raise ValueError('Unsupported briefing format or case identity mismatch.')
+            if type(state) is not dict or set(state) != {'format','case','revisions','analyses'}:
+                raise ValueError('BRIEFING_MALFORMED: invalid saved envelope; original preserved')
+            if type(state['format']) is not int or state['format'] != 1:
+                raise ValueError('BRIEFING_SCHEMA_UNSUPPORTED: unsupported saved format; do not rebind history')
+            if state['case'] != self.identity:
+                raise ValueError('CASE_IDENTITY_MISMATCH: briefing belongs to a different database path/device/file identity. Open the original case or create an evidence-only clone; history was not modified.')
             revisions = state['revisions']
             if type(revisions) is not list or not 1 <= len(revisions) <= 100:
                 raise ValueError('Invalid briefing revision history.')
@@ -90,7 +99,7 @@ class Store:
                 datetime.fromisoformat(revision['modified'])
                 c = revision['content']
                 if type(c) is not dict or set(c) not in ({'answers','narrative'}, {'answers','narrative','interviews'}, {'answers','narrative','canonical'}, {'answers','narrative','interviews','canonical'}) or content(c['answers'], c['narrative'], c.get('interviews'), c.get('canonical')) != c or digest(c) != revision['digest']:
-                    raise ValueError('Briefing content digest mismatch.')
+                    raise ValueError('BRIEFING_INTEGRITY_FAILURE: Briefing content digest mismatch.')
             if type(state['analyses']) is not list or len(state['analyses']) > 100:
                 raise ValueError('Invalid briefing analysis metadata.')
             for a in state['analyses']:

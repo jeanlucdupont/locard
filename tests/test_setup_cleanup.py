@@ -27,17 +27,16 @@ def environment(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('name,expected', [
-    ('My first case', 'My_first_case'),
-    ('INC-2026-0042 - WS104 malware', 'INC-2026-0042_WS104_malware'),
-    ('IR: June 15, 2026', 'IR_June_15_2026'), ('__A***  B__', 'A_B'),
-    ('résumé 東京-2', 'résumé_東京-2'), ('CON', 'CON_case'), ('a/b\\c', 'a_b_c'),
-    ('A-1', 'A-1'), ('LPT1', 'LPT1_case'),
+    ('My first case', 'My first case'),
+    ('INC-2026-0042 - WS104 malware', 'INC-2026-0042 - WS104 malware'),
+    ('résumé 東京-2', 'résumé 東京-2'), ('A-1', 'A-1'),
 ])
+
 def test_sanitization(name, expected):
     assert workspace.sanitize(name) == expected
 
 
-@pytest.mark.parametrize('name', ['', '???', '..', '__', '---', 'x' * 101])
+@pytest.mark.parametrize('name', ['', '???', '..', '__', '---', 'CON', 'LPT1', 'a/b', 'a:b', 'x' * 101])
 def test_invalid_case_name(name):
     with pytest.raises(ValueError):
         workspace.sanitize(name)
@@ -47,7 +46,7 @@ def test_managed_workspace_and_normal_prompts(tmp_path, capsys):
     reader = Input('', 'My first case', '', '', '3', '')
     shell = Shell(State(None), reader)
     assert setup.create(shell)
-    root = tmp_path / 'cases/My_first_case'
+    root = tmp_path / 'cases/My first case'
     assert shell.active == root / 'case.db' and not hasattr(shell, 'mode')
     assert {p.name for p in root.iterdir()} == {'case.db', 'case.db.audit.jsonl', 'reports', 'exports', 'workspace'}
     assert all(not list((root / name).iterdir()) for name in ('reports', 'exports', 'workspace'))
@@ -84,7 +83,7 @@ def test_existing_workspace_and_race_never_reused(tmp_path):
 
 def test_startup_one_is_guided_no_g(tmp_path, monkeypatch, capsys):
     calls = []
-    monkeypatch.setattr(setup, 'create', lambda shell: calls.append(shell) or False)
+    monkeypatch.setattr(workspace, 'create_empty', lambda shell, **kwargs: calls.append(shell) or False)
     shell = Shell(State(None), Input('1', '3'))
     assert shell.run() == 0 and calls == [shell]
     text = capsys.readouterr().out

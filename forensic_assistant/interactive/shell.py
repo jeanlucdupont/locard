@@ -108,7 +108,8 @@ class Shell:
         self.last_status = 0
 
     def activate(self, path, *, activity_session=None, announce=True):
-        target = validate(path)
+        from forensic_assistant.case_management import validate_identity
+        target = validate_identity(validate(path))
         from contextlib import closing
         from .case import open_existing
         with closing(open_existing(target)) as db:
@@ -136,37 +137,27 @@ class Shell:
                 if len(parts) != 1:
                     raise ValueError('Enter one database path')
                 path = parts[0]
-            self.activate(path)
+            from forensic_assistant.case_management import resolve
+            self.activate(resolve(path))
             return True
-        print('[N] New case')
-        if self.active:
-            print('Current database: ' + safe(self.active))
-        if self.state.recent:
-            print('Recent databases:')
-            for n, value in enumerate(self.state.recent, 1):
-                print(f'  {n}. ' + safe(value))
+        from forensic_assistant.case_management import discover
+        entries = discover()
+        print('[N] New case; select #number, case name or absolute database path')
+        for number, entry in enumerate(entries, 1):
+            print(f"  #{number} {safe(entry['name'])} [{entry['origin']}] {safe(entry['path'])}")
         while True:
             try:
-                line = self.reader.read('Database path or recent number (Enter cancels): ').strip()
-                if not line or line in ('exit', 'quit'):
-                    return False
-                if line.casefold() in ('n', 'new'):
-                    return self.new()
-                if line.isdecimal() and 1 <= int(line) <= len(self.state.recent):
-                    path = self.state.recent[int(line) - 1]
-                elif line.startswith(('"', "'")):
-                    parts = split(line)
-                    if len(parts) != 1:
-                        raise ValueError('Enter one database path')
-                    path = parts[0]
-                else:
-                    path = line
-                self.activate(path)
-                return True
+                line = self.reader.read('Case selection (Enter cancels): ').strip()
+                if not line:return False
+                if line.casefold()=='n':return self.new()
+                if line.startswith('#') and line[1:].isdecimal():
+                    index=int(line[1:])-1
+                    if not 0 <= index < len(entries):raise ValueError('Unknown selection')
+                    line=entries[index]['path']
+                return self.choose(line)
             except (OSError, ValueError, sqlite3.Error) as exc:
-                print('Cannot select database: ' + human_error(exc))
+                print('Cannot select database: '+human_error(exc))
             except (EOFError, KeyboardInterrupt):
-                print()
                 return False
 
     def startup(self):
@@ -200,9 +191,9 @@ class Shell:
                 return False
         return self.menu()
 
-    def new(self):
+    def new(self, name=None):
         from .workspace import create_empty
-        return create_empty(self)
+        return create_empty(self, name=name)
 
     def menu(self):
         while True:
@@ -332,7 +323,7 @@ class Shell:
                             self.choose(args.path)
                             continue
                         if args.workflow == 'case-new':
-                            self.new()
+                            self.new(args.name)
                             continue
                         if args.workflow == 'ingest-wizard':
                             from .setup import add_evidence

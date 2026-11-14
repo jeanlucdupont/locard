@@ -1,36 +1,25 @@
 """Analyst workspace naming and publication; original evidence is never copied."""
 from pathlib import Path
-import re
-import unicodedata
 
-from .state import state_path
 from . import creation
 from forensic_assistant.reporting.transcripts import safe_path
 
 
 def cases_root():
-    return safe_path(state_path().parent / 'cases')
+    from forensic_assistant.case_management import root
+    return root()
 
 
-def sanitize(name):
-    name = unicodedata.normalize('NFC', name.strip())
-    # A standalone separator is not part of an incident identifier.
-    name = re.sub(r'\s+-\s+', '_', name)
-    name = ''.join(c if c.isalnum() or c in '-_' else '_' for c in name)
-    name = re.sub('_+', '_', name).strip('_')
-    if not name or not any(c.isalnum() for c in name):
-        raise ValueError('Enter a case name containing letters or numbers')
-    if re.fullmatch(r'CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]', name, re.I):
-        name += '_case'
-    if len(name) > 100:
-        raise ValueError('Use a shorter case name (at most 100 sanitized characters)')
-    return name
+def sanitize(value):
+    # Names are identifiers, never silently transformed into a different name.
+    from forensic_assistant.case_management import name
+    return name(value)
 
 
 def target(name):
     folder = safe_path(cases_root() / sanitize(name))
-    if folder.exists():
-        raise ValueError(f'A case named "{name}" already exists. Choose a different case name, or open the existing case.')
+    if folder.exists() or (folder.parent.exists() and any(p.name.casefold() == folder.name.casefold() for p in folder.parent.iterdir())):
+        raise ValueError(f'CASE_NAME_EXISTS: A case named "{name}" already exists. Choose a different case name, or open the existing case.')
     return creation.destination(folder / 'case.db')
 
 
@@ -67,7 +56,7 @@ def case_label(path):
     import io
     fallback = path.name
     try:
-        if path.name.casefold() == 'case.db' and path.parent.parent == cases_root():
+        if path.name.casefold() == 'case.db':
             fallback = path.parent.name
     except (OSError, ValueError):
         pass
@@ -94,20 +83,21 @@ def case_label(path):
     return fallback
 
 
-def create_empty(shell):
+def create_empty(shell, name=None):
     """Confirm a case workspace independently of evidence discovery/ingestion."""
     from forensic_assistant import activity, __version__
     from .console import safe
     from forensic_assistant.briefing_workflow import read_answer
     read=lambda prompt: read_answer(shell.reader.read,prompt).strip()
-    name=read('Case name: ')
+    name=name if name is not None else read_answer(shell.reader.read, 'Case name: ')
     path=target(name)
     analyst=read('Analyst name (optional): ')
     organization=read('Organization (optional): ')
     print('Create empty case: '+safe(name)+'\nDatabase: '+safe(path))
     if read('Create this case? [y/N]: ').casefold() not in ('y','yes'):
         return False
-    initialize(path)
+    from forensic_assistant.case_management import create
+    path=create(name, expected_path=path)
     session=activity.Session(path)
     session.record('CASE_CREATE',required=True,case_path=str(path),case_name=name,
                    analyst=analyst,organization=organization,application_version=__version__,selected_files=0)

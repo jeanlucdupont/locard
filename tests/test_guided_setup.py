@@ -137,7 +137,7 @@ def test_category_selection(choice, expected):
 def test_collect_requires_root_choice_and_category_confirmation(tmp_path, capsys):
     first = tree(tmp_path / 'evidence/a')
     second = tree(tmp_path / 'evidence/b')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target), '1', str(first.parent), '2', '3', '2', 'mft,registry', 'n', 'yes'))
     plan = setup.collect(shell)
     assert {i.kind for i in plan.items} == {'mft', 'registry'}
@@ -152,7 +152,7 @@ def test_collect_requires_root_choice_and_category_confirmation(tmp_path, capsys
 @pytest.mark.parametrize('cancel', ['n', 'cancel', KeyboardInterrupt(), EOFError()])
 def test_cancel_final_confirmation_no_files_created(tmp_path, cancel):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target, missing=True), '1', str(root), '2', 'mft', 'n', cancel))
     assert not setup.create(shell)
     assert not target.parent.exists() and not shell.state.recent
@@ -160,7 +160,7 @@ def test_cancel_final_confirmation_no_files_created(tmp_path, cancel):
 
 def test_cancel_category_no_files_and_preserves_active_case(tmp_path):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target), '1', str(root), 'cancel'))
     old = case(tmp_path, 'old.db')
     shell.activate(old)
@@ -169,7 +169,7 @@ def test_cancel_category_no_files_and_preserves_active_case(tmp_path):
 
 
 def test_empty_setup_uses_initializer_no_source_and_normal_shell(tmp_path, monkeypatch, capsys):
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target, missing=True), '3', 'yes'))
     original = creation.initialize
     calls = []
@@ -191,7 +191,7 @@ def test_empty_setup_uses_initializer_no_source_and_normal_shell(tmp_path, monke
 def test_real_mixed_ingestion_partial_retention_metadata_and_ids(tmp_path, capsys):
     root = tree(tmp_path / 'root')
     before = snapshot(root)
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target, metadata=('Examiner source', 'HOST-A', 'AnalystUser', 'C:')),
                                    '1', str(root), '1', 'all', 'yes', 'Examiner source', 'HOST-A', 'AnalystUser', 'C:', 'yes'))
     assert setup.create(shell)
@@ -221,7 +221,7 @@ def test_real_mixed_ingestion_partial_retention_metadata_and_ids(tmp_path, capsy
 
 def test_manual_evtx_registry_reuses_exact_shared_calls(tmp_path, monkeypatch):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     evtx = root / 'Windows/System32/winevt/Logs/System.evtx'
     hive = root / 'Windows/System32/config/SYSTEM'
     calls = []
@@ -244,7 +244,7 @@ def test_folder_manual_signatures_and_browser_candidates(tmp_path):
 
 def test_excluded_category_never_dispatched(tmp_path, monkeypatch):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     calls = []
     original = v2_cli.ingest_sources
     def ingest(db, args, progress):
@@ -259,7 +259,7 @@ def test_excluded_category_never_dispatched(tmp_path, monkeypatch):
 @pytest.mark.parametrize('error', [KeyboardInterrupt(), CleanupError('Unconfirmed cleanup')])
 def test_interruption_keeps_committed_work_and_old_case(tmp_path, monkeypatch, error, capsys):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target, missing=True), '1', str(root), '2', 'mft,registry', 'n', 'yes'))
     old = case(tmp_path, 'old.db')
     shell.activate(old)
@@ -282,7 +282,7 @@ def test_interruption_keeps_committed_work_and_old_case(tmp_path, monkeypatch, e
 
 def test_failed_category_does_not_prevent_later_success(tmp_path, monkeypatch, capsys):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     original = v2_cli.ingest_sources
     def ingest(db, args, progress):
         if args.command == 'ingest-mft':
@@ -324,7 +324,7 @@ def test_help_completion_and_shell_entry(tmp_path, monkeypatch, capsys):
 @pytest.mark.parametrize('answer,activated', [('yes', True), ('n', False)])
 def test_zero_record_failure_needs_explicit_activation(tmp_path, answer, activated, capsys):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target), '1', str(root), '2', 'evtx', 'n', 'yes', answer))
     assert setup.create(shell) == activated
     assert target.exists()
@@ -335,7 +335,7 @@ def test_zero_record_failure_needs_explicit_activation(tmp_path, answer, activat
 
 def test_required_audit_failure_stops_further_ingestion(tmp_path, monkeypatch):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     calls = []
     def fail(db, args, progress):
         calls.append(args.command)
@@ -348,7 +348,7 @@ def test_required_audit_failure_stops_further_ingestion(tmp_path, monkeypatch):
 
 def test_no_late_discovery_or_filename_inference(tmp_path):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     def confirm():
         prefetch_file(root / 'Windows/Prefetch/ADDED-LATER.pf')
         return 'yes'
@@ -363,7 +363,7 @@ def test_no_late_discovery_or_filename_inference(tmp_path):
 
 def test_duplicate_manual_selection_only_ingested_once(tmp_path):
     root = tree(tmp_path / 'root')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target), '2', 'mft', str(root / '$MFT'),
                                    'mft', str(root / '$MFT'), '', 'n', 'yes'))
     assert setup.create(shell)
@@ -372,7 +372,7 @@ def test_duplicate_manual_selection_only_ingested_once(tmp_path):
 
 
 def test_destination_race_preserves_other_file(tmp_path, monkeypatch):
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     initialize = creation.initialize
     def race(path, *args, **kw):
         path.write_bytes(b'other analyst data')
@@ -385,7 +385,7 @@ def test_destination_race_preserves_other_file(tmp_path, monkeypatch):
 
 
 def test_workspace_initialization_failure_retains_directory(tmp_path, monkeypatch):
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     def fail(*args, **kwargs):
         raise OSError('Synthetic init failure')
     monkeypatch.setattr(creation, 'connect', fail)

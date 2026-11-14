@@ -119,7 +119,7 @@ literal `$MFT` paths so `$MFT` is not expanded as a variable.
 
 ## A practical investigation
 
-Launch `python locard.py`. Use `case open PATH`, or `case new` to confirm an empty managed case. Ingest separately with `evidence ingest wizard`; specialized direct modes are under `evidence ingest`.
+Launch `python locard.py`. Use `case list` and `case open NAME` (or an absolute database path), or `case new NAME` to confirm an empty managed case. New cases default to `%USERPROFILE%\Locard\Cases`; `case root set PATH` changes future creation/discovery only. Legacy AppData cases remain discoverable. `case clone SOURCE NAME` creates an evidence-only snapshot without investigative sidecars. Ingest separately with `evidence ingest wizard`; specialized direct modes are under `evidence ingest`.
 
 ```text
 case status

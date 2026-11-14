@@ -200,22 +200,13 @@ describe these shell-only commands; they are not OS command execution.
 ### Guided case and evidence setup
 
 The startup menu offers **[1] Create a case**, **[2] Open a case**, and **[3] Exit**.
-Create a case opens guided setup; `case new` opens it from the interactive shell.
-`case new` and direct ingestion commands remain available. The wizard
-creates/ingests, then returns to the normal prompt for investigation and reporting.
-It never calls a model automatically.
+`case new NAME` creates an empty named case; without NAME it prompts.
+Use `case list`, `case open NAME` or `case open` for a selection menu.
+Ingestion is separate: `evidence ingest wizard` guides scan/manual selection and
+requires confirmation. Direct modes are `evidence ingest mft`, `registry`,
+`prefetch`, `evtx`, `browser` and `all`.
 
-With a case open, type `ingest wizard` to append evidence using the same guided
-scan or manual evidence selection. It preserves the active case, human case name,
-analyst/organization labels and prior evidence. It never creates another workspace
-or calls a model. `help ingest wizard` describes the workflow; it takes no arguments.
-`evidence ingest wizard` and `evidence ingest wizard` remain compatibility aliases with a short notice.
-Navigation help and completion prefer `ingest wizard`.
-
-Use the existing direct `ingest mft`, `ingest registry`, `ingest prefetch`,
-`ingest evtx`, `ingest browser`, and `ingest all` commands when you already know
-the evidence and want explicit command options. `ingest wizard` guides discovery
-and selection. Manual mode asks for an artifact type and an evidence file or
+Manual mode asks for an artifact type and an evidence file or
 folder, then proceeds to metadata and confirmation without repeating the scan
 selection menu. Browser profile selection remains explicit.
 
@@ -242,13 +233,18 @@ Direct `ingest <type>` commands remain available with their existing arguments a
 
 Enter a case name, optional analyst name and optional organization. These are
 analyst-supplied labels in the existing derived activity trail, not evidence.
-The name determines `%LOCALAPPDATA%\Locard\cases\<sanitized-name>` (alongside
-Locard's existing UI configuration). Spaces/unsupported characters become `_`,
-repeated underscores collapse, and letters, numbers, hyphens and underscores are
-preserved. Existing workspaces require another name; they are never overwritten.
-Each workspace contains `case.db`, `reports`, `exports`, and `workspace` directories.
-Existing sidecar and explicit report/export paths remain unchanged; evidence is
-not copied. External case identifiers remain available in report metadata.
+New cases default to `%USERPROFILE%\Locard\Cases\<name>`. Configuration and
+external registrations stay under `%LOCALAPPDATA%\Locard`; the legacy AppData
+case root remains discoverable without moving cases. `case root set PATH` changes
+future creation/discovery only. Names are preserved and unsafe names are rejected.
+`case register NAME PATH` references an existing case; `case unregister NAME`
+removes only that reference. Duplicate names require an explicit location.
+
+`case clone SOURCE DESTINATION` uses SQLite-consistent evidence-only backup,
+including committed WAL data, and retains original IDs/source provenance.
+Briefings, assessments, transcripts, findings and reports are not inherited.
+External evidence files are referenced, not copied. Never manually rebind copied
+briefings. See [case-management safety and acceptance](docs/LOCARD_6_143_CASE_WORKSPACE_MANAGEMENT.md).
 
 Type `cancel` at any wizard prompt to stop. Enter accepts a displayed default or
 leaves optional input blank; required values are requested again. Nothing is created
@@ -1778,7 +1774,7 @@ model/representation combinations retain all results with the same caution.
 Use `evidence export browser`, `evidence export mft`, or `evidence export all` to export retained records. Supported
 categories are browser, evtx, mft, prefetch and registry. Files always go beside
 the active case database in `dump/<type>.csv`; managed cases use
-`%LOCALAPPDATA%\Locard\cases\<case>\dump\`. There is no output-path or filename option.
+`<case directory>\dump\`. There is no output-path or filename option.
 For scripts: `locard --db C:\Cases\Example\case.db dump all`.
 
 Single-category dumps report elapsed time. `evidence export all` also reports elapsed time
@@ -1803,7 +1799,7 @@ For detailed Registry diagnostics, run a single `evidence export registry` with 
 logger enabled. From the repository's PowerShell prompt:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "import logging; from forensic_assistant.cli import main; logging.basicConfig(level=logging.WARNING, format='%(message)s'); logging.getLogger('forensic_assistant.dump_cli').setLevel(logging.DEBUG); raise SystemExit(main())" --db "$env:LOCALAPPDATA\Locard\cases\Standard2\case.db" dump registry --force
+.\.venv\Scripts\python.exe -c "import logging; from forensic_assistant.cli import main; logging.basicConfig(level=logging.WARNING, format='%(message)s'); logging.getLogger('forensic_assistant.dump_cli').setLevel(logging.DEBUG); raise SystemExit(main())" --db "$env:LOCALAPPDATA\Locard\cases\Standard2\case.db" evidence export registry --force
 ```
 
 This uses Python's existing logging configuration, not a new environment variable

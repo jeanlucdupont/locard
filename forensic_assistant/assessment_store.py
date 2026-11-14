@@ -34,12 +34,12 @@ class AssessmentStore(BriefingStore):
             from .investigation_ai.contracts import loads
             packet=loads(raw.decode('utf-8'),max_bytes=MAX_BYTES)
             if not isinstance(packet,dict) or set(packet)!={'format','digest','assessment'} or packet['format']!=1 or digest(packet['assessment'])!=packet['digest']:
-                raise ValueError('Invalid assessment integrity envelope')
+                raise ValueError('ASSESSMENT_INTEGRITY_FAILURE: Invalid assessment integrity envelope')
             result=packet['assessment']
-            if result.get('id')!=identity or result.get('case')!=self.identity:raise ValueError('Assessment case identity mismatch')
+            if result.get('id')!=identity or result.get('case')!=self.identity:raise ValueError('CASE_IDENTITY_MISMATCH: Assessment case identity mismatch; use the original location or an evidence-only clone')
             if result.get('kind')!='case_assessment':raise ValueError('Invalid assessment format')
             if result.get('authorization',{}).get('plan_digest')!=digest(result.get('plan')):
-                raise ValueError('Assessment authorization/plan mismatch')
+                raise ValueError('ASSESSMENT_BINDING_MISMATCH: Assessment authorization/plan mismatch')
             return result
 
     def history(self):

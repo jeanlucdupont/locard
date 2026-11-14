@@ -51,7 +51,7 @@ def test_fast_inventory_has_no_model_wait_flicker(tmp_path, monkeypatch, termina
 @pytest.mark.parametrize('cancel', [False, True])
 def test_discovery_activity_stops_before_next_prompt(tmp_path, monkeypatch, terminal, cancel):
     root = tree(tmp_path / 'evidence')
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     from forensic_assistant.ingest.observation import CURRENT
     original = discovery.windows_roots
     def discover(*a):
@@ -120,7 +120,7 @@ def test_discovery_and_file_progress_never_overlap(tmp_path, monkeypatch):
         progress.append((files, records))
         return meter(self, files, records)
     monkeypatch.setattr(setup_display.FileProgress, 'update', checked)
-    target = tmp_path / 'cases/Synthetic_case/case.db'
+    target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target), '2', 'registry',
         str(root / 'Windows/System32/config/SYSTEM'), '', 'n', 'yes'))
     assert setup.create(shell)

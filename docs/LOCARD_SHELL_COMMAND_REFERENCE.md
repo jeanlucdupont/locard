@@ -1,16 +1,18 @@
 # Locard shell command reference
 
-Generated from the working-tree parser for Locard 6.142.
+Generated from the working-tree parser for Locard 6.143.
 
-Inventory: **88 canonical parser nodes**, **652 argument/option entries** including global options and repetition.
-Type commands at `[case]>` without a `locard` prefix. For scripts, use `python locard.py --db CASE <command>`; global options precede the command. `case open`, `case new`, `settings color` and `evidence ingest wizard` are interactive shell operations.
+Inventory: **93 canonical parser nodes**, **669 argument/option entries** including global options and repetition.
 
-`help` shows eight command families; `help all` lists the complete tree; `help <family> <operation>` shows syntax. `?` means help; `quit` ends the shell. `! <question>` preserves advisory/investigation routing and per-tool approvals. Retired flat command names are not aliases.
+Type commands at `[case]>` without a `locard` prefix. In scripts use `python locard.py --db CASE <command>`; global options precede commands. `case new`, `settings color` and `evidence ingest wizard` are shell operations. Scripted `case open NAME` validates/reports the location; it cannot activate another process.
 
-Human output is normally the interactive default. Use an explicit `--json` where available for structured output. Parent options must precede child commands. Standard `-h` / `--help` remain accepted even where hidden in usage.
+`help` shows command families; `help all` lists the tree; `help <path>` shows common/advanced options. `?` means help, `quit` ends the shell, and `! <question>` preserves existing AI approvals. Standard -h/--help is accepted.
 
-Counts include group nodes and repeated option definitions, not independent forensic capabilities. Detailed terminal help separates common and advanced controls. Options are operation-specific; a shared spelling does not authorize an otherwise prohibited action.
+Use `case list`, `case open NAME` or `case open` (menu). New cases default to USERPROFILE/Locard/Cases; legacy AppData cases remain discoverable. `case root set PATH` never moves data. Register references existing cases; unregister never deletes them. Clone copies retained evidence/provenance with SQLite consistency, without investigative sidecars or external original files. Ambiguous names require an explicit path.
 
+Mutating case-management operations ask for confirmation; --yes explicitly confirms scripted changes. This does not authorize evidence retrieval or provider disclosure. See [workspace safety and acceptance](LOCARD_6_143_CASE_WORKSPACE_MANAGEMENT.md).
+
+Recorded-history show is provider-free; use report from-history for protected export. All presentation flags remain operation-specific. AI proposals and analyst acceptance are not forensic verification.
 
 ## Command tree
 
@@ -83,6 +85,11 @@ case
   case status
   case open
   case new
+  case list
+  case root
+  case register
+  case unregister
+  case clone
 report
   report from-history
   report verify-history
@@ -104,12 +111,6 @@ settings
   settings color
   settings version
 ```
-
-## Shell navigation
-
-`help`, `help all`, `help <path>` and `?` show help; `quit` ends the session. `! <question>` uses the existing advisory/investigation approval flow.
-
-Recorded-history review is provider-free. Use `report from-history` for a protected derived export; history show does not expose generic file-write options that could require inspecting the live case.
 
 ## Detailed parsers
 
@@ -1739,7 +1740,7 @@ Interactive shell defaults to human text; direct CLI defaults to JSON. --raw ret
 ### case
 
 ```text
-usage: case {status,open,new} ...
+usage: case {status,open,new,list,root,register,unregister,clone} ...
 ```
 
 Open, create and inspect a case
@@ -1785,13 +1786,95 @@ Interactive case open; no evidence ingestion is implied
 ### case new
 
 ```text
-usage: case new
+usage: case new [name]
 ```
 
 Interactive case new; no evidence ingestion is implied
 
 | Argument / option | Meaning | Constraints / default |
 |---|---|---|
+| `name` | Name. | arity: ?; default: None |
+
+
+
+### case list
+
+```text
+usage: case list [--json]
+```
+
+Case workspace list; no automatic relocation or history rebinding
+
+| Argument / option | Meaning | Constraints / default |
+|---|---|---|
+| `--json` | Json. | arity: 0; default: False |
+
+
+
+### case root
+
+```text
+usage: case root [--json] [--yes] [{set}] [path]
+```
+
+Case workspace root; no automatic relocation or history rebinding
+
+| Argument / option | Meaning | Constraints / default |
+|---|---|---|
+| `--json` | Json. | arity: 0; default: False |
+| `action` | Action. | choices: set; arity: ?; default: None |
+| `path` | Path. | arity: ?; default: None |
+| `--yes` | Explicitly confirm the described local change; no evidence/provider authorization | arity: 0; default: False |
+
+
+
+### case register
+
+```text
+usage: case register [--json] [--yes] name path
+```
+
+Case workspace register; no automatic relocation or history rebinding
+
+| Argument / option | Meaning | Constraints / default |
+|---|---|---|
+| `--json` | Json. | arity: 0; default: False |
+| `name` | Name. | required; default: None |
+| `path` | Path. | required; default: None |
+| `--yes` | Explicitly confirm the described local change; no evidence/provider authorization | arity: 0; default: False |
+
+
+
+### case unregister
+
+```text
+usage: case unregister [--json] [--yes] name
+```
+
+Case workspace unregister; no automatic relocation or history rebinding
+
+| Argument / option | Meaning | Constraints / default |
+|---|---|---|
+| `--json` | Json. | arity: 0; default: False |
+| `name` | Name. | required; default: None |
+| `--yes` | Explicitly confirm the described local change; no evidence/provider authorization | arity: 0; default: False |
+
+
+
+### case clone
+
+```text
+usage: case clone [--json] [--yes] source name
+```
+
+Case workspace clone; no automatic relocation or history rebinding
+
+| Argument / option | Meaning | Constraints / default |
+|---|---|---|
+| `--json` | Json. | arity: 0; default: False |
+| `source` | Source. | required; default: None |
+| `name` | Name. | required; default: None |
+| `--yes` | Explicitly confirm the described local change; no evidence/provider authorization | arity: 0; default: False |
 
 
 

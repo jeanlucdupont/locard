@@ -10,7 +10,19 @@ def configure(operations, *, interactive=False):
         return p
     for name in ('open','new'):
         p = add(('case',), name, 'case-'+name, 'Interactive case '+name+'; no evidence ingestion is implied')
-        if name == 'open': p.add_argument('path', nargs='?')
+        p.add_argument('path' if name == 'open' else 'name', nargs='?')
+    for operation in ('list', 'root', 'register', 'unregister', 'clone'):
+        p=add(('case',), operation, 'case-'+operation, 'Case workspace '+operation+'; no automatic relocation or history rebinding')
+        p.add_argument('--json', action='store_true')
+        if operation=='root':
+            p.add_argument('action', nargs='?', choices=('set',))
+            p.add_argument('path', nargs='?')
+        if operation=='register':
+            p.add_argument('name');p.add_argument('path')
+        if operation=='unregister':p.add_argument('name')
+        if operation=='clone':
+            p.add_argument('source');p.add_argument('name')
+        if operation!='list':p.add_argument('--yes', action='store_true', help='Explicitly confirm the described local change; no evidence/provider authorization')
     add(('evidence','ingest'), 'wizard', 'ingest-wizard', 'Guided evidence selection; confirmation required')
     for name, help in [('start','Guided briefing, assessment and separately authorized AI investigation'),
                        ('assess','Plan and approve a new deterministic assessment'),
@@ -82,6 +94,9 @@ def findings(args):
 def run(args):
     read=getattr(args,'_confirm',None) or (input if sys.stdin.isatty() else None)
     op=args.workflow
+    if op.startswith('case-') and op not in ('case-new',):
+        from .case_cli import run as case_run
+        return case_run(args, read=read)
     if op=='findings':return findings(args)
     if op=='reason':
         from .investigation_ai.d2_reasoning import run
@@ -116,6 +131,13 @@ def render(value):
     if value is None:return ''
     from .briefing_cli import render as briefing_render
     from .retrieval.presentation import safe_text
+    if isinstance(value,dict) and 'cases' in value:
+        lines=['Available cases (discovery is not validation)']
+        for row in value['cases']:
+            lines.append('  '+safe_text(row['name'])+' ['+safe_text(row['origin'])+'] '+safe_text(row['path']))
+            lines.append('    '+safe_text(row['status']))
+        if not value['cases']:lines.append('  No cases discovered. Use case new or case register.')
+        return '\n'.join(lines)
     if isinstance(value,dict) and value.get('kind')=='assessment_investigation':return briefing_render(value)
     if isinstance(value,dict) and value.get('kind')=='assessment_history':return briefing_render(value)
     if isinstance(value,dict) and 'valid' in value and 'entries' in value:

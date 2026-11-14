@@ -228,7 +228,7 @@ def dispatch(args, *, existing_only=False):
         from forensic_assistant.reporting.recorded import cli
         return cli(args)
     recorded_only = (args.command == 'ai-history' and args.investigation_command == 'show') or (
-        args.command == 'workflow' and args.workflow in ('findings','reason','version','audit-verify'))
+        args.command == 'workflow' and (args.workflow in ('findings','reason','version','audit-verify') or args.workflow.startswith('case-')))
     if recorded_only:
         try:
             if args.command == 'ai-history':

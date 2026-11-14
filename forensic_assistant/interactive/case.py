@@ -45,7 +45,7 @@ def expected_schema(version=5):
 def check_structure(db):
     version = db.execute('PRAGMA user_version').fetchone()[0]
     if version not in (3, 4, 5):
-        raise ValueError('An existing schema-3, schema-4 or schema-5 Locard database is required')
+        raise ValueError('CASE_SCHEMA_UNSUPPORTED: An existing schema-3, schema-4 or schema-5 Locard database is required')
     if db.execute("SELECT 1 FROM sqlite_master WHERE type IN ('trigger','view') LIMIT 1").fetchone():
         raise ValueError('Unexpected executable schema objects in case')
     for name, columns in expected_schema(version):

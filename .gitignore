@@ -246,3 +246,5 @@ report-bundles/
 !/locard.py
 
 !/docs/LOCARD_6_142_CLI_CONSOLIDATION.md
+
+!/docs/LOCARD_6_143_CASE_WORKSPACE_MANAGEMENT.md

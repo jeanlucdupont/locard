@@ -17,7 +17,7 @@ def read_answer(read, prompt):
 
 
 def view(state):
-    if not state:return {'kind':'saved_briefing','message':'No saved briefing. Use briefing --interview or briefing --edit.'}
+    if not state:return {'kind':'saved_briefing','message':'No saved briefing. Use investigation start, investigation briefing interview or investigation briefing edit.'}
     revision = state['revisions'][-1]
     last = state['analyses'][-1] if state['analyses'] else None
     return {'kind':'saved_briefing','revision':revision,'last_analysis':last,

@@ -17,7 +17,8 @@ def start(case, *, read, display=print, presentation=None):
     state = store.load()
     revision = state['revisions'][-1] if state else None
     current = revision['content'] if revision else content(dict.fromkeys(FIELDS, ''), '')
-    choice = answer('Briefing: existing, edit, or interview [existing]: ') or 'existing'
+    default = 'existing' if revision else 'edit'
+    choice = answer('Briefing: existing, edit, or interview ['+default+']: ') or default
     if choice not in ('existing', 'edit', 'interview'):
         raise ValueError('Choose existing, edit or interview')
     if choice == 'existing' and revision is None:
@@ -38,6 +39,8 @@ def start(case, *, read, display=print, presentation=None):
     display(briefing_workflow.render(briefing_workflow.view(state)))
     if answer('Proceed to explicit local evidence scope and assessment? [y/N]: ').lower() not in ('y','yes'):
         return {'status':'cancelled', 'stage':'assessment'}
+    if not state['revisions'][-1]['content'].get('canonical'):
+        return {'status':'briefing_saved', 'message':'Briefing saved as unverified analyst text. Use investigation briefing analyze to propose and review structured fields before investigation assess. No evidence searches or additional AI requests executed.'}
     from contextlib import closing
     from .interactive.case import open_existing
     from .database.sources import listing
