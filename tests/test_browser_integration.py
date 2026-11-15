@@ -1,6 +1,7 @@
 """End-to-end browser ingestion, provenance and normalized queries."""
 from contextlib import closing
 import json
+import pytest
 from forensic_assistant.database.db import connect
 from forensic_assistant.cli import build_parser
 from forensic_assistant import v2_cli
@@ -94,12 +95,12 @@ def test_browser_human_commands_and_mixed_host_window(mixed_case, tmp_path):
         shown = show_display.render(download, Palette(color))
         assert 'BrowserDownload' in shown and r'C:\Users\alice\Downloads\test.exe' in shown
         assert 'does not prove execution' in SGR.sub('', shown)
-        search_args = build_parser().parse_args(['search', '--artifact', 'browser', '--browser', 'chrome', '--url-contains', 'example.com'])
+        search_args = build_parser().parse_args(['evidence', 'search', '--artifact', 'browser', '--browser', 'chrome', '--url-contains', 'example.com'])
         result, code = v2_cli.dispatch(db, search_args)
         assert code == 0 and result['total'] == 2
         shown = search_display.render(result, Palette(color), width=160)
         assert 'BrowserVisit' in shown and 'BrowserDownload' in shown and download['id'] not in shown
-        args = build_parser().parse_args(['around', download['id'], '--timestamp-slot', 'Browser.DownloadStart', '--text', '--seconds', '5'])
+        args = build_parser().parse_args(['evidence', 'around', download['id'], '--timestamp-slot', 'Browser.DownloadStart', '--text', '--seconds', '5'])
         result, code = v2_cli.dispatch(db, args)
         assert {r['id'] for r in result['records']} >= {pfid, uaid, download['id']}
         assert all(r['host_key'] == 'host-a' for r in result['records'])
@@ -109,10 +110,10 @@ def test_browser_human_commands_and_mixed_host_window(mixed_case, tmp_path):
         shown = render_investigation(inv, Palette(color))
         assert 'Investigation summary' in shown and 'basename' in shown
         assert 'does not prove' in shown and 'causality' in shown
-        timeline_args = build_parser().parse_args(['timeline', '--start', '2020-01-01T09:59:55Z', '--end', '2020-01-01T10:00:05Z', '--text'])
+        timeline_args = build_parser().parse_args(['evidence', 'timeline', '--start', '2020-01-01T09:59:55Z', '--end', '2020-01-01T10:00:05Z', '--text'])
         output, code = v2_cli.dispatch(db, timeline_args)
         assert code == 0 and 'BrowserDownload' in v2_cli.render(output, methodology=False, palette=Palette(color))
-    result, code = v2_cli.dispatch(db, build_parser().parse_args(['status']))
+    result, code = v2_cli.dispatch(db, build_parser().parse_args(['case', 'status']))
     assert result['browser_counts'] == {'browser_download': 2, 'browser_visit': 2}
     shown = status_render(result, 'synthetic.db', context(db))
     assert 'Browser: 4' in shown and 'Visits: 2' in shown and 'Downloads: 2' in shown
@@ -143,9 +144,15 @@ def test_summary_excludes_unrelated_visits():
 
 def test_browser_completion_is_parser_derived():
     from forensic_assistant.interactive.completion import complete
-    text = 'ingest-browser --'
+    text = 'evidence ingest browser --'
     options = complete(text, len(text)).candidates
     assert {'--browser', '--profile', '--source', '--hostname', '--user'} <= set(options)
-    text = 'search --'
+    text = 'evidence search --'
     options = complete(text, len(text)).candidates
     assert {'--url', '--url-contains', '--title', '--title-contains', '--download-path', '--download-path-contains', '--browser', '--profile'} <= set(options)
+
+
+@pytest.fixture(autouse=True)
+def isolated_presentation_audit(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))

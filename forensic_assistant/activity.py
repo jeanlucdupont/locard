@@ -448,8 +448,8 @@ class Command:
 def configure(commands):
     from .command_catalog import COMMANDS
     parser = commands.add_parser('activity', help=COMMANDS['activity'])
-    parser.add_argument('--limit', type=int, default=20)
-    parser.add_argument('--json', action='store_true')
+    parser.add_argument('--limit', type=int, default=20, help='Maximum number of results')
+    parser.add_argument('--json', action='store_true', help='Output as JSON')
     parser.set_defaults(verify=False)
 
 

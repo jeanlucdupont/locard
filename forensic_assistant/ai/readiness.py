@@ -74,7 +74,13 @@ def check(config, **_unused):
 
 def present(config, args=None, *, force=False):
     from .cli import render
-    print(render(check(config), args))
+    value = check(config)
+    if isinstance(config, dict) and config.get('provider') == 'local':
+        value.update(settings.local_configuration(config))
+    if isinstance(config, dict) and config.get('provider') == 'local' and config.get('model_path'):
+        from pathlib import Path
+        value['model'] = Path(config['model_path']).name
+    print(render(value, args, startup=True))
 
 
 def reset():

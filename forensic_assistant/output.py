@@ -21,13 +21,13 @@ def configure(commands):
             help='Disable terminal styling (also respects NO_COLOR)'
         )
         parser.add_argument('--force', action='store_true', default=argparse.SUPPRESS,
-                            help='Permit replacing an existing derived output file without confirmation')
+                            help='Overwrite an existing output file')
         group = parser.add_mutually_exclusive_group()
         group.add_argument(
             '--page',
             action='store_true',
             default=argparse.SUPPRESS,
-            help='Review output with the internal pager (Up/Down, PgUp/PgDn, Home/End, Q)'
+            help='View output page by page'
         )
         if not report_generate:
             group.add_argument(
@@ -35,14 +35,14 @@ def configure(commands):
                 dest='output_file',
                 metavar='FILE',
                 default=argparse.SUPPRESS,
-                help='Write a derived UTF-8 file; existing files require confirmation or --force'
+                help='Save output to a file'
             )
         group.add_argument(
             '--append',
             dest='append_file',
             metavar='FILE',
             default=argparse.SUPPRESS,
-            help='Append rendered output to a derived UTF-8 file'
+            help='Append output to a file'
         )
     for name, parser in commands.choices.items():
         if name == 'ai-history':

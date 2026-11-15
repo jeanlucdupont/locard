@@ -13,44 +13,44 @@ from forensic_assistant.retrieval.presentation import safe
 def configure(commands):
     for name in ('ingest-mft', 'ingest-prefetch', 'ingest-registry', 'ingest-all', 'ingest-evtx', 'ingest-browser'):
         p = commands.add_parser(name, help=COMMANDS[name])
-        p.add_argument('path')
+        p.add_argument('path', help='File or directory path')
         if name == 'ingest-browser':
-            p.add_argument('--browser', required=True, choices=['chrome', 'edge'], help='Explicit browser product; never inferred')
-            p.add_argument('--profile', required=True, help='Explicit browser profile; separate from Windows user')
-        p.add_argument('--hostname')
-        p.add_argument('--user')
-        p.add_argument('--volume-root')
+            p.add_argument('--browser', required=True, choices=['chrome', 'edge'], help='Browser product; never inferred')
+            p.add_argument('--profile', required=True, help='Browser profile, not the Windows username')
+        p.add_argument('--hostname', help='Analyst-supplied source hostname')
+        p.add_argument('--user', help='Analyst-supplied source username')
+        p.add_argument('--volume-root', help='Original volume root asserted by the analyst')
         p.add_argument('--parser-timeout', type=int, default=300,
                        help='EVTX: seconds without parser advancement; other artifacts: wall-clock limit')
         if name in ('ingest-evtx', 'ingest-all'):
             p.add_argument('--evtx-hard-timeout', type=int, default=21600,
                            help='EVTX emergency absolute ceiling in seconds (default: 21600)')
         if name in ('ingest-mft', 'ingest-all'):
-            p.add_argument('--record-size', type=int)
+            p.add_argument('--record-size', type=int, help='MFT record size in bytes')
         else:
             p.set_defaults(record_size=None)
-        p.add_argument('--json', action='store_true')
+        p.add_argument('--json', action='store_true', help='Output as JSON')
     for name in ('search', 'timeline'):
         p = commands.choices[name]
-        p.add_argument('--artifact', choices=['evtx', 'mft', 'prefetch', 'registry', 'browser'])
-        p.add_argument('--path')
+        p.add_argument('--artifact', choices=['evtx', 'mft', 'prefetch', 'registry', 'browser'], help='Artifact family filter')
+        p.add_argument('--path', help='Path filter')
     for field in ('url', 'title', 'download-path'):
         group = commands.choices['search'].add_mutually_exclusive_group()
         group.add_argument('--' + field, help='Exact browser field match')
         group.add_argument('--' + field + '-contains', help='Literal browser field substring; no wildcards')
-    commands.choices['search'].add_argument('--browser', choices=['chrome', 'edge'])
-    commands.choices['search'].add_argument('--profile')
+    commands.choices['search'].add_argument('--browser', choices=['chrome', 'edge'], help='Browser product filter')
+    commands.choices['search'].add_argument('--profile', help='Browser profile filter')
     commands.choices['search'].add_argument('--browser-kind', choices=['visit', 'download'],
-                                          help='Browser evidence subtype (one record per visit or download)')
+                                          help='Select browser visits or downloads')
     for name in ('search', 'show', 'status'):
-        commands.choices[name].add_argument('--json', action='store_true')
+        commands.choices[name].add_argument('--json', action='store_true', help='Output as JSON')
     keys = commands.choices['search'].add_mutually_exclusive_group()
     keys.add_argument('--key', help='Registry key path: exact literal match (SQLite NOCASE); includes its values; no filesystem normalization')
     keys.add_argument('--key-contains', help='Registry key path: literal substring (SQLite NOCASE); no wildcards; includes matching keys and their values')
     values = commands.choices['search'].add_mutually_exclusive_group()
     values.add_argument('--value-name', help='Registry value name: exact raw or decoded UserAssist name (SQLite NOCASE)')
     values.add_argument('--value-name-contains', help='Registry value name: literal substring of raw or decoded UserAssist name (SQLite NOCASE); no wildcards')
-    commands.choices['around'].add_argument('--timestamp-slot')
+    commands.choices['around'].add_argument('--timestamp-slot', help='Anchor timestamp type')
     commands.choices['investigate'].add_argument('--timestamp-slot', help='Select the anchor timestamp slot when multiple slots exist')
 
 

@@ -701,6 +701,36 @@ def review(case=None, *, selector='latest', limit=100, diagnostics=False, severi
                 unanchored_records=max(0, sequence-row.get('anchored_through', 0)))
 
 
+def integrity_summary(value, palette=None):
+    """Human projection only; verified JSON and persisted classifications are unchanged."""
+    from .terminal import Palette, field
+    palette = palette or Palette()
+    audit = value['activity']
+    status = 'Verified' if audit.get('exists') and audit['valid'] else 'Missing' if audit['valid'] else 'Corrupt'
+    rows = value['sessions']
+    verified = sum(r['integrity'] == 'verified' for r in rows)
+    failures = sum(r['integrity'] in ('corrupt', 'missing', 'unverifiable') for r in rows)
+    incomplete = sum(r['integrity'] == 'incomplete' for r in rows)
+    current = ACTIVE.get()
+    # Only identify this process's live recorder with the exact validated head.
+    active = sum(r['integrity'] == 'incomplete' and current is not None and
+                 not current.broken and isinstance(current.head, dict) and r['session_id'] == current.segment and
+                 r.get('head_hash') == current.head.get('entry_hash') for r in rows)
+    lines = [palette('heading', 'AUDIT INTEGRITY'), '',
+             field('Activity chain', status, palette, role={'Verified':'success','Missing':'unknown','Corrupt':'error'}[status]),
+             field('Completed sessions', verified, palette), field('Verified sessions', verified, palette),
+             field('Active sessions (this process)', active, palette),
+             field('Incomplete sessions (state unknown)', incomplete-active, palette, role='unknown' if incomplete-active else 'value'),
+             field('Integrity failures', failures + int(not audit['valid']), palette, role='error' if failures or not audit['valid'] else 'value')]
+    if not failures and audit['valid']:
+        lines.append(palette('success' if verified else 'unknown', 'No integrity failures detected in completed sessions.' if verified else 'No completed sessions verified.'))
+    if incomplete-active:
+        lines.append(palette('forensic_note', 'An incomplete recording may be active elsewhere or interrupted; its state is not established.'))
+    if any(r.get('limitations') for r in rows):
+        lines.append(palette('forensic_note', 'Recording limitations remain; use --json or audit session show for details.'))
+    return '\n'.join(lines)
+
+
 def render(value, palette=None):
     from .terminal import Palette, field
     palette = palette or Palette()

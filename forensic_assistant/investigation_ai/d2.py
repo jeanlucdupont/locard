@@ -307,10 +307,10 @@ def render(result):
 
 def main():
     parser=argparse.ArgumentParser(description='Provider-free D2 historical issue preview')
-    parser.add_argument('root');parser.add_argument('run_id')
+    parser.add_argument('root', help='Recorded investigation directory');parser.add_argument('run_id', help='Saved investigation ID')
     parser.add_argument('--exploratory',action='store_true',help='Permit exploratory local previews only; never cloud disclosure')
     parser.add_argument('--issue',action='append',default=[],help='Select a listed issue ID (maximum two)')
-    parser.add_argument('--json',action='store_true')
+    parser.add_argument('--json',action='store_true', help='Output as JSON')
     args=parser.parse_args()
     result=open_history(args.root,args.run_id).preview(exploratory=args.exploratory,issue_ids=args.issue)
     print(encoded(result) if args.json else render(result))

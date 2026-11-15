@@ -62,8 +62,8 @@ def build_parser(*, interactive=False):
     parser.add_argument("--version", action="version", version="Locard " + __version__)
     from forensic_assistant.cli_parser import VersionDetails
     parser.add_argument('--version-details', action=VersionDetails, nargs=0,
-                        help='Show effective source and installed metadata versions (JSON)')
-    parser.add_argument("--db", default=Config.database)
+                        help='Show source and installed versions as JSON')
+    parser.add_argument("--db", default=Config.database, help='Case database path')
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling (also respects NO_COLOR)')
     from forensic_assistant.command_surface import Operations
     commands = Operations(parser)
@@ -74,7 +74,7 @@ def build_parser(*, interactive=False):
     v1_cli.configure(commands)
     search = commands.add_parser("search", help=COMMANDS['search'])
     for name in ("user", "ip", "hostname", "start", "end"):
-        search.add_argument("--" + name)
+        search.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time with timezone', 'end': 'End time with timezone', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
     process = search.add_mutually_exclusive_group()
     process.add_argument(
         '--process',
@@ -88,61 +88,61 @@ def build_parser(*, interactive=False):
     search.add_argument(
         '--ids',
         action='store_true',
-        help='Include full copyable evidence IDs, numbered to match table rows; display paths may be shortened. Use evidence show for details, --json for the existing structured projection, --raw for available raw payloads.'
+        help='Show complete, copyable evidence IDs'
     )
     search.add_argument('--evtx-text', help='Explicit literal, case-sensitive EVTX field search; requires --artifact evtx and a paired time window <=24 hours; bounded coverage, no raw/offset')
     search.add_argument('--evtx-match', choices=('exact', 'contains'), help='Whole-value exact or literal substring match; default contains')
     search.add_argument('--evtx-after', help='Copy the continuation cursor; retain the same filters and unchanged case contents')
-    search.add_argument("--event-id", type=int)
+    search.add_argument("--event-id", type=int, help='Windows event identifier')
     search.add_argument(
         "--kind",
         choices=["logons", "failed-logons", "processes", "powershell", "scheduled-tasks", "services", "account-changes"]
-    )
+    , help='Normalized record kind')
     timeline = commands.add_parser("timeline", help=COMMANDS['timeline'])
-    timeline.add_argument("timestamp", nargs="?", help="Anchor time as ISO 8601 with Z or an explicit UTC offset, e.g. 2026-06-29T19:08:00Z")
-    timeline.add_argument("--around", help="Anchor time as ISO 8601 with Z or an explicit UTC offset, e.g. 2026-06-29T19:08:00Z")
-    timeline.add_argument("--start", help="Start time as ISO 8601 with Z or an explicit UTC offset, e.g. 2026-06-29T19:07:30Z")
-    timeline.add_argument("--end", help="End time as ISO 8601 with Z or an explicit UTC offset, e.g. 2026-06-29T19:08:30Z")
+    timeline.add_argument("timestamp", nargs="?", help='Anchor time with UTC or explicit offset')
+    timeline.add_argument("--around", help='Anchor time with UTC or explicit offset')
+    timeline.add_argument("--start", help='Start time with UTC or explicit offset')
+    timeline.add_argument("--end", help='End time with UTC or explicit offset')
     for name in ("user", "process", "ip", "hostname", "artifact-type"):
-        timeline.add_argument("--" + name)
-    timeline.add_argument("--event-id", type=int)
-    timeline.add_argument("--minutes", type=int, default=5)
+        timeline.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time with timezone', 'end': 'End time with timezone', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
+    timeline.add_argument("--event-id", type=int, help='Windows event identifier')
+    timeline.add_argument("--minutes", type=int, default=5, help='Minutes on either side of the anchor')
     around = commands.add_parser(
         "around",
         help=COMMANDS['around'],
         description='Compact text rounds timestamps and exact deltas to milliseconds (nearest, ties away from zero). JSON/raw and --ids retain full precision. Temporal proximity is not causation; timestamp meanings differ by artifact.'
     )
-    around.add_argument("evidence_id")
-    around.add_argument("--seconds", type=int, default=120)
-    around.add_argument("--direction", choices=["before", "after", "around"], default="around")
+    around.add_argument("evidence_id", help='Evidence record identifier')
+    around.add_argument("--seconds", type=int, default=120, help='Seconds around the anchor')
+    around.add_argument("--direction", choices=["before", "after", "around"], default="around", help='Select evidence before, after or around the anchor')
     for command in (search, timeline):
         command.add_argument("--limit", type=int, default=20 if command is search else 100,
                              help='Maximum results (default: %(default)s)')
-        command.add_argument("--offset", type=int, default=0)
+        command.add_argument("--offset", type=int, default=0, help='Skip this many results')
         command.add_argument(
             "--raw",
             action="store_true",
-            help="Include original XML or available artifact bytes/details"
+            help='Include original record details where available'
         )
-    around.add_argument("--limit", type=int, default=100)
-    around.add_argument("--offset", type=int, default=0)
-    around.add_argument("--raw", action="store_true")
+    around.add_argument("--limit", type=int, default=100, help='Maximum number of results')
+    around.add_argument("--offset", type=int, default=0, help='Skip this many results')
+    around.add_argument("--raw", action="store_true", help='Include original record details where available')
     around.add_argument(
         '--ids',
         action='store_true',
-        help='Include full evidence/source IDs, timestamp slots and original timestamp precision in --text output'
+        help='Show exact IDs, timestamp types and full precision'
     )
     for command in (timeline, around):
         display = command.add_mutually_exclusive_group()
-        display.add_argument("--json", action="store_true", help="JSON output (default)")
-        display.add_argument("--text", action="store_true", help="Compact readable output")
+        display.add_argument("--json", action="store_true", help='Output as JSON (default)')
+        display.add_argument("--text", action="store_true", help='Show a compact readable result')
     show = commands.add_parser(
         "show",
         help=COMMANDS['show'],
         description="Human summary with populated timestamps and bounded references. --json preserves the structured projection; --raw includes available XML/artifact bytes. Both retain existing 100-object/reference/value-ID bounds and truncation flags."
     )
-    show.add_argument("evidence_id")
-    show.add_argument("--raw", action="store_true")
+    show.add_argument("evidence_id", help='Evidence record identifier')
+    show.add_argument("--raw", action="store_true", help='Include original record details where available')
     commands.add_parser("status", help=COMMANDS['status'])
     ask_parser = commands.add_parser("ask", help=COMMANDS['ask'], description=(
         'Advanced bounded local query with deterministic planning and optional semantic retrieval. '
@@ -150,14 +150,14 @@ def build_parser(*, interactive=False):
         'Semantic retrieval discovers meaning-based candidate leads, not evidence for the queried concept. '
         'The local LLM analyzes only the bounded supplied bundle. Model analysis is not evidence.'))
     ask_output = ask_parser.add_mutually_exclusive_group()
-    ask_output.add_argument('--json', dest='json', action='store_true', help='Structured output')
-    ask_output.add_argument('--text', dest='json', action='store_false', help='Human-readable output')
+    ask_output.add_argument('--json', dest='json', action='store_true', help='Output as JSON')
+    ask_output.add_argument('--text', dest='json', action='store_false', help='Show readable text')
     ask_parser.set_defaults(json=not interactive, _ask_interactive=interactive)
-    ask_parser.add_argument("question")
-    ask_parser.add_argument("--endpoint", default=None)
+    ask_parser.add_argument("question", help='Question to investigate')
+    ask_parser.add_argument("--endpoint", default=None, help='Local model endpoint')
     ask_parser.add_argument("--date", help="UTC date for time-only questions")
-    ask_parser.add_argument("--limit", type=int, default=30)
-    ask_parser.add_argument("--timeout", type=float, default=Config.timeout)
+    ask_parser.add_argument("--limit", type=int, default=30, help='Maximum number of results')
+    ask_parser.add_argument("--timeout", type=float, default=Config.timeout, help='Request timeout in seconds')
     ask_parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -258,7 +258,7 @@ def _dispatch_recorded(args, *, existing_only=False):
                 from forensic_assistant.workflow_cli import run,render
                 from forensic_assistant.terminal import Palette, enabled
                 value=run(args)
-                if value is not None:print(json.dumps(value,ensure_ascii=True,indent=2) if getattr(args,'json',False) else render(value, Palette(enabled(args))))
+                if value is not None:print(json.dumps(value,ensure_ascii=True,indent=2) if getattr(args,'json',False) else render(value, Palette(enabled(args)), audit_summary=args.workflow=='audit-verify'))
             return 2 if isinstance(value,dict) and value.get('valid') is False else 0
         except (ValueError,OSError,sqlite3.Error) as exc:
             from forensic_assistant.terminal import message
@@ -343,7 +343,7 @@ def _dispatch(args, output, *, existing_only=False):
             result = workflow_cli.run(args)
             if result is not None:
                 if args.json: emit(result)
-                else: output.write(workflow_cli.render(result, output.palette))
+                else: output.write(workflow_cli.render(result, output.palette, audit_summary=args.workflow=='audit-verify'))
             return 0
         if args.command == 'briefing':
             from forensic_assistant import briefing_cli

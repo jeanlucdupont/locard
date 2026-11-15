@@ -3,7 +3,7 @@ import json
 from collections import Counter
 
 from forensic_assistant.artifacts.registry_logs import is_log
-from forensic_assistant.terminal import Palette
+from forensic_assistant.terminal import Palette, field
 from .presentation import safe, safe_path
 from .layout import fit
 
@@ -38,15 +38,15 @@ def context(db):
 
 def render(result, case, details, palette=None):
     palette = palette or Palette()
-    lines = [palette('heading', 'CASE STATUS'), 'Case: ' + safe_path(case), '', palette('heading', 'Evidence')]
+    lines = [palette('heading', 'CASE STATUS'), field('Case', safe_path(case), palette), '', palette('heading', 'Evidence')]
     counts = result.get('artifact_counts', {})
-    lines.append('  Total evidence records: ' + f'{sum(counts.values()):,}')
+    lines.append(field('  Total evidence records', f'{sum(counts.values()):,}', palette))
     for kind, count in sorted(counts.items()):
-        lines.append('  ' + safe(kind.capitalize()) + ': ' + f'{count:,}')
+        lines.append(field('  '+safe(kind.capitalize()), f'{count:,}', palette))
         if kind == 'browser':
             for label, key in [('Visits', 'browser_visit'), ('Downloads', 'browser_download')]:
-                lines.append('    ' + label + ': ' + str(result.get('browser_counts', {}).get(key, 0)))
-    lines.append('  Timeline observations: ' + f"{result.get('timeline_observations', 0):,}")
+                lines.append(field('    '+label, result.get('browser_counts', {}).get(key, 0), palette))
+    lines.append(field('  Timeline observations', f"{result.get('timeline_observations', 0):,}", palette))
     outcomes, companions, historical = Counter(), Counter(), Counter()
     log_files = set()
     for run in result.get('ingestion_runs', []):
@@ -59,27 +59,27 @@ def render(result, case, details, palette=None):
             outcomes[run['status']] += 1
     lines += ['', palette('heading', 'Ingestion (file attempts)')]
     for status in ('complete', 'partial', 'failed'):
-        lines.append('  ' + status.capitalize() + ': ' + f'{outcomes.pop(status, 0):,}')
+        lines.append(field('  '+status.capitalize(), f'{outcomes.pop(status, 0):,}', palette))
     for status, count in sorted(outcomes.items()):
-        lines.append('  ' + safe(status) + ': ' + f'{count:,}')
+        lines.append(field('  '+safe(status), f'{count:,}', palette))
     def summary(counter):
-        return ', '.join(safe(status) + ': ' + str(count) for status, count in sorted(counter.items()))
+        return ', '.join(field(safe(status), count, palette) for status, count in sorted(counter.items()))
     if companions:
         lines.append('  Companion log attempts: ' + summary(companions))
     if historical:
         lines.append('  Historical companion log attempts: ' + summary(historical))
-    lines.append('  Recorded ingestion errors: ' + f"{sum(r['error_count'] for r in result.get('ingestion_runs', [])):,}")
+    lines.append(field('  Recorded ingestion errors', f"{sum(r['error_count'] for r in result.get('ingestion_runs', [])):,}", palette))
     coverage = result.get('source_coverage', {})
-    lines += ['', palette('heading', 'Sources'), '  Total: ' + str(coverage.get('total', 'unknown (legacy schema)'))]
+    lines += ['', palette('heading', 'Sources'), field('  Total', coverage.get('total', 'unknown (legacy schema)'), palette)]
     for source in coverage.get('sources', [])[:5]:
-        lines += ['  ' + fit(safe(source['display_name']), 100),
-                  '    Analyst host: ' + safe(source.get('hostname') or 'unknown') +
-                  '; files: ' + str(source['files']) + '; evidence records: ' + f"{source['evidence_count']:,}"]
+        lines += ['  ' + palette('value', fit(safe(source['display_name']), 100)),
+                  field('    Analyst host', safe(source.get('hostname') or 'unknown'), palette) +
+                  '; ' + field('files', source['files'], palette) + '; ' + field('evidence records', f"{source['evidence_count']:,}", palette)]
         if source.get('artifact_hostnames'):
-            lines.append('    Artifact hosts: ' + fit(safe(', '.join(source['artifact_hostnames'])), 120))
+            lines.append(field('    Artifact hosts', fit(safe(', '.join(source['artifact_hostnames'])), 120), palette))
     if coverage.get('total', 0) > 5:
         lines.append(f"  Showing {min(5, len(coverage.get('sources', [])))} of {coverage['total']} sources; use status --json")
-    lines.append('  Unfinished batches: ' + str(coverage.get('unfinished_batches', 'unknown')))
+    lines.append(field('  Unfinished batches', coverage.get('unfinished_batches', 'unknown'), palette))
     limitations = list(coverage.get('limitations', []))
     if coverage.get('unknown_hostname_sources'):
         limitations.append(f"Analyst hostname unknown for {coverage['unknown_hostname_sources']} sources; source membership alone does not establish a host")
@@ -107,8 +107,11 @@ def render(result, case, details, palette=None):
                 f"EVTX recovery resumed at file offset {diagnostic['resume_offset']}; "
                 f"{diagnostic['parsed_records_after_error']} later records parsed successfully "
                 '(parser anomaly remains recorded; see status --json)')
-    if result.get('caution'):
+    generic = 'Missing events do not establish absence of activity. Auditing and supplied logs may be incomplete.'
+    if result.get('caution') and result['caution'] != generic:
         limitations.append(result['caution'])
+    limitations.insert(0, 'No evidence has been ingested. Activity cannot be assessed.' if not sum(counts.values()) else
+        'The absence of matching evidence records does not establish that no activity occurred. Available forensic data may be incomplete.')
     limitations = list(dict.fromkeys(limitations))
     if limitations:
         lines += ['', palette('heading', 'Limitations')]

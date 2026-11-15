@@ -257,8 +257,7 @@ class Shell:
         offer_setup(self.reader.read, self)
         try:
             config = ai_settings.load()
-            if config["provider"] != "local":
-                readiness.present(config, self)
+            readiness.present(config, self)
         except (OSError, ValueError):
             print("AI configuration unavailable; deterministic commands remain available.")
         try:
@@ -300,6 +299,23 @@ class Shell:
                         if len(words) != 1:
                             raise ValueError('quit takes no arguments')
                         return 0
+                    if words[0] == '?' or (words[-1] == '?' and not words[0].startswith('!')):
+                        from .help import contextual_help, catalog
+                        from forensic_assistant.terminal import render_spans, SGR
+                        path = words[1:] if words[0] == '?' else words[:-1]
+                        try:
+                            parser = build_parser(interactive=True)
+                            if not path or path == ['all']:
+                                print(catalog(parser, Palette(enabled(self)), all_commands=path==['all']))
+                            else:
+                                text = contextual_help(parser, path, Palette(enabled(self)))
+                                print(text, end='' if SGR.sub('', text).endswith('\n') else '\n')
+                            self.audit.record('COMMAND', command='help', argv=words)
+                            self.last_status = 0
+                        except UnknownCommand as exc:
+                            print(render_spans(exc.spans, Palette(enabled(self))))
+                            self.last_status = 2
+                        continue
                     if words[0] in ('help', '?'):
                         from .help import catalog, command_help
                         if len(words) == 1 or words[1:] == ['all']:
@@ -321,7 +337,8 @@ class Shell:
                         self.last_status = int(exc.code)
                         continue
                     except (UnknownCommand, InvalidArguments) as exc:
-                        print(Palette(enabled(self))('error', str(exc)))
+                        from forensic_assistant.terminal import render_spans, TextSpan
+                        print(render_spans(exc.spans or [TextSpan(str(exc), 'error')], Palette(enabled(self))))
                         self.last_status = 2
                         continue
                     if self.no_color:

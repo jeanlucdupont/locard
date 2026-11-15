@@ -43,12 +43,12 @@ def render(result, prepared, palette=None):
 
 
 def configure(parser):
-    parser.add_argument('root');parser.add_argument('run_id')
-    parser.add_argument('--issue');parser.add_argument('--exploratory',action='store_true')
+    parser.add_argument('root', help='Recorded investigation directory');parser.add_argument('run_id', help='Saved investigation ID')
+    parser.add_argument('--issue', help='Registered issue or question identifier');parser.add_argument('--exploratory',action='store_true', help='Preview organization without an objective-specific binding')
     parser.add_argument('--cross-artifact',action='store_true',help='Use the separate 16384-byte policy over saved authorized evidence')
     parser.add_argument('--question',help='Analyst question for --cross-artifact')
     parser.add_argument('--execute',action='store_true',help='Ask to authorize one cloud request; no automatic approval')
-    parser.add_argument('--json',action='store_true')
+    parser.add_argument('--json',action='store_true', help='Output as JSON')
     parser.add_argument('--findings-workspace',help='Existing source-bound findings directory; saving requires a separate choice after execution')
     parser.add_argument('--findings-actor',help='Locally asserted actor for optional capture; not authenticated identity')
 

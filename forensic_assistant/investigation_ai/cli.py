@@ -11,17 +11,17 @@ from .transcript import load, implementation
 
 def configure(commands):
     p = commands.add_parser('investigate-ai', help=COMMANDS['investigate-ai'], description='Advanced / Diagnostic interface. Use ! <question> for normal interactive AI requests.')
-    p.add_argument('question')
+    p.add_argument('question', help='Question to investigate')
     p.add_argument('--details', action='store_true', help='Show technical observations, full evidence IDs and provenance')
     p.add_argument('--endpoint', default=None, help='Advanced existing loopback endpoint; overrides configured provider for this invocation')
-    p.add_argument('--date')
-    p.add_argument('--max-steps', type=int, default=8)
-    p.add_argument('--max-tool-calls', type=int, default=6)
-    p.add_argument('--max-seconds', type=int, default=300)
+    p.add_argument('--date', help='Date for time-only questions')
+    p.add_argument('--max-steps', type=int, default=8, help='Maximum investigation steps')
+    p.add_argument('--max-tool-calls', type=int, default=6, help='Maximum approved tool calls')
+    p.add_argument('--max-seconds', type=int, default=300, help='Maximum investigation duration in seconds')
     p.add_argument(
         '--dry-run',
         action='store_true',
-        help='Initial retrieval plus one model proposal; no iterative tool execution'
+        help='Retrieve evidence and request one AI proposal; no tools'
     )
     p.add_argument(
         '--approve-tools',
@@ -33,17 +33,17 @@ def configure(commands):
         epilog='Saved records are derived data; replay does not establish forensic conclusions.')
     subs = review.add_subparsers(dest='investigation_command', required=True)
     show = subs.add_parser('show', help='Review a saved AI investigation')
-    show.add_argument('investigation_id')
+    show.add_argument('investigation_id', help='Saved investigation ID')
     replay = subs.add_parser('replay', help='Replay saved lookups against the current case')
-    replay.add_argument('investigation_id')
+    replay.add_argument('investigation_id', help='Saved investigation ID')
     for command in (p, show, replay):
         command.add_argument('--transcripts', help='Sensitive local derived records, not evidence; default: DATABASE.investigations. Analyst controls retention/deletion.')
-        command.add_argument('--json', action='store_true')
+        command.add_argument('--json', action='store_true', help='Output as JSON')
         command.add_argument('--explain', action='store_true', help='Include step-by-step transcript data')
     for command in (p, replay):
-        command.add_argument('--no-semantic', action='store_true')
-        command.add_argument('--semantic-index')
-        command.add_argument('--embedding-model')
+        command.add_argument('--no-semantic', action='store_true', help='Disable semantic retrieval')
+        command.add_argument('--semantic-index', help='Case-specific semantic index directory')
+        command.add_argument('--embedding-model', help='Local embedding model directory')
 
 def approve(proposal, seconds, *, args=None):
     if not sys.stdin.isatty():

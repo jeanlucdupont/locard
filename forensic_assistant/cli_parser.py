@@ -5,11 +5,15 @@ from forensic_assistant.retrieval.presentation import safe
 
 
 class UnknownCommand(Exception):
-    pass
+    def __init__(self, message, spans=None):
+        super().__init__(message)
+        self.spans = spans
 
 
 class InvalidArguments(Exception):
-    pass
+    def __init__(self, message, spans=None):
+        super().__init__(message)
+        self.spans = spans
 
 
 class VersionDetails(argparse.Action):
@@ -84,18 +88,25 @@ class InteractiveParser(LocardParser):
 
     def _check_value(self, action, value):
         if isinstance(action, argparse._SubParsersAction) and action.dest == 'family' and value not in action.choices:
-            raise UnknownCommand('Unknown command: ' + safe(value) + '\nType `help` to list available commands.')
+            from forensic_assistant.terminal import TextSpan
+            raise UnknownCommand('Unknown command: ' + safe(value) + '\nType `help` to list available commands.',
+                [TextSpan('Unknown command: ' + safe(value), 'error'), TextSpan('\nType '), TextSpan('help', 'command'), TextSpan(' to list available commands.')])
         return super()._check_value(action, value)
 
     def error(self, message):
         parser = self.context.get('active', self)
         guidance = parser.selector_guidance(message)
+        from forensic_assistant.terminal import TextSpan
         if guidance:
-            raise InvalidArguments(guidance)
+            raise InvalidArguments(guidance, [TextSpan('Invalid arguments.\n', 'error'), TextSpan(guidance)])
         if parser.prog == 'Locard shell':
-            raise InvalidArguments('Invalid arguments. Type `help` for command syntax.')
-        raise InvalidArguments('Invalid arguments.\n' + parser.format_usage().rstrip() +
-                               '\nType `help ' + parser.prog + '` for details.')
+            raise InvalidArguments('Invalid arguments. Type `help` for command syntax.',
+                [TextSpan('Invalid arguments. ', 'error'), TextSpan('Type '), TextSpan('help', 'command'), TextSpan(' for command syntax.')])
+        message = 'Invalid arguments.\n' + parser.format_usage().rstrip() + '\nType `help ' + parser.prog + '` for details.'
+        raise InvalidArguments(message, [TextSpan('Invalid arguments.\n', 'error'),
+            *semantic_help(parser, usage_only=True), TextSpan('Type '),
+            TextSpan('help ' + parser.prog, 'command'), TextSpan(' for details.')])
+
 
 
 def configure_interactive(parser, path=(), context=None):
@@ -114,18 +125,22 @@ def classify_help(parser):
     """Group presentation/diagnostic controls without changing parse semantics."""
     advanced = {'--raw', '--details', '--offset', '--evtx-after', '--parser-timeout',
                 '--record-size', '--max-files', '--max-file-size', '--append', '--force'}
-    parser._optionals.title = 'Common options'
+    visible = [a for a in parser._optionals._group_actions if a.help != argparse.SUPPRESS]
+    complex_help = len(visible) > 8
+    parser._optionals.title = 'Common options' if complex_help else 'Options'
     selected = [a for a in parser._optionals._group_actions
                 if advanced.intersection(a.option_strings)]
-    if selected:
-        group = parser.add_argument_group('Advanced options',
-            'Diagnostic, resource or output controls; existing validation still applies.')
+    if selected and complex_help:
+        group = parser.add_argument_group('Advanced options')
         for action in selected:
             parser._optionals._group_actions.remove(action)
             group._group_actions.append(action)
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
-            for child in action.choices.values():
+            descriptions = {c.dest:c.help for c in action._choices_actions}
+            for name, child in action.choices.items():
+                if not child.description:
+                    child.description = descriptions.get(name)
                 classify_help(child)
 
 
@@ -137,7 +152,7 @@ def parser_tree(parser):
                 yield from parser_tree(child)
 
 
-def semantic_help(parser):
+def semantic_help(parser, *, usage_only=False):
     """Build human help from actions/groups, never recolor formatted prose.
 
     Argparse retains ownership of argument syntax expansion, defaults and parsing.
@@ -146,7 +161,7 @@ def semantic_help(parser):
     import shutil
     import textwrap
     from forensic_assistant.terminal import TextSpan, safe_span_text
-    width = max(40, min(100, shutil.get_terminal_size().columns - 2))
+    width = max(24, shutil.get_terminal_size().columns - 2)
     formatter = parser._get_formatter()
     spans = []
     def add(text, role='label'):
@@ -171,22 +186,37 @@ def semantic_help(parser):
             return ', '.join(opt + (' ' + arguments(action) if action.nargs != 0 else '') for opt in options)
         return arguments(action)
     visible = [a for a in parser._actions if a.help != argparse.SUPPRESS]
-    add('usage: ', 'heading'); add(parser.prog, 'command')
+    add('usage: '); add(parser.prog, 'command')
+    column = 7 + len(parser.prog)
+    def usage_token(text):
+        nonlocal column
+        if column + 1 + len(text) > width:
+            add('\n       '); column = 7
+        else:
+            add(' '); column += 1
+        # Wrap generated syntax at separators, never split an option identifier.
+        parts = textwrap.wrap(text.replace(',', ', '), max(8, width-column), break_long_words=False, break_on_hyphens=False) or ['']
+        for index, part in enumerate(parts):
+            if index:
+                add('\n       '); column = 7
+            syntax(part); column += len(part)
     grouped = set()
     for action in visible:
         if action in grouped:
             continue
         group = next((g for g in parser._mutually_exclusive_groups if action in g._group_actions), None)
-        add(' ')
         if group:
             members = [a for a in group._group_actions if a in visible]
             grouped.update(members)
-            syntax(('(' if group.required else '[') + ' | '.join(invocation(a, True) for a in members)
+            usage_token(('(' if group.required else '[') + ' | '.join(invocation(a, True) for a in members)
                    + (')' if group.required else ']'))
         else:
             text = invocation(action, True)
-            syntax('[' + text + ']' if action.option_strings and not action.required else text)
-    add('\n\n')
+            usage_token('[' + text + ']' if action.option_strings and not action.required else text)
+    add('\n')
+    if usage_only:
+        return spans
+    add('\n')
     if parser.description:
         prose(parser.description); add('\n')
     for group in parser._action_groups:
@@ -197,7 +227,9 @@ def semantic_help(parser):
         if group.description:
             prose(group.description, '  ')
         # Plain invocation widths determine the columns before any ANSI encoding.
-        left_width = min(max(len(invocation(a)) for a in actions), max(12, width // 3))
+        lefts = [invocation(a) for a in actions if not isinstance(a, argparse._SubParsersAction)]
+        lefts += [c.metavar or c.dest for a in actions if isinstance(a, argparse._SubParsersAction) for c in a._choices_actions]
+        left_width = min(max(map(len, lefts), default=12), max(12, width // 3))
         description_column = left_width + 4
         def row(left, description, indent=2):
             add(' ' * indent); syntax(left)
@@ -205,7 +237,7 @@ def semantic_help(parser):
                 add('\n'); return
             lines = []
             for line in str(description).splitlines():
-                lines.extend(textwrap.wrap(safe_span_text(line), max(20, width-description_column)) or [''])
+                lines.extend(textwrap.wrap(safe_span_text(line), max(8, width-description_column)) or [''])
             if len(left) > left_width or width < 55:
                 add('\n' + ' ' * description_column)
             else:
@@ -214,7 +246,8 @@ def semantic_help(parser):
             for line in lines[1:]:
                 add(' ' * description_column + line + '\n')
         for action in actions:
-            row(invocation(action), formatter._expand_help(action) if action.help else '')
+            if not isinstance(action, argparse._SubParsersAction):
+                row(invocation(action), formatter._expand_help(action) if action.help else '')
             if isinstance(action, argparse._SubParsersAction):
                 for child in action._choices_actions:
                     if child.help != argparse.SUPPRESS:

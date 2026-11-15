@@ -53,7 +53,7 @@ def test_unmatched_and_mixed_ingestion_source_membership(tmp_path):
     for name in ('SYSTEM.LOG1', 'absent.LOG2'):
         (tmp_path / name).write_bytes(b'regf' + bytes(80))
     with closing(connect(':memory:')) as db:
-        args = build_parser().parse_args(['ingest-registry', str(tmp_path)])
+        args = build_parser().parse_args(['evidence', 'ingest', 'registry', str(tmp_path)])
         results = v2_cli.ingest_sources(db, args)
         assert [r['status'] for r in results].count('complete') == 1
         assert [r['status'] for r in results].count('unsupported') == 2
@@ -71,7 +71,7 @@ def test_only_companion_batch_is_not_successful_or_parser_failure(tmp_path):
     log = tmp_path / 'orphan.LOG2'
     log.write_bytes(b'HvLE' + bytes(80))
     with closing(connect(':memory:')) as db:
-        args = build_parser().parse_args(['ingest-registry', str(log)])
+        args = build_parser().parse_args(['evidence', 'ingest', 'registry', str(log)])
         results = v2_cli.ingest_sources(db, args)
         assert results[0]['status'] == 'unsupported'
         assert db.execute('SELECT status FROM ingestion_batches').fetchone()[0] == 'unsupported'
@@ -112,7 +112,7 @@ def test_key_exact_contains_and_structured_immutability(case):
         q.search(registry_key_contains='')
     assert q.search(path='payload.exe').total == 1  # existing filesystem target contract
     assert q.search(path=path).total == 0  # no Registry reinterpretation of --path
-    args = build_parser().parse_args(['search', '--artifact', 'registry', '--key', path, '--json'])
+    args = build_parser().parse_args(['evidence', 'search', '--artifact', 'registry', '--key', path, '--json'])
     actual, _ = v2_cli.dispatch(db, args)
     assert actual['records'] == exact.records
     assert actual['limit'] == 20
@@ -229,13 +229,13 @@ def test_status_human_json_sources_and_historical_logs(case, tmp_path, capsys):
     db, _, key, _ = case
     log = tmp_path / 'SYSTEM.LOG1'
     log.write_bytes(b'regf' + bytes(80))
-    v2_cli.ingest_sources(db, build_parser().parse_args(['ingest-registry', str(log)]))
+    v2_cli.ingest_sources(db, build_parser().parse_args(['evidence', 'ingest', 'registry', str(log)]))
     with db:
         db.execute("INSERT INTO ingestion_runs(source_file,started_utc,status,error_count) VALUES ('old.LOG2','then','partial',1)")
         run = db.execute('SELECT max(id) FROM ingestion_runs').fetchone()[0]
         db.execute("INSERT INTO artifact_runs VALUES (?,'registry','libregf-python','test','1',NULL,'{}')", (run,))
         db.execute("INSERT INTO ingestion_batches VALUES ('unfinished',(SELECT source_id FROM sources LIMIT 1),'now',NULL,'test','test','running')")
-    args = build_parser().parse_args(['status', '--json'])
+    args = build_parser().parse_args(['case', 'status', '--json'])
     expected, _ = v2_cli.dispatch(db, args)
     before = copy.deepcopy(expected)
     details = status_display.context(db)
@@ -253,11 +253,11 @@ def test_status_human_json_sources_and_historical_logs(case, tmp_path, capsys):
     path = tmp_path / 'case.db'
     with closing(connect(path)) as target:
         db.backup(target)
-    assert main(['--db', str(path), 'status', '--json']) == 0
+    assert main(['--db', str(path), 'case', 'status', '--json']) == 0
     assert json.loads(capsys.readouterr().out) == expected
-    assert main(['--db', str(path), 'status']) == 0
+    assert main(['--db', str(path), 'case', 'status']) == 0
     assert 'CASE STATUS' in capsys.readouterr().out
-    assert main(['--db', str(path), 'show', key]) == 0
+    assert main(['--db', str(path), 'evidence', 'show', key]) == 0
     assert 'Example' in capsys.readouterr().out
 
 
@@ -268,8 +268,14 @@ def test_status_failed_partial_and_legacy_metadata(case):
             db.execute('INSERT INTO ingestion_runs(source_file,started_utc,status,error_count) VALUES (?,?,?,?)',
                        ('synthetic', 'then', outcome, 1))
         db.execute('PRAGMA user_version=3')
-    expected, _ = v2_cli.dispatch(db, build_parser().parse_args(['status', '--json']))
+    expected, _ = v2_cli.dispatch(db, build_parser().parse_args(['case', 'status', '--json']))
     text = status_display.render(expected, 'synthetic.db', status_display.context(db))
     assert 'Partial: 1' in text and 'Failed: 1' in text and 'interrupted: 1' in text
     assert 'Legacy source and batch membership unknown' in text
     assert 'Unfinished batches: unknown' in text
+
+
+@pytest.fixture(autouse=True)
+def isolated_presentation_audit(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))

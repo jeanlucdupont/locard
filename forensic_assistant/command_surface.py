@@ -8,12 +8,12 @@ from .command_catalog import COMMANDS
 FAMILIES = {
     'case': 'Open, create and inspect a case',
     'evidence': 'Ingest, find, inspect and export evidence',
-    'analyze': 'Model-free forensic correlation and detections',
-    'investigation': 'Guided investigation, recorded review and findings',
-    'report': 'Case-based and recorded-investigation reports',
-    'ai': 'Provider configuration and explicit diagnostics',
-    'audit': 'Analyst activity and integrity verification',
-    'settings': 'Terminal preferences and application version',
+    'analyze': 'Correlate evidence and review detections',
+    'investigation': 'Investigate a case and review findings',
+    'report': 'Create and verify investigation reports',
+    'ai': 'Configure AI and review diagnostics',
+    'audit': 'Review activity and verify audit integrity',
+    'settings': 'Set terminal preferences and view the version',
 }
 PATHS = {
     'status': ('case', 'status'),
@@ -62,7 +62,7 @@ class Operations:
         elif name=='ai':
             note='Status and Quick are provider-free; connectivity/full checks and runtime start are explicit operations.'
         else:
-            note='Read-only examination by default; derived output files and activity records may be written. Coverage limitations remain significant.'
+            note=''
         kwargs['epilog']=(kwargs.get('epilog','')+' '+note).strip()
         p = self.group(path[:-1]).add_parser(path[-1], **kwargs)
         p.set_defaults(command=name)

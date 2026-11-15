@@ -9,79 +9,79 @@ def configure(operations, *, interactive=False):
         p.set_defaults(command='workflow', workflow=operation, json=False)
         return p
     for name in ('open','new'):
-        p = add(('case',), name, 'case-'+name, 'Interactive case '+name+'; no evidence ingestion is implied')
-        p.add_argument('path' if name == 'open' else 'name', nargs='?')
+        p = add(('case',), name, 'case-'+name, {'open':'Open a case','new':'Create a case'}[name])
+        p.add_argument('path' if name == 'open' else 'name', nargs='?', help='Existing case path' if name == 'open' else 'New case name')
     for operation in ('list', 'root', 'register', 'unregister', 'clone'):
-        p=add(('case',), operation, 'case-'+operation, 'Case workspace '+operation+'; no automatic relocation or history rebinding')
-        p.add_argument('--json', action='store_true')
+        p=add(('case',), operation, 'case-'+operation, {'list':'List available cases','root':'View or change the case directory','register':'Register an existing case','unregister':'Remove a case registration','clone':'Create an independent case copy'}[operation])
+        p.add_argument('--json', action='store_true', help='Output as JSON')
         if operation=='root':
-            p.add_argument('action', nargs='?', choices=('set',))
-            p.add_argument('path', nargs='?')
+            p.add_argument('action', nargs='?', choices=('set',), help='Select set to change the root')
+            p.add_argument('path', nargs='?', help='File or directory path')
         if operation=='register':
-            p.add_argument('name');p.add_argument('path')
-        if operation=='unregister':p.add_argument('name')
+            p.add_argument('name', help='Case name');p.add_argument('path', help='File or directory path')
+        if operation=='unregister':p.add_argument('name', help='Case name')
         if operation=='clone':
-            p.add_argument('source');p.add_argument('name')
+            p.add_argument('source', help='Source case path');p.add_argument('name', help='Case name')
         if operation!='list':p.add_argument('--yes', action='store_true', help='Explicitly confirm the described local change; no evidence/provider authorization')
     add(('evidence','ingest'), 'wizard', 'ingest-wizard', 'Guided evidence selection; confirmation required')
-    for name, help in [('start','Guided briefing, assessment and separately authorized AI investigation'),
+    for name, help in [('start','Start a guided investigation'),
                        ('assess','Plan and approve a new deterministic assessment'),
                        ('list','List saved assessments'),('show','Review a saved assessment'),
                        ('reauthorize','Reauthorize an assessment in a NEW read view; not continuation'),
-                       ('run','Review a saved assessment scope and authorize investigation stages')]:
+                       ('run','Authorize an investigation from a saved assessment')]:
         p=add(('investigation',), name, name, help)
         p.add_argument('--json',action='store_true', help='Structured result; prompts remain explicit')
-        if name in ('show','reauthorize','run'):p.add_argument('assessment',nargs='?',default='latest')
+        if name in ('show','reauthorize','run'):p.add_argument('assessment',nargs='?',default='latest', help='Saved assessment ID or latest')
         if name == 'run':p.add_argument('--question',help='Investigation question; otherwise prompted')
         if name == 'assess':
-            p.add_argument('--start');p.add_argument('--end')
-    p=add(('audit',),'verify','audit-verify','Verify the existing analyst activity chain; read-only')
-    p.add_argument('--json',action='store_true')
-    p.add_argument('--application', action='store_true', help='Review pre-case application logs instead of case logs')
+            p.add_argument('--start', help='Start time with timezone');p.add_argument('--end', help='End time with timezone')
+    p=add(('audit',),'verify','audit-verify','Verify activity and session integrity')
+    p.add_argument('--json',action='store_true', help='Output as JSON')
+    p.add_argument('--application', action='store_true', help='Review application logs instead of case logs')
     for group, name, op in [(('audit',), 'sessions', 'audit-sessions'),
                             (('audit', 'session'), 'show', 'audit-session'),
                             (('audit',), 'diagnostics', 'audit-diagnostics')]:
-        p=add(group, name, op, 'Review bounded, linked process recordings; not original evidence')
-        p.add_argument('--json', action='store_true')
-        p.add_argument('--application', action='store_true', help='Review pre-case application logs instead of case logs')
+        p=add(group, name, op, "Review Locard's internal diagnostic logs")
+        p.add_argument('--json', action='store_true', help='Output as JSON')
+        p.add_argument('--application', action='store_true', help='Review application logs instead of case logs')
         if op != 'audit-sessions':
-            p.add_argument('session', nargs='?', default='latest', help='Exact recording ID or latest by start time then ID')
-            p.add_argument('--limit', type=int, default=100, help='Last matching records, 1..1000')
-            p.add_argument('--since', help='Include records since ISO 8601 time with timezone')
-            p.add_argument('--operation-id', help='Exact operation correlation ID')
+            p.add_argument('session', nargs='?', default='latest', help='Session ID or latest session')
+            p.add_argument('--limit', type=int, default=100, help='Maximum recent records, 1..1000')
+            p.add_argument('--since', help='Include records since a time with timezone')
+            p.add_argument('--operation-id', help='Filter by operation ID')
         if op == 'audit-diagnostics':
-            p.add_argument('--severity', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'))
-    p=add(('settings',),'color','color','Inspect or set terminal styling')
-    p.add_argument('setting',nargs='?',choices=('on','off'))
-    p=add(('settings',),'version','version','Show effective version; optional source/installed diagnostics')
-    p.add_argument('--details',action='store_true')
-    p=add(('investigation','advanced'),'assessment','assessment-advanced','Historical assessment handoff with per-tool approval; distinct from autonomous run')
-    p.add_argument('assessment',nargs='?',default='latest')
-    p.add_argument('--question')
-    p.add_argument('--start');p.add_argument('--end')
-    p.add_argument('--details',action='store_true');p.add_argument('--json',action='store_true')
+            p.add_argument('--severity', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'), help='Recorded severity filter')
+    p=add(('settings',),'color','color','View or change terminal colors')
+    p.add_argument('setting',nargs='?',choices=('on','off'), help='Enable or disable terminal colors')
+    p=add(('settings',),'version','version','Show the version and optional installation details')
+    p.add_argument('--details',action='store_true', help='Show technical details')
+    p=add(('investigation','advanced'),'assessment','assessment-advanced','Investigate a saved assessment with per-tool approval')
+    p.add_argument('assessment',nargs='?',default='latest', help='Saved assessment ID or latest')
+    p.add_argument('--question', help='Investigation question')
+    p.add_argument('--start', help='Start time with timezone');p.add_argument('--end', help='End time with timezone')
+    p.add_argument('--details',action='store_true', help='Show technical details');p.add_argument('--json',action='store_true', help='Output as JSON')
     findings=operations.group(('investigation','findings'))
     from .investigation_ai.findings import KINDS
     for name in ('create','select','list','show','register','accept','reject','supersede','history'):
-        p=findings.add_parser(name, help='Explicit findings workspace: '+name)
+        p=findings.add_parser(name, help={'create':'Create a findings workspace','select':'Review a findings workspace','list':'List findings','show':'Show a finding','register':'Register a proposed finding','accept':'Accept a finding as an analyst decision','reject':'Reject a proposed finding','supersede':'Replace a finding with an auditable decision','history':'Review finding decisions'}[name])
         p.set_defaults(command='workflow',workflow='findings',finding_operation=name)
         p.add_argument('--workspace',required=True,help='Explicit .findings directory; never silently selected')
-        p.add_argument('--json',action='store_true')
+        p.add_argument('--json',action='store_true', help='Output as JSON')
         if name=='create':
-            p.add_argument('--transcripts',required=True);p.add_argument('--run',required=True)
+            p.add_argument('--transcripts',required=True, help='Recorded investigation directory');p.add_argument('--run',required=True, help='Saved investigation ID')
         if name in ('create','register','accept','reject','supersede'):
             p.add_argument('--actor',required=True,help='Locally asserted analyst identity')
         if name in ('register','accept','reject','supersede'):
             p.add_argument('--workspace-id',required=True,help='UUID from explicit workspace review')
             p.add_argument('--revision',required=True,type=int,help='Expected current workspace revision')
-        if name in ('show','accept','reject','supersede'):p.add_argument('finding_id')
-        if name in ('accept','reject','supersede'):p.add_argument('--rationale',required=True)
+        if name in ('show','accept','reject','supersede'):p.add_argument('finding_id', help='Finding ID')
+        if name in ('accept','reject','supersede'):p.add_argument('--rationale',required=True, help='Reason for this analyst decision')
         if name in ('register','supersede'):
-            p.add_argument('--statement',required=True);p.add_argument('--support',action='append',required=True)
-            p.add_argument('--contrary',action='append',default=[])
-        if name=='register':p.add_argument('--kind',default='analyst_hypothesis',choices=KINDS[:3]+('analyst_hypothesis',))
+            p.add_argument('--statement',required=True, help='Proposed finding statement');p.add_argument('--support',action='append',required=True, help='Supporting reference; repeat for additional support')
+            p.add_argument('--contrary',action='append',default=[], help='Contrary evidence reference; repeat as needed')
+        if name=='register':p.add_argument('--kind',default='analyst_hypothesis',choices=KINDS[:3]+('analyst_hypothesis',), help='Finding classification')
     from .investigation_ai import d2_reasoning
-    p=add(('investigation',),'reason','reason','Advanced recorded D2 preview / explicitly authorized execution and optional capture')
+    p=add(('investigation',),'reason','reason','Preview or authorize AI reasoning over recorded evidence')
     d2_reasoning.configure(p)
 
 
@@ -146,10 +146,13 @@ def run(args):
     raise ValueError('Unknown workflow operation')
 
 
-def render(value, palette=None):
+def render(value, palette=None, *, audit_summary=False):
     from .terminal import Palette, field, render_spans, TextSpan
     palette = palette or Palette()
     if value is None:return ''
+    if audit_summary and value.get('kind') == 'session_audit':
+        from .session_recording import integrity_summary
+        return integrity_summary(value, palette)
     if isinstance(value,dict) and value.get('kind') in ('session_audit', 'session_review'):
         from .session_recording import render as render_recording
         return render_recording(value, palette)

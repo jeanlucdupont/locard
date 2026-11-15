@@ -7,18 +7,18 @@ def configure(commands):
     parser = commands.add_parser('source', help=COMMANDS['source'])
     sub = parser.add_subparsers(dest='source_command', required=True)
     for name in ('list', 'show', 'create', 'update', 'assign'):
-        p = sub.add_parser(name)
-        p.add_argument('--json', action='store_true')
+        p = sub.add_parser(name, help={'list':'List evidence sources','show':'Show a source and its provenance','create':'Create analyst-supplied source metadata','update':'Update source metadata after confirmation','assign':'Assign retained files to a source after confirmation'}[name])
+        p.add_argument('--json', action='store_true', help='Output as JSON')
         if name in ('show', 'update', 'assign'):
-            p.add_argument('source_id')
+            p.add_argument('source_id', help='Source identifier')
         if name in ('list', 'show'):
-            p.add_argument('--limit', type=int, default=100)
-            p.add_argument('--offset', type=int, default=0)
+            p.add_argument('--limit', type=int, default=100, help='Maximum number of results')
+            p.add_argument('--offset', type=int, default=0, help='Skip this many results')
         if name == 'show':
             p.add_argument(
                 '--details',
                 action='store_true',
-                help='Existing structured provenance detail, paginated with --limit/--offset; --json is equivalent'
+                help='Show paginated provenance as JSON'
             )
         if name == 'list':
             p.description = 'Display abbreviations (...) are not command IDs; use --ids for full copyable IDs or --json for complete values.'
@@ -26,11 +26,11 @@ def configure(commands):
             p.add_argument(
                 '--ids',
                 action='store_true',
-                help='Show full copyable source IDs below the compact table; --json also retains complete values'
+                help='Show complete, copyable source IDs'
             )
         if name in ('create', 'update'):
             for flag in ('name', 'hostname', 'user', 'volume-root'):
-                p.add_argument('--' + flag)
+                p.add_argument('--' + flag, help={'name':'Source display name','hostname':'Analyst-supplied source hostname','user':'Analyst-supplied source username','volume-root':'Analyst-supplied original volume root'}[flag])
         if name in ('update', 'assign'):
             p.add_argument(
                 '--yes',

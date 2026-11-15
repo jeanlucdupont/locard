@@ -14,10 +14,10 @@ def configure(commands):
         description='Local uses llama.cpp / llama-server with a compatible user-selected GGUF model. Status distinguishes configuration readiness from runtime state. Cloud use sends bounded model context to the selected provider.')
     subs = parser.add_subparsers(dest='ai_command')
     for name in ('provider', 'status', 'check', 'configure', 'start', 'stop', 'logs'):
-        child = subs.add_parser(name, help={'provider':'View or select provider', 'status':'Show provider and runtime status',
-            'check':'Check local configuration or explicitly diagnose the provider', 'configure':'Configure provider/model or local paths', 'start':'Start the owned local runtime',
-            'stop':'Stop only the Locard-owned runtime', 'logs':'Show private runtime or cloud provider diagnostics'}[name])
-        child.add_argument('--json', action='store_true')
+        child = subs.add_parser(name, help={'provider':'View or select provider', 'status':'Show provider configuration and readiness',
+            'check':'Check configuration or run an authorized provider diagnostic', 'configure':'Configure the provider, model or local paths', 'start':'Start the owned local runtime',
+            'stop':'Stop only the Locard-owned runtime', 'logs':'Review AI diagnostics'}[name])
+        child.add_argument('--json', action='store_true', help='Output as JSON')
         if name == 'check':
             levels = child.add_mutually_exclusive_group()
             levels.add_argument('--connectivity', action='store_true', help='Non-generative authentication/reachability check')
@@ -25,15 +25,15 @@ def configure(commands):
             child.add_argument('--authorize-diagnostic', action='store_true', help='Authorize synthetic model requests for this diagnostic only')
         if name == 'logs': child.add_argument('--raw', action='store_true', help='Enable session capture and display buffered cloud output; may contain case data')
         if name in ('provider', 'configure'):
-            child.add_argument('provider', nargs='?', choices=list(settings.PROVIDERS))
-            child.add_argument('--model', help='Explicit cloud model name, without provider prefix')
+            child.add_argument('provider', nargs='?', choices=list(settings.PROVIDERS), help='AI provider')
+            child.add_argument('--model', help='Cloud model name without provider prefix')
             child.add_argument('--acknowledge-cloud', action='store_true', help='Explicitly acknowledge transmission to the selected cloud provider')
         if name == 'configure':
-            child.add_argument('--executable')
-            child.add_argument('--model-path')
-            child.add_argument('--context', type=int)
-            child.add_argument('--gpu-layers', type=int)
-            child.add_argument('--port', type=int, help='Preferred loopback port; 0 selects a free port')
+            child.add_argument('--executable', help='Local llama-server executable')
+            child.add_argument('--model-path', help='Local GGUF model file')
+            child.add_argument('--context', type=int, help='Local model context size')
+            child.add_argument('--gpu-layers', type=int, help='Number of model layers assigned to GPU')
+            child.add_argument('--port', type=int, help='Loopback port; 0 selects an available port')
             child.add_argument('--extra-options', help='Validated performance options; -ngl/-c update dedicated settings, never duplicate defaults')
 
 
@@ -250,16 +250,41 @@ def offer_setup(read, args=None):
         print('AI configuration unavailable: ' + safe_text(str(exc)) + ' Use ai configure later.')
 
 
-def render(value, args=None):
+def configuration_display(value):
+    # Configuration enum, never inference from displayed prose or runtime liveness.
+    return {'configured_ready': ('configured', 'success'),
+            'configured_invalid': ('invalid configuration', 'error'),
+            'configuration_error': ('configuration failed', 'error'),
+            'credential_missing': ('incomplete configuration', 'warning'),
+            'not_configured': ('not configured', 'warning')}.get(value.get('configuration'), ('unknown', 'unknown'))
+
+
+def render(value, args=None, *, startup=False):
     from forensic_assistant.retrieval.presentation import safe_text
     from forensic_assistant.terminal import Palette, enabled
     palette = Palette(enabled(args))
+    if startup or (args is not None and getattr(args, 'ai_command', None) == 'status'):
+        from forensic_assistant.terminal import field
+        status, role = configuration_display(value)
+        lines = [palette('heading', 'AI Provider')]
+        for key, label in (('provider','Provider'), ('model','Model')):
+            if value.get(key): lines.append(field('  '+label, value[key], palette))
+        lines.append(field('  Status', status, palette, role=role))
+        if not startup:
+            states = {'not checked': 'unknown', 'not_checked': 'unknown', 'not_verified': 'unknown',
+                      'ready': 'success', 'verified': 'success', 'compatible': 'success',
+                      'failed': 'error', 'incompatible': 'error', 'unavailable': 'unknown'}
+            for key, label in (('connection_readiness','Connection'), ('model_readiness','Model compatibility'), ('locard_compatibility','Locard compatibility')):
+                raw = value.get(key, 'not checked')
+                text = 'not checked' if raw in ('not_checked','not_verified') else str(raw)
+                lines.append(field('  '+label, text, palette, role=states.get(raw, 'unknown')))
+        return '\n'.join(lines)
     if 'logs' in value:
         return '\n'.join(safe_text(line) for line in value['logs'].splitlines())
     labels = {'diagnostic_level':'Diagnostic', 'provider':'Provider', 'integration':'Integration', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
               'api_key':'API key', 'provider_readiness':'Status', 'readiness_reason':'Reason', 'readiness_stage':'Stage', 'http_status':'HTTP status', 'connection_readiness':'Connection', 'model_readiness':'Model compatibility', 'advisory_compatibility':'Advisory compatibility', 'investigation_compatibility':'Investigation compatibility', 'locard_compatibility':'Locard compatibility', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
     lines = [palette('heading', 'AI provider')]
-    statuses = {'configured_ready': 'success', 'running': 'success', 'ready': 'success',
+    statuses = {'configured_ready': 'success', 'configured': 'success', 'not checked':'unknown', 'not configured':'warning', 'configured_invalid':'error', 'credential_missing':'warning', 'not_configured':'warning', 'running': 'success', 'ready': 'success',
                 'stopped': 'unknown', 'not_checked': 'unknown', 'not_verified': 'unknown',
                 'unknown': 'unknown', 'unavailable': 'unknown', 'failed': 'error',
                 'configuration_error': 'error', 'missing_configuration': 'warning'}

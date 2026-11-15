@@ -3880,3 +3880,16 @@ See [semantic presentation implementation and acceptance](docs/LOCARD_6_145_SEMA
 and the [historical architecture audit](docs/LOCARD_PRESENTATION_ARCHITECTURE_AUDIT.md).
 
 See [6.146 migration coverage and terminal acceptance](docs/LOCARD_6_146_COMPLETE_SEMANTIC_PRESENTATION.md) for explicit bounded-document exceptions.
+
+### Help editorial guidance
+
+Keep canonical command/option descriptions short and action-oriented. Retain
+security, disclosure, destructive-action, resource and forensic-coverage caveats.
+Use the shared width-aware help renderer and semantic spans; do not add per-command
+palettes or generic footers. `? case` and `case ?` provide contextual shell help.
+`ai status` describes configuration separately from connection/compatibility checks;
+`audit verify --json` retains the detailed integrity result.
+
+See [6.147 refinement and acceptance](docs/LOCARD_6_147_CLI_PRESENTATION_REFINEMENT.md)
+and [the complete help editorial inventory](docs/LOCARD_6_147_HELP_INVENTORY.md).
+The provider-free `scripts/help_inventory.py` flags wording for review, not rejection.

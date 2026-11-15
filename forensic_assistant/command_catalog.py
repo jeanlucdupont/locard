@@ -21,7 +21,7 @@ COMMANDS = MappingProxyType({
     'investigate': 'Gather and correlate evidence around a specific evidence record',
     'investigate-ai': 'Analyze case evidence using the local AI model',
     'ai-history': 'Review or replay saved AI investigations',
-    'logons': 'Review Windows logon-related activity from normalized Windows Event Log evidence',
+    'logons': 'Review recorded Windows logon activity',
     'process-tree': 'Reconstruct process parent-child relationships',
     'report': 'Generate a forensic investigation report',
     'search': 'Search case evidence',

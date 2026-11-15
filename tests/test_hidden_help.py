@@ -43,6 +43,7 @@ def test_cli_help_does_not_dispatch(command, flag, monkeypatch, capsys):
     def forbidden(*args, **kwargs):
         pytest.fail('Help must not dispatch a command')
     monkeypatch.setattr('forensic_assistant.cli.dispatch', forbidden)
+    monkeypatch.setattr('forensic_assistant.ai.cli.offer_setup', lambda *a: None)
     with pytest.raises(SystemExit) as exc:
         main([*command, flag])
     assert exc.value.code == 0
@@ -63,6 +64,7 @@ def test_interactive_help_routes_equivalent(color, tmp_path, monkeypatch, capsys
     def forbidden(*args, **kwargs):
         pytest.fail('Help must not dispatch a command')
     monkeypatch.setattr('forensic_assistant.cli.dispatch', forbidden)
+    monkeypatch.setattr('forensic_assistant.ai.cli.offer_setup', lambda *a: None)
     database = case(tmp_path)
     docs = []
     for command in ('help analyze session', '? analyze session', 'analyze session -h', 'analyze session --help'):
@@ -71,7 +73,7 @@ def test_interactive_help_routes_equivalent(color, tmp_path, monkeypatch, capsys
         assert shell.last_status == 0
         text = capsys.readouterr().out
         # Exclude the independently styled startup banner and case-selection output.
-        marker = 'Color: ' + ('on' if color else 'off') + '\n'
+        marker = terminal.field('Color', 'on' if color else 'off', terminal.Palette(color)) + '\n'
         documentation = before_shutdown(text).split(marker, 1)[1]
         assert ('\x1b[' in documentation) == color
         plain = terminal.SGR.sub('', documentation)

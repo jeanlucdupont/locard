@@ -5,28 +5,28 @@ from . import runtime
 
 
 def configure(commands, ask, *, interactive=False):
-    ask.add_argument('--semantic-index')
-    ask.add_argument('--embedding-model')
+    ask.add_argument('--semantic-index', help='Case-specific semantic index directory')
+    ask.add_argument('--embedding-model', help='Local embedding model directory')
     semantic = commands.add_parser('semantic', help=COMMANDS['semantic'])
     sub = semantic.add_subparsers(dest='semantic_command', required=True)
     descriptions = {
         'search': 'Search current case evidence by semantic similarity',
-        'status': 'Show semantic runtime, model, and current-case index status',
+        'status': 'Show semantic search and index status',
     }
     for name, description in descriptions.items():
         p = sub.add_parser(name, help=description, description=description)
         output = p.add_mutually_exclusive_group()
-        output.add_argument('--json', dest='json', action='store_true', help='Full structured metadata, without terminal styling')
-        output.add_argument('--text', dest='json', action='store_false', help='Concise human-readable output')
+        output.add_argument('--json', dest='json', action='store_true', help='Output complete metadata as JSON')
+        output.add_argument('--text', dest='json', action='store_false', help='Show a concise readable result')
         p.set_defaults(json=not interactive)
-        p.add_argument('--model-path', help='Advanced local model-directory override; does not change other commands')
-        p.add_argument('--index', help='Advanced case-specific derived index directory override')
+        p.add_argument('--model-path', help='Override the local model for this command')
+        p.add_argument('--index', help='Use a different case-specific semantic index')
         if name == 'search':
-            p.add_argument('question')
-            p.add_argument('--limit', type=int, default=None)
+            p.add_argument('question', help='Question to investigate')
+            p.add_argument('--limit', type=int, default=None, help='Maximum number of results')
             p.add_argument('--show-weak', action='store_true', help='Show candidates below the human display cutoff; JSON always retains all results')
             for field in ('artifact', 'start', 'end', 'hostname', 'user', 'path'):
-                p.add_argument('--' + field)
+                p.add_argument('--' + field, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time with timezone', 'end': 'End time with timezone', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[field])
 
 
 def can_prompt(args):

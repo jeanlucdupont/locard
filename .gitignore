@@ -254,3 +254,9 @@ report-bundles/
 !/docs/LOCARD_6_145_SEMANTIC_PRESENTATION.md
 
 !/docs/LOCARD_6_146_COMPLETE_SEMANTIC_PRESENTATION.md
+
+!/docs/LOCARD_6_147_CLI_PRESENTATION_REFINEMENT.md
+!/docs/LOCARD_6_147_HELP_INVENTORY.md
+!/scripts/
+/scripts/*
+!/scripts/help_inventory.py

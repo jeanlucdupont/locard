@@ -62,7 +62,7 @@ class DumpExistsError(ValueError):
 
 def configure(commands):
     parser = commands.add_parser('dump', help=COMMANDS['dump'], description=HELP)
-    parser.add_argument('dump_type', nargs='?', choices=(*TYPES, 'all'))
+    parser.add_argument('dump_type', nargs='?', choices=(*TYPES, 'all'), help='Artifact family to export')
     parser.add_argument('--force', action='store_true', help='Replace requested derived CSV files')
     parser.add_argument('--no-color', action='store_true', help='Disable terminal styling')
 
