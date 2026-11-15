@@ -316,7 +316,8 @@ class Recorder:
         with self.lock:
             if SUPPRESS.get() or not text:
                 return
-            encoded = str(text).encode('utf-8', errors='replace')
+            # Strip complete styling before bounding: no cut SGR and no color-byte charge.
+            encoded = ANSI.sub('', str(text)).encode('utf-8', errors='replace')
             available = max(0, OUTPUT_BYTES - self.output_bytes)
             kept = encoded[:available].decode('utf-8', errors='ignore')
             used = len(kept.encode('utf-8'))

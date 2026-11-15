@@ -146,7 +146,7 @@ def run(args):
     raise ValueError('Unknown workflow operation')
 
 
-def render(value):
+def render(value, palette=None):
     if value is None:return ''
     if isinstance(value,dict) and value.get('kind') in ('session_audit', 'session_review'):
         from .session_recording import render as render_recording
@@ -179,6 +179,11 @@ def render(value):
         if not value['findings']:lines.append('  No findings registered.')
         lines.append('Use --json for complete support, rationale and source-binding details.')
         return '\n'.join(lines)
+    if isinstance(value,dict) and set(value)=={'root','effect'}:
+        from .terminal import TextSpan, render_spans
+        return render_spans((TextSpan('Case root: '), TextSpan(value['root'], 'value'),
+                             TextSpan('\n' + value['effect'])), palette)
     if isinstance(value,dict) and set(value)=={'application_version'}:
-        return 'Locard '+value['application_version']
+        from .terminal import TextSpan, render_spans
+        return render_spans((TextSpan('Locard '), TextSpan(value['application_version'], 'value')), palette)
     return '\n'.join(safe_text(line) for line in json.dumps(value,ensure_ascii=True,indent=2).splitlines())

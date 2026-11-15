@@ -165,7 +165,7 @@ def edit(keys, *, history=(), output=None, prompt='', limit=65536, complete=None
         # terminal-dependent; the returned Unicode text is never truncated.
         import shutil
         width = max(10, shutil.get_terminal_size().columns - 1)
-        from forensic_assistant.terminal import SGR, Palette
+        from forensic_assistant.terminal import SGR, Palette, shell_prompt
         plain_prompt = SGR.sub('', prompt)
         prefix = safe(plain_prompt)
         left = safe(''.join(buffer[:cursor]))
@@ -174,8 +174,18 @@ def edit(keys, *, history=(), output=None, prompt='', limit=65536, complete=None
         shown = frame + right[:max(0, width - len(frame))]
         # Only the trusted, complete prompt style is accepted; input is never styled.
         styled = prompt == Palette(True)('prompt', plain_prompt)
+        semantic = (plain_prompt.startswith('[') and plain_prompt.endswith(']> ')
+                    and prompt == shell_prompt(plain_prompt[1:-3], Palette(True)))
         prompt_chars = max(0, len(frame) - len(left))
         def paint(value):
+            if semantic:
+                # Slice the known semantic prompt using the same viewport offset.
+                start = len(prefix) - prompt_chars
+                pieces = []
+                for index, char in enumerate(value[:prompt_chars], start):
+                    role = 'value' if 1 <= index < len(prefix) - 3 else 'punctuation'
+                    pieces.append(Palette(True)(role, char))
+                return ''.join(pieces) + value[prompt_chars:]
             return Palette(styled)('prompt', value[:prompt_chars]) + value[prompt_chars:]
         output.write('\r' + paint(shown) + ' ' * max(0, previous - len(shown)) + '\r' + paint(frame))
         output.flush()

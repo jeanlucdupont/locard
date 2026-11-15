@@ -50,7 +50,7 @@ def test_cycles_and_unsupported_types():
 @pytest.mark.parametrize('flags', [[], ['--raw'], ['--json'], ['--no-color']])
 def test_search_and_show_exact_content(case, capsys, color, flags):
     path, eid, _ = case
-    for command in (['search', '--ids'], ['show', eid]):
+    for command in (['evidence', 'search', '--ids'], ['evidence', 'show', eid]):
         args = ['--db', str(path), *command, *flags]
         assert main(args) == 0
         colored = capsys.readouterr().out
@@ -69,7 +69,7 @@ def not_plain(flags):
 @pytest.mark.parametrize('value', ['', '0', '1', 'false'])
 def test_no_color_presence(case, capsys, color, monkeypatch, value):
     monkeypatch.setenv('NO_COLOR', value)
-    assert main(['--db', str(case[0]), 'show', case[1]]) == 0
+    assert main(['--db', str(case[0]), 'evidence', 'show', case[1]]) == 0
     assert '\x1b' not in capsys.readouterr().out
 
 
@@ -90,7 +90,7 @@ def test_nontty_and_uncertain_capability(monkeypatch):
 @pytest.mark.parametrize('flags', [[], ['--raw'], ['--json']])
 def test_file_output_always_plain(case, tmp_path, capsys, color, mode, flags):
     target = tmp_path / 'derived.txt'
-    assert main(['--db', str(case[0]), 'show', case[1], *flags, mode, str(target)]) == 0
+    assert main(['--db', str(case[0]), 'evidence', 'show', case[1], *flags, mode, str(target)]) == 0
     data = target.read_text(encoding='utf-8')
     assert '\x1b' not in data and case[1] in data
     if flags:
@@ -130,7 +130,7 @@ def test_pager_coloring_and_quit(case, color, monkeypatch, no_color):
         finally:
             restored.append(True)
     monkeypatch.setattr(output, 'keyboard', keyboard)
-    args = ['--db', str(case[0]), 'show', case[1], '--page'] + (['--no-color'] if no_color else [])
+    args = ['--db', str(case[0]), 'evidence', 'show', case[1], '--page'] + (['--no-color'] if no_color else [])
     assert main(args) == 0
     text = stream.getvalue()
     assert 'Lines 1-4 of' in text
@@ -164,8 +164,8 @@ def test_banner_policy_and_startup_flag(color, monkeypatch):
 def test_global_nested_and_command_options():
     parser = build_parser()
     for argv in (
-        ['--no-color', 'search'],
-        ['search', '--no-color'],
+        ['--no-color', 'evidence', 'search'],
+        ['evidence', 'search', '--no-color'],
         ['report', '--no-color', 'show', 'bundle'],
         ['report', 'show', 'bundle', '--no-color']
     ):
@@ -204,5 +204,11 @@ def test_no_external_process(case, color, monkeypatch, capsys):
         raise AssertionError('External process forbidden')
     monkeypatch.setattr(subprocess, 'Popen', forbidden)
     monkeypatch.setattr(os, 'system', forbidden)
-    assert main(['--db', str(case[0]), 'show', case[1]]) == 0
+    assert main(['--db', str(case[0]), 'evidence', 'show', case[1]]) == 0
     assert '\x1b' in capsys.readouterr().out
+
+
+@pytest.fixture(autouse=True)
+def isolated_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))

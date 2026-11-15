@@ -3858,3 +3858,23 @@ does not change stored findings, grounding, request budgets or historical transc
 Use `investigation start` for briefing, explicit scope, assessment and staged authorization, or `investigation run latest` for a saved assessment. Cloud disclosure, decomposition and synthesis are separate choices before the engine's exact grant. Do not compose internal S4/C1/D1 flags.
 
 `investigation history show RUN --transcripts ROOT` reviews recorded disclosures. `history replay` is current-case replay, not continuation. `investigation reason ROOT RUN` retains provider-free D2 preview and explicitly approved execution/capture. `investigation findings` manages source-bound analyst decisions. `report from-case` and `report from-history` retain separate forensic contracts.
+
+
+### Developer guidance: semantic terminal presentation
+
+New human-facing presentation uses `terminal.TextSpan` and `render_spans` (or
+`write_spans` for a recorded stream write). Assign explicit roles: `label`,
+`value`, `command`/`syntax`, `question`, `heading`, `forensic_note`, `success`,
+`warning`, `error`, `unknown`, and `punctuation`. Obtain the palette through the
+existing `enabled` stream/session policy. Keep service results and JSON plain
+structured data; never insert spans or ANSI into forensic schemas.
+
+Do not add command-local ANSI/RGB constants, alternate palettes, or keyword-based
+status coloring. A zero failure count is a neutral value; a selectable ERROR is
+syntax; an unverified hypothesis is not operational success. Retain textual
+qualifications. Legacy type roles are migration compatibility, not the pattern
+for new views. Measure layout on safe plain content and preserve recording
+redaction, byte limits and one logical capture per output.
+
+See [semantic presentation implementation and acceptance](docs/LOCARD_6_145_SEMANTIC_PRESENTATION.md)
+and the [historical architecture audit](docs/LOCARD_PRESENTATION_ARCHITECTURE_AUDIT.md).

@@ -256,8 +256,9 @@ def _dispatch_recorded(args, *, existing_only=False):
                 print(json.dumps(value,ensure_ascii=True,indent=2))
             else:
                 from forensic_assistant.workflow_cli import run,render
+                from forensic_assistant.terminal import Palette, enabled
                 value=run(args)
-                if value is not None:print(json.dumps(value,ensure_ascii=True,indent=2) if getattr(args,'json',False) else render(value))
+                if value is not None:print(json.dumps(value,ensure_ascii=True,indent=2) if getattr(args,'json',False) else render(value, Palette(enabled(args))))
             return 2 if isinstance(value,dict) and value.get('valid') is False else 0
         except (ValueError,OSError,sqlite3.Error) as exc:
             from forensic_assistant.terminal import message
@@ -342,7 +343,7 @@ def _dispatch(args, output, *, existing_only=False):
             result = workflow_cli.run(args)
             if result is not None:
                 if args.json: emit(result)
-                else: output.write(workflow_cli.render(result))
+                else: output.write(workflow_cli.render(result, output.palette))
             return 0
         if args.command == 'briefing':
             from forensic_assistant import briefing_cli

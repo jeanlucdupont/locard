@@ -1,8 +1,9 @@
-"""Terminal presentation only. Styles describe types, never forensic judgments."""
+"""Central semantic terminal presentation; legacy type roles remain for migration."""
 import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 
 SGR = re.compile(r'\x1b\[[0-9;]*m')
 RESET = '\x1b[0m'
@@ -14,14 +15,21 @@ STYLES = {
     'number_value': '35',
     'boolean_value': '34',
     'evidence_id': '1;36',
-    'heading': '1',
+    'heading': '97',
+    'value': '96',
+    'command': '96',
+    'syntax': '96',
+    'question': '94',
+    'label': '37',
+    'unknown': '90',
+    'punctuation': '90',
     'secondary_text': '0',
     'inactive': '2',
     'warning': '33',
     'error': '31',
     'success': '32',
     'info_bar': '3;30;107',
-    'forensic_note': '33'
+    'forensic_note': '37'
 }
 EVIDENCE_PREFIXES = ('EVTX:', 'PREFETCH:', 'MFT:', 'REGISTRY:')
 
@@ -89,6 +97,43 @@ class Palette:
                 or os.environ.get('COLORTERM') in ('truecolor', '24bit')):
             style = '38;5;136'
         return '\x1b[' + style + 'm' + text + RESET if self.enabled and text else text
+
+
+@dataclass(frozen=True)
+class TextSpan:
+    """Human presentation only; never insert spans into forensic JSON."""
+    text: str
+    role: str = 'label'
+
+
+def safe_span_text(text):
+    """Escape controls (including supplied ANSI), preserving Unicode and layout."""
+    import unicodedata
+    return ''.join(c if c in '\n\t' or unicodedata.category(c) not in ('Cc', 'Cf', 'Cs')
+                   else '\\u%04x' % ord(c) for c in str(text))
+
+
+def render_spans(spans, palette=None):
+    """Plain and terminal projections share exactly the same safe content."""
+    palette = palette or Palette()
+    return ''.join(palette(span.role if span.role in STYLES else 'label',
+                           safe_span_text(span.text)) for span in spans)
+
+
+def shell_prompt(label, palette=None):
+    return render_spans((TextSpan('[', 'punctuation'), TextSpan(label, 'value'),
+                         TextSpan(']> ', 'punctuation')), palette)
+
+
+def write_spans(spans, *, palette=None, stream=None):
+    """Record plain content once; emit the independently styled projection."""
+    from forensic_assistant.session_recording import output, suspended
+    stream = sys.stdout if stream is None else stream
+    spans = tuple(spans)
+    output(render_spans(spans), 'stderr' if stream is sys.stderr else 'stdout')
+    display = Palette(bool(palette and palette.enabled) and enabled(stream=stream))
+    with suspended():
+        stream.write(render_spans(spans, display))
 
 
 def value_role(value):

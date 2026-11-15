@@ -62,7 +62,8 @@ class Shell:
         self.no_color = no_color
 
     def prompt(self, label):
-        return Palette(enabled(self))('prompt', '[' + label + ']> ')
+        from forensic_assistant.terminal import shell_prompt
+        return shell_prompt(label, Palette(enabled(self)))
 
     def request_advice(self, request):
         from forensic_assistant.session_recording import require, record
@@ -301,7 +302,7 @@ class Shell:
                             self.last_status = 0
                             continue
                         if len(words) == 2 and words[1] in ('help','?','quit','!'):
-                            print(command_help(words[1]))
+                            print(command_help(words[1], Palette(enabled(self))))
                             continue
                         words = words[1:] + ['--help']
                     parser = build_parser(interactive=True)

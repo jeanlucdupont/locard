@@ -1,13 +1,15 @@
 """Help derived from the canonical parser tree."""
 import argparse
-from forensic_assistant.terminal import Palette
+import textwrap
+from forensic_assistant.terminal import Palette, TextSpan, render_spans
 from forensic_assistant.command_surface import FAMILIES
 
 SHELL_COMMANDS = {'help': 'Show command help', '?': 'Show command help', 'quit': 'End the session', '!': 'Ask AI; existing disclosure and tool approvals apply'}
 
 
-def command_help(name):
-    return name + ': ' + SHELL_COMMANDS[name]
+def command_help(name, palette=None):
+    return render_spans((TextSpan(name, 'command'), TextSpan(': ', 'punctuation'),
+                         TextSpan(SHELL_COMMANDS[name])), palette)
 
 
 def paths(parser, prefix=()):
@@ -26,7 +28,9 @@ def catalog(parser, palette=None, *, all_commands=False):
     entries += list(SHELL_COMMANDS.items())
     width = max(len(name) for name, _ in entries)
     for name, description in entries:
-        lines.append('  ' + palette('key', name.ljust(width)) + '  ' + description)
+        summary = textwrap.shorten(description.splitlines()[0], width=90, placeholder='...') if description else ''
+        lines.append(render_spans((TextSpan('  '), TextSpan(name.ljust(width), 'command'),
+                                   TextSpan('  ' + summary)), palette))
     lines.extend(['', 'Use help <family> <operation> for options; help all lists advanced operations.',
-                  'AI proposals are not evidence. Mutations and cloud disclosure retain their explicit approvals.', ''])
+                  render_spans((TextSpan('AI proposals are not evidence. Mutations and cloud disclosure retain their explicit approvals.', 'forensic_note'),), palette), ''])
     return '\n'.join(lines)

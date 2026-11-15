@@ -37,7 +37,7 @@ def test_every_parser_keeps_invisible_help(interactive, capsys):
     visit(build_parser(interactive=interactive))
 
 
-@pytest.mark.parametrize('command', [[], ['session'], ['search'], ['source'], ['source', 'assign'], ['report'], ['report', 'show']])
+@pytest.mark.parametrize('command', [[], ['analyze', 'session'], ['evidence', 'search'], ['evidence', 'source'], ['evidence', 'source', 'assign'], ['report'], ['report', 'show']])
 @pytest.mark.parametrize('flag', ['-h', '--help'])
 def test_cli_help_does_not_dispatch(command, flag, monkeypatch, capsys):
     def forbidden(*args, **kwargs):
@@ -49,7 +49,7 @@ def test_cli_help_does_not_dispatch(command, flag, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert not captured.err
     assert_hidden(captured.out)
-    if command == ['session']:
+    if command == ['analyze', 'session']:
         assert '--logon-id LOGON_ID' in captured.out
     if not command:
         for option in ('--version', '--db', '--no-color'):
@@ -65,8 +65,8 @@ def test_interactive_help_routes_equivalent(color, tmp_path, monkeypatch, capsys
     monkeypatch.setattr('forensic_assistant.cli.dispatch', forbidden)
     database = case(tmp_path)
     docs = []
-    for command in ('help session', '? session', 'session -h', 'session --help'):
-        shell = Shell(State(None), Input(str(database), 'color ' + ('on' if color else 'off'), command, 'exit'))
+    for command in ('help analyze session', '? analyze session', 'analyze session -h', 'analyze session --help'):
+        shell = Shell(State(None), Input(str(database), 'settings color ' + ('on' if color else 'off'), command, 'quit'))
         assert shell.run() == 0
         assert shell.last_status == 0
         text = capsys.readouterr().out
@@ -75,8 +75,14 @@ def test_interactive_help_routes_equivalent(color, tmp_path, monkeypatch, capsys
         documentation = before_shutdown(text).split(marker, 1)[1]
         assert ('\x1b[' in documentation) == color
         plain = terminal.SGR.sub('', documentation)
-        assert plain.startswith('usage: session ')
+        assert plain.startswith('usage: analyze session ')
         assert '--logon-id LOGON_ID' in plain
         assert_hidden(plain)
         docs.append(plain)
     assert all(doc == docs[0] for doc in docs)
+
+
+@pytest.fixture(autouse=True)
+def isolated_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))
