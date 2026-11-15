@@ -253,7 +253,8 @@ def render_show(data, palette=None):
     palette = palette or Palette()
     lines = []
     def field(name, value, *, path=False):
-        lines.append(palette('label', name + ': ') + palette('value', (safe_path if path else safe)(value)))
+        from .terminal import field as labeled_field
+        lines.append(labeled_field(name, (safe_path if path else safe)(value), palette))
     for name, key in [
         ('Source', 'display_name'),
         ('Source ID', 'source_id'),
@@ -287,4 +288,5 @@ def render_show(data, palette=None):
         lines.append(palette('forensic_note', safe(warning)))
     if data.get('artifact_hostnames_truncated'):
         lines.append(palette('forensic_note', 'Artifact hostname list is bounded to 100.'))
-    return '\n'.join(lines)
+    from .terminal import aligned_lines
+    return aligned_lines(lines)

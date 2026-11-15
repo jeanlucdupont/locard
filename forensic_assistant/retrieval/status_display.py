@@ -1,4 +1,5 @@
 """Concise read-only status projection; stored run statuses are never rewritten."""
+from forensic_assistant.terminal import aligned_lines
 import json
 from collections import Counter
 
@@ -73,8 +74,8 @@ def render(result, case, details, palette=None):
     lines += ['', palette('heading', 'Sources'), field('  Total', coverage.get('total', 'unknown (legacy schema)'), palette)]
     for source in coverage.get('sources', [])[:5]:
         lines += ['  ' + palette('value', fit(safe(source['display_name']), 100)),
-                  field('    Analyst host', safe(source.get('hostname') or 'unknown'), palette) +
-                  '; ' + field('files', source['files'], palette) + '; ' + field('evidence records', f"{source['evidence_count']:,}", palette)]
+                  field('    Analyst host', safe(source.get('hostname') or 'unknown'), palette),
+                  field('    Files', source['files'], palette), field('    Evidence records', f"{source['evidence_count']:,}", palette)]
         if source.get('artifact_hostnames'):
             lines.append(field('    Artifact hosts', fit(safe(', '.join(source['artifact_hostnames'])), 120), palette))
     if coverage.get('total', 0) > 5:
@@ -96,6 +97,7 @@ def render(result, case, details, palette=None):
     from .registry_display import DIRTY_WARNING
     for raw in details['hive_warnings']:
         limitations.extend(w for w in json.loads(raw) if w != DIRTY_WARNING)
+    recorded_errors = {f"Recorded error ({error['count']}): " + error['message'] for error in details['error_summaries'][:5]}
     for error in details['error_summaries'][:5]:
         limitations.append(f"Recorded error ({error['count']}): " + error['message'])
     if len(details['error_summaries']) > 5 or len(details['hive_warnings']) > 5:
@@ -115,7 +117,7 @@ def render(result, case, details, palette=None):
     limitations = list(dict.fromkeys(limitations))
     if limitations:
         lines += ['', palette('heading', 'Limitations')]
-        lines += [palette('forensic_note', '  ' + fit(safe(value), 180)) for value in limitations[:12]]
+        lines += [palette('error' if value in recorded_errors else 'forensic_note', '  ' + fit(safe(value), 180)) for value in limitations[:12]]
         if len(limitations) > 12:
             lines.append(f'  Showing 12 of {len(limitations)} limitation summaries')
-    return '\n'.join(lines)
+    return aligned_lines(lines)

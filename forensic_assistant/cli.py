@@ -57,7 +57,7 @@ def build_parser(*, interactive=False):
     from forensic_assistant.cli_parser import LocardParser, InteractiveParser, configure_interactive
     parser = (InteractiveParser if interactive else LocardParser)(
         prog='locard',
-        description="Locard — local evidence-first Windows forensics"
+        description="Locard â€” local evidence-first Windows forensics"
     )
     parser.add_argument("--version", action="version", version="Locard " + __version__)
     from forensic_assistant.cli_parser import VersionDetails
@@ -258,7 +258,7 @@ def _dispatch_recorded(args, *, existing_only=False):
                 from forensic_assistant.workflow_cli import run,render
                 from forensic_assistant.terminal import Palette, enabled
                 value=run(args)
-                if value is not None:print(json.dumps(value,ensure_ascii=True,indent=2) if getattr(args,'json',False) else render(value, Palette(enabled(args)), audit_summary=args.workflow=='audit-verify'))
+                if value is not None:print(json.dumps(value,ensure_ascii=True,indent=2) if getattr(args,'json',False) else render(value, Palette(enabled(args)), audit_summary=args.workflow=='audit-verify', details=getattr(args, 'details', False)))
             return 2 if isinstance(value,dict) and value.get('valid') is False else 0
         except (ValueError,OSError,sqlite3.Error) as exc:
             from forensic_assistant.terminal import message
@@ -343,7 +343,7 @@ def _dispatch(args, output, *, existing_only=False):
             result = workflow_cli.run(args)
             if result is not None:
                 if args.json: emit(result)
-                else: output.write(workflow_cli.render(result, output.palette, audit_summary=args.workflow=='audit-verify'))
+                else: output.write(workflow_cli.render(result, output.palette, audit_summary=args.workflow=='audit-verify', details=getattr(args, 'details', False)))
             return 0
         if args.command == 'briefing':
             from forensic_assistant import briefing_cli
@@ -441,7 +441,11 @@ def _dispatch(args, output, *, existing_only=False):
                     output.write(render(result, args, output.palette))
                 return 0
             presentation = {}
-            v2_result = v2_cli.dispatch(db, args, presentation=presentation)
+            from contextlib import nullcontext
+            from forensic_assistant.terminal_activity import operation
+            label = {'status': 'Retrieving case status...', 'search': 'Searching evidence...'}.get(args.command)
+            with operation(label, args) if label else nullcontext():
+                v2_result = v2_cli.dispatch(db, args, presentation=presentation)
             if v2_result is not None:
                 result, code = v2_result
                 activity.result_count(result)

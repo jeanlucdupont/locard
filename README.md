@@ -3893,3 +3893,5 @@ palettes or generic footers. `? case` and `case ?` provide contextual shell help
 See [6.147 refinement and acceptance](docs/LOCARD_6_147_CLI_PRESENTATION_REFINEMENT.md)
 and [the complete help editorial inventory](docs/LOCARD_6_147_HELP_INVENTORY.md).
 The provider-free `scripts/help_inventory.py` flags wording for review, not rejection.
+
+See [6.148 responsiveness and manual acceptance](docs/LOCARD_6_148_CLI_RESPONSIVENESS.md) for delayed operation activity, aligned fields, concise case listing (`case list --details` for locations), and measured status-query costs.

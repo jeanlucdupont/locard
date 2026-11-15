@@ -187,7 +187,7 @@ def dispatch(db, args, *, presentation=None):
         return result, 0
     if command == 'status':
         from forensic_assistant.database.sources import coverage
-        from forensic_assistant.artifacts.userassist import timeline_cte
+        from forensic_assistant.artifacts.userassist import timeline_count
         result = Queries(db).coverage()
         from forensic_assistant.retrieval.status_display import error_details
         result['ingestion_errors'] = error_details(db)
@@ -196,7 +196,7 @@ def dispatch(db, args, *, presentation=None):
             source_coverage=coverage(db),
             browser_counts={r[0]: r[1] for r in db.execute("SELECT artifact_type,count(*) FROM evidence_records WHERE source_type='browser' GROUP BY artifact_type")},
             artifact_counts=artifact_counts(db),
-            timeline_observations=db.execute(timeline_cte(db) + 'SELECT count(*) FROM locard_times WHERE timestamp_utc IS NOT NULL').fetchone()[0]
+            timeline_observations=timeline_count(db)
         )
         if presentation is not None and not getattr(args, 'raw', False) and not args.json:
             from forensic_assistant.retrieval.status_display import context

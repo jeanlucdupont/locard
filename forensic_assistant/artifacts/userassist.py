@@ -66,7 +66,7 @@ def load(db, evidence_id):
     return interpret(row['key_path'], row['value_name'], row['value_type'], row['data'], version, size=row['size'])
 
 
-def timeline_cte(db):
+def timeline_cte(db, *, include_persisted=True):
     """Read-only fallback for old cases; persisted slots are never duplicated.
 
     Only recognized UserAssist values gain inherited key context in the timeline.
@@ -77,7 +77,7 @@ def timeline_cte(db):
         data = load(db, eid)
         return (data or {}).get('last_execution', {}).get('timestamp_utc')
     db.create_function('locard_userassist_time', 1, execution_time)
-    return r'''WITH locard_ua AS (
+    sql = r'''WITH locard_ua AS (
         SELECT v.evidence_id,v.key_id,locard_userassist_time(v.evidence_id) AS timestamp_utc
         FROM registry_values v JOIN registry_keys k ON k.evidence_id=v.key_id
         WHERE k.key_path LIKE 'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\UserAssist\%\Count'
@@ -93,3 +93,12 @@ def timeline_cte(db):
         WHERE u.timestamp_utc IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM evidence_timestamps own WHERE own.evidence_id=u.evidence_id AND own.slot=t.slot)
     ) '''
+    return sql if include_persisted else sql.replace('FROM evidence_timestamps\n        UNION ALL', 'FROM evidence_timestamps WHERE 0\n        UNION ALL', 1)
+
+
+def timeline_count(db):
+    """Count indexed persisted timestamps plus the unchanged legacy fallback."""
+    stored = db.execute('SELECT count(*) FROM evidence_timestamps WHERE timestamp_utc IS NOT NULL').fetchone()[0]
+    inherited = db.execute(timeline_cte(db, include_persisted=False) +
+                           'SELECT count(*) FROM locard_times WHERE timestamp_utc IS NOT NULL').fetchone()[0]
+    return stored + inherited

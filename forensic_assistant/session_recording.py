@@ -3,6 +3,7 @@
 This is derived process history, never evidence or investigation authority.
 No recording is installed at import time. Embedders explicitly use execution().
 """
+from forensic_assistant.terminal import aligned_lines
 from contextlib import contextmanager
 from contextvars import ContextVar
 from collections import deque
@@ -722,13 +723,13 @@ def integrity_summary(value, palette=None):
              field('Active sessions (this process)', active, palette),
              field('Incomplete sessions (state unknown)', incomplete-active, palette, role='unknown' if incomplete-active else 'value'),
              field('Integrity failures', failures + int(not audit['valid']), palette, role='error' if failures or not audit['valid'] else 'value')]
-    if not failures and audit['valid']:
-        lines.append(palette('success' if verified else 'unknown', 'No integrity failures detected in completed sessions.' if verified else 'No completed sessions verified.'))
+    if failures or not audit['valid']:
+        lines.append(palette('error', 'Integrity verification failed; inspect audit verify --json for affected records.'))
+    if current is not None and current.broken:
+        lines.append(palette('error', 'Current session recording failed; integrity of subsequent capture is not established.'))
     if incomplete-active:
         lines.append(palette('forensic_note', 'An incomplete recording may be active elsewhere or interrupted; its state is not established.'))
-    if any(r.get('limitations') for r in rows):
-        lines.append(palette('forensic_note', 'Recording limitations remain; use --json or audit session show for details.'))
-    return '\n'.join(lines)
+    return aligned_lines(lines)
 
 
 def render(value, palette=None):
@@ -741,7 +742,7 @@ def render(value, palette=None):
             lines.append(f"{e['sequence']} {e['timestamp_utc']} {e['action']}: " + safe_text(e.get('data', {})))
         lines.append('Earlier matching records omitted: ' + str(value['omitted_records']))
         lines.append('Records beyond the latest authority checkpoint: ' + str(value['unanchored_records']))
-        return '\n'.join(lines)
+        return aligned_lines(lines)
     audit = value['activity']
     status = 'verified' if audit.get('exists') and audit['valid'] else 'missing' if audit['valid'] else 'corrupt'
     lines = [field('Activity chain',status,palette,role={'verified':'success','missing':'unknown','corrupt':'error'}[status])]
@@ -750,4 +751,4 @@ def render(value, palette=None):
         lines.append(palette('forensic_note', '  Capture limitations: ' + safe_text(row['limitations'])))
     if not value['sessions']:
         lines.append('No linked session recordings (historical activity remains independently verifiable).')
-    return '\n'.join(lines)
+    return aligned_lines(lines)

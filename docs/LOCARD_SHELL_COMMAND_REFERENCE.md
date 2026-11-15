@@ -1,6 +1,6 @@
 # Locard shell command reference
 
-Generated from the current canonical interactive parser for 6.147. Documentation wraps at 100 columns; live help uses the terminal width.
+Generated from the current canonical interactive parser (case-list update for 6.148). Documentation wraps at 100 columns; live help uses the terminal width.
 
 Use `help <path>`, `? <path>`, or `<path> ?` without executing the operation. `help all` lists nested commands.
 
@@ -1657,13 +1657,16 @@ positional arguments:
 
 ## case list
 
+Default output shows names and origin classifications. Use `--details` for paths/discovery metadata; JSON is unchanged.
+
 ```text
-usage: case list [--json]
+usage: case list [--json] [--details]
 
 List available cases
 
 Options:
-  --json  Output as JSON
+  --json     Output as JSON
+  --details  Show case paths and discovery metadata
 ```
 
 ## case root

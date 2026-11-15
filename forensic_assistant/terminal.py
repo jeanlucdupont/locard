@@ -83,7 +83,7 @@ class Palette:
 
     def __call__(self, role, text):
         style = STYLES[role]
-        if role == 'forensic_note' and (os.environ.get('WT_SESSION')
+        if role == 'forensic_note' and ((os.name == 'nt' and capable(sys.stdout)) or os.environ.get('WT_SESSION')
                 or '256color' in os.environ.get('TERM', '')
                 or os.environ.get('COLORTERM') in ('truecolor', '24bit')):
             style = '38;5;136'
@@ -111,9 +111,46 @@ def render_spans(spans, palette=None):
                            safe_span_text(span.text)) for span in spans)
 
 
+class LabeledField(str):
+    """Human field with explicit layout metadata; never used in service results."""
+    def __new__(cls, label, value, palette, role):
+        obj = super().__new__(cls, render_spans((TextSpan(label + ': '), TextSpan(str(value), role)), palette))
+        obj.label, obj.value, obj.palette, obj.role = label, str(value), palette, role
+        return obj
+
+
+def aligned_lines(lines, *, width=None):
+    """Align explicit fields only, preserving other narrative/table lines."""
+    import shutil
+    import textwrap
+    lines = list(lines)
+    width = max(20, width or shutil.get_terminal_size((80, 24)).columns - 1)
+    fields = [line for line in lines if isinstance(line, LabeledField)]
+    column = max((len(safe_span_text(f.label).expandtabs()) + 2 for f in fields), default=0)
+    result = []
+    for line in lines:
+        if not isinstance(line, LabeledField):
+            result.append(line)
+            continue
+        label = safe_span_text(line.label).expandtabs() + ':'
+        value = safe_span_text(line.value).expandtabs()
+        stacked = column > width // 2
+        indent = 2 if stacked else column
+        if stacked:
+            result.extend(render_spans((TextSpan(part),), line.palette)
+                          for part in textwrap.wrap(label, width) or [''])
+        chunks = []
+        for paragraph in value.split('\n'):
+            chunks.extend(textwrap.wrap(paragraph, max(1, width-indent), replace_whitespace=False) or [''])
+        for index, chunk in enumerate(chunks):
+            prefix = ' ' * indent if stacked or index else label.ljust(column)
+            result.append(render_spans((TextSpan(prefix), TextSpan(chunk, line.role)), line.palette))
+    return '\n'.join(result)
+
+
 def field(label, value, palette=None, *, role='value'):
     """Explicit field meaning supplied by the human-view adapter."""
-    return render_spans((TextSpan(label + ': ', 'label'), TextSpan(str(value), role)), palette)
+    return LabeledField(label, value, palette, role)
 
 
 def question_prompt(prompt, args=None):

@@ -241,10 +241,10 @@ def test_status_human_json_sources_and_historical_logs(case, tmp_path, capsys):
     details = status_display.context(db)
     text = status_display.render(expected, 'synthetic.db', details)
     assert 'CASE STATUS' in text and 'Total evidence records:' in text
-    assert 'Complete: 1' in text and 'Partial: 0' in text and 'Failed: 0' in text
+    assert 'Complete: 1' in ' '.join(text.split()) and 'Partial: 0' in ' '.join(text.split()) and 'Failed: 0' in ' '.join(text.split())
     assert 'Companion log attempts: unsupported: 1' in text
     assert 'Historical companion log attempts: partial: 1' in text
-    assert 'Analyst host: unknown' in text and 'Unfinished batches: 1' in text
+    assert 'Analyst host: unknown' in ' '.join(text.split()) and 'Unfinished batches: 1' in ' '.join(text.split())
     assert text.count('Registry transaction-log replay is not supported') == 1
     assert 'Dirty Registry hives: 1' in text and 'not successful hive parsing' in text
     assert len(text.splitlines()) < 45 and not text.startswith('{')
@@ -270,9 +270,9 @@ def test_status_failed_partial_and_legacy_metadata(case):
         db.execute('PRAGMA user_version=3')
     expected, _ = v2_cli.dispatch(db, build_parser().parse_args(['case', 'status', '--json']))
     text = status_display.render(expected, 'synthetic.db', status_display.context(db))
-    assert 'Partial: 1' in text and 'Failed: 1' in text and 'interrupted: 1' in text
+    assert 'Partial: 1' in ' '.join(text.split()) and 'Failed: 1' in ' '.join(text.split()) and 'interrupted: 1' in ' '.join(text.split())
     assert 'Legacy source and batch membership unknown' in text
-    assert 'Unfinished batches: unknown' in text
+    assert 'Unfinished batches: unknown' in ' '.join(text.split())
 
 
 @pytest.fixture(autouse=True)

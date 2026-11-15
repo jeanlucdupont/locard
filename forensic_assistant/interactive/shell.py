@@ -118,7 +118,9 @@ class Shell:
 
     def activate(self, path, *, activity_session=None, announce=True):
         from forensic_assistant.case_management import validate_identity
-        target = validate_identity(validate(path))
+        from forensic_assistant.terminal_activity import operation
+        with operation('Opening case...', self):
+            target = validate_identity(validate(path))
         from contextlib import closing
         from .case import open_existing
         with closing(open_existing(target)) as db:

@@ -69,7 +69,10 @@ def configure(commands, *, interactive=False):
 
 def dispatch(args):
     if args.report_command != 'generate':
-        return _dispatch(args)
+        from contextlib import nullcontext
+        from forensic_assistant.terminal_activity import operation
+        with operation('Verifying report...', args) if args.report_command == 'validate' else nullcontext():
+            return _dispatch(args)
     from forensic_assistant import activity
     from forensic_assistant.output import file_hash
     with activity.mutation('OUTPUT_WRITE', path=str(Path(args.output).absolute()), command='report generate',
@@ -136,8 +139,9 @@ def render_result(result, args, palette):
              if args.evidence_ids else str(len(args.investigation_ids)) + ' selected same-state investigations')
     status = ('Report generated with limitations.' if result['status'] == 'COMPLETE_WITH_LIMITATIONS'
               else 'Report generated.')
-    return '\n'.join([palette('heading', status), '', 'Directory:', palette('value', '  ' + directory),
-                      '', 'Report ID:', palette('value', '  ' + result['report_id']), '', 'Scope:', '  ' + scope,
+    from forensic_assistant.terminal import aligned_lines, field
+    return aligned_lines([palette('heading', status), '', field('Directory', directory, palette),
+                      field('Report ID', result['report_id'], palette), field('Scope', scope, palette),
                       palette('forensic_note', '  Completion applies to this bounded report, not a complete forensic examination.'),
                       '', 'Files:', *('  ' + name for name in FILES), '', 'Use:',
                       '  report show "' + directory + '"', '  report verify "' + directory + '"'])

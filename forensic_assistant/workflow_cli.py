@@ -1,4 +1,5 @@
 """Canonical workflow navigation; calls existing application services directly."""
+from forensic_assistant.terminal import aligned_lines
 import json
 import sys
 
@@ -14,6 +15,7 @@ def configure(operations, *, interactive=False):
     for operation in ('list', 'root', 'register', 'unregister', 'clone'):
         p=add(('case',), operation, 'case-'+operation, {'list':'List available cases','root':'View or change the case directory','register':'Register an existing case','unregister':'Remove a case registration','clone':'Create an independent case copy'}[operation])
         p.add_argument('--json', action='store_true', help='Output as JSON')
+        if operation=='list':p.add_argument('--details', action='store_true', help='Show case paths and discovery metadata')
         if operation=='root':
             p.add_argument('action', nargs='?', choices=('set',), help='Select set to change the root')
             p.add_argument('path', nargs='?', help='File or directory path')
@@ -110,7 +112,10 @@ def run(args):
     op=args.workflow
     if op.startswith('case-') and op not in ('case-new',):
         from .case_cli import run as case_run
-        return case_run(args, read=read)
+        from contextlib import nullcontext
+        from .terminal_activity import operation
+        with operation('Discovering cases...', args) if op == 'case-list' else nullcontext():
+            return case_run(args, read=read)
     if op=='findings':return findings(args)
     if op=='reason':
         from .investigation_ai.d2_reasoning import run
@@ -125,7 +130,9 @@ def run(args):
         from . import session_recording
         case = None if args.application else args.db
         if op in ('audit-verify', 'audit-sessions'):
-            return session_recording.verify(case)
+            from .terminal_activity import operation
+            with operation('Verifying audit integrity...', args):
+                return session_recording.verify(case)
         return session_recording.review(case, selector=args.session, limit=args.limit,
                diagnostics=op=='audit-diagnostics', severity=getattr(args,'severity',None),
                operation_id=args.operation_id, since=args.since)
@@ -146,7 +153,7 @@ def run(args):
     raise ValueError('Unknown workflow operation')
 
 
-def render(value, palette=None, *, audit_summary=False):
+def render(value, palette=None, *, audit_summary=False, details=False):
     from .terminal import Palette, field, render_spans, TextSpan
     palette = palette or Palette()
     if value is None:return ''
@@ -165,7 +172,7 @@ def render(value, palette=None, *, audit_summary=False):
             # Clone provenance remains available without pretending it is evidence.
             if isinstance(item, (str, int, bool)) or item is None:
                 lines.append(field(key.replace('_', ' ').capitalize(), item, palette))
-        return '\n'.join(lines)
+        return aligned_lines(lines)
     if isinstance(value,dict) and ('registered' in value or 'unregistered' in value):
         action = 'registered' if 'registered' in value else 'unregistered'
         return '\n'.join([palette('success', 'Case reference ' + action + '.'),
@@ -177,12 +184,16 @@ def render(value, palette=None, *, audit_summary=False):
     if isinstance(value,dict) and set(value)=={'status'}:
         return field('Status', value['status'], palette)
     if isinstance(value,dict) and 'cases' in value:
-        lines=[palette('heading', 'Available cases'), palette('forensic_note', 'Discovery is not validation')]
+        lines=[palette('heading', 'Available cases'), '']
+        size = max((len(safe_text(r['name'])) for r in value['cases']), default=0)
         for row in value['cases']:
-            lines.append('  '+palette('value',safe_text(row['name']))+' ['+palette('value',safe_text(row['origin']))+'] '+palette('value',safe_text(row['path'])))
-            lines.append('    '+safe_text(row['status']))
+            lines.append('  '+palette('value',safe_text(row['name']).ljust(size))+'  '+palette('punctuation',safe_text(row['origin']).capitalize()))
+            if details:
+                lines.extend([field('    Path', row['path'], palette), field('    Discovery', row['status'], palette, role='unknown')])
+            elif row.get('status') != 'discovered; not validated':
+                lines.append(palette('warning', '    '+safe_text(row['status'])))
         if not value['cases']:lines.append('  No cases discovered. Use case new or case register.')
-        return '\n'.join(lines)
+        return aligned_lines(lines)
     if isinstance(value,dict) and value.get('kind')=='assessment_investigation':return briefing_render(value, palette=palette)
     if isinstance(value,dict) and value.get('kind')=='assessment_history':return briefing_render(value, palette=palette)
     if isinstance(value,dict) and 'valid' in value and 'entries' in value:
@@ -204,7 +215,7 @@ def render(value, palette=None, *, audit_summary=False):
         if not decisions['history']:
             lines.append('  No recorded decisions.')
         lines.append('Use --json for complete decision payloads and integrity references.')
-        return '\n'.join(lines)
+        return aligned_lines(lines)
     if isinstance(value,dict) and 'findings' in value:
         lines=[palette('forensic_note', 'Findings — analyst decisions, not forensic verification'),
                field('Workspace',value.get('metadata',{}).get('id',value.get('workspace_id','')),palette),
@@ -215,7 +226,7 @@ def render(value, palette=None, *, audit_summary=False):
             lines.append('    '+safe_text(candidate.get('statement','')))
         if not value['findings']:lines.append('  No findings registered.')
         lines.append('Use --json for complete support, rationale and source-binding details.')
-        return '\n'.join(lines)
+        return aligned_lines(lines)
     if isinstance(value,dict) and set(value)=={'root','effect'}:
         from .terminal import TextSpan, render_spans
         return render_spans((TextSpan('Case root: '), TextSpan(value['root'], 'value'),

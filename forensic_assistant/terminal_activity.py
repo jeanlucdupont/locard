@@ -6,6 +6,8 @@ import threading
 
 from .terminal import Palette, capable, enabled, replace_progress_line
 
+_OWNER = threading.Lock()
+
 FRAMES = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 PHASES = {
     'preparing': 'Preparing investigation...',
@@ -47,15 +49,22 @@ class ActivityIndicator:
         self._stop = threading.Event()
         self._thread = None
         self._visible = False
+        self._owns_line = False
 
     def start(self, text=None):
         if text is not None:
             self.update(text)
-        if self.active and self._thread is None:
+        if self.active and self._thread is None and _OWNER.acquire(blocking=False):
+            self._owns_line = True
             self._stop.clear()
             self._thread = threading.Thread(target=self._animate, daemon=True,
                                             name='Locard terminal activity')
-            self._thread.start()
+            try:
+                self._thread.start()
+            except RuntimeError:
+                self._thread = None
+                self._owns_line = False
+                _OWNER.release()
         return self
 
     def update(self, text):
@@ -85,10 +94,14 @@ class ActivityIndicator:
                 width = max(1, shutil.get_terminal_size(fallback=(80, 24)).columns - 1)
                 room = max(0, width - 2)
                 text = text if len(text) <= room else (text[:max(0, room-1)] + '…' if room else '')
-                line = self.palette('label', FRAMES[index % len(FRAMES)])
+                from .terminal import supports_unicode
+                frames = FRAMES if supports_unicode(FRAMES, self.stream) else '|/-\\'
+                line = self.palette('label', frames[index % len(frames)])
                 if room:
                     line += ' ' + text
-                self._visible = replace_progress_line(line, self.stream)
+                from .session_recording import suspended
+                with suspended():
+                    self._visible = replace_progress_line(line, self.stream)
                 index += 1
                 if self._stop.wait(self.interval):
                     break
@@ -103,10 +116,16 @@ class ActivityIndicator:
             self._thread = None
         if self._visible:
             try:
-                replace_progress_line('', self.stream)
+                from .session_recording import suspended
+                with suspended():
+                    replace_progress_line('', self.stream)
             except (OSError, ValueError, UnicodeError):
                 pass
             self._visible = False
+
+        if self._owns_line:
+            self._owns_line = False
+            _OWNER.release()
 
     def __enter__(self):
         return self.start() if self.text else self
@@ -126,3 +145,11 @@ class ActivityOutput:
         else:
             self.indicator.stop()
             self.output.write(text)
+
+
+def operation(text, args=None):
+    """Present silent synchronous work; leave before output or questions.
+
+    Reuse the delayed activity thread, which waits without drawing for fast work.
+    """
+    return ActivityIndicator(text, args=args, delay=.5, interval=.1)

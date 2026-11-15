@@ -13,6 +13,10 @@ from forensic_assistant import terminal_activity as ui
 
 
 class Terminal(io.StringIO):
+    @property
+    def encoding(self):
+        return "utf-8"
+
     def isatty(self):
         return True
 

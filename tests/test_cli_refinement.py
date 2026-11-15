@@ -102,7 +102,7 @@ def test_case_status_neutral_values_and_qualifications(count):
     assert t.SGR.sub('',color)==plain and result==before
     assert 'No evidence has been ingested.' in plain if not count else 'absence of matching evidence records' in plain
     assert 'Dirty Registry hives' in plain and 'Missing events' not in plain
-    assert t.field('  Failed','0',t.Palette(True)) in color
+    assert t.Palette(True)('value', '0') in color and 'Failed:' in plain
 
 
 def test_audit_summary_classification_and_unchanged_json(monkeypatch):
@@ -110,20 +110,20 @@ def test_audit_summary_classification_and_unchanged_json(monkeypatch):
     value=dict(activity=dict(valid=True,exists=True),sessions=rows)
     before=copy.deepcopy(value)
     token=sr.ACTIVE.set(SimpleNamespace(segment='2',head={'entry_hash':'h'},broken=False))
-    try:text=sr.integrity_summary(value)
+    try:text=' '.join(sr.integrity_summary(value).split())
     finally:sr.ACTIVE.reset(token)
     assert 'Verified sessions: 2' in text and 'Active sessions (this process): 1' in text
     assert 'Incomplete sessions (state unknown): 1' in text and 'Integrity failures: 3' in text
     assert 'audit_review_not_recursively_recorded' not in text and value==before
     assert 'state is not established' in text
-    assert 'Active sessions (this process): 0' in sr.integrity_summary(value)
+    assert 'Active sessions (this process): 0' in ' '.join(sr.integrity_summary(value).split())
 
 
 def test_live_audit_summary_keeps_recording(tmp_path):
     with sr.execution([]) as recorder:
         before=sr.verify()
-        text=sr.integrity_summary(before)
+        text=' '.join(sr.integrity_summary(before).split())
         assert 'Active sessions (this process): 1' in text
     after=sr.verify()
     assert after['valid'] and after['sessions'][0]['integrity']=='verified'
-    assert 'Verified sessions: 1' in sr.integrity_summary(after)
+    assert 'Verified sessions: 1' in ' '.join(sr.integrity_summary(after).split())

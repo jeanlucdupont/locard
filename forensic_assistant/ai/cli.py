@@ -1,4 +1,5 @@
 """Provider settings and owned-runtime controls; no case is required."""
+from forensic_assistant.terminal import aligned_lines
 from pathlib import Path
 import os
 import sys
@@ -278,7 +279,7 @@ def render(value, args=None, *, startup=False):
                 raw = value.get(key, 'not checked')
                 text = 'not checked' if raw in ('not_checked','not_verified') else str(raw)
                 lines.append(field('  '+label, text, palette, role=states.get(raw, 'unknown')))
-        return '\n'.join(lines)
+        return aligned_lines(lines)
     if 'logs' in value:
         return '\n'.join(safe_text(line) for line in value['logs'].splitlines())
     labels = {'diagnostic_level':'Diagnostic', 'provider':'Provider', 'integration':'Integration', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
@@ -320,4 +321,4 @@ def render(value, args=None, *, startup=False):
         lines.append(palette('label',
                             '\n'.join(safe_text(line) for line in value['message'].splitlines())))
     if 'idle_timeout_seconds' in value: lines.append('  Idle timeout: 15 minutes')
-    return '\n'.join(lines)
+    return aligned_lines(lines)

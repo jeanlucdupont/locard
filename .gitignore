@@ -260,3 +260,4 @@ report-bundles/
 !/scripts/
 /scripts/*
 !/scripts/help_inventory.py
+!/docs/LOCARD_6_148_CLI_RESPONSIVENESS.md
