@@ -190,7 +190,8 @@ def dispatch(db, args, *, presentation=None):
         from forensic_assistant.artifacts.userassist import timeline_count
         result = Queries(db).coverage()
         from forensic_assistant.retrieval.status_display import error_details
-        result['ingestion_errors'] = error_details(db)
+        full = args.json or getattr(args, 'details', False) or presentation is None
+        result['ingestion_errors'] = error_details(db) if full else []
         result.update(
             schema_version=db.execute('PRAGMA user_version').fetchone()[0],
             source_coverage=coverage(db),
@@ -200,7 +201,7 @@ def dispatch(db, args, *, presentation=None):
         )
         if presentation is not None and not getattr(args, 'raw', False) and not args.json:
             from forensic_assistant.retrieval.status_display import context
-            presentation['status'] = context(db)
+            presentation['status'] = context(db, verbose=full)
         return result, 0
     if command in ('search', 'timeline'):
         filters = {k: getattr(args, k, None) for k in ('artifact', 'path', 'process', 'hostname', 'ip', 'event_id')}

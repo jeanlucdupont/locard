@@ -10,7 +10,7 @@ def configure(commands):
         p = sub.add_parser(name, help={'list':'List evidence sources','show':'Show a source and its provenance','create':'Create analyst-supplied source metadata','update':'Update source metadata after confirmation','assign':'Assign retained files to a source after confirmation'}[name])
         p.add_argument('--json', action='store_true', help='Output as JSON')
         if name in ('show', 'update', 'assign'):
-            p.add_argument('source_id', help='Source identifier')
+            p.add_argument('source_id', nargs='?' if name == 'show' else None, help='Exact source ID; omit show ID for interactive selection')
         if name in ('list', 'show'):
             p.add_argument('--limit', type=int, default=100, help='Maximum number of results')
             p.add_argument('--offset', type=int, default=0, help='Skip this many results')
@@ -18,10 +18,10 @@ def configure(commands):
             p.add_argument(
                 '--details',
                 action='store_true',
-                help='Show paginated provenance as JSON'
+                help='Show source identifiers and paginated provenance'
             )
         if name == 'list':
-            p.description = 'Display abbreviations (...) are not command IDs; use --ids for full copyable IDs or --json for complete values.'
+            p.description = 'List retained sources; use show for selection or --ids for canonical identifiers.'
         if name == 'list':
             p.add_argument(
                 '--ids',
@@ -75,45 +75,31 @@ def changes(args):
     }
 
 
+def display_name(data):
+    # Match only the application's generated label, not arbitrary analyst names.
+    generated = 'Source ' + data['source_id'].removeprefix('src-')[:12]
+    return 'Unnamed source' if data['display_name'] == generated else data['display_name']
+
+
 def render_list(data, palette=None, *, ids=False, width=None):
-    from forensic_assistant.retrieval.presentation import safe
-    from forensic_assistant.retrieval.layout import table, terminal_width, pagination
-    import textwrap
     from forensic_assistant.terminal import Palette
+    from forensic_assistant.retrieval.layout import table, pagination
+    from forensic_assistant.retrieval.presentation import safe_text
     palette = palette or Palette()
-    labels = {'prefetch': 'Prefetch', 'mft': 'MFT', 'registry': 'Registry', 'evtx': 'EVTX', 'browser': 'Browser'}
-    rows = [[
-        r['source_id'],
-        r['display_name'],
-        r['hostname'] or 'unknown',
-        r['batches'],
-        r['files'],
-        ', '.join(labels.get(k, k) + ': ' + str(v) for k, v in sorted(r['artifacts'].items())) or '-'
-    ] for r in data['sources']]
-    lines = []
-    lines += table(
-        ['ID', 'NAME', 'HOSTNAME', 'BATCHES', 'FILES', 'ARTIFACTS'],
-        rows,
-        palette,
-        minimums=[12, 10, 10, 7, 5, 12],
-        maximums=[40, 28, 24, 9, 9, 40],
-        roles=['value', 'value', 'label', 'value', 'value', 'label'],
-        right=(3, 4),
-        width=width
-    )
-    if ids:
-        lines += ['', palette('heading', 'Full source IDs')]
-        lines += [safe(r['source_id']) + '  ' + safe(r['display_name']) for r in data['sources']]
-    footer = pagination(len(data['sources']), data['total'], data['offset'])
-    notices = [footer] if footer else []
-    for r in data['sources']:
+    rows = [[n, display_name(r), f"{r['files']:,}", f"{r['evidence_count']:,}"]
+            for n,r in enumerate(data['sources'], data['offset']+1)]
+    lines = [palette('heading', 'Evidence sources'), '']
+    lines += table(['#','NAME','FILES','RECORDS'],rows,palette,minimums=[3,12,7,10],
+                   maximums=[6,55,15,18],roles=['value']*4,right=(2,3),width=width)
+    for n,r in enumerate(data['sources'], data['offset']+1):
+        if ids: lines.append(palette('value', f"  {n}: " + safe_text(r['source_id'])))
         if r.get('host_conflict'):
-            notices.append(safe(r['source_id']) + ': conflicting host assertions; inspect evidence source show.')
+            lines.append(palette('forensic_note', f'  Source {n}: conflicting hostname assertions; identity is not established.'))
         if r.get('ambiguous_files'):
-            notices.append(safe(r['source_id']) + f": {r['ambiguous_files']} files have multiple source memberships; inspect evidence source show.")
-    for notice in notices:
-        lines.extend(textwrap.wrap(notice, terminal_width(width), break_on_hyphens=False))
-    return '\n'.join(lines) + '\n'
+            lines.append(palette('forensic_note', f"  Source {n}: {r['ambiguous_files']:,} files have multiple source memberships."))
+    footer = pagination(len(rows),data['total'],data['offset'])
+    if footer: lines += ['',footer]
+    return '\n'.join(lines)
 
 
 def dispatch(db, args):
@@ -121,6 +107,10 @@ def dispatch(db, args):
     if action == 'list':
         return sources.listing(db, args.limit, args.offset)
     if action == 'show':
+        if not args.source_id:
+            raise ValueError('Supply an exact source ID in scripts or use interactive evidence source show.')
+        if not args.json and not args.details:
+            return sources.summary(db, args.source_id)
         return sources.detail(db, args.source_id, args.limit, args.offset)
     from forensic_assistant import activity
     if action == 'create':
@@ -247,10 +237,20 @@ def render_assignment(data, palette=None):
     return '\n'.join(lines)
 
 
-def render_show(data, palette=None):
+def render_show(data, palette=None, *, details=False):
     from forensic_assistant.terminal import Palette
     from forensic_assistant.retrieval.presentation import safe, safe_path
     palette = palette or Palette()
+    if not details:
+        from .terminal import field, aligned_lines
+        lines = [field('Source', display_name(data), palette), field('Retained files', f"{data['files']:,}", palette),
+                 field('Evidence records', f"{data['evidence_count']:,}", palette)]
+        lines += [field(kind.upper(), f'{count:,}', palette) for kind,count in sorted(data['artifacts'].items())]
+        if data.get('hostname'): lines.append(field('Analyst-asserted hostname', data['hostname'], palette))
+        if data.get('artifact_hostnames'): lines.append(field('Observed hostnames', ', '.join(data['artifact_hostnames']), palette))
+        lines += [palette('forensic_note', safe(w)) for w in data.get('limitations', [])]
+        if data.get('artifact_hostnames_truncated'): lines.append(palette('forensic_note', 'Observed hostname list is bounded to 100.'))
+        return aligned_lines(lines)
     lines = []
     def field(name, value, *, path=False):
         from .terminal import field as labeled_field

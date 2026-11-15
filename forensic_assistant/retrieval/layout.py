@@ -37,8 +37,8 @@ def pagination(count, total, offset=0):
     if count == total and offset == 0:
         return ''
     if not offset or not count:
-        return f'Showing {count} of {total}'
-    return f'Showing {offset+1}\u2013{offset+count} of {total}'
+        return f'Showing {count:,} of {total:,}'
+    return f'Showing {offset+1:,}\u2013{offset+count:,} of {total:,}'
 
 
 def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=None, tail=(), format_cell=None, paths=(), text=safe, after_row=None):

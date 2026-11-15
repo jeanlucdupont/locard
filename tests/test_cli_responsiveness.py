@@ -30,9 +30,9 @@ def test_case_list_details_preserve_data():
     before=copy.deepcopy(value)
     plain=workflow_cli.render(value)
     assert 'C:/' not in plain and 'not validated' not in plain
-    assert plain.count('A ')==2 and 'missing' in plain
+    assert plain.splitlines().count('  A')==2 and 'missing' in plain
     details=workflow_cli.render(value,details=True)
-    assert 'C:/synthetic/A/case.db' in details and 'discovered; not validated' in details
+    assert 'C:/synthetic/A/case.db' in details and 'Location:' in details and 'discovered; not validated' not in details
     assert value==before
     args=build_parser().parse_args(['case','list','--details','--json'])
     assert args.details and args.json

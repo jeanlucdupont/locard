@@ -71,7 +71,7 @@ def render(result, palette=None, *, ids=False, width=None):
                 row = [timestamp(r.get('timestamp_utc')), r.get('event_id'), host,
                        r.get('username'), r.get('logon_type'), logon_id(r)]
             else:
-                row = [timestamp(r.get('timestamp_utc')), r.get('event_id'), host, r.get('username'), detail(r)]
+                row = [timestamp(r.get('timestamp_utc')), r.get('event_id'), host, r.get('username'), human_detail(r)]
             rows.append(([index] if ids else []) + row)
         headers = {
             'prefetch': ['LAST RUN (UTC)', 'RUNS', 'EXECUTABLE', 'HOST', 'CANDIDATE PATH'],
@@ -117,7 +117,7 @@ def render(result, palette=None, *, ids=False, width=None):
                 name = (record.get('detail') or {}).get('value_name')
                 if path_name(name):
                     return fit_path(value_name_text(name), available, literal=True)
-            if kind == 'evtx' and not auth and column == len(headers) - 1 and record.get('artifact_type') == 'process':
+            if kind == 'evtx' and not auth and column == len(headers) - 1 and record.get('artifact_type') != 'file_create':
                 return fit(human_detail(record), available)
             if kind != 'evtx' or column != len(headers) - 1 or record.get('artifact_type') != 'file_create':
                 return None
@@ -175,6 +175,7 @@ def render(result, palette=None, *, ids=False, width=None):
     if not records:
         lines.append('No matches in examined candidates.' if result.get('content_search') else 'No matching evidence.')
     missing_candidates = []
+    shared_annotations = {}
     for index, r in enumerate(records, 1):
         if r['source_type'] == 'browser':
             continue  # Browser-specific warnings/IDs stay directly below their record.
@@ -185,7 +186,13 @@ def render(result, palette=None, *, ids=False, width=None):
             if is_identifier_note(warning):
                 continue
             if r['source_type'] != 'prefetch' or warning not in PREFETCH_CAUTIONS:
-                lines.append(palette('forensic_note', f'Row {index}: ' + safe(warning)))
+                import json
+                src = r.get('source', {})
+                identity = src.get('sha256') or r.get('file_sha256')
+                # Unknown or truncated provenance cannot establish shared scope.
+                scope = (identity, json.dumps(src.get('acquisitions', []), sort_keys=True),
+                         json.dumps(ctx, sort_keys=True)) if identity and not src.get('acquisitions_truncated') else (r['id'],)
+                shared_annotations.setdefault((warning, scope), []).append(index)
         if ctx.get('conflicts') and r['source_type'] != 'registry':
             lines.append(palette('forensic_note', f"Row {index}: conflicting context: " + safe(', '.join(ctx['conflicts']))))
         if r['source_type'] == 'prefetch':
@@ -194,6 +201,9 @@ def render(result, palette=None, *, ids=False, width=None):
                 lines.append(palette('forensic_note', f'Row {index}: multiple executable path candidates.'))
             if r.get('objects_truncated') and not paths:
                 missing_candidates.append(str(index))
+    for (warning, _), affected in shared_annotations.items():
+        label = 'Rows ' + ', '.join(map(str, affected)) if len(affected)>1 else 'Row ' + str(affected[0])
+        lines.append(palette('forensic_note', label + ': ' + safe(warning)))
     if missing_candidates:
         lines.append(palette('forensic_note', 'Note: executable path candidate unavailable in the bounded projection for rows '
                              + ', '.join(missing_candidates) + '.'))

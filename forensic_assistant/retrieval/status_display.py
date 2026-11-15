@@ -1,6 +1,7 @@
 """Concise read-only status projection; stored run statuses are never rewritten."""
 from forensic_assistant.terminal import aligned_lines
 import json
+from pathlib import Path
 from collections import Counter
 
 from forensic_assistant.artifacts.registry_logs import is_log
@@ -22,7 +23,7 @@ def error_details(db):
     return result
 
 
-def context(db):
+def context(db, *, verbose=True):
     # Extra text-only metadata stays outside the established status JSON contract.
     runs = {}
     for row in db.execute('SELECT run_id,source_type,parameters_json FROM artifact_runs'):
@@ -34,12 +35,12 @@ def context(db):
                 error_summaries=[dict(r) for r in db.execute('''SELECT message,count(*) AS count FROM ingestion_errors
                     WHERE run_id NOT IN (SELECT r.id FROM ingestion_runs r JOIN artifact_runs a ON a.run_id=r.id
                     WHERE a.source_type='registry' AND (lower(r.source_file) LIKE '%.log1' OR lower(r.source_file) LIKE '%.log2'))
-                    GROUP BY message ORDER BY count(*) DESC,message LIMIT 6''')])
+                    GROUP BY message ORDER BY count(*) DESC,message LIMIT 6''')] if verbose else [])
 
 
-def render(result, case, details, palette=None):
+def render(result, case, details, palette=None, *, verbose=False):
     palette = palette or Palette()
-    lines = [palette('heading', 'CASE STATUS'), field('Case', safe_path(case), palette), '', palette('heading', 'Evidence')]
+    lines = [palette('heading', 'CASE STATUS'), field('Case', safe_path(case) if verbose else (Path(case).parent.name or Path(case).stem), palette), '', palette('heading', 'Evidence')]
     counts = result.get('artifact_counts', {})
     lines.append(field('  Total evidence records', f'{sum(counts.values()):,}', palette))
     for kind, count in sorted(counts.items()):
@@ -72,33 +73,41 @@ def render(result, case, details, palette=None):
     lines.append(field('  Recorded ingestion errors', f"{sum(r['error_count'] for r in result.get('ingestion_runs', [])):,}", palette))
     coverage = result.get('source_coverage', {})
     lines += ['', palette('heading', 'Sources'), field('  Total', coverage.get('total', 'unknown (legacy schema)'), palette)]
-    for source in coverage.get('sources', [])[:5]:
+    for source in (coverage.get('sources', [])[:5] if verbose else []):
         lines += ['  ' + palette('value', fit(safe(source['display_name']), 100)),
+                  field('    Source ID', source['source_id'], palette),
                   field('    Analyst host', safe(source.get('hostname') or 'unknown'), palette),
                   field('    Files', source['files'], palette), field('    Evidence records', f"{source['evidence_count']:,}", palette)]
         if source.get('artifact_hostnames'):
             lines.append(field('    Artifact hosts', fit(safe(', '.join(source['artifact_hostnames'])), 120), palette))
-    if coverage.get('total', 0) > 5:
+    if verbose and coverage.get('total', 0) > 5:
         lines.append(f"  Showing {min(5, len(coverage.get('sources', [])))} of {coverage['total']} sources; use status --json")
     lines.append(field('  Unfinished batches', coverage.get('unfinished_batches', 'unknown'), palette))
     limitations = list(coverage.get('limitations', []))
-    if coverage.get('unknown_hostname_sources'):
+    if not verbose:
+        if coverage.get('unknown_hostname_sources'):
+            limitations.append('Source computer identity has not been confirmed.')
+        if any(s.get('host_conflict') for s in coverage.get('sources', [])):
+            limitations.append('Conflicting artifact/analyst hostnames were observed; source computer identity is not established.')
+        if log_files or details['dirty_hives']:
+            limitations.append('Registry recovery incomplete: transaction logs were not replayed' +
+                (f"; {details['dirty_hives']} hives are marked dirty." if details['dirty_hives'] else '.'))
+    if verbose and coverage.get('unknown_hostname_sources'):
         limitations.append(f"Analyst hostname unknown for {coverage['unknown_hostname_sources']} sources; source membership alone does not establish a host")
     if coverage.get('unassigned_files'):
         limitations.append(f"Unassigned evidence files: {coverage['unassigned_files']}")
-    if any(s.get('host_conflict') for s in coverage.get('sources', [])):
+    if verbose and any(s.get('host_conflict') for s in coverage.get('sources', [])):
         limitations.append('Source-level conflicting hostname assertions; record hosts are resolved individually; review source details')
-    if log_files:
+    if verbose and log_files:
         limitations.append(f'Registry transaction-log replay is not supported: {len(log_files)} companion file paths in ingestion history')
-    if historical:
+    if verbose and historical:
         limitations.append('Historical companion attempts predate classification; their recorded statuses/errors remain unchanged, not successful hive parsing')
-    if details['dirty_hives']:
+    if verbose and details['dirty_hives']:
         limitations.append(f"Dirty Registry hives: {details['dirty_hives']}; transaction logs were not replayed; snapshots may be inconsistent (dirty does not mean corrupted)")
     from .registry_display import DIRTY_WARNING
     for raw in details['hive_warnings']:
         limitations.extend(w for w in json.loads(raw) if w != DIRTY_WARNING)
-    recorded_errors = {f"Recorded error ({error['count']}): " + error['message'] for error in details['error_summaries'][:5]}
-    for error in details['error_summaries'][:5]:
+    for error in (details['error_summaries'][:5] if verbose else []):
         limitations.append(f"Recorded error ({error['count']}): " + error['message'])
     if len(details['error_summaries']) > 5 or len(details['hive_warnings']) > 5:
         limitations.append('Additional error/warning groups omitted; inspect detailed evidence and ingestion metadata')
@@ -117,7 +126,14 @@ def render(result, case, details, palette=None):
     limitations = list(dict.fromkeys(limitations))
     if limitations:
         lines += ['', palette('heading', 'Limitations')]
-        lines += [palette('error' if value in recorded_errors else 'forensic_note', '  ' + fit(safe(value), 180)) for value in limitations[:12]]
+        lines += [palette('forensic_note', '  ' + fit(safe(value), 180)) for value in limitations[:12]]
         if len(limitations) > 12:
             lines.append(f'  Showing 12 of {len(limitations)} limitation summaries')
+    lines.append(palette('forensic_note', 'Attempt outcomes and recorded parser errors are separate counts; error counts do not measure lost records.'))
+    if verbose:
+        grouped = Counter((e['stage'], e['message']) for e in result.get('ingestion_errors', []))
+        if grouped:
+            lines += ['', palette('heading', 'Recorded ingestion error groups')]
+            lines += [palette('forensic_note', safe(stage) + f' ({count:,}): ' + safe(message)) for (stage,message),count in list(sorted(grouped.items()))[:100]]
+            if len(grouped)>100: lines.append('Showing 100 error groups; use --json for all recorded errors.')
     return aligned_lines(lines)

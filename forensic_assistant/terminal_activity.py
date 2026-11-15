@@ -96,9 +96,9 @@ class ActivityIndicator:
                 text = text if len(text) <= room else (text[:max(0, room-1)] + '…' if room else '')
                 from .terminal import supports_unicode
                 frames = FRAMES if supports_unicode(FRAMES, self.stream) else '|/-\\'
-                line = self.palette('label', frames[index % len(frames)])
+                line = self.palette('progress', frames[index % len(frames)])
                 if room:
-                    line += ' ' + text
+                    line += ' ' + self.palette('label', text)
                 from .session_recording import suspended
                 with suspended():
                     self._visible = replace_progress_line(line, self.stream)

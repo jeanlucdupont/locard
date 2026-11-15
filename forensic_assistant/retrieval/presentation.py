@@ -76,6 +76,11 @@ def human_detail(event):
     if is_defender_block(event):
         return "Defender ASR blocking action recorded; not proof of successful execution"
     kind = event.get('kind') or event.get('artifact_type')
+    if not kind or kind == 'Unmapped event':
+        provider, event_id = event.get('provider'), event.get('event_id')
+        if event_id is not None:
+            return (safe_text(provider) + ' — ' if provider else 'Provider unknown — ') + 'Event ' + safe_text(event_id)
+        return (safe_text(provider) + ' — Event ID unknown') if provider else 'Unmapped event (provider and Event ID unknown)'
     if kind == 'file_create':
         actor = safe(ntpath.basename(event.get('process_name') or '?'))
         return actor + ' - file creation/overwrite: ' + safe_path(file_create_target(event) or '?')

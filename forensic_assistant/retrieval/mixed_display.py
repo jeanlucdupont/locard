@@ -180,3 +180,31 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
     if not rows:
         line('No matching evidence.')
     return '\n'.join(lines).rstrip()
+
+
+def compact_timeline(result, *, palette=None, width=None):
+    """Same displayed groups, exact time strings; details remain separately available."""
+    from .layout import table
+    palette = palette or Palette()
+    grouped = mft_display.groups(result['records'], source_types=('mft','evtx'))
+    rows = [[g[0]['timestamp_utc'].replace('T',' ').removesuffix('Z'),
+             g[0]['source_type'].upper(), object_text(g[0])] for g in grouped]
+    time_width = max([10] + [len(r[0]) for r in rows])
+    lines = table(['TIME (UTC)','TYPE','OBSERVATION'], rows, palette,
+                  minimums=[time_width,8,15], maximums=[time_width,12,120],
+                  roles=['value','value','label'], width=width, text=lambda x:str(x),
+                  format_cell=lambda row,col,value,available: value if col==0 else None)
+    if not rows: lines.append('No matching evidence.')
+    if '_evtx_page' in result:
+        from .evtx_display import footer
+        note = footer(result,len(grouped))
+    elif '_mft_page' in result:
+        note = mft_display.footer(result,len(grouped))
+    else:
+        note = pagination(len(result['records']),result['total'],result.get('offset',0))
+    if note: lines.append(note)
+    for index, group in enumerate(grouped,1):
+        for warning in dict.fromkeys(w for r in group for w in r.get('warnings', [])):
+            lines.append(palette('forensic_note', f'Group {index}: ' + safe(warning)))
+    lines.append(palette('forensic_note', 'Timestamp meanings differ by artifact. Use --details or --json for slots, hosts and provenance.'))
+    return '\n'.join(lines)

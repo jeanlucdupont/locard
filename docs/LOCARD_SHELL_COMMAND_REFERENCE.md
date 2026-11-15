@@ -1,8 +1,12 @@
 # Locard shell command reference
 
-Generated from the current canonical interactive parser (case-list update for 6.148). Documentation wraps at 100 columns; live help uses the terminal width.
+Generated from the canonical interactive parser for 6.149. Documentation wraps at 100 columns; live help uses terminal width.
 
 Use `help <path>`, `? <path>`, or `<path> ?` without executing the operation. `help all` lists nested commands.
+
+Analyst absolute-time CLI filters accept ISO shorthand and default omitted time/timezone to midnight/UTC. A date-only end is midnight, not end-of-day. Explicit offsets are normalized before existing authorization and time-window checks. Stored timestamps and JSON evidence are unchanged.
+
+`case status --details` exposes ingestion/source diagnostics. `case list --details` shows locations. Omit the source ID in interactive `evidence source show` to select a numbered source; scripts/JSON require exact IDs. Timeline `--details` keeps verbose timestamp/provenance views; use `--text` in scripts for human output.
 
 `! <question>` asks AI under existing disclosure and approval rules. `quit` ends the session. `settings color off` disables styling. JSON output is always uncolored.
 
@@ -214,9 +218,10 @@ Common options:
   --discovery-after DISCOVERY_AFTER
                                     Resume one explicitly approved lead/family using its discovery
                                     continuation token
-  --start START                     Authorized search start with UTC/offset; never inferred from
-                                    narrative
-  --end END                         Authorized search end with UTC/offset; maximum 24-hour window
+  --start START                     Authorized start; ISO shorthand defaults to UTC, never
+                                    inferred from narrative
+  --end END                         Authorized end; ISO shorthand defaults to UTC, maximum 24-hour
+                                    window
   --json                            Include original narrative, spans, leads, packet and plan;
                                     sensitive derived output
   --page                            View output page by page
@@ -255,9 +260,10 @@ Common options:
   --discovery-after DISCOVERY_AFTER
                                     Resume one explicitly approved lead/family using its discovery
                                     continuation token
-  --start START                     Authorized search start with UTC/offset; never inferred from
-                                    narrative
-  --end END                         Authorized search end with UTC/offset; maximum 24-hour window
+  --start START                     Authorized start; ISO shorthand defaults to UTC, never
+                                    inferred from narrative
+  --end END                         Authorized end; ISO shorthand defaults to UTC, maximum 24-hour
+                                    window
   --json                            Include original narrative, spans, leads, packet and plan;
                                     sensitive derived output
   --page                            View output page by page
@@ -295,8 +301,8 @@ by local AI analysis. --dry-run builds the bounded evidence bundle without calli
 Model analysis is not evidence; citation checks do not establish factual correctness.
 
 Common options:
-  --start START                     Start time with timezone
-  --end END                         End time with timezone
+  --start START                     Start time; ISO shorthand defaults to UTC
+  --end END                         End time; ISO shorthand defaults to UTC
   --hostname HOSTNAME               Hostname filter
   --user USER                       Username filter
   --candidate-limit CANDIDATE_LIMIT
@@ -412,8 +418,8 @@ positional arguments:
 
 Options:
   --question QUESTION  Investigation question
-  --start START        Start time with timezone
-  --end END            End time with timezone
+  --start START        Start time; ISO shorthand defaults to UTC
+  --end END            End time; ISO shorthand defaults to UTC
   --details            Show technical details
   --json               Output as JSON
 ```
@@ -500,8 +506,8 @@ Plan and approve a new deterministic assessment
 
 Options:
   --json         Structured result; prompts remain explicit
-  --start START  Start time with timezone
-  --end END      End time with timezone
+  --start START  Start time; ISO shorthand defaults to UTC
+  --end END      End time; ISO shorthand defaults to UTC
 ```
 
 ## investigation list
@@ -825,8 +831,8 @@ Common options:
   --user USER                       Username filter
   --ip IP                           IP address filter
   --hostname HOSTNAME               Hostname filter
-  --start START                     Start time with timezone
-  --end END                         End time with timezone
+  --start START                     Start time; ISO shorthand defaults to UTC
+  --end END                         End time; ISO shorthand defaults to UTC
   --process PROCESS                 Exact executable name, case-insensitive; .exe may be omitted
                                     for a bare name. Explicit paths remain exact.
   --process-contains PROCESS        Case-insensitive literal substring of the executable basename;
@@ -879,21 +885,22 @@ Advanced options:
 ## evidence timeline
 
 ```text
-usage: evidence timeline [timestamp] [--around AROUND] [--start START] [--end END] [--user USER]
-       [--process PROCESS] [--ip IP] [--hostname HOSTNAME] [--artifact-type ARTIFACT_TYPE]
-       [--event-id EVENT_ID] [--minutes MINUTES] [--limit LIMIT] [--offset OFFSET] [--raw]
-       [--json | --text] [--artifact {evtx, mft, prefetch, registry, browser}] [--path PATH]
-       [--force] [--page | --output FILE | --append FILE]
+usage: evidence timeline [--details] [timestamp] [--around AROUND] [--start START] [--end END]
+       [--user USER] [--process PROCESS] [--ip IP] [--hostname HOSTNAME]
+       [--artifact-type ARTIFACT_TYPE] [--event-id EVENT_ID] [--minutes MINUTES] [--limit LIMIT]
+       [--offset OFFSET] [--raw] [--json | --text]
+       [--artifact {evtx, mft, prefetch, registry, browser}] [--path PATH] [--force]
+       [--page | --output FILE | --append FILE]
 
 Browse evidence chronologically
 
 positional arguments:
-  [timestamp]  Anchor time with UTC or explicit offset
+  [timestamp]  Anchor time; ISO shorthand defaults to UTC
 
 Common options:
-  --around AROUND                   Anchor time with UTC or explicit offset
-  --start START                     Start time with UTC or explicit offset
-  --end END                         End time with UTC or explicit offset
+  --around AROUND                   Anchor time; ISO shorthand defaults to UTC
+  --start START                     Start time; ISO shorthand defaults to UTC
+  --end END                         End time; ISO shorthand defaults to UTC
   --user USER                       Username filter
   --process PROCESS                 Process name filter
   --ip IP                           IP address filter
@@ -911,6 +918,7 @@ Common options:
   --output FILE                     Save output to a file
 
 Advanced options:
+  --details        Show timestamp semantics and provenance
   --offset OFFSET  Skip this many results
   --raw            Include original record details where available
   --force          Overwrite an existing output file
@@ -1302,8 +1310,7 @@ confirmations.
 usage: evidence source list [--json] [--limit LIMIT] [--offset OFFSET] [--ids] [--force]
        [--page | --output FILE | --append FILE]
 
-Display abbreviations (...) are not command IDs; use --ids for full copyable IDs or --json for
-complete values.
+List retained sources; use show for selection or --ids for canonical identifiers.
 
 Options:
   --json           Output as JSON
@@ -1319,19 +1326,19 @@ Options:
 ## evidence source show
 
 ```text
-usage: evidence source show [--json] source_id [--limit LIMIT] [--offset OFFSET] [--details]
+usage: evidence source show [--json] [source_id] [--limit LIMIT] [--offset OFFSET] [--details]
        [--force] [--page | --output FILE | --append FILE]
 
 Show a source and its provenance
 
 positional arguments:
-  source_id  Source identifier
+  [source_id]  Exact source ID; omit show ID for interactive selection
 
 Options:
   --json           Output as JSON
   --limit LIMIT    Maximum number of results
   --offset OFFSET  Skip this many results
-  --details        Show paginated provenance as JSON
+  --details        Show source identifiers and paginated provenance
   --force          Overwrite an existing output file
   --page           View output page by page
   --output FILE    Save output to a file
@@ -1369,7 +1376,7 @@ usage: evidence source update [--json] source_id [--name NAME] [--hostname HOSTN
 Update source metadata after confirmation
 
 positional arguments:
-  source_id  Source identifier
+  source_id  Exact source ID; omit show ID for interactive selection
 
 Common options:
   --json                     Output as JSON
@@ -1397,7 +1404,7 @@ usage: evidence source assign [--json] source_id [--yes] [--file-hash FILE_HASH]
 Assign retained files to a source after confirmation
 
 positional arguments:
-  source_id  Source identifier
+  source_id  Exact source ID; omit show ID for interactive selection
 
 Common options:
   --json                            Output as JSON
@@ -1481,8 +1488,8 @@ Common options:
   --user USER          Username filter
   --ip IP              IP address filter
   --hostname HOSTNAME  Hostname filter
-  --start START        Start time with timezone
-  --end END            End time with timezone
+  --start START        Start time; ISO shorthand defaults to UTC
+  --end END            End time; ISO shorthand defaults to UTC
   --limit LIMIT        Maximum number of results
   --json               Output as JSON
   --text               Show readable text
@@ -1542,8 +1549,8 @@ usage: analyze detections [--start START] [--end END] [--user USER] [--hostname 
 Show evidence matching Locard detection rules
 
 Common options:
-  --start START                     Start time with timezone
-  --end END                         End time with timezone
+  --start START                     Start time; ISO shorthand defaults to UTC
+  --end END                         End time; ISO shorthand defaults to UTC
   --user USER                       Username filter
   --hostname HOSTNAME               Hostname filter
   --rule RULE                       Detection rule
@@ -1621,11 +1628,12 @@ positional arguments:
 ## case status
 
 ```text
-usage: case status [--json] [--force] [--page | --output FILE | --append FILE]
+usage: case status [--details] [--json] [--force] [--page | --output FILE | --append FILE]
 
 Show case ingestion and evidence status
 
 Options:
+  --details      Show source and ingestion diagnostics
   --json         Output as JSON
   --force        Overwrite an existing output file
   --page         View output page by page
@@ -1656,8 +1664,6 @@ positional arguments:
 ```
 
 ## case list
-
-Default output shows names and origin classifications. Use `--details` for paths/discovery metadata; JSON is unchanged.
 
 ```text
 usage: case list [--json] [--details]

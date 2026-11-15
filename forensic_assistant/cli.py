@@ -74,7 +74,7 @@ def build_parser(*, interactive=False):
     v1_cli.configure(commands)
     search = commands.add_parser("search", help=COMMANDS['search'])
     for name in ("user", "ip", "hostname", "start", "end"):
-        search.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time with timezone', 'end': 'End time with timezone', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
+        search.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time; ISO shorthand defaults to UTC', 'end': 'End time; ISO shorthand defaults to UTC', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
     process = search.add_mutually_exclusive_group()
     process.add_argument(
         '--process',
@@ -99,12 +99,13 @@ def build_parser(*, interactive=False):
         choices=["logons", "failed-logons", "processes", "powershell", "scheduled-tasks", "services", "account-changes"]
     , help='Normalized record kind')
     timeline = commands.add_parser("timeline", help=COMMANDS['timeline'])
-    timeline.add_argument("timestamp", nargs="?", help='Anchor time with UTC or explicit offset')
-    timeline.add_argument("--around", help='Anchor time with UTC or explicit offset')
-    timeline.add_argument("--start", help='Start time with UTC or explicit offset')
-    timeline.add_argument("--end", help='End time with UTC or explicit offset')
+    timeline.add_argument('--details', action='store_true', help='Show timestamp semantics and provenance')
+    timeline.add_argument("timestamp", nargs="?", help='Anchor time; ISO shorthand defaults to UTC')
+    timeline.add_argument("--around", help='Anchor time; ISO shorthand defaults to UTC')
+    timeline.add_argument("--start", help='Start time; ISO shorthand defaults to UTC')
+    timeline.add_argument("--end", help='End time; ISO shorthand defaults to UTC')
     for name in ("user", "process", "ip", "hostname", "artifact-type"):
-        timeline.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time with timezone', 'end': 'End time with timezone', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
+        timeline.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time; ISO shorthand defaults to UTC', 'end': 'End time; ISO shorthand defaults to UTC', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
     timeline.add_argument("--event-id", type=int, help='Windows event identifier')
     timeline.add_argument("--minutes", type=int, default=5, help='Minutes on either side of the anchor')
     around = commands.add_parser(
@@ -143,7 +144,8 @@ def build_parser(*, interactive=False):
     )
     show.add_argument("evidence_id", help='Evidence record identifier')
     show.add_argument("--raw", action="store_true", help='Include original record details where available')
-    commands.add_parser("status", help=COMMANDS['status'])
+    status = commands.add_parser("status", help=COMMANDS['status'])
+    status.add_argument('--details', action='store_true', help='Show source and ingestion diagnostics')
     ask_parser = commands.add_parser("ask", help=COMMANDS['ask'], description=(
         'Advanced bounded local query with deterministic planning and optional semantic retrieval. '
         'Deterministic search retrieves evidence by exact/filter-based criteria. '
@@ -419,11 +421,15 @@ def _dispatch(args, output, *, existing_only=False):
                 command.attach(args.db, created=was_missing)
             if args.command == 'source':
                 from forensic_assistant import source_cli
-                result = source_cli.dispatch(db, args)
+                from contextlib import nullcontext
+                from forensic_assistant.terminal_activity import operation
+                label = {'list':'Retrieving evidence sources...', 'show':'Loading source details...'}.get(args.source_command)
+                with operation(label, args) if label else nullcontext():
+                    result = source_cli.dispatch(db, args)
                 if args.source_command == 'list' and not args.json:
                     output.write(source_cli.render_list(result, output.palette, ids=args.ids))
-                elif args.source_command == 'show' and not args.json and not args.details:
-                    output.write(source_cli.render_show(result, output.palette))
+                elif args.source_command == 'show' and not args.json:
+                    output.write(source_cli.render_show(result, output.palette, details=args.details))
                 elif args.source_command == 'update' and not args.json:
                     output.write(source_cli.render_update(result, output.palette))
                 elif args.source_command == 'assign' and not args.json:
@@ -457,13 +463,16 @@ def _dispatch(args, output, *, existing_only=False):
                     output.write(render(result, output.palette, registry_values=presentation.get('registry_values')))
                 elif args.command == 'status' and not args.json:
                     from forensic_assistant.retrieval.status_display import render
-                    output.write(render(result, args.db, presentation['status'], output.palette))
+                    output.write(render(result, args.db, presentation['status'], output.palette, verbose=getattr(args, 'details', False)))
                 elif args.command == 'around' and args.text and not args.raw:
                     from forensic_assistant.retrieval.around_display import render
                     output.write(render(result, presentation['anchor'], presentation['stamp'], args, output.palette))
                 elif args.command.startswith('ingest-') and not args.json and any(
                         r.get('acquisition') or r.get('acquisition_error') for r in result.get('results', [])):
                     output.write(v2_cli.render_native_ingestion(result, output.palette))
+                elif args.command == 'timeline' and args.text and not args.raw and not getattr(args, 'details', False):
+                    from forensic_assistant.retrieval.mixed_display import compact_timeline
+                    output.write(compact_timeline(result, palette=output.palette))
                 elif getattr(args, 'text', False):
                     output.write(v2_cli.render(result, methodology=args.raw, palette=output.palette))
                 else:

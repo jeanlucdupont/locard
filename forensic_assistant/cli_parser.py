@@ -77,7 +77,11 @@ class LocardParser(argparse.ArgumentParser):
             if not parsed.json and not parsed.text:
                 parsed.text = isinstance(self, InteractiveParser) and not parsed.raw
             parsed.json = not parsed.text
-        return parsed
+        from .cli_time import normalize_arguments
+        try:
+            return normalize_arguments(parsed)
+        except ValueError as exc:
+            self.error(str(exc))
 
 
 class InteractiveParser(LocardParser):

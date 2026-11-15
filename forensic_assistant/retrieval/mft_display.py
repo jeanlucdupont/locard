@@ -100,7 +100,7 @@ def page(result, limit, offset, *, anchor=None, stamp=None, source_types=('mft',
                          timeline_id=anchor['id'] + ':Timestamp:' + t['slot'])
                     for t in anchor['timestamps'] if t['timestamp_utc'] == stamp]
     if len(records) > 10000:
-        raise ValueError('Grouped text exceeds the 10,000 timestamp-observation safety bound; narrow the window')
+        raise ValueError('Too many timeline observations for text display (10,000 safety bound). Narrow the time range, add filters, or use JSON pagination')
     order = lambda g: (g[0]['timestamp_utc'], g[0]['id'], g[0]['timestamp']['slot'])
     grouped = sorted(groups(sorted(records, key=lambda r: (r['timestamp_utc'], r['id'], r['timestamp']['slot'])),
                             source_types=source_types), key=order)

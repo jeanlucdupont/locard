@@ -6,6 +6,29 @@ from forensic_assistant.database import sources
 
 
 def prepare(shell, args):
+    if args.command == 'source' and args.source_command == 'show' and not args.source_id:
+        if args.json:
+            raise ValueError('Use an exact source ID with --json.')
+        from forensic_assistant.terminal_activity import operation
+        from forensic_assistant.source_cli import render_list
+        from forensic_assistant.terminal import Palette, enabled
+        offset = 0
+        while True:
+            with operation('Retrieving evidence sources...', args), closing(open_existing(shell.active)) as db:
+                page = sources.listing(db, limit=100, offset=offset)
+            print(render_list(page, Palette(enabled(args))))
+            if not page['sources']: return False
+            choice = shell.reader.read('Source number, N for next page, or Enter to cancel: ').strip()
+            if not choice: return False
+            if choice.lower() == 'n' and page['truncated']:
+                offset += len(page['sources'])
+                continue
+            if not choice.isdecimal() or not offset < int(choice) <= offset + len(page['sources']):
+                raise ValueError('Select a number from the displayed source page.')
+            args.source_id = page['sources'][int(choice)-offset-1]['source_id']
+            with closing(open_existing(shell.active)) as db:
+                sources.current(db, args.source_id)
+            return True
     if args.command.startswith('ingest-'):
         if getattr(args, 'source', None):
             return True
@@ -43,7 +66,8 @@ def prepare(shell, args):
         from forensic_assistant.source_cli import dispatch
         if args.yes:
             return True  # Dispatch still validates and applies the action transactionally.
-        with closing(open_existing(shell.active)) as db:
+        from forensic_assistant.terminal_activity import operation
+        with operation('Loading source preview...', args), closing(open_existing(shell.active)) as db:
             preview = dispatch(db, args)
             args.confirmation_fingerprint = preview['confirmation_fingerprint']
         if args.source_command == 'assign':

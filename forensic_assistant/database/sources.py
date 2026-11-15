@@ -1,5 +1,6 @@
 """Source assertions and occurrences; never rewrites artifact-derived evidence."""
 import uuid
+import sqlite3
 from forensic_assistant.database.db import now
 from forensic_assistant.database.context import host_key
 from forensic_assistant.artifacts.context import normalize_volume_root
@@ -135,24 +136,38 @@ def record_membership(db):
             ") m USING(file_sha256) WHERE e.source_type<>'browser' UNION " + BROWSER_MEMBERSHIP)
 
 
-def summary(db, source_id):
+def _record_aggregates(db, source_ids):
+    """One bounded result set; preserve the canonical membership relation exactly."""
+    result = {sid: dict(artifacts={}, hosts=[]) for sid in source_ids}
+    if not source_ids:
+        return result
+    materialized = "MATERIALIZED " if sqlite3.sqlite_version_info >= (3, 35, 0) else ""
+    query = ("WITH linked AS " + materialized + "(SELECT m.source_id,e.source_type,e.hostname "
+             "FROM evidence_records e JOIN (" + record_membership(db) + ") m USING(evidence_id) "
+             "WHERE m.source_id IN (" + ','.join('?' for _ in source_ids) + ")), "
+             "hosts AS (SELECT source_id,hostname,row_number() OVER (PARTITION BY source_id ORDER BY hostname) n "
+             "FROM (SELECT DISTINCT source_id,hostname FROM linked WHERE hostname IS NOT NULL)) "
+             "SELECT source_id,'artifact',source_type,count(*) FROM linked GROUP BY source_id,source_type "
+             "UNION ALL SELECT source_id,'host',hostname,n FROM hosts WHERE n<=101 ORDER BY 1,2,4,3")
+    for sid, kind, value, count in db.execute(query, source_ids):
+        if kind == 'artifact':
+            result[sid]['artifacts'][value] = count
+        else:
+            result[sid]['hosts'].append(value)
+    return result
+
+
+def summary(db, source_id, *, _aggregates=None):
     data = current(db, source_id)
     data['batches'] = db.execute('SELECT count(*) FROM ingestion_batches WHERE source_id=?', (source_id,)).fetchone()[0]
     data['files'] = db.execute(
         'SELECT count(*) FROM (' + MEMBERSHIP + ') WHERE source_id=?',
         (source_id,)
     ).fetchone()[0]
-    data['artifacts'] = {r[0]: r[1] for r in db.execute(
-        '''SELECT e.source_type,count(*) FROM evidence_records e
-        JOIN (''' + record_membership(db) + ''') m USING(evidence_id) WHERE m.source_id=? GROUP BY e.source_type''',
-        (source_id,)
-    )}
+    aggregates = _record_aggregates(db, [source_id]) if _aggregates is None else _aggregates
+    data['artifacts'] = aggregates[source_id]['artifacts']
     data['evidence_count'] = sum(data['artifacts'].values())
-    data['artifact_hostnames'] = [r[0] for r in db.execute(
-        '''SELECT DISTINCT e.hostname FROM evidence_records e
-        JOIN (''' + record_membership(db) + ''') m USING(evidence_id) WHERE m.source_id=? AND e.hostname IS NOT NULL ORDER BY e.hostname LIMIT 101''',
-        (source_id,)
-    )]
+    data['artifact_hostnames'] = list(aggregates[source_id]['hosts'])
     data['artifact_hostnames_truncated'] = len(data['artifact_hostnames']) > 100
     hosts = {host_key(h) for h in data['artifact_hostnames'] if h}
     if data['hostname']:
@@ -183,8 +198,9 @@ def listing(db, limit=100, offset=0):
         'SELECT source_id FROM sources ORDER BY created_utc,source_id LIMIT ? OFFSET ?',
         (limit, offset)
     )]
+    aggregates = _record_aggregates(db, ids)
     return dict(
-        sources=[summary(db, s) for s in ids],
+        sources=[summary(db, s, _aggregates=aggregates) for s in ids],
         total=total,
         limit=limit,
         offset=offset,

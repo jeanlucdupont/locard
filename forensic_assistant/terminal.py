@@ -11,6 +11,7 @@ STYLES = {
     'shell_prompt': '1;3;94',
     'heading': '97',
     'value': '96',
+    'progress': '96',
     'command': '96',
     'syntax': '96',
     'question': '94',

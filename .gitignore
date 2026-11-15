@@ -261,3 +261,5 @@ report-bundles/
 /scripts/*
 !/scripts/help_inventory.py
 !/docs/LOCARD_6_148_CLI_RESPONSIVENESS.md
+
+!/docs/LOCARD_6_149_EVIDENCE_EXPLORATION.md

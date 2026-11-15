@@ -38,7 +38,7 @@ def configure(commands):
     tree.add_argument("--max-depth", type=int, default=8, help='Maximum process relationship depth')
     auth = commands.add_parser("logons", help=COMMANDS['logons'], description=COMMANDS['logons'])
     for name in ("user", "ip", "hostname", "start", "end"):
-        auth.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time with timezone', 'end': 'End time with timezone', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
+        auth.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time; ISO shorthand defaults to UTC', 'end': 'End time; ISO shorthand defaults to UTC', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
     auth.add_argument("--limit", type=int, default=100, help='Maximum number of results')
     auth.add_argument("--offset", type=int, default=0, help='Skip this many results')
     sessions = commands.add_parser("session", help=COMMANDS['session'])
@@ -53,7 +53,7 @@ def configure(commands):
     sessions.add_argument("--limit", type=int, default=500, help='Maximum number of results')
     detect = commands.add_parser("detections", help=COMMANDS['detections'])
     for name in ("start", "end", "user", "hostname", "rule"):
-        detect.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time with timezone', 'end': 'End time with timezone', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
+        detect.add_argument("--" + name, help={'user': 'Username filter', 'hostname': 'Hostname filter', 'process': 'Process name filter', 'ip': 'IP address filter', 'start': 'Start time; ISO shorthand defaults to UTC', 'end': 'End time; ISO shorthand defaults to UTC', 'artifact-type': 'Normalized artifact type filter', 'rule': 'Detection rule', 'artifact': 'Artifact family filter', 'path': 'Literal evidence path filter'}[name])
     detect.add_argument("--severity", choices=["low", "medium", "high"], help='Recorded severity filter')
     detect.add_argument("--limit", type=int, default=100, help='Maximum number of results')
     detect.add_argument("--candidate-limit", type=int, default=1000, help='Maximum candidate records examined')
@@ -66,8 +66,8 @@ def configure(commands):
     investigation.add_argument("--candidate-limit", type=int, default=500, help="Maximum candidate volume (default: 500)")
     analysis = commands.add_parser("analyze-timeline", help=COMMANDS['analyze-timeline'],
         description="Specialized workflow: deterministic retrieval and correlation in an explicit time range, followed by local AI analysis. --dry-run builds the bounded evidence bundle without calling the model. Model analysis is not evidence; citation checks do not establish factual correctness.")
-    analysis.add_argument("--start", required=True, help='Start time with timezone')
-    analysis.add_argument("--end", required=True, help='End time with timezone')
+    analysis.add_argument("--start", required=True, help='Start time; ISO shorthand defaults to UTC')
+    analysis.add_argument("--end", required=True, help='End time; ISO shorthand defaults to UTC')
     analysis.add_argument("--hostname", help='Hostname filter')
     analysis.add_argument("--user", help='Username filter')
     analysis.add_argument("--candidate-limit", type=int, default=500, help='Maximum candidate records examined')

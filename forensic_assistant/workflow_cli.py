@@ -36,7 +36,7 @@ def configure(operations, *, interactive=False):
         if name in ('show','reauthorize','run'):p.add_argument('assessment',nargs='?',default='latest', help='Saved assessment ID or latest')
         if name == 'run':p.add_argument('--question',help='Investigation question; otherwise prompted')
         if name == 'assess':
-            p.add_argument('--start', help='Start time with timezone');p.add_argument('--end', help='End time with timezone')
+            p.add_argument('--start', help='Start time; ISO shorthand defaults to UTC');p.add_argument('--end', help='End time; ISO shorthand defaults to UTC')
     p=add(('audit',),'verify','audit-verify','Verify activity and session integrity')
     p.add_argument('--json',action='store_true', help='Output as JSON')
     p.add_argument('--application', action='store_true', help='Review application logs instead of case logs')
@@ -60,7 +60,7 @@ def configure(operations, *, interactive=False):
     p=add(('investigation','advanced'),'assessment','assessment-advanced','Investigate a saved assessment with per-tool approval')
     p.add_argument('assessment',nargs='?',default='latest', help='Saved assessment ID or latest')
     p.add_argument('--question', help='Investigation question')
-    p.add_argument('--start', help='Start time with timezone');p.add_argument('--end', help='End time with timezone')
+    p.add_argument('--start', help='Start time; ISO shorthand defaults to UTC');p.add_argument('--end', help='End time; ISO shorthand defaults to UTC')
     p.add_argument('--details',action='store_true', help='Show technical details');p.add_argument('--json',action='store_true', help='Output as JSON')
     findings=operations.group(('investigation','findings'))
     from .investigation_ai.findings import KINDS
@@ -187,10 +187,10 @@ def render(value, palette=None, *, audit_summary=False, details=False):
         lines=[palette('heading', 'Available cases'), '']
         size = max((len(safe_text(r['name'])) for r in value['cases']), default=0)
         for row in value['cases']:
-            lines.append('  '+palette('value',safe_text(row['name']).ljust(size))+'  '+palette('punctuation',safe_text(row['origin']).capitalize()))
+            lines.append('  '+palette('value',safe_text(row['name']).ljust(size)))
             if details:
-                lines.extend([field('    Path', row['path'], palette), field('    Discovery', row['status'], palette, role='unknown')])
-            elif row.get('status') != 'discovered; not validated':
+                lines.extend([field('  Location', row['path'], palette)])
+            if row.get('status') != 'discovered; not validated':
                 lines.append(palette('warning', '    '+safe_text(row['status'])))
         if not value['cases']:lines.append('  No cases discovered. Use case new or case register.')
         return aligned_lines(lines)

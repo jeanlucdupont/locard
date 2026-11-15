@@ -3895,3 +3895,15 @@ and [the complete help editorial inventory](docs/LOCARD_6_147_HELP_INVENTORY.md)
 The provider-free `scripts/help_inventory.py` flags wording for review, not rejection.
 
 See [6.148 responsiveness and manual acceptance](docs/LOCARD_6_148_CLI_RESPONSIVENESS.md) for delayed operation activity, aligned fields, concise case listing (`case list --details` for locations), and measured status-query costs.
+
+### Evidence exploration
+
+Use `case status --details` for ingestion/source diagnostics and `case list --details`
+for case locations. Interactive `evidence source show` offers numbered selection;
+exact source IDs remain available for scripts and JSON. Timeline `--details` retains
+verbose provenance beside the compact default view. CLI absolute-time filters accept
+ISO shorthand: `2026-09-30T03` means 03:00 UTC, and a date-only end means midnight.
+Existing authorization and window limits still apply.
+
+See [6.149 evidence exploration](docs/LOCARD_6_149_EVIDENCE_EXPLORATION.md) for measured
+source-query changes, boundaries and manual acceptance commands.

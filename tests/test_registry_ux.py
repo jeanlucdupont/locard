@@ -239,7 +239,7 @@ def test_status_human_json_sources_and_historical_logs(case, tmp_path, capsys):
     expected, _ = v2_cli.dispatch(db, args)
     before = copy.deepcopy(expected)
     details = status_display.context(db)
-    text = status_display.render(expected, 'synthetic.db', details)
+    text = status_display.render(expected, 'synthetic.db', details, verbose=True)
     assert 'CASE STATUS' in text and 'Total evidence records:' in text
     assert 'Complete: 1' in ' '.join(text.split()) and 'Partial: 0' in ' '.join(text.split()) and 'Failed: 0' in ' '.join(text.split())
     assert 'Companion log attempts: unsupported: 1' in text
@@ -247,8 +247,8 @@ def test_status_human_json_sources_and_historical_logs(case, tmp_path, capsys):
     assert 'Analyst host: unknown' in ' '.join(text.split()) and 'Unfinished batches: 1' in ' '.join(text.split())
     assert text.count('Registry transaction-log replay is not supported') == 1
     assert 'Dirty Registry hives: 1' in text and 'not successful hive parsing' in text
-    assert len(text.splitlines()) < 45 and not text.startswith('{')
-    assert SGR.sub('', status_display.render(expected, 'synthetic.db', details, Palette(True))) == text
+    assert len(status_display.render(expected, 'synthetic.db', details).splitlines()) < 45 and not text.startswith('{')
+    assert SGR.sub('', status_display.render(expected, 'synthetic.db', details, Palette(True), verbose=True)) == text
     assert expected == before
     path = tmp_path / 'case.db'
     with closing(connect(path)) as target:
