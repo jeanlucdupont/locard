@@ -47,7 +47,7 @@ class Progress:
 def render(result, args, palette):
     lines = []
     def line(label, value):
-        lines.append(palette('key', label + ': ') + safe(value))
+        lines.append(palette('label', label + ': ') + palette('value', safe(value)))
     command = args.semantic_command
     if command == 'status':
         lines.append(palette('heading', 'Semantic search'))
@@ -111,7 +111,7 @@ def render(result, args, palette):
             subject = next((row.partition(': ')[2] for key in keys for row in excerpt if row.startswith(key)), hit['artifact_type'])
             lines += ['', f"{position}. {hit['semantic_similarity']:.3f}  {safe(subject)}"]
             line('   Artifact', hit['source_type'].upper())
-            lines.append('   ' + palette('evidence_id', 'ID: ' + safe(hit['evidence_id'])))
+            lines.append('   ' + palette('value', 'ID: ' + safe(hit['evidence_id'])))
             useful = [row for row in excerpt if row and not row.endswith(':')
                       and not row.startswith(('Artifact:', 'semantics:', 'source_type:', 'artifact_type:'))]
             for row in useful[:3]:

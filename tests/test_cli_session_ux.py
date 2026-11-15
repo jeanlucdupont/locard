@@ -31,7 +31,7 @@ def test_prompt_and_normal_exit(tmp_path, capsys, colors, name, ending, color):
     reader = Input(str(path), ending)
     before = path.read_bytes()
     assert Shell(State(None), reader, no_color=not color).run() == 0
-    assert reader.prompts[-1] == terminal.Palette(color)('prompt', '[' + name + ']> ')
+    assert reader.prompts[-1] == terminal.Palette(color)('shell_prompt', '[' + name + ']> ')
     text = terminal.SGR.sub('', capsys.readouterr().out)
     assert text.count('Locard session ended.') == 1
     assert text.endswith('\nLocard session ended.\nCase: '

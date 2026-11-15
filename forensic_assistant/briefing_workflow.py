@@ -25,12 +25,14 @@ def view(state):
             'analysis_storage':'Analysis metadata only; AI responses and evidence packets are not stored. --analyze generates a new analysis.'}
 
 
-def render(value):
+def render(value, palette=None):
+    from .terminal import Palette
+    palette = palette or Palette()
     if value.get('message'):return value['message']
     if value['revision']['content'].get('canonical'):
         from .briefing_canonical import render as render_canonical
-        return render_canonical({**value['revision']['content']['canonical'],'accepted':True})+'\nBriefing revision: '+str(value['revision']['revision'])+'\nOriginal responses retained; --json exposes revision provenance.'
-    revision=value['revision']; lines=['Incident briefing — analyst assertions, not evidence','']
+        return render_canonical({**value['revision']['content']['canonical'],'accepted':True}, palette=palette)+'\nBriefing revision: '+str(value['revision']['revision'])+'\nOriginal responses retained; --json exposes revision provenance.'
+    revision=value['revision']; lines=[palette('forensic_note', 'Incident briefing — analyst assertions, not evidence'),'']
     for key,label in FIELDS.items():
         text=revision['content']['answers'][key]
         if text:

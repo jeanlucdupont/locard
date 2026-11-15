@@ -187,9 +187,11 @@ def assess(question, identity, state, decision):
                              'Analyst premises are unverified; no new evidence search or factual rule is introduced.'])
 
 
-def render(result):
+def render(result, palette=None):
     """No arbitrary model prose is rendered as a fact or authoritative heading."""
-    lines = ['Original investigative question', json.dumps(result['question'], ensure_ascii=True),
+    from forensic_assistant.terminal import Palette
+    palette = palette or Palette()
+    lines = [palette('heading', 'Original investigative question'), json.dumps(result['question'], ensure_ascii=True),
              'Provisional interpretation: ' + result['decomposition_status'],
              'Original deterministic S3 assessment: ' + result['original_assessment']['status']]
     if result.get('diagnostics'):
@@ -218,6 +220,7 @@ def render(result):
         lines.append('Unverified model limitations: ' + encoded(result['mapping']['proposal']['limitations']))
     lines.extend('  ' + text for text in result['limitations'])
     return '\n'.join(lines)
+
 
 
 def execute(client, question, grant, transcript, guard, seconds, *, charge, decision_store):

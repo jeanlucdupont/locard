@@ -28,7 +28,7 @@ def prepare(shell, args):
                         from .metadata import read_volume_root
                         from forensic_assistant.terminal import Palette, enabled
                         palette = Palette(enabled(shell))
-                        read = lambda text: shell.reader.read(palette('prompt', text))
+                        read = lambda text: shell.reader.read(text)
                         value = read_volume_root(read, prompt + ' (Enter = unknown): ', palette)
                     else:
                         value = shell.reader.read(prompt + ' (Enter = unknown): ').strip() or None

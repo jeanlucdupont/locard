@@ -14,7 +14,7 @@ from forensic_assistant.artifacts.registry_logs import LIMITATION
 from forensic_assistant.ingest.evtx import ingest_file
 from test_interactive_shell import Input
 from test_guided_setup import tree, snapshot
-from test_evtx_recovery import chunk, file_bytes, decode
+from test_evtx_recovery import chunk, file_bytes, decode, local_decoder_for_unit_tests
 
 
 @pytest.fixture(autouse=True)
@@ -117,27 +117,40 @@ class SemanticPalette:
 
 
 @pytest.mark.parametrize('status,expected', [('requires extraction', 'error'), ('partial', 'warning'),
-    ('complete', 'success'), ('failed', 'error'), ('not selected', 'secondary_text'),
-    ('no supported history found', 'secondary_text')])
+    ('complete', 'success'), ('failed', 'error'), ('not selected', 'label'),
+    ('no supported history found', 'label')])
 def test_summary_roles(status, expected):
     assert setup_display.role(status) == expected
 
 
 def test_split_completion_colors():
+    from types import SimpleNamespace
     palette = SemanticPalette()
-    assert setup_display.completion_line('Case created. Ingestion completed with limitations.', palette) == (
-        '<success>Case created.</success><warning> Ingestion completed with limitations.</warning>')
-    assert setup_display.completion_line('Case created, but selected evidence ingestion failed.', palette) == (
-        '<success>Case created</success><error>, but selected evidence ingestion failed.</error>')
-    assert setup_display.completion_line('Case ready.', palette) == '<success>Case ready.</success>'
+    plan = SimpleNamespace(items=[object()], deferred=False, limited=False)
+    for outcomes, stored, role in (({'mft': 'partial'}, 1, 'forensic_note'),
+                                   ({'mft': 'failed'}, 0, 'error'),
+                                   ({'mft': 'complete'}, 1, 'success')):
+        message = setup_display.completion(plan, outcomes, stored)
+        assert setup_display.completion_line(message, palette, plan=plan,
+            outcomes=outcomes, stored=stored) == f'<{role}>{message}</{role}>'
+    # Words in prose do not determine status colors.
+    assert setup_display.completion_line('Case created. Ingestion failed.', palette) == (
+        '<label>Case created. Ingestion failed.</label>')
 
 
-def test_evtx_outcomes_and_raw_counters(tmp_path, decode, capsys):
+def test_evtx_outcomes_and_raw_counters(tmp_path, decode, local_decoder_for_unit_tests, capsys):
     good = tmp_path / 'retained.evtx'
-    good.write_bytes(file_bytes([chunk([1, 2]), chunk([3, 4])], declared=1, dirty=True, minor=2))
+    data = bytearray(file_bytes([chunk([1, 2]), chunk([3, 4])], declared=1, dirty=True, minor=2))
+    data[124] ^= 1
+    good.write_bytes(data)
     empty = tmp_path / 'empty.evtx'
-    empty.write_bytes(file_bytes([], minor=2))
+    data = bytearray(file_bytes([], minor=2))
+    data[124] ^= 1
+    empty.write_bytes(data)
+    extended = tmp_path / 'extended.evtx'
+    extended.write_bytes(file_bytes([chunk([5, 6]), chunk([7, 8])], declared=1, dirty=True, minor=2))
     with closing(connect(':memory:')) as db:
+        ingest_file(db, extended)
         ingest_file(db, good)
         ingest_file(db, empty)
         before = [tuple(r) for r in db.execute('SELECT * FROM ingestion_runs')]
@@ -163,9 +176,10 @@ def test_registry_feedback_through_real_setup(tmp_path, capsys):
     shell = Shell(State(None), Input('Registry feedback', '', '', '1', str(root), '2', 'registry', '', 'yes'))
     assert setup.create(shell)
     output = capsys.readouterr().out
-    assert 'Registry transaction logs detected but not replayed.' in output
+    assert '1 Registry transaction-log companion was not replayed.' in output
     assert 'Recent uncommitted Registry changes may be missing.' in output
-    assert '1 file was skipped because it was not a valid Registry hive.' in output
+    assert 'invalid Registry hive; no records retained' in output
+    assert str(root / 'Windows/System32/config/SYSTEM') in output
     assert 'Source signature does not match requested artifact type' not in output
     assert 'transaction-log replay is not supported' not in output
     raw = activity.inspect(activity.sidecar(shell.active), 100)

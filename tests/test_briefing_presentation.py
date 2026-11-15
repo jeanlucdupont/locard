@@ -83,15 +83,23 @@ def test_discovery_readable_original_and_derived(count,incomplete):
     assert original['id'] in briefing_cli.render(snapshot,details=True) if count else True
 
 
-def test_cli_json_unchanged_and_exact_approval_mapping(capsys, monkeypatch):
+def test_cli_json_unchanged_and_exact_approval_mapping(capsys, monkeypatch, tmp_path):
+    case = tmp_path / 'case.db'
+    connect(case).close()
     expected=b.extract('sample.ps1')
     monkeypatch.setattr(briefing_cli, 'run', lambda args: expected)
-    assert main(['investigation','briefing','inspect','--text','sample.ps1','--json','--details'])==0
+    assert main(['--db',str(case),'investigation','briefing','inspect','--text','sample.ps1','--json','--details'])==0
     p=json.loads(capsys.readouterr().out)
     assert p==expected
-    assert main(['investigation','briefing','inspect','--text','sample.ps1'])==0
+    assert main(['--db',str(case),'investigation','briefing','inspect','--text','sample.ps1'])==0
     output=capsys.readouterr().out
     assert '--approve '+p['leads'][0]['id'] in output
     with pytest.raises(ValueError,match='Unknown approved'):
         b.discover(p,'unused.db',['1'],'evtx',START,END)
     assert build_parser().parse_args(['investigation','briefing','inspect','--text','x','--details']).details
+
+
+@pytest.fixture(autouse=True)
+def isolated_session_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))

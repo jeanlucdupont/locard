@@ -163,9 +163,9 @@ def test_process_connectors_metadata_and_semantic_styles(unicode, branch, end, b
     assert '\n' + bar + '    ID: ' + result['nodes'][1]['id'] in text
     assert bar + '    Parent relationship: CONFIRMED\n' + bar + '        Synthetic supported relationship' in text
     colored = analyst_display.render_process_tree(result, Palette(True), unicode=unicode)
-    assert Palette(True)('success', 'CONFIRMED') in colored
-    assert Palette(True)('warning', 'LIKELY') in colored
-    assert Palette(True)('key', '[anchor]') in colored
+    assert Palette(True)('value', 'CONFIRMED') in colored
+    assert Palette(True)('value', 'LIKELY') in colored
+    assert Palette(True)('label', '[anchor]') in colored
     assert SGR.sub('', colored) == text and result == before
     assert all(r['id'] in text for r in result['nodes'])
     assert 'Maximum nodes: 100; maximum graph depth: 8' in text
@@ -181,16 +181,16 @@ def test_tree_encoding_fallback(monkeypatch):
 def test_bare_tree_targeted_guidance(interactive, capsys):
     parser = build_parser(interactive=interactive)
     with pytest.raises(InvalidArguments if interactive else SystemExit) as exc:
-        parser.parse_args(['process-tree'])
+        parser.parse_args(['analyze', 'process-tree'])
     text = str(exc.value) if interactive else capsys.readouterr().err
     assert text.startswith('process-tree requires either:')
     assert '--evidence <process-creation evidence ID>' in text and '--process <name> --around <timestamp>' in text
-    assert 'help process-tree' in text
+    assert 'help analyze process-tree' in text
 
 
 def test_tree_missing_time_and_candidate_messages_do_not_mutate_json():
     with closing(database()) as db:
-        args = build_parser().parse_args(['process-tree', '--process', 'absent.exe'])
+        args = build_parser().parse_args(['analyze', 'process-tree', '--process', 'absent.exe'])
         with pytest.raises(ValueError, match='Alternatively, use --evidence'):
             v1_cli.dispatch(db, args)
         args.around = '2026-09-15T14:30:00Z'
@@ -278,8 +278,8 @@ def test_ingestion_fragment_styles(status, inserted, errors, role, capsys):
     progress = creation.IngestionProgress(palette=palette)
     progress('synthetic.evtx', 'evtx', dict(status=status, inserted=inserted, duplicates=1, errors=errors))
     assert (role, status) in seen
-    assert ('success' if inserted else 'secondary_text', f'{inserted} records') in seen
-    assert ('error' if errors else 'secondary_text', f'{errors} errors') in seen
+    assert ('value', f'{inserted} records') in seen
+    assert ('value', f'{errors} errors') in seen
     assert all('synthetic.evtx' not in text for _, text in seen)
 
 
@@ -298,7 +298,7 @@ def test_case_confirmation_file_pluralization(tmp_path, monkeypatch, count):
 def test_pager_help_and_detection_wording(capsys):
     parser = build_parser()
     with pytest.raises(SystemExit):
-        parser.parse_args(['process-tree', '--help'])
+        parser.parse_args(['analyze', 'process-tree', '--help'])
     text = capsys.readouterr().out
     assert 'Up/Down, PgUp/PgDn, Home/End, Q' in ' '.join(text.split()) and 'Space/Enter/Q' not in text
     from forensic_assistant.command_catalog import COMMANDS

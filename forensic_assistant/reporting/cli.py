@@ -21,6 +21,9 @@ def configure(commands, *, interactive=False):
     recorded_check.add_argument('--transcript-root')
     recorded_check.add_argument('--run')
     recorded_check.add_argument('--workspace')
+    for parser in (recorded, recorded_check):
+        parser.add_argument('--json', action='store_true', default=not interactive, help='Structured report result')
+        parser.add_argument('--text', dest='json', action='store_false', help='Human-readable report result')
     create = sub.add_parser('from-case')
     create.set_defaults(report_command='generate')
     output = create.add_mutually_exclusive_group()
@@ -133,8 +136,8 @@ def render_result(result, args, palette):
              if args.evidence_ids else str(len(args.investigation_ids)) + ' selected same-state investigations')
     status = ('Report generated with limitations.' if result['status'] == 'COMPLETE_WITH_LIMITATIONS'
               else 'Report generated.')
-    return '\n'.join([palette('heading', status), '', 'Directory:', '  ' + directory,
-                      '', 'Report ID:', '  ' + result['report_id'], '', 'Scope:', '  ' + scope,
-                      '  Completion applies to this bounded report, not a complete forensic examination.',
+    return '\n'.join([palette('heading', status), '', 'Directory:', palette('value', '  ' + directory),
+                      '', 'Report ID:', palette('value', '  ' + result['report_id']), '', 'Scope:', '  ' + scope,
+                      palette('forensic_note', '  Completion applies to this bounded report, not a complete forensic examination.'),
                       '', 'Files:', *('  ' + name for name in FILES), '', 'Use:',
                       '  report show "' + directory + '"', '  report verify "' + directory + '"'])

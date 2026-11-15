@@ -217,7 +217,7 @@ def full_diagnostic(config, *, authorized=False, force=False, timeout=None, prog
 
 
 def present_full(config, args=None, *, authorized=False, force=False):
-    from forensic_assistant.terminal import Palette, enabled
+    from forensic_assistant.terminal import Palette, enabled, field
     from forensic_assistant.terminal_activity import ActivityIndicator
     from forensic_assistant.retrieval.presentation import safe_text
     from .backend import redact
@@ -227,11 +227,11 @@ def present_full(config, args=None, *, authorized=False, force=False):
     with ActivityIndicator('Checking AI provider...', args=args) as activity:
         result = full_diagnostic(config, authorized=authorized, force=force, progress=activity.update)
     ready = result['provider_readiness'] == 'ready'
-    print('  Provider: ' + settings.PROVIDERS[config['provider']][0])
-    print('  Model: ' + safe_text(redact(config['model'])))
+    print(field('  Provider',settings.PROVIDERS[config['provider']][0],palette))
+    print(field('  Model',safe_text(redact(config['model'])),palette))
     variable = settings.PROVIDERS[config['provider']][1]
     missing = not os.environ.get(variable, '').strip()
-    print('  API key: ' + ('missing' if missing else 'available'))
+    print(field('  API key','missing' if missing else 'available',palette,role='warning' if missing else 'value'))
     if config['provider'] in ('openai', 'gemini', 'anthropic'):
         print('  Advisory compatibility: ' + result['advisory_compatibility'])
         print('  Investigation compatibility: ' + result['investigation_compatibility'])

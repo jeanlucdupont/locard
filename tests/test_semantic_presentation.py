@@ -126,7 +126,7 @@ def test_semantic_prompt_editor():
     out=io.StringIO()
     result=edit(iter(['a','b','LEFT','\b','c','\r']),prompt=prompt,output=out)
     assert result=='cb'
-    assert '\x1b[96m' in out.getvalue()
+    assert '\x1b[1;3;94m' in out.getvalue()
     assert '[café]> ' == t.SGR.sub('',prompt)
 
 

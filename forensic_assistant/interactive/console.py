@@ -173,20 +173,16 @@ def edit(keys, *, history=(), output=None, prompt='', limit=65536, complete=None
         frame = (prefix + left)[-width:]
         shown = frame + right[:max(0, width - len(frame))]
         # Only the trusted, complete prompt style is accepted; input is never styled.
-        styled = prompt == Palette(True)('prompt', plain_prompt)
         semantic = (plain_prompt.startswith('[') and plain_prompt.endswith(']> ')
                     and prompt == shell_prompt(plain_prompt[1:-3], Palette(True)))
+        question = prompt == Palette(True)('question', plain_prompt)
         prompt_chars = max(0, len(frame) - len(left))
         def paint(value):
+            if question:
+                return Palette(True)('question', value[:prompt_chars]) + value[prompt_chars:]
             if semantic:
-                # Slice the known semantic prompt using the same viewport offset.
-                start = len(prefix) - prompt_chars
-                pieces = []
-                for index, char in enumerate(value[:prompt_chars], start):
-                    role = 'value' if 1 <= index < len(prefix) - 3 else 'punctuation'
-                    pieces.append(Palette(True)(role, char))
-                return ''.join(pieces) + value[prompt_chars:]
-            return Palette(styled)('prompt', value[:prompt_chars]) + value[prompt_chars:]
+                return Palette(True)('shell_prompt', value[:prompt_chars]) + value[prompt_chars:]
+            return value
         output.write('\r' + paint(shown) + ' ' * max(0, previous - len(shown)) + '\r' + paint(frame))
         output.flush()
         previous = len(shown)

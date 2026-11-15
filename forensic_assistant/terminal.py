@@ -1,4 +1,4 @@
-"""Central semantic terminal presentation; legacy type roles remain for migration."""
+"""Central semantic terminal presentation and safe plain/ANSI projections."""
 import json
 import os
 import re
@@ -8,13 +8,7 @@ from dataclasses import dataclass
 SGR = re.compile(r'\x1b\[[0-9;]*m')
 RESET = '\x1b[0m'
 STYLES = {
-    'prompt': '1;3;94',
-    'ai_prompt': '1;3;95',
-    'key': '36',
-    'string_value': '32',
-    'number_value': '35',
-    'boolean_value': '34',
-    'evidence_id': '1;36',
+    'shell_prompt': '1;3;94',
     'heading': '97',
     'value': '96',
     'command': '96',
@@ -23,15 +17,12 @@ STYLES = {
     'label': '37',
     'unknown': '90',
     'punctuation': '90',
-    'secondary_text': '0',
-    'inactive': '2',
     'warning': '33',
     'error': '31',
     'success': '32',
     'info_bar': '3;30;107',
     'forensic_note': '37'
 }
-EVIDENCE_PREFIXES = ('EVTX:', 'PREFETCH:', 'MFT:', 'REGISTRY:')
 
 
 def windows_ansi(stream, *, enable=False):
@@ -120,9 +111,17 @@ def render_spans(spans, palette=None):
                            safe_span_text(span.text)) for span in spans)
 
 
+def field(label, value, palette=None, *, role='value'):
+    """Explicit field meaning supplied by the human-view adapter."""
+    return render_spans((TextSpan(label + ': ', 'label'), TextSpan(str(value), role)), palette)
+
+
+def question_prompt(prompt, args=None):
+    return render_spans((TextSpan(prompt, 'question'),), Palette(enabled(args)))
+
+
 def shell_prompt(label, palette=None):
-    return render_spans((TextSpan('[', 'punctuation'), TextSpan(label, 'value'),
-                         TextSpan(']> ', 'punctuation')), palette)
+    return render_spans((TextSpan('[' + label + ']> ', 'shell_prompt'),), palette)
 
 
 def write_spans(spans, *, palette=None, stream=None):
@@ -136,50 +135,9 @@ def write_spans(spans, *, palette=None, stream=None):
         stream.write(render_spans(spans, display))
 
 
-def value_role(value):
-    if isinstance(value, str):
-        return 'evidence_id' if value.startswith(EVIDENCE_PREFIXES) else 'string_value'
-    if value is None or isinstance(value, bool):
-        return 'boolean_value'
-    if isinstance(value, (int, float)):
-        return 'number_value'
-    return 'secondary_text'
-
-
-def render_json(value, palette):
-    if not palette.enabled:
-        return json.dumps(value, ensure_ascii=True, indent=2)
-    active = set()
-    def walk(item, depth):
-        if not isinstance(item, (dict, list, tuple)):
-            yield palette(value_role(item), json.dumps(item, ensure_ascii=True))
-            return
-        if id(item) in active:
-            raise ValueError('Circular reference detected')
-        active.add(id(item))
-        try:
-            mapping = isinstance(item, dict)
-            left, right = ('{', '}') if mapping else ('[', ']')
-            yield left
-            for i, entry in enumerate(item.items() if mapping else item):
-                yield (',' if i else '') + '\n' + '  ' * (depth + 1)
-                if mapping:
-                    key, child = entry
-                    if not isinstance(key, str):
-                        if key is None or isinstance(key, (bool, int, float)):
-                            key = json.dumps(key)
-                        else:
-                            raise TypeError('JSON keys must be str, int, float, bool or None')
-                    yield palette('key', json.dumps(key, ensure_ascii=True)) + ': '
-                else:
-                    child = entry
-                yield from walk(child, depth + 1)
-            if item:
-                yield '\n' + '  ' * depth
-            yield right
-        finally:
-            active.remove(id(item))
-    return ''.join(walk(value, 0))
+def render_json(value, palette=None):
+    """Diagnostic JSON is always machine-readable and never syntax colored."""
+    return json.dumps(value, ensure_ascii=True, indent=2)
 
 
 def wrap_line(line, width):

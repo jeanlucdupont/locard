@@ -2275,3 +2275,16 @@ Show effective version; optional source/installed diagnostics
 | Argument / option | Meaning | Constraints / default |
 |---|---|---|
 | `--details` | Details. | arity: 0; default: False |
+
+## Semantic terminal presentation (6.146)
+
+Detailed help uses compact syntax/description columns, with narrow-terminal wrapping.
+The shell prompt uses its original bold italic blue role. Questions are blue; values
+are cyan; forensic qualifications use brown where supported. `--no-color`,
+`NO_COLOR`, redirection and `settings color off` retain plain readable output.
+
+`report from-history` and `report verify-history` additionally accept `--text` for
+human-readable result fields and `--json` for the unchanged structured result.
+Interactive mode defaults to text; scripted invocation retains JSON by default.
+Published report content and digests are unaffected. Raw diagnostic JSON is plain,
+including `evidence ... --raw`; it is not syntax-highlighted.

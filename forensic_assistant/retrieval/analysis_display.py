@@ -32,7 +32,7 @@ class View:
         self.palette = palette or Palette()
         self.lines = []
 
-    def line(self, text='', role='secondary_text'):
+    def line(self, text='', role='label'):
         # Escape evidence before adding Locard-controlled terminal styling.
         self.lines.append(self.palette(role, safe(text)))
 
@@ -42,7 +42,7 @@ class View:
         self.line(title, 'heading')
 
     def field(self, name, value):
-        self.lines.append(self.palette('key', name + ': ') + self.palette('string_value', safe(value)))
+        self.lines.append(self.palette('label', name + ': ') + self.palette('value', safe(value)))
 
     def result(self):
         return '\n'.join(self.lines)
@@ -69,7 +69,7 @@ def relationships(view, relations, records):
             if relation.get('omitted_evidence_ids'):
                 cautions.append('Supporting evidence omitted by the result limit; inspect JSON/raw references.')
         for caution in dict.fromkeys(cautions):
-            view.line(caution, 'warning')
+            view.line(caution, 'forensic_note')
 
 
 def warnings(view, records):
@@ -89,7 +89,7 @@ def warnings(view, records):
     if messages:
         view.section('Evidence limitations')
         for message in messages:
-            view.line(message, 'warning')
+            view.line(message, 'forensic_note')
 
 
 def render_session(result, palette=None, *, context=None):
@@ -122,7 +122,7 @@ def render_session(result, palette=None, *, context=None):
         view.field('Correlation boundary', utc(result.get('end')) + ' (' + result.get('end_reason', 'unknown') + ')')
         view.field('Maximum correlation window', str(result['parameters']['max_hours']) + ' hours')
     if result.get('reason'):
-        view.line(result['reason'], 'warning')
+        view.line(result['reason'], 'forensic_note')
     if result.get('candidate_anchor_ids'):
         view.field('Candidate anchors', len(result['candidate_anchor_ids']))
         view.line('Use JSON/raw for full candidate evidence IDs and --evidence to disambiguate.')
@@ -132,7 +132,7 @@ def render_session(result, palette=None, *, context=None):
             view.line(f"{utc(record.get('timestamp_utc'))} | {record.get('event_id', '-')} | {label(record)}")
     relationships(view, result.get('relationships', []), records)
     if result.get('truncated'):
-        view.line('Session candidate limit reached; results are incomplete.', 'warning')
+        view.line('Session candidate limit reached; results are incomplete.', 'forensic_note')
     warnings(view, records.values())
     if context is not None:
         from .analyst_display import evtx_notes
@@ -140,7 +140,7 @@ def render_session(result, palette=None, *, context=None):
         if notes:
             view.section('Forensic notes')
             for note in notes:
-                view.line('- ' + note, 'warning')
+                view.line('- ' + note, 'forensic_note')
     return view.result()
 
 
@@ -171,14 +171,14 @@ def render_investigation(result, palette=None):
     view.field('Type', mixed_display.artifact(anchor))
     obj = project(anchor)
     # The shared object projection is already escaped, with literal path separators.
-    view.lines.append(view.palette('key', 'Object: ') + view.palette('string_value', obj))
+    view.lines.append(view.palette('label', 'Object: ') + view.palette('value', obj))
     view.field('Host', 'CONFLICT' if anchor.get('context', {}).get('conflicts') else anchor.get('hostname'))
     if anchor.get('username'):
         view.field('User', anchor['username'])
     view.field('Source', '; '.join(s['display_name'] for s in anchor.get('context', {}).get('source_assertions', [])) or 'unassigned')
     if not stamp:
         slots = [t['slot'] for t in anchor['timestamps'] if t['timestamp_utc']]
-        view.line('Temporal investigation requires a timestamp slot.' if slots else 'No usable timestamp slots; temporal investigation not performed.', 'warning')
+        view.line('Temporal investigation requires a timestamp slot.' if slots else 'No usable timestamp slots; temporal investigation not performed.', 'forensic_note')
         if slots:
             view.line('Available slots:')
             for slot in slots:
@@ -224,9 +224,9 @@ def render_investigation(result, palette=None):
         view.line(f"{finding['severity']} | {finding['rule_id']} | {finding['rule_name']}")
         view.line(finding['reason'])
         for limitation in finding.get('limitations', []):
-            view.line(limitation, 'warning')
+            view.line(limitation, 'forensic_note')
         if finding.get('omitted_evidence_ids'):
-            view.line('Supporting evidence omitted by the result limit; inspect JSON/raw references.', 'warning')
+            view.line('Supporting evidence omitted by the result limit; inspect JSON/raw references.', 'forensic_note')
     view.section('Coverage')
     # artifact_distribution includes known-but-omitted records; count only the
     # returned evidence for this summary instead of mislabeling that distribution.
@@ -236,12 +236,12 @@ def render_investigation(result, palette=None):
     if temporal_searched:
         view.field('Temporal search window', '+/- ' + str(parameters['seconds']) + ' seconds')
     for limitation in result['limits']:
-        view.line(limitation, 'warning')
+        view.line(limitation, 'forensic_note')
     coverage = result['coverage']
     if coverage['events_without_utc']:
-        view.line(f"Case contains {coverage['events_without_utc']} events without UTC timestamps.", 'warning')
+        view.line(f"Case contains {coverage['events_without_utc']} events without UTC timestamps.", 'forensic_note')
     if coverage['incomplete_ingestion_runs']:
-        view.line(f"Case contains {coverage['incomplete_ingestion_runs']} incomplete ingestion runs.", 'warning')
+        view.line(f"Case contains {coverage['incomplete_ingestion_runs']} incomplete ingestion runs.", 'forensic_note')
     investigation_notes(view, records.values())
     return view.result()
 
@@ -262,7 +262,7 @@ def investigation_notes(view, records):
             continue
         view.section(title + ' forensic notes')
         for note in notes:
-            view.line('- ' + note, 'warning')
+            view.line('- ' + note, 'forensic_note')
         if title == 'UserAssist' or any('Referenced files are not all executed images; directory tables are not exposed by this binding'
                                       in r.get('warnings', []) for r in selected):
             view.section(title + ' parser note')
@@ -274,7 +274,7 @@ def investigation_notes(view, records):
     corrupt = {r['id'] for r in registry if KEY_CORRUPTION in r.get('warnings', [])}
     if corrupt:
         view.line(f'Warning: parser reported key corruption for {len(corrupt)} retrieved Registry records; '
-                  'the flag alone does not establish unreadable data.', 'warning')
+                  'the flag alone does not establish unreadable data.', 'forensic_note')
     projected = []
     standard = {
         'Prefetch records execution timestamps; retained runs are incomplete',

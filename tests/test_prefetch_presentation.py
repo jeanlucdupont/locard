@@ -179,9 +179,9 @@ def test_cli_json_raw_slots_ids_and_database_unchanged(case, capsys):
     with closing(connect(path)) as db:
         expected = {flag: get_evidence(db, eid, flag == '--raw') for flag in ('--json', '--raw')}
     for flag, value in expected.items():
-        assert main(['--db', str(path), 'show', eid, flag]) == 0
+        assert main(['--db', str(path), 'evidence', 'show', eid, flag]) == 0
         assert json.loads(capsys.readouterr().out) == value
-    args = ['--db', str(path), 'timeline', '--artifact', 'prefetch', '--start', '2019-01-01T00:00:00Z', '--end', '2021-01-01T00:00:00Z']
+    args = ['--db', str(path), 'evidence', 'timeline', '--artifact', 'prefetch', '--start', '2019-01-01T00:00:00Z', '--end', '2021-01-01T00:00:00Z']
     assert main(args + ['--text']) == 0
     text = capsys.readouterr().out
     assert eid not in text and '[run:1]' in text and '[run:2]' in text
@@ -189,7 +189,13 @@ def test_cli_json_raw_slots_ids_and_database_unchanged(case, capsys):
     data = json.loads(capsys.readouterr().out)
     assert [r['timestamp']['slot'] for r in data['records']] == ['run:1', 'run:2']
     assert {r['id'] for r in data['records']} == {eid}
-    assert main(['--db', str(path), 'search', '--artifact', 'prefetch', '--ids']) == 0
+    assert main(['--db', str(path), 'evidence', 'search', '--artifact', 'prefetch', '--ids']) == 0
     assert eid in capsys.readouterr().out
-    assert build_parser().parse_args(['search', '--artifact', 'prefetch']).limit == 20
+    assert build_parser().parse_args(['evidence', 'search', '--artifact', 'prefetch']).limit == 20
     assert path.read_bytes() == before
+
+
+@pytest.fixture(autouse=True)
+def isolated_presentation_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))

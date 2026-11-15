@@ -97,7 +97,7 @@ def render_list(data, palette=None, *, ids=False, width=None):
         palette,
         minimums=[12, 10, 10, 7, 5, 12],
         maximums=[40, 28, 24, 9, 9, 40],
-        roles=['evidence_id', 'string_value', 'secondary_text', 'number_value', 'number_value', 'secondary_text'],
+        roles=['value', 'value', 'label', 'value', 'value', 'label'],
         right=(3, 4),
         width=width
     )
@@ -191,7 +191,7 @@ def render_update_preview(preview, palette):
     lines = ['Source: ' + safe(source['source_id'])]
     for key, value in preview['proposed'].items():
         render = safe_path if key == 'volume_root' else safe
-        lines.append(palette('key', key.replace('_', ' ').capitalize() + ': ')
+        lines.append(palette('label', key.replace('_', ' ').capitalize() + ': ')
                      + render(source.get(key)) + ' -> ' + render(value))
     lines.append(safe(preview['basis']))
     return '\n'.join(lines)
@@ -206,7 +206,7 @@ def render_update(data, palette):
     labels = {'display_name': 'Name', 'hostname': 'Hostname', 'username': 'User', 'volume_root': 'Volume root'}
     lines = [palette('success', 'Source updated.')]
     for key in data['scope']['proposed']:
-        lines.append(palette('key', labels[key] + ': ') + safe_text(old.get(key) or 'unknown')
+        lines.append(palette('label', labels[key] + ': ') + safe_text(old.get(key) or 'unknown')
                      + ' -> ' + safe_text(new.get(key) or 'unknown'))
     return '\n'.join(lines)
 
@@ -235,7 +235,7 @@ def render_assignment(data, palette=None):
     for key, value in p['existing_provenance'].items():
         lines.append('  ' + key.replace('_', ' ') + ': ' + str(value))
     lines += ['Reason: ' + safe(p['reason']), 'Basis: ' + p['basis']]
-    lines += [palette('warning', text) for text in p['limitations']]
+    lines += [palette('forensic_note', text) for text in p['limitations']]
     if data['applied']:
         lines.append('Applied assignment: ' + data['result']['assignment_id'])
     else:
@@ -248,12 +248,12 @@ def render_assignment(data, palette=None):
 
 
 def render_show(data, palette=None):
-    from forensic_assistant.terminal import Palette, value_role
+    from forensic_assistant.terminal import Palette
     from forensic_assistant.retrieval.presentation import safe, safe_path
     palette = palette or Palette()
     lines = []
     def field(name, value, *, path=False):
-        lines.append(palette('key', name + ': ') + palette(value_role(value), (safe_path if path else safe)(value)))
+        lines.append(palette('label', name + ': ') + palette('value', (safe_path if path else safe)(value)))
     for name, key in [
         ('Source', 'display_name'),
         ('Source ID', 'source_id'),
@@ -284,7 +284,7 @@ def render_show(data, palette=None):
     ]:
         field(label, data[key]['total'])
     for warning in data.get('limitations', []):
-        lines.append(palette('warning', safe(warning)))
+        lines.append(palette('forensic_note', safe(warning)))
     if data.get('artifact_hostnames_truncated'):
-        lines.append(palette('warning', 'Artifact hostname list is bounded to 100.'))
+        lines.append(palette('forensic_note', 'Artifact hostname list is bounded to 100.'))
     return '\n'.join(lines)

@@ -54,12 +54,12 @@ def outside_evidence(target, roots):
 def inventory_text(inventory, *, details=False, palette=None, manual=False):
     palette = palette or Palette()
     print('\n' + _separator(palette))
-    lines = [palette('key', 'Selected evidence' if manual else 'Artifacts found (contents checked during ingestion)')]
+    lines = [palette('heading', 'Selected evidence' if manual else 'Artifacts found (contents checked during ingestion)')]
     for kind in discovery.CATEGORIES:
         items = [i for i in inventory.candidates if i.kind == kind]
         if not items:
             continue
-        lines.append('  ' + palette('key', kind.ljust(10)) + palette('success', str(len(items))) + (' file' if len(items) == 1 else ' files'))
+        lines.append('  ' + palette('label', kind.ljust(10)) + palette('value', str(len(items))) + (' file' if len(items) == 1 else ' files'))
         groups = Counter(i.group for i in items if i.group)
         lines.extend('    ' + label + ': ' + str(count) for label, count in groups.items())
         if details:
@@ -68,7 +68,7 @@ def inventory_text(inventory, *, details=False, palette=None, manual=False):
             if item.native_volume:
                 lines.extend(['    Found: ' + safe(item.path), '    Acquisition: native read-only NTFS'])
     if inventory.profiles_scanned or inventory.access_limits.get('User profiles') or inventory.redirected.get('User profiles'):
-        lines.append(palette('key', 'User profile discovery'))
+        lines.append(palette('heading', 'User profile discovery'))
         if inventory.profiles_scanned:
             lines.append('  Profiles found: ' + str(inventory.profiles_found))
         if inventory.access_limits.get('User profiles'):
@@ -77,19 +77,19 @@ def inventory_text(inventory, *, details=False, palette=None, manual=False):
             lines.append('  Redirected/junction entries skipped: ' + str(len(inventory.redirected['User profiles'])))
     access = {k: v for k, v in inventory.access_limits.items() if k != 'User profiles'}
     if access:
-        lines.append(palette('key', 'Access limitations'))
+        lines.append(palette('heading', 'Access limitations'))
         lines.extend('  ' + label + ': ' + palette('warning', f'{len(paths)} inaccessible') for label, paths in access.items())
     redirects = {k: v for k, v in inventory.redirected.items() if k != 'User profiles'}
     if redirects:
-        lines.append(palette('key', 'Redirected/junction entries skipped'))
+        lines.append(palette('heading', 'Redirected/junction entries skipped'))
         lines.extend('  ' + label + ': ' + str(len(paths)) for label, paths in redirects.items())
     if inventory.unsupported:
-        lines.append(palette('key', 'Other forensic artifacts detected'))
+        lines.append(palette('heading', 'Other forensic artifacts detected'))
         lines.extend('  ' + safe(path if details else path.name) + ' — not currently supported' for path in inventory.unsupported)
     unsupported_notes = {'Not currently supported by Locard: ' + str(p) for p in inventory.unsupported}
     notes = list(dict.fromkeys(n for n in inventory.notes if n not in unsupported_notes and (details or n not in inventory.access_notes)))
     if notes:
-        lines.append(palette('key', 'Discovery notes'))
+        lines.append(palette('heading', 'Discovery notes'))
     lines.extend('  ' + palette('warning', safe(note)) for note in (notes if details else notes[:10]))
     if not details and len(notes) > 10:
         lines.append(f'  {len(notes) - 10} further discovery notes; choose review for details.')
@@ -107,7 +107,7 @@ def select_categories(value, available):
 
 def read_input(shell, palette, prompt, *, required=False):
     while True:
-        value = shell.reader.read(palette('prompt', prompt)).strip()
+        value = shell.reader.read(prompt).strip()
         if value.casefold() == 'cancel':
             raise EOFError
         if len(value) > 4096 or any(c in value for c in '\x00\r\n'):
@@ -141,7 +141,7 @@ def browser_selection(items, read, palette):
     candidates = [i for i in items if i.kind == 'browser']
     if not candidates:
         return items, []
-    print(palette('key', 'Browser profiles found'))
+    print(palette('heading', 'Browser profiles found'))
     for n, item in enumerate(candidates, 1):
         print(f'  [{n}] ' + safe(item.browser_product or 'unspecified') + '  ' +
               safe(item.owner or 'owner not supplied') + '  ' + safe(item.profile or item.path.name))
@@ -199,10 +199,10 @@ def collect(shell, *, adding=False):
         name = shell.case_label or workspace.case_label(target)
         analyst = organization = ''
         print('\n' + _separator(palette))
-        print(palette('key', 'Add evidence to case: ' + safe(name)))
+        print(palette('label', 'Add evidence to case: ' + safe(name)))
         print('Type cancel at any prompt to return to the case. Nothing is ingested before confirmation.')
     else:
-        print(palette('key', _separator(palette) + '\n' + WORKFLOW))
+        print(palette('label', _separator(palette) + '\n' + WORKFLOW))
         print('Type cancel at any prompt to stop setup.\nNothing is created before final confirmation.\n')
         while True:
             name = read('Case name: ', required=True)
@@ -217,7 +217,7 @@ def collect(shell, *, adding=False):
                 metadata=dict(name=None, hostname=None, username=None, volume_root=None))
     while True:
         print('\n' + _separator(palette))
-        print(palette('key', 'How would you like to add evidence?'))
+        print(palette('question', 'How would you like to add evidence?'))
         print('1. Scan a mounted Windows volume or folder (recommended)\n'
               '2. Select evidence manually\n3. ' + ('Cancel' if adding else 'Skip ingestion for now'))
         mode = choice(read, 'Selection [1]: ', ('1', '2', '3'), '1')
@@ -281,7 +281,7 @@ def collect(shell, *, adding=False):
         categories = set(available)
         if mode == '1':
             while True:
-                print(palette('key', '\nWhat would you like to do?'))
+                print(palette('label', '\nWhat would you like to do?'))
                 print('1. Ingest all discovered artifacts\n2. Select artifact categories\n3. Review discovered paths\n4. Cancel')
                 action = choice(read, 'Selection [1]: ', ('1', '2', '3', '4'), '1')
                 if action == '4':
@@ -317,25 +317,25 @@ def collect(shell, *, adding=False):
         break
     print('\n' + _separator(palette))
     if adding:
-        print(palette('key', 'Add evidence to case') + '\n  ' + safe(plan.name))
+        print(palette('heading', 'Add evidence to case') + '\n  ' + safe(plan.name))
     else:
-        print(palette('key', 'Proposed case'))
+        print(palette('heading', 'Proposed case'))
         print('Case\n  Name: ' + safe(plan.name) + '\n  Analyst: ' + safe(analyst or 'not supplied') +
               '\n  Organization: ' + safe(organization or 'not supplied'))
         print('Workspace\n  ' + safe(target.parent))
     for root in plan.roots:
         print('Evidence source\n  ' + safe(root))
-    print(palette('key', 'Selected evidence'))
+    print(palette('heading', 'Selected evidence'))
     for kind, count in Counter(i.kind for i in plan.items).items():
-        print('  ' + palette('key', kind.ljust(10)) + palette('success', str(count)) +
+        print('  ' + palette('label', kind.ljust(10)) + palette('value', str(count)) +
               (' selected profiles' if kind == 'browser' else ' file' if count == 1 else ' files'))
     if any(plan.metadata.values()):
-        print(palette('key', 'Source metadata'))
+        print(palette('heading', 'Source metadata'))
     for key, value in plan.metadata.items():
         if value:
             print('  ' + key + ': ' + safe(value))
     for item in plan.deferred:
-        print(palette('key', 'MFT') + '\n  Found: ' + safe(item.path))
+        print(palette('heading', 'MFT') + '\n  Found: ' + safe(item.path))
         print(palette('error', '  Direct ingestion: unavailable'))
         if item.access_reason:
             print(palette('warning', '  ' + safe(item.access_reason) + '\n  Supply an accessible extracted $MFT.'))
@@ -399,7 +399,7 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
             event.update(source_id=source_id, assertion=sources.current(db, source_id))
     outcomes = {i.kind: i.access for i in plan.deferred}
     print('\n' + _separator(palette))
-    print(palette('key', 'Ingestion is starting.'))
+    print(palette('label', 'Ingestion is starting.'))
     if not incremental:
         print('Large evidence sets can take several minutes.')
     for kind in discovery.CATEGORIES:
@@ -467,13 +467,13 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
         if kind == 'evtx':
             print('    Files retaining partial records: ' + palette('warning', str(progress.retained_partial)) +
                   ' | Unsuccessful files (including zero-record partials): ' +
-                  palette('error' if progress.unsuccessful else 'success', str(progress.unsuccessful)))
+                  palette('value', str(progress.unsuccessful)))
             with closing(creation.open_existing(plan.target)) as db:
                 groups = setup_display.diagnostic_groups(db, progress.run_ids)
             limitations = sum(g['count'] for g in groups if g['limitation'])
             other = sum(g['count'] for g in groups if not g['limitation'])
-            print('    Verification limitations: ' + palette('forensic_note', str(limitations)) +
-                  ' | Other recorded errors: ' + palette('error' if other else 'success', str(other)))
+            print('    Verification limitations: ' + palette('value', str(limitations)) +
+                  ' | Other recorded errors: ' + palette('value', str(other)))
         for limitation, count in progress.limitations.items():
             from forensic_assistant.artifacts.registry_logs import LIMITATION
             if any(row['status'] == limitation for row in exceptions):
@@ -530,7 +530,7 @@ def create(shell):
                            selected_counts=dict(Counter(i.kind for i in plan.items)), ingestion=outcomes)
         shell.activate(plan.target, activity_session=session, announce=False)
         message = setup_display.completion(plan, outcomes, stored)
-        print("\n████ " + setup_display.completion_line(message, palette))
+        print("\n████ " + setup_display.completion_line(message, palette, plan=plan, outcomes=outcomes, stored=stored))
         if elapsed is not None and stored:
             print('Elapsed time: ' + setup_display.duration(elapsed))
         ingestion_summary(plan, outcomes, palette)
@@ -568,12 +568,12 @@ def record_browser_selections(plan, session):
 
 
 def ingestion_summary(plan, outcomes, palette, *, incremental=False, added=False):
-    print(palette('key', 'Added evidence' if incremental and added else 'Ingestion'))
+    print(palette('heading', 'Added evidence' if incremental and added else 'Ingestion'))
     for kind in discovery.CATEGORIES:
         if incremental and kind not in plan.considered and kind not in outcomes:
             continue
         status = outcomes.get(kind, 'no supported history found' if kind == 'browser' and plan.browser_scanned and not plan.browser_found else 'not selected')
-        print('  ' + palette('error' if status == 'requires extraction' else 'key', kind.ljust(10)) + palette(setup_display.role(status), status))
+        print('  ' + palette('value', kind.ljust(10)) + palette(setup_display.role(status), status))
 
 
 def add_evidence(shell):
@@ -617,9 +617,9 @@ def add_evidence(shell):
                   and not (plan.considered - set(outcomes)))
         if not simple:
             ingestion_summary(plan, outcomes, palette, incremental=True, added=bool(totals.records))
-            print('  ' + palette('success' if totals.records else 'secondary_text', f'{totals.records:,} new records') +
-                  ' | ' + palette('warning' if totals.duplicates else 'success', f'{totals.duplicates:,} duplicates') +
-                  ' | ' + palette('error' if totals.errors else 'success', f'{totals.errors:,} errors'))
+            print('  ' + palette('value', f'{totals.records:,} new records') +
+                  ' | ' + palette('value', f'{totals.duplicates:,} duplicates') +
+                  ' | ' + palette('value', f'{totals.errors:,} errors'))
         return bool(totals.records or totals.duplicates)
     except (EOFError, KeyboardInterrupt):
         print('\nEvidence addition cancelled. The current case remains open.')

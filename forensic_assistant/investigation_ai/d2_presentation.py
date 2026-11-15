@@ -47,11 +47,13 @@ def view(result,prepared):
         details=dict(packet=deepcopy(packet),validated=deepcopy(validated)))
 
 
-def render(value):
-    out=['Ephemeral D2 result — not saved','Established']
+def render(value, palette=None):
+    from forensic_assistant.terminal import Palette
+    palette = palette or Palette()
+    out=[palette('forensic_note', 'Ephemeral D2 result — not saved'),palette('heading', 'Established')]
     if 'question' in value:
-        out=['Ephemeral cross-artifact investigation — not saved','Question: '+_safe(value['question']),
-             'Policy: '+value['request_policy'],'Recorded context — not proof of causality']
+        out=[palette('forensic_note', 'Ephemeral cross-artifact investigation — not saved'),'Question: '+_safe(value['question']),
+             'Policy: '+value['request_policy'],palette('forensic_note', 'Recorded context — not proof of causality')]
     for row in value['established']:
         text=row['text'];shown=text if len(text)<=180 else text[:180]+'… [display shortened; exact value in details]'
         out.append('  '+_safe(shown)+' ['+row['reference']+']')
@@ -63,7 +65,7 @@ def render(value):
             out.append('  '+_safe(edge['alias']+': '+edge['predicate']))
             out.extend('    Assumption: '+_safe(s) for s in edge['assumptions'])
         out.append('  New-question assessment: '+value['question_assessment_status']+'; historical S3 unchanged.')
-    out.append('Suggested, not proved')
+    out.append(palette('forensic_note', 'Suggested, not proved'))
     execution=value['execution']
     if execution['status']!='accepted':out.append('  No validated AI reasoning: '+_safe(execution.get('reason','unknown')))
     elif not value['proposals']:
@@ -79,15 +81,15 @@ def render(value):
             out.append('  Exact duplicate references removed: '+str(normalized['duplicates_removed'])+
                 '; final validation: '+normalized['canonical_validation']+'.')
     if value.get('outcome_rationale'):
-        out += ['Unverified outcome rationale', '  '+_safe(value['outcome_rationale'])]
-    out.append('Alternatives and discriminators')
+        out += [palette('forensic_note', 'Unverified outcome rationale'), '  '+_safe(value['outcome_rationale'])]
+    out.append(palette('heading', 'Alternatives and discriminators'))
     for p in value['proposals']:
         item=p['item']
         out.extend('  Alternative: '+_safe(x) for x in item['alternatives'])
         if item.get('discriminator'):out.append('  Discriminator (unverified): '+_safe(item['discriminator']))
         out.extend('  Assumption (unverified): '+_safe(x) for x in item['assumptions'])
     if not value['proposals']:out.append('  None proposed.')
-    out.append('Contradictions and gaps')
+    out.append(palette('heading', 'Contradictions and gaps'))
     conflicts=[r for r in value['relationships'] if r.get('predicate')=='incompatible_recorded_field']
     out.append('  Recorded contradiction relationships in this packet: '+str(len(conflicts))+'.')
     out.append('  Omitted/unsearched evidence is not established absent; packet coverage only.')

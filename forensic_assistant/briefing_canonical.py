@@ -197,19 +197,21 @@ def build(packet):
              'coverage':packet.get('semantic_coverage','limited_deterministic_technical_only')}
 
 
-def render(value):
+def render(value, palette=None):
+    from .terminal import Palette
+    palette = palette or Palette()
     from forensic_assistant.interactive.console import safe
     from .briefing_review import assess
     from .briefing_completion import unknown_label,time_phrase_note
     document=value['document'];original=value.get('original_provenance',{})
     assessment=assess(document,original.get('review_diagnostics'))
     origins=original.get('classification_origins',{})
-    lines=['CASE BRIEFING - unverified analyst input',
-        'Accepted for use - assertions and derived interpretations remain unverified' if value.get('accepted') else 'Proposed representation - not yet accepted','', 'Information collected and gaps']
-    def multiline(text,indent=''):
-        lines.extend(indent+safe(line) for line in text.splitlines())
+    lines=[palette('forensic_note', 'CASE BRIEFING - unverified analyst input'),
+        'Accepted for use - assertions and derived interpretations remain unverified' if value.get('accepted') else 'Proposed representation - not yet accepted','', palette('heading', 'Information collected and gaps')]
+    def multiline(text,indent='',role='label'):
+        lines.extend(palette(role, indent+safe(line)) for line in text.splitlines())
     for category,label in CATEGORIES.items():
-        lines.append('  '+label)
+        lines.append(palette('heading', '  '+label))
         items=document['categories'][category];gap=assessment['categories'][category]
         if not items:
             if category=='incident' and original.get('review_diagnostics',{}).get('narrative_retained'):
@@ -223,15 +225,15 @@ def render(value):
                 lines.append('    Possible classification gap; review '+', '.join(CATEGORIES[k] for k in gap['related_categories'])+'.')
         for i,item in enumerate(items):
             display=item['value'] or unknown_label(item)+': '+item['status'].replace('_',' ').capitalize()
-            multiline(display,'    ')
+            multiline(display,'    ', 'value' if item['value'] else 'unknown')
             lines.append('      ['+item['kind']+'; '+item['status']+'; '+item['polarity']+'; '+safe(origins.get(f'{category}:{i}','origin not recorded'))+']')
-            if item['value'] and item['note']:multiline(item['note'],'      ')
+            if item['value'] and item['note']:multiline(item['note'],'      ', 'forensic_note')
             for flag in original.get('references',{}).get(f'{category}:{i}',{}).get('narrative_review',[]):
                 if flag.get('visibility')=='details':continue
                 lines.append('      Explanation review: '+safe(flag['rule'])+'; not a verified conclusion.')
     summary=document['summary']
     heading='Deterministic synthesis of analyst-reported entries - not an AI conclusion' if origins.get('summary')=='deterministic_synthesis' else 'Proposed incident summary - unverified'
-    lines.extend(['',heading+' ('+summary['status']+')'])
+    lines.extend(['',palette('forensic_note', heading+' ('+summary['status']+')')])
     diagnostic=original.get('review_diagnostics',{}).get('summary',{})
     editorial=original.get('summary_editorial')
     if diagnostic and diagnostic['state']!='accepted' and not editorial:
@@ -263,9 +265,9 @@ def render(value):
             lines.append('Summary review: possible omission of '+CATEGORIES[check['category']]+'.')
         else:lines.append('Review the draft for accuracy, coverage and uncertainty; semantic completeness is for the analyst to decide.')
     if assessment['source_coverage'] and not assessment['source_coverage'].get('complete'):
-        lines.append('Extraction coverage incomplete: not all source text was exposed to AI.')
-    lines.append('Source support is not verification. Missing fields are not negative observations.')
-    lines.append('Analyst review determines meaning, attribution, chronology and causality. Briefing acceptance is not forensic verification.')
+        lines.append(palette('forensic_note', 'Extraction coverage incomplete: not all source text was exposed to AI.'))
+    lines.append(palette('forensic_note', 'Source support is not verification. Missing fields are not negative observations.'))
+    lines.append(palette('forensic_note', 'Analyst review determines meaning, attribution, chronology and causality. Briefing acceptance is not forensic verification.'))
     return '\n'.join(lines)
 
 

@@ -319,3 +319,18 @@ recording byte limits. See
 [implementation, tests, limitations and acceptance](LOCARD_6_145_SEMANTIC_PRESENTATION.md).
 This follow-up is implementation evidence, not manual acceptance. Domain-renderer
 migration and broader human JSON fallbacks remain deferred.
+
+## 6.146 working-tree implementation update (2026-11-14)
+
+This is an implementation update, not a replacement of the historical audit.
+Legacy type roles and `value_role` are removed; diagnostic JSON is uncolored.
+The dedicated shell prompt is restored, help uses metadata-driven columns, and
+startup, artifact, analysis, AI, case, findings, report-result and audit adapters
+use central semantic roles. Input decoration uses the existing recording reader.
+No forensic schemas or persisted document renderers were recolored.
+
+See [the migration coverage matrix](LOCARD_6_146_COMPLETE_SEMANTIC_PRESENTATION.md)
+for exact boundaries: bounded explanation/packet pages, persisted report documents,
+historical event payloads and diagnostic JSON remain plain intentionally. This is
+not a claim that every legacy prose line has been split into independently colored
+label/value spans. Windows visual acceptance remains required.

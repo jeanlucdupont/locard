@@ -95,8 +95,8 @@ def render(record, palette=None, *, values=None):
     ctx = record.get('context') or {}
     lines = [palette('heading', 'UserAssist value' if ua else 'Registry value' if value else 'Registry key')]
     def field(label, text):
-        lines.append(palette('key', label + ': ') + text)
-    field('Evidence ID', palette('evidence_id', safe(record['id'])))
+        lines.append(palette('label', label + ': ') + text)
+    field('Evidence ID', palette('value', safe(record['id'])))
     hive = d.get('hive', {})
     field('Hive', safe(hive.get('hive_type', 'UNKNOWN')))
     filename = record.get('source', {}).get('source_file', record.get('source_file'))
@@ -133,7 +133,7 @@ def render(record, palette=None, *, values=None):
             if not ua['last_execution']['timestamp_utc']:
                 field('UserAssist last execution/interaction', 'unavailable')
         if ua.get('limitation'):
-            lines += ['', palette('heading', 'Interpretation limitation'), palette('warning', safe(ua['limitation']))]
+            lines += ['', palette('heading', 'Interpretation limitation'), palette('forensic_note', safe(ua['limitation']))]
     if not value:
         lines += ['', palette('heading', 'Values')]
         if values is None:
@@ -144,7 +144,7 @@ def render(record, palette=None, *, values=None):
                     for v in values['values']]
             lines += table(['DECODED NAME' if ua_key else 'NAME', 'TYPE', 'DATA'], rows, palette,
                            minimums=[12, 13, 16], maximums=[35, 32, DATA_LIMIT],
-                           roles=['secondary_text'] * 3, paths=(0,) if ua_key else (),
+                           roles=['label'] * 3, paths=(0,) if ua_key else (),
                            format_cell=lambda row, col, text, room: fit(rows[row][col], room) if col in (1, 2) else
                            fit(value_name_text(rows[row][col]), room) if not ua_key else None)
             if not rows:
@@ -163,7 +163,7 @@ def render(record, palette=None, *, values=None):
         warnings.append('Conflicting context: ' + ', '.join(ctx['conflicts']))
     if warnings:
         lines += ['', palette('heading', 'Limitations / data quality')]
-        lines.extend(palette('warning', safe(warning_text(w))) for w in warnings)
+        lines.extend(palette('forensic_note', safe(warning_text(w))) for w in warnings)
     return '\n'.join(lines)
 
 
@@ -200,6 +200,6 @@ def search_notes(records, palette):
             label = warning_label(record)
             if context[1]:
                 label += ' Sources: ' + ', '.join(safe(source) for source in context[1])
-        lines.append(palette('warning', '- ' + label + ': ' + DIRTY_WARNING))
+        lines.append(palette('forensic_note', '- ' + label + ': ' + DIRTY_WARNING))
     lines.append(palette('forensic_note', '- Dirty does not mean corrupted.'))
     return lines

@@ -231,10 +231,25 @@ def dispatch(args):
     return inspect(args.directory)
 
 
+def render_result(value, args=None):
+    from ..terminal import Palette, enabled, field
+    palette = Palette(enabled(args))
+    lines = [palette('heading', 'Recorded-history report')]
+    statuses = {'PASS':'success', 'PUBLISHED':'success', 'FAILED':'error', 'NOT_CHECKED':'unknown', 'NOT_CERTIFIED':'unknown'}
+    for key in ('status','output','report_type','content_digest','file_integrity','structure','source_binding','evidence_grounding','analyst_decisions','source_validation','forensic_truth','semantic_truth','error','source_authority'):
+        if key in value:
+            role = statuses.get(value[key], 'value') if key not in ('output','content_digest','report_type') else 'value'
+            lines.append(field(key.replace('_',' ').capitalize(), value[key], palette, role=role))
+    if value.get('caution'):
+        lines.append(palette('forensic_note', value['caution']))
+    return '\n'.join(lines)
+
+
 def cli(args):
     import json
     try:
-        print(json.dumps(dispatch(args), ensure_ascii=True, indent=2))
+        value = dispatch(args)
+        print(json.dumps(value, ensure_ascii=True, indent=2) if getattr(args, 'json', True) else render_result(value,args))
         return 0
     except KeyboardInterrupt:
         print('Recorded report cancelled. Inspect the destination if publication was in progress.')
@@ -244,5 +259,6 @@ def cli(args):
         code = str(exc).split(':', 1)[0]
         if not code.startswith('RECORDED_REPORT_') or len(code) > 100 or not all(ch.isupper() or ch=='_' for ch in code):
             code = 'RECORDED_REPORT_SOURCE_OR_STORAGE_VALIDATION_FAILED'
-        print(json.dumps(dict(status='FAILED', error=code, source_authority='not_established')))
+        value = dict(status='FAILED', error=code, source_authority='not_established')
+        print(json.dumps(value) if getattr(args, 'json', True) else render_result(value,args))
         return 2

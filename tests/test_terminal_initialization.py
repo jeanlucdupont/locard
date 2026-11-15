@@ -74,7 +74,7 @@ def test_resources_and_prompt_preserve_text(monkeypatch, capable, no_color):
         rendered = terminal.banner(getter(), args) if name == 'banner' else getter(args)
         assert terminal.SGR.sub('', rendered) == terminal.SGR.sub('', raw)
         assert ('\x1b' in rendered) == (capable and not no_color)
-    prompt = terminal.Palette(terminal.enabled(args))('prompt', '[synthetic]> ')
+    prompt = terminal.Palette(terminal.enabled(args))('shell_prompt', '[synthetic]> ')
     assert terminal.SGR.sub('', prompt) == '[synthetic]> '
     assert ('\x1b' in prompt) == (capable and not no_color)
 

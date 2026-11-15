@@ -259,14 +259,17 @@ def render(value, args=None):
     labels = {'diagnostic_level':'Diagnostic', 'provider':'Provider', 'integration':'Integration', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
               'api_key':'API key', 'provider_readiness':'Status', 'readiness_reason':'Reason', 'readiness_stage':'Stage', 'http_status':'HTTP status', 'connection_readiness':'Connection', 'model_readiness':'Model compatibility', 'advisory_compatibility':'Advisory compatibility', 'investigation_compatibility':'Investigation compatibility', 'locard_compatibility':'Locard compatibility', 'endpoint':'Endpoint', 'ownership':'Ownership', 'runtime_reported_models':'Runtime-reported models', 'configuration_detail':'Details'}
     lines = [palette('heading', 'AI provider')]
+    statuses = {'configured_ready': 'success', 'running': 'success', 'ready': 'success',
+                'stopped': 'unknown', 'not_checked': 'unknown', 'not_verified': 'unknown',
+                'unknown': 'unknown', 'unavailable': 'unknown', 'failed': 'error',
+                'configuration_error': 'error', 'missing_configuration': 'warning'}
+    status_fields = {'configuration', 'runtime', 'provider_readiness', 'connection_readiness',
+                     'model_readiness', 'advisory_compatibility', 'investigation_compatibility', 'locard_compatibility'}
     for key, label in labels.items():
-        if key in value:
+        if key in value and value[key] not in (None, '', [], {}):
             text = safe_text(str(value[key]).replace('_', ' ') if key == 'configuration' else str(value[key]))
-            role = ('success' if value[key] in ('configured_ready', 'running', 'ready') else
-                    'inactive' if value[key] == 'stopped' else 'error')
-            if key == 'provider': role = 'key'
-            if key in ('provider', 'configuration', 'runtime', 'provider_readiness'): text = palette(role, text)
-            lines.append('  ' + label + ': ' + text)
+            role = statuses.get(value[key], 'unknown') if key in status_fields else 'label' if key in ('configuration_detail','readiness_reason') else 'value'
+            lines.append(palette('label', '  ' + label + ': ') + palette(role, text))
     configured = value.get('configured_options')
     if configured is not None:
         external = value.get('ownership') == 'external'
@@ -289,7 +292,7 @@ def render(value, args=None):
     if value.get('configuration_differs'):
         lines.append(palette('warning', '  Configuration differs from running external runtime (reported model).'))
     if value.get('message'):
-        lines.append(palette('success' if value['message'] == 'AI configuration saved.' else 'warning',
+        lines.append(palette('label',
                             '\n'.join(safe_text(line) for line in value['message'].splitlines())))
     if 'idle_timeout_seconds' in value: lines.append('  Idle timeout: 15 minutes')
     return '\n'.join(lines)

@@ -28,7 +28,7 @@ def render(result, palette, *, include_question=True):
         lines.append(palette('heading', title))
 
     def value(label, text):
-        lines.append('  ' + palette('key', label + ': ') + safe(text))
+        lines.append('  ' + palette('label', label + ': ') + safe(text))
 
     if include_question:
         section('Question')
@@ -49,7 +49,7 @@ def render(result, palette, *, include_question=True):
         objects = record.get('objects') or []
         subject = '; '.join(objects) or record.get('executable') or record.get('key') or record.get('process_name') or record.get('artifact_type', '')
         lines.append('  ' + safe(kind.upper()) + '  ' + safe(subject))
-        lines.append('  ' + palette('evidence_id', 'ID: ' + safe(record['id'])))
+        lines.append('  ' + palette('value', 'ID: ' + safe(record['id'])))
         value('Selection', selection)
 
     groups = (
@@ -80,7 +80,7 @@ def render(result, palette, *, include_question=True):
             value(item.get('relationship') or item.get('rule_name', 'Observation'), item.get('status', item.get('severity', '')))
             value('Reason', item['reason'])
             for eid in item['evidence_ids']:
-                lines.append('  ' + palette('evidence_id', 'ID: ' + safe(eid)))
+                lines.append('  ' + palette('value', 'ID: ' + safe(eid)))
             for limitation in item.get('limitations', []):
                 value('Limitation', limitation)
     if result.get('analysis'):
@@ -91,7 +91,7 @@ def render(result, palette, *, include_question=True):
                   else 'Finding (model assessment)', finding['finding'])
             value('Interpretation', finding['interpretation'])
             for eid in finding['evidence_ids']:
-                lines.append('  ' + palette('evidence_id', 'Cites: ' + safe(eid)))
+                lines.append('  ' + palette('value', 'Cites: ' + safe(eid)))
             if finding.get('correlation_status'):
                 value('Deterministic relationship status', finding['correlation_status'])
             for label, field in (('Alternative explanation', 'alternative_explanations'), ('Next evidence (model suggestion)', 'next_evidence')):
@@ -108,11 +108,11 @@ def render(result, palette, *, include_question=True):
         lines.append('  ' + safe(limitation))
     metadata = bundle['metadata']
     if metadata['fields_truncated']:
-        lines.append(palette('warning', '  Evidence fields were truncated in the model context.'))
+        lines.append(palette('forensic_note', '  Evidence fields were truncated in the model context.'))
     for record in records:
         for field in record.get('truncated_fields', []):
-            lines.append(palette('warning', '  ' + safe(field) + ' from model context'))
-            lines.append('  ' + palette('evidence_id', 'ID: ' + safe(record['id'])))
+            lines.append(palette('forensic_note', '  ' + safe(field) + ' from model context'))
+            lines.append('  ' + palette('value', 'ID: ' + safe(record['id'])))
     for name in ('omitted_records', 'omitted_relationships', 'omitted_detections', 'omitted_unresolved'):
         if metadata[name]:
             value(name.replace('_', ' ').capitalize(), metadata[name])

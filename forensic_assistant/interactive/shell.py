@@ -54,12 +54,16 @@ class Shell:
     def __init__(self, state, reader=None, *, no_color=False):
         self.state = state
         from forensic_assistant.session_recording import ReaderProxy
-        self.reader = ReaderProxy(reader or Reader())
+        self.reader = ReaderProxy(reader or Reader(), presentation=self)
         self.active = None
         self.case_label = None
         self.audit = None
         self.last_status = 0
         self.no_color = no_color
+
+    def field(self, label, value):
+        from forensic_assistant.terminal import field
+        return field(label, value, Palette(enabled(self)))
 
     def prompt(self, label):
         from forensic_assistant.terminal import shell_prompt
@@ -107,7 +111,7 @@ class Shell:
             raise
         self.audit.record('AI_ADVICE', request_characters=len(request), response_characters=response_characters(response),
                           basis='Derived advisory text; no evidence supplied; no commands executed')
-        print(Palette(enabled(self))('ai_prompt', 'AI assistant — advisory, not evidence'))
+        print(Palette(enabled(self))('forensic_note', 'AI assistant — advisory, not evidence'))
         from .advisory_display import render
         print(render(response, context, Palette(enabled(self))))
         self.last_status = 0
@@ -133,7 +137,7 @@ class Shell:
         except (OSError, ValueError) as exc:
             print('Recent case not saved: ' + human_error(exc))
         if announce:
-            print('Database: ' + safe(target) + '\n')
+            print(self.field('Database', safe(target)) + '\n')
 
     def choose(self, path=None):
         if path is not None:
@@ -161,7 +165,7 @@ class Shell:
                     line=entries[index]['path']
                 return self.choose(line)
             except (OSError, ValueError, sqlite3.Error) as exc:
-                print('Cannot select database: '+human_error(exc))
+                print(Palette(enabled(self))('error', 'Cannot select database: '+human_error(exc)))
             except (EOFError, KeyboardInterrupt):
                 return False
 
@@ -170,17 +174,17 @@ class Shell:
         print('                         Version ' + __version__)
         print(get_liner(self))
         if self.state.warning:
-            print(safe(self.state.warning))
+            print(Palette(enabled(self))('warning', safe(self.state.warning)))
         if self.state.recent:
             try:
                 validate(self.state.recent[0])
             except (OSError, ValueError, sqlite3.Error) as exc:
-                print('Remembered database unavailable: ' + human_error(exc))
+                print(Palette(enabled(self))('error', 'Remembered database unavailable: ' + human_error(exc)))
                 return self.menu()
             except (EOFError, KeyboardInterrupt):
                 print()
                 return False
-            print('Last database: ' + safe(self.state.recent[0]) + '\n')
+            print(self.field('Last database', safe(self.state.recent[0])) + '\n')
             try:
                 response = self.reader.read('Use this database? [Y/n]: ').strip().casefold()
                 if response in ('', 'y', 'yes'):
@@ -188,7 +192,7 @@ class Shell:
                         self.activate(self.state.recent[0])
                         return True
                     except (OSError, ValueError, sqlite3.Error) as exc:
-                        print('Remembered database unavailable: ' + human_error(exc))
+                        print(Palette(enabled(self))('error', 'Remembered database unavailable: ' + human_error(exc)))
                 elif response in ('exit', 'quit'):
                     return False
             except (EOFError, KeyboardInterrupt):
@@ -203,7 +207,9 @@ class Shell:
     def menu(self):
         while True:
             print('\n' + get_thin(self))
-            print("[1] Create a case\n[2] Open a case\n[3] Exit")
+            from forensic_assistant.terminal import TextSpan, render_spans
+            for number, description in (('1', 'Create a case'), ('2', 'Open a case'), ('3', 'Exit')):
+                print(render_spans((TextSpan('[' + number + ']', 'command'), TextSpan(' ' + description)), Palette(enabled(self))))
             try:
                 choice = self.reader.read("Selection or case path: ").strip()
                 if choice in ("", "3", "exit", "quit"):
@@ -218,7 +224,7 @@ class Shell:
                     if self.choose(choice):
                         return True
             except (OSError, ValueError, sqlite3.Error) as exc:
-                print("Cannot select database: " + human_error(exc))
+                print(Palette(enabled(self))('error', "Cannot select database: " + human_error(exc)))
             except (EOFError, KeyboardInterrupt):
                 print()
                 return False
@@ -235,7 +241,7 @@ class Shell:
         # Render only after normal return and command cleanup, never on a fatal error.
         print('\nLocard session ended.')
         if self.active is not None:
-            print('Case: ' + safe(self.active))
+            print(self.field('Case', safe(self.active)))
         print(get_ender(self))
         return result
 
@@ -263,7 +269,7 @@ class Shell:
                     print('\nValidation interrupted; retrying before accepting commands.')
                     continue
                 except (OSError, ValueError, sqlite3.Error) as exc:
-                    print('Active case unavailable: ' + human_error(exc))
+                    print(Palette(enabled(self))('error', 'Active case unavailable: ' + human_error(exc)))
                     if self.audit:
                         self.audit.record('CASE_UNAVAILABLE', 'failure', message=human_error(exc))
                         self.audit.end('case unavailable')
@@ -337,7 +343,7 @@ class Shell:
                         if args.workflow == 'color':
                             if args.setting:
                                 self.no_color = args.setting == 'off'
-                            print('Color: ' + ('on' if enabled(self) else 'off'))
+                            print(self.field('Color', 'on' if enabled(self) else 'off'))
                             self.audit.record('COMMAND', command='color', argv=words)
                             continue
                     executing = True

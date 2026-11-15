@@ -34,8 +34,7 @@ def plain(text):
 def test_semantic_json_exact_equivalence(value):
     rendered = terminal.render_json(value, terminal.Palette(True))
     assert plain(rendered) == json.dumps(value, ensure_ascii=True, indent=2)
-    if value:
-        assert '\x1b[' in rendered
+    assert '\x1b[' not in rendered
 
 
 def test_cycles_and_unsupported_types():
@@ -63,7 +62,7 @@ def test_search_and_show_exact_content(case, capsys, color, flags):
 
 
 def not_plain(flags):
-    return '--json' not in flags and '--no-color' not in flags
+    return not any(flag in flags for flag in ('--json', '--raw', '--no-color'))
 
 
 @pytest.mark.parametrize('value', ['', '0', '1', 'false'])
@@ -106,7 +105,7 @@ def test_file_output_always_plain(case, tmp_path, capsys, color, mode, flags):
 @pytest.mark.parametrize('width', [1, 3, 10, 79])
 def test_ansi_wrapping_visible_width(width):
     palette = terminal.Palette(True)
-    line = palette('key', 'abcdefgh') + ': ' + palette('string_value', 'a value with spaces')
+    line = palette('label', 'abcdefgh') + ': ' + palette('value', 'a value with spaces')
     rows = list(terminal.wrap_line(line, width))
     assert ''.join(plain(row) for row in rows) == plain(line)
     assert all(len(plain(row)) <= width for row in rows)
@@ -149,7 +148,7 @@ def test_search_styles_are_types_not_judgments():
     result = dict(records=[row], offset=0, limit=10, total=1)
     text = render(result, terminal.Palette(True))
     assert plain(text) == render(result)
-    assert terminal.Palette(True)('string_value', 'POWERSHELL.EXE') in text
+    assert terminal.Palette(True)('value', 'POWERSHELL.EXE') in text
     assert '\x1b[31m' not in text and '\x1b[33m' not in text
 
 

@@ -64,7 +64,7 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
     selected = slots[0] if len(slots) == 1 else None
     lines = []
 
-    def line(value='', role='secondary_text', indent=''):
+    def line(value='', role='label', indent=''):
         for part in textwrap.wrap(value, max(1, width - len(indent)), break_on_hyphens=False,
                                   replace_whitespace=False, expand_tabs=False) or ['']:
             lines.append(indent + palette(role, part))
@@ -80,7 +80,7 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
 
     if around and anchor_header:
         line(display_time(stamp).replace('T', ' ').removesuffix('Z') + ' UTC | ' +
-             safe(anchor.get('host_key') or anchor.get('context', {}).get('hostname') or 'unknown'), 'key')
+             safe(anchor.get('host_key') or anchor.get('context', {}).get('hostname') or 'unknown'), 'value')
         label = 'Prefetch run' if anchor['source_type'] == 'prefetch' else artifact(anchor)
         if selected:
             line('Anchor: ' + label + ' [' + safe(selected) + ']', 'heading')
@@ -119,12 +119,12 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
         time = display_time(r['timestamp_utc']).replace('T', ' ').removesuffix('Z')
         values = [time[11:] if one_date else time] + ([delta(r['timestamp_utc'], stamp)] if around else [])
         kind = artifact(r)
-        role = {'prefetch': 'string_value', 'registry': 'key', 'mft': 'number_value', 'evtx': 'boolean_value', 'browser': 'heading'}[r['source_type']]
+        role = 'value'
         obj = (object_projection or object_text)(r)
         if aligned:
             prefix = '  '.join(v.rjust(n) if around and i == 1 else v.ljust(n)
                                for i, (v, n) in enumerate(zip(values, sizes)))
-            lead = palette('secondary_text', prefix) + '  ' + palette(role, kind.ljust(type_width))
+            lead = palette('label', prefix) + '  ' + palette(role, kind.ljust(type_width))
             if wrap_objects and len(obj) > room:
                 lines.append(lead)
                 line(obj, indent='    ')
@@ -155,7 +155,7 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
             line('Exact UTC: ' + safe(r['timestamp_utc']), indent='    ')
         if ids:
             # Keep explicit IDs copyable; the shared pager handles wrapping.
-            lines.append(palette('evidence_id', '    ID: ' + safe(r['id'])))
+            lines.append(palette('value', '    ID: ' + safe(r['id'])))
             for item in group:
                 line('Timestamp: ' + safe(item['timestamp_utc']) + '; slot: ' + safe(item['timestamp']['slot']), indent='    ')
         line()

@@ -3872,9 +3872,11 @@ structured data; never insert spans or ANSI into forensic schemas.
 Do not add command-local ANSI/RGB constants, alternate palettes, or keyword-based
 status coloring. A zero failure count is a neutral value; a selectable ERROR is
 syntax; an unverified hypothesis is not operational success. Retain textual
-qualifications. Legacy type roles are migration compatibility, not the pattern
-for new views. Measure layout on safe plain content and preserve recording
+qualifications. Legacy type roles and JSON syntax coloring have been removed.
+Use `shell_prompt` only for the command prompt and `question` for input requests. Measure layout on safe plain content and preserve recording
 redaction, byte limits and one logical capture per output.
 
 See [semantic presentation implementation and acceptance](docs/LOCARD_6_145_SEMANTIC_PRESENTATION.md)
 and the [historical architecture audit](docs/LOCARD_PRESENTATION_ARCHITECTURE_AUDIT.md).
+
+See [6.146 migration coverage and terminal acceptance](docs/LOCARD_6_146_COMPLETE_SEMANTIC_PRESENTATION.md) for explicit bounded-document exceptions.

@@ -207,9 +207,11 @@ def execute(p,store,*,worker_factory=ForensicWorker,progress=lambda text:None,pa
     return result
 
 
-def render(result,details=False):
+def render(result,details=False, palette=None):
+    from .terminal import Palette
+    palette = palette or Palette()
     if result.get('message'):return result['message']
     if result['kind']=='assessment_history':
         return '\n'.join(safe(f"{r['id']}  {r['created']}  {r['status']}  briefing revision {r['revision']}") for r in result['assessments']) or 'No saved assessments.'
     from .assessment_display import render as display
-    return display(result,details=details)
+    return display(result,details=details,palette=palette)

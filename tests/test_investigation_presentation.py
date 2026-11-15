@@ -86,7 +86,7 @@ def test_dispatch_color_and_json(tmp_path, monkeypatch, capsys, color, json_mode
     monkeypatch.setattr('forensic_assistant.terminal.capable',lambda _:color)
     value=result();before=copy.deepcopy(value)
     monkeypatch.setattr(cli,'dispatch',lambda _:value)
-    args=['--db',str(case(tmp_path)),'investigate-ai','--dry-run','Question']
+    args=['--db',str(case(tmp_path)),'investigation', 'advanced', 'current-case','--dry-run','Question']
     if json_mode:args.append('--json')
     assert main(args)==0
     text=capsys.readouterr().out
@@ -122,8 +122,8 @@ def test_advanced_command_still_accessible(capsys):
     for interactive in (False,True):
         parser=build_parser(interactive=interactive)
         assert 'investigate-ai' not in parser.format_help()
-        assert parser.parse_args(['investigate-ai','question']).command=='investigate-ai'
-        with pytest.raises(SystemExit) as exc:parser.parse_args(['investigate-ai','--help'])
+        assert parser.parse_args(['investigation', 'advanced', 'current-case','question']).command=='investigate-ai'
+        with pytest.raises(SystemExit) as exc:parser.parse_args(['investigation', 'advanced', 'current-case','--help'])
         assert exc.value.code==0
         assert 'Advanced / Diagnostic' in capsys.readouterr().out
     assert 'investigate-ai' not in catalog(build_parser(interactive=True))
@@ -134,3 +134,9 @@ def test_source_derived_identity_keeps_assertion_qualification():
     value=result();row=value['findings']['observed'][0]
     row.update(field='/hostname',reported_value='asserted-host',source_context={'hostname':'asserted-host','basis':'analyst-supplied'})
     assert 'analyst-supplied metadata' in render(value)
+
+
+@pytest.fixture(autouse=True)
+def isolated_presentation_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))

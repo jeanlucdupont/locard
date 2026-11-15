@@ -147,34 +147,68 @@ def run(args):
 
 
 def render(value, palette=None):
+    from .terminal import Palette, field, render_spans, TextSpan
+    palette = palette or Palette()
     if value is None:return ''
     if isinstance(value,dict) and value.get('kind') in ('session_audit', 'session_review'):
         from .session_recording import render as render_recording
-        return render_recording(value)
+        return render_recording(value, palette)
     from .briefing_cli import render as briefing_render
     from .retrieval.presentation import safe_text
+    if isinstance(value, dict) and 'path' in value and isinstance(value.get('origin'), dict):
+        lines = [palette('success', 'Case clone created.'), field('Destination', value['path'], palette),
+                 palette('forensic_note', 'New case identity; original case and investigation sidecars remain unchanged.')]
+        for key, item in value['origin'].items():
+            # Clone provenance remains available without pretending it is evidence.
+            if isinstance(item, (str, int, bool)) or item is None:
+                lines.append(field(key.replace('_', ' ').capitalize(), item, palette))
+        return '\n'.join(lines)
+    if isinstance(value,dict) and ('registered' in value or 'unregistered' in value):
+        action = 'registered' if 'registered' in value else 'unregistered'
+        return '\n'.join([palette('success', 'Case reference ' + action + '.'),
+                          *(field(key.replace('_',' ').capitalize(), item, palette) for key,item in value.items())])
+    if isinstance(value,dict) and set(value)=={'root'}:
+        return field('Case root', value['root'], palette)
+    if isinstance(value,dict) and set(value)=={'case','status'}:
+        return field('Case', value['case'], palette) + '\n' + palette('label', safe_text(value['status']))
+    if isinstance(value,dict) and set(value)=={'status'}:
+        return field('Status', value['status'], palette)
     if isinstance(value,dict) and 'cases' in value:
-        lines=['Available cases (discovery is not validation)']
+        lines=[palette('heading', 'Available cases'), palette('forensic_note', 'Discovery is not validation')]
         for row in value['cases']:
-            lines.append('  '+safe_text(row['name'])+' ['+safe_text(row['origin'])+'] '+safe_text(row['path']))
+            lines.append('  '+palette('value',safe_text(row['name']))+' ['+palette('value',safe_text(row['origin']))+'] '+palette('value',safe_text(row['path'])))
             lines.append('    '+safe_text(row['status']))
         if not value['cases']:lines.append('  No cases discovered. Use case new or case register.')
         return '\n'.join(lines)
-    if isinstance(value,dict) and value.get('kind')=='assessment_investigation':return briefing_render(value)
-    if isinstance(value,dict) and value.get('kind')=='assessment_history':return briefing_render(value)
+    if isinstance(value,dict) and value.get('kind')=='assessment_investigation':return briefing_render(value, palette=palette)
+    if isinstance(value,dict) and value.get('kind')=='assessment_history':return briefing_render(value, palette=palette)
     if isinstance(value,dict) and 'valid' in value and 'entries' in value:
         from .activity import render
-        return render(value,verify=True)
+        return render(value,verify=True,palette=palette)
     if isinstance(value,dict) and 'rows' in value and 'records' in value:
         from .assessment_display import render
-        return render(value)
+        return render(value, palette=palette)
+    if isinstance(value, dict) and set(value) == {'decisions'}:
+        decisions = value['decisions']
+        lines = [palette('heading', 'Finding decision history'),
+                 palette('forensic_note', 'Analyst decisions are not forensic verification.'),
+                 field('Revision', decisions['revision'], palette),
+                 field('Source binding', decisions['source_binding_status'], palette)]
+        for event in decisions['history']:
+            lines.append('  ' + palette('value', safe_text(event['finding_id'])) + ' | ' +
+                         palette('value', safe_text(event['action'])))
+            lines.append('    ' + field('Actor', event['actor'], palette))
+        if not decisions['history']:
+            lines.append('  No recorded decisions.')
+        lines.append('Use --json for complete decision payloads and integrity references.')
+        return '\n'.join(lines)
     if isinstance(value,dict) and 'findings' in value:
-        lines=['Findings — analyst decisions, not forensic verification',
-               'Workspace: '+str(value.get('metadata',{}).get('id',value.get('workspace_id',''))),
-               'Revision: '+str(value['revision'])]
+        lines=[palette('forensic_note', 'Findings — analyst decisions, not forensic verification'),
+               field('Workspace',value.get('metadata',{}).get('id',value.get('workspace_id','')),palette),
+               field('Revision',value['revision'],palette)]
         for row in value['findings']:
             candidate=row.get('candidate',{})
-            lines.append('  '+safe_text(row.get('id',''))+' | '+safe_text(row.get('state',''))+' | '+safe_text(candidate.get('origin','')))
+            lines.append('  '+palette('value',safe_text(row.get('id','')))+' | '+palette('value',safe_text(row.get('state','')))+' | '+palette('value',safe_text(candidate.get('origin',''))))
             lines.append('    '+safe_text(candidate.get('statement','')))
         if not value['findings']:lines.append('  No findings registered.')
         lines.append('Use --json for complete support, rationale and source-binding details.')

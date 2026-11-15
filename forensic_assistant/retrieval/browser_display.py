@@ -1,5 +1,5 @@
 """Browser text projections use existing terminal escaping and palette roles."""
-from forensic_assistant.terminal import Palette, value_role
+from forensic_assistant.terminal import Palette
 from .presentation import safe_text as safe, safe_path
 
 
@@ -29,7 +29,7 @@ def render(record, palette=None):
     lines = [palette('heading', label(record))]
     def field(name, value, path=False):
         if value is not None:
-            lines.append(palette('key', name + ': ') + palette(value_role(value), (safe_path if path else safe)(value)))
+            lines.append(palette('label', name + ': ') + palette('value', (safe_path if path else safe)(value)))
     d, ctx = record['detail'], record['context']
     field('Evidence ID', record['id'])
     for name, value in secondary(record):
@@ -87,7 +87,7 @@ SHARED_NOTES = (
 
 
 def note_role(note):
-    return 'forensic_note' if note in SHARED_NOTES and note != SHARED_NOTES[1] else 'warning'
+    return 'forensic_note'
 
 
 def search_group(group, palette, ids, width):
@@ -101,22 +101,22 @@ def search_group(group, palette, ids, width):
                      'CONFLICT' if ctx.get('conflicts') else ctx.get('hostname') or 'unknown', object_value(record)])
     def details(index):
         record = group[index][1]
-        lines = ['    ' + palette('key', name + ': ') + safe(value)
+        lines = ['    ' + palette('label', name + ': ') + safe(value)
                  for name, value in secondary(record) if name != 'Browser' and value is not None]
         if ids:
-            lines.append('    ID: ' + palette('evidence_id', safe(record['id'])))
+            lines.append('    ID: ' + palette('value', safe(record['id'])))
         for warning in record.get('warnings', []):
             if warning not in SHARED_NOTES:
-                lines.append('    ' + palette('warning', safe(warning)))
+                lines.append('    ' + palette('forensic_note', safe(warning)))
         ctx = record.get('context') or {}
         if ctx.get('conflicts'):
-            lines.append('    ' + palette('warning', 'Conflicting context: ' + safe(', '.join(ctx['conflicts']))))
+            lines.append('    ' + palette('forensic_note', 'Conflicting context: ' + safe(', '.join(ctx['conflicts']))))
         if record.get('objects_truncated'):
-            lines.append('    ' + palette('warning', 'Object projection is bounded; inspect show/JSON for details.'))
+            lines.append('    ' + palette('forensic_note', 'Object projection is bounded; inspect show/JSON for details.'))
         return lines
     return table(['#', 'TIME (UTC)', 'TYPE', 'BROWSER', 'HOST', 'OBJECT'], rows, palette,
                  minimums=[1, 23, 15, 6, 7, 14], maximums=[5, 23, 15, 6, 24, 65],
-                 roles=['number_value', 'number_value', 'string_value', 'string_value', 'secondary_text', 'string_value'],
+                 roles=['value', 'value', 'value', 'value', 'label', 'value'],
                  width=width, tail=(5,), paths=(5,), text=safe, after_row=details)
 
 

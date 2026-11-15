@@ -396,8 +396,11 @@ def output(text, channel='stdout'):
         recorder.output(text, channel)
 
 
-def read_response(read, prompt, *, command=False, **kwargs):
+def read_response(read, prompt, *, command=False, presentation=None, **kwargs):
     recorder = ACTIVE.get()
+    if not command and not SUPPRESS.get():
+        from .terminal import question_prompt
+        prompt = question_prompt(prompt, presentation)
     if recorder is None or SUPPRESS.get():
         return read(prompt, **kwargs)
     recorder.flush()
@@ -433,14 +436,15 @@ def read_response(read, prompt, *, command=False, **kwargs):
 
 
 class ReaderProxy:
-    def __init__(self, reader):
+    def __init__(self, reader, presentation=None):
         self.reader = reader
+        self.presentation = presentation
 
     def __getattr__(self, name):
         return getattr(self.reader, name)
 
     def read(self, prompt, **kwargs):
-        return read_response(self.reader.read, prompt, command=kwargs.get('remember', False), **kwargs)
+        return read_response(self.reader.read, prompt, command=kwargs.get('remember', False), presentation=self.presentation, **kwargs)
 
 
 class Stream:
@@ -494,7 +498,9 @@ def execution(argv):
         recorder.open()
         recorder.emit('application_start', dict(argument_count=len(argv)))
         sys.stdout, sys.stderr = Stream(oldout, recorder, 'stdout'), Stream(olderr, recorder, 'stderr')
-        builtins.input = lambda prompt='': read_response(oldinput, prompt)
+        from types import SimpleNamespace
+        presentation = SimpleNamespace(no_color='--no-color' in argv, json='--json' in argv)
+        builtins.input = lambda prompt='': read_response(oldinput, prompt, presentation=presentation)
         logger.addHandler(handler)
         logger.setLevel(handler.level)
         yield recorder
@@ -695,7 +701,9 @@ def review(case=None, *, selector='latest', limit=100, diagnostics=False, severi
                 unanchored_records=max(0, sequence-row.get('anchored_through', 0)))
 
 
-def render(value):
+def render(value, palette=None):
+    from .terminal import Palette, field
+    palette = palette or Palette()
     from .retrieval.presentation import safe_text
     if value['kind'] == 'session_review':
         lines = ['Session ' + value['session']['session_id'] + ' — ' + value['session']['integrity']]
@@ -705,10 +713,11 @@ def render(value):
         lines.append('Records beyond the latest authority checkpoint: ' + str(value['unanchored_records']))
         return '\n'.join(lines)
     audit = value['activity']
-    lines = ['Activity chain: ' + ('verified' if audit.get('exists') and audit['valid'] else 'missing' if audit['valid'] else 'corrupt')]
+    status = 'verified' if audit.get('exists') and audit['valid'] else 'missing' if audit['valid'] else 'corrupt'
+    lines = [field('Activity chain',status,palette,role={'verified':'success','missing':'unknown','corrupt':'error'}[status])]
     for row in value['sessions']:
         lines.append(f"{row['session_id']}  {row['start']}  {row['integrity']}  {row['completion']}  Locard {row['application_version']}")
-        lines.append('  Capture limitations: ' + safe_text(row['limitations']))
+        lines.append(palette('forensic_note', '  Capture limitations: ' + safe_text(row['limitations'])))
     if not value['sessions']:
         lines.append('No linked session recordings (historical activity remains independently verifiable).')
     return '\n'.join(lines)

@@ -351,7 +351,7 @@ def _dispatch(args, output, *, existing_only=False):
             if args.json:
                 emit(result)
             else:
-                output.write(briefing_cli.render(result, details=args.details))
+                output.write(briefing_cli.render(result, details=args.details, palette=output.palette))
             return 0
         if args.command == 'dump':
             from forensic_assistant.dump_cli import run, DumpExistsError

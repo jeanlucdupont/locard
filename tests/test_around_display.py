@@ -131,7 +131,7 @@ def test_around_colored_pager(case, monkeypatch):
         finally:
             restored.append(True)
     monkeypatch.setattr(output, 'keyboard', keyboard)
-    assert main(['--db', str(case[0]), 'around', case[1], '--timestamp-slot', 'run:1', '--text', '--page']) == 0
+    assert main(['--db', str(case[0]), 'evidence', 'around', case[1], '--timestamp-slot', 'run:1', '--text', '--page']) == 0
     text = stream.getvalue()
     assert '\x1b[' in text and 'Lines 1-4 of' in text and restored == [True]
     assert len(terminal.SGR.sub('', text).split('Lines 1-4 of')[0].splitlines()) == 4
@@ -139,7 +139,7 @@ def test_around_colored_pager(case, monkeypatch):
 
 def test_cli_selection_json_raw_page_files(case, tmp_path, capsys, monkeypatch):
     path, eid, _ = case
-    base = ['--db', str(path), 'around', eid, '--timestamp-slot', 'run:1', '--seconds', '604800']
+    base = ['--db', str(path), 'evidence', 'around', eid, '--timestamp-slot', 'run:1', '--seconds', '604800']
     before = path.read_bytes()
     with connect(path) as db:
         expected, _ = v2_cli.dispatch(db, build_parser().parse_args(base))
@@ -165,3 +165,9 @@ def test_cli_selection_json_raw_page_files(case, tmp_path, capsys, monkeypatch):
     assert main(base + ['--raw', '--text', '--no-color']) == 0
     assert capsys.readouterr().out == v2_cli.render(raw) + '\n'
     assert path.read_bytes() == before
+
+
+@pytest.fixture(autouse=True)
+def isolated_presentation_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))

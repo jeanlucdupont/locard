@@ -53,7 +53,7 @@ def browser_choices(found, read, palette=None):
     palette = palette or Palette()
     candidates = [file for file, kind in found if kind == 'browser']
     if candidates:
-        print(palette('key', f'Found {len(candidates)} Chromium History databases:'))
+        print(palette('label', f'Found {len(candidates)} Chromium History databases:'))
     for index, file in enumerate(candidates, 1):
         print(f'  {index}. ' + safe(file))
         while True:
@@ -135,11 +135,11 @@ class IngestionProgress:
         role = 'success' if status == 'complete' else (
             'warning' if status in ('partial', 'unsupported', 'cancelled', 'interrupted') else 'error')
         print('  ' + safe(label) + '   ' + self.palette(
-            'success' if result['inserted'] else 'secondary_text', f"{result['inserted']:,} records"))
+            'value', f"{result['inserted']:,} records"))
         if result['duplicates'] or result['errors'] or status != 'complete':
             print('    ' + self.palette(role, safe(status)) + ' | ' +
-                  self.palette('warning' if result['duplicates'] else 'secondary_text', f"{result['duplicates']:,} duplicates") + ' | ' +
-                  self.palette('error' if result['errors'] else 'secondary_text', f"{result['errors']:,} errors"))
+                  self.palette('value', f"{result['duplicates']:,} duplicates") + ' | ' +
+                  self.palette('value', f"{result['errors']:,} errors"))
         if result.get('limitation'):
             self.limitations[result['limitation']] += 1
 
@@ -148,7 +148,7 @@ class IngestionProgress:
             print(self.palette('warning', 'Limitation: ' + safe(limitation) + f' ({count} result occurrences)'))
         self.limitations.clear()
         if self.companions:
-            print(self.palette('key', 'Skipped companion transaction logs:'))
+            print(self.palette('label', 'Skipped companion transaction logs:'))
             for file in self.companions:
                 print(self.palette('warning', '  ' + safe(file)))
             print(self.palette('warning', 'Limitation: Registry transaction-log replay is not supported; companion logs were not parsed as hives.'))
@@ -162,19 +162,19 @@ def summarize(target, palette=None, *, wizard=False):
         runs = {r[0]: r[1] for r in db.execute('SELECT status,count(*) FROM ingestion_runs GROUP BY status')}
         totals = db.execute('SELECT coalesce(sum(inserted_count),0),coalesce(sum(duplicate_count),0),coalesce(sum(error_count),0) FROM ingestion_runs').fetchone()
         evidence_count = sum(counts.values())
-        print('Evidence: ' + palette('success' if evidence_count else 'secondary_text', f'{evidence_count:,} records') + ' | ' +
-              palette('error' if totals[2] else 'secondary_text', f'{totals[2]:,} errors'))
+        print('Evidence: ' + palette('value', f'{evidence_count:,} records') + ' | ' +
+              palette('value', f'{totals[2]:,} errors'))
         if totals[1]:
             print(palette('warning', f'Duplicates: {totals[1]:,}'))
         for status, count in runs.items():
             if status != 'complete':
-                print('File outcomes: ' + palette('warning' if status in ('partial', 'unsupported', 'cancelled', 'interrupted') else 'error', f'{count:,} {status}') + ' (ingestion attempts)')
+                print('File outcomes: ' + palette('value', f'{count:,} {status}') + ' (ingestion attempts)')
         import json
         from forensic_assistant.ingest.validation import is_identifier_note, LABEL
         notes = sum(any(is_identifier_note(note) for note in json.loads(row[0]))
                     for row in db.execute('SELECT normalization_warnings_json FROM events'))
         if notes:
-            print(palette('key', 'Validation notes:') + '\n  ' + palette('warning', LABEL + f': {notes} records'))
+            print(palette('label', 'Validation notes:') + '\n  ' + palette('warning', LABEL + f': {notes} records'))
         limitations = db.execute(
             'SELECT stage,message,count(*) AS occurrences,count(DISTINCT run_id) AS attempts '
             'FROM ingestion_errors GROUP BY stage,message ORDER BY min(id)').fetchall()
@@ -211,7 +211,7 @@ def _attempt(shell):
         nonlocal published
         published = True
     def read(prompt):
-        return shell.reader.read(palette('prompt', prompt)).strip()
+        return shell.reader.read(prompt).strip()
     def path(prompt):
         value = read(prompt)
         if not value or value.casefold() in ('cancel', 'exit', 'quit'):
@@ -263,13 +263,13 @@ def _attempt(shell):
                 print(palette('error', 'Invalid evidence source: ' + human_error(exc)))
         browsers = browser_choices(found, read, palette)
         if found:
-            print(palette('key', 'Optional source information'))
+            print(palette('label', 'Optional source information'))
             source_name = read('Source name [' + safe(target.stem) + ']: ') or target.stem
             hostname = read('Hostname (Enter = unknown): ') or None
             username = read('User (Enter = unknown): ') or None
             from .metadata import read_volume_root
             volume = read_volume_root(read, 'Original drive, e.g. C: (Enter = unknown): ', palette)
-        print(palette('key', 'New case') + '\n  Case: ' + safe(target) + '\n  Evidence: ' + safe(source))
+        print(palette('label', 'New case') + '\n  Case: ' + safe(target) + '\n  Evidence: ' + safe(source))
         if found:
             for label, value in [('Source', source_name), ('Hostname', hostname), ('User', username), ('Original drive', volume)]:
                 print('  ' + label + ': ' + safe(value or 'unknown'))
@@ -303,7 +303,7 @@ def _attempt(shell):
                 source_id = sources.create(db, name=source_name, hostname=hostname,
                                            username=username, volume_root=volume)
                 audit_result.update(source_id=source_id, assertion=sources.current(db, source_id))
-        print(palette('key', 'Ingesting evidence...'))
+        print(palette('label', 'Ingesting evidence...'))
         args = SimpleNamespace(
             command='ingest-all',
             path=source,

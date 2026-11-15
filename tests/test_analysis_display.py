@@ -129,7 +129,7 @@ def test_unresolved_session_and_validation_help(db, capsys):
     with pytest.raises(ValueError, match='A nonzero decimal or hexadecimal Logon ID is required'):
         session(db, 'EVTX:fake:Offset:1')
     with pytest.raises(SystemExit) as exited:
-        main(['session', '--help'])
+        main(['analyze', 'session', '--help'])
     assert exited.value.code == 0
     help_text = ' '.join(capsys.readouterr().out.split())
     assert 'Windows authentication Logon ID' in help_text
@@ -209,7 +209,7 @@ def test_cli_json_raw_text_and_destinations(stored, db, command, tmp_path, capsy
     from forensic_assistant import output
     path, eid = stored
     before = path.read_bytes()
-    selection = ['session', '--logon-id', '0x123'] if command == 'session' else ['investigate', eid]
+    selection = ['analyze', 'session', '--logon-id', '0x123'] if command == 'session' else ['analyze', 'correlate', eid]
     args = ['--db', str(path), *selection]
     expected = session(db, '0x123') if command == 'session' else investigate(db, eid)
     for mode in ([], ['--json']):
@@ -240,7 +240,7 @@ def test_cli_json_raw_text_and_destinations(stored, db, command, tmp_path, capsy
 
 def test_search_cli_supplies_session_input(stored, capsys):
     path, _ = stored
-    assert main(['--db', str(path), 'search', '--kind', 'logons', '--ids']) == 0
+    assert main(['--db', str(path), 'evidence', 'search', '--kind', 'logons', '--ids']) == 0
     text = capsys.readouterr().out
     assert 'LOGON ID' in text and '0x123' in text
     assert '    ID: EVTX:' in text and '0x456' not in text and '0x789' not in text
@@ -267,8 +267,14 @@ def test_cli_no_color_policy(stored, monkeypatch, capsys, flag):
     path, eid = stored
     monkeypatch.setattr(terminal, 'capable', lambda stream: True)
     monkeypatch.delenv('NO_COLOR', raising=False)
-    args = ['--db', str(path), 'investigate', eid, '--text', *flag]
+    args = ['--db', str(path), 'analyze', 'correlate', eid, '--text', *flag]
     assert main(args) == 0
     assert ('\x1b' in capsys.readouterr().out) == (not flag)
     monkeypatch.setenv('NO_COLOR', '')
     assert main(args) == 0 and '\x1b' not in capsys.readouterr().out
+
+
+@pytest.fixture(autouse=True)
+def isolated_presentation_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))

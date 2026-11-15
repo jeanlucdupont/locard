@@ -265,19 +265,19 @@ def render_details(packet):
     return '\n'.join(lines)
 
 
-def render(packet, *, details=False):
+def render(packet, *, details=False, palette=None):
     if packet.get('kind') == 'assessment_investigation':
         if packet.get('message'):return packet['message']
         if details:return json.dumps(packet['result'],ensure_ascii=True,indent=2)
         from .investigation_ai.presentation import render
-        return render(packet['result'])
+        return render(packet['result'], palette)
     if packet.get('kind') in ('case_assessment','assessment_history'):
         from .assessment import render as render_assessment
-        return render_assessment(packet,details=details)
+        return render_assessment(packet,details=details, palette=palette)
     if packet.get('kind') == 'saved_briefing':
         from forensic_assistant.briefing_workflow import render as saved_render
-        return saved_render(packet)
+        return saved_render(packet, palette=palette)
     if details:
         return render_details(packet)
     from forensic_assistant.briefing_report import render as human
-    return human(packet)
+    return human(packet, palette=palette)

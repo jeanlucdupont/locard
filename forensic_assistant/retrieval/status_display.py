@@ -112,7 +112,7 @@ def render(result, case, details, palette=None):
     limitations = list(dict.fromkeys(limitations))
     if limitations:
         lines += ['', palette('heading', 'Limitations')]
-        lines += [palette('warning', '  ' + fit(safe(value), 180)) for value in limitations[:12]]
+        lines += [palette('forensic_note', '  ' + fit(safe(value), 180)) for value in limitations[:12]]
         if len(limitations) > 12:
             lines.append(f'  Showing 12 of {len(limitations)} limitation summaries')
     return '\n'.join(lines)

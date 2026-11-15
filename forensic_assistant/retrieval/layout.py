@@ -43,7 +43,18 @@ def pagination(count, total, offset=0):
 
 def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=None, tail=(), format_cell=None, paths=(), text=safe, after_row=None):
     width = terminal_width(width)
-    cells = [[(safe_path if i in paths else text)(value) for i, value in enumerate(row)] for row in rows]
+    from forensic_assistant.terminal import TextSpan, render_spans, STYLES
+    cell_roles = {}
+    cells = []
+    for row_index, row in enumerate(rows):
+        values = []
+        for i, value in enumerate(row):
+            if isinstance(value, TextSpan):
+                cell_roles[row_index, i] = value.role if value.role in STYLES else 'label'
+                values.append(render_spans((value,)))
+            else:
+                values.append((safe_path if i in paths else text)(value))
+        cells.append(values)
     sizes = [max(len(h), min(maximums[i], max([len(h)] + [len(r[i]) for r in cells]))) for i, h in enumerate(headers)]
     while sum(sizes) + 2 * (len(sizes) - 1) > width:
         candidates = [i for i, n in enumerate(sizes) if n > max(minimums[i], len(headers[i]))]
@@ -61,7 +72,7 @@ def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=
                 shown = format_cell(row_index, i, value, available) if format_cell else None
                 if shown is None:
                     shown = fit_path(value, available, literal=i in paths) if i in tail else fit(value, available)
-                lines.append(palette('key', headers[i] + ': ') + palette(roles[i], shown))
+                lines.append(palette('label', headers[i] + ': ') + palette(cell_roles.get((row_index, i), roles[i]), shown))
             if after_row:
                 lines.extend(after_row(row_index))
         return lines
@@ -73,7 +84,7 @@ def table(headers, rows, palette, *, minimums, maximums, roles, right=(), width=
     def rowline(row, header=False, row_index=0):
         return '  '.join(
             palette(
-                'key' if header else roles[i],
+                'label' if header else roles[i],
                 cell(value, i, header, row_index)
             )
             for i,

@@ -320,8 +320,10 @@ def execute(ctx, client, transcript, guard, model_deadline, status, charge, *, r
     return result
 
 
-def render(result):
-    lines=['AI-proposed investigative organization — unverified',
+def render(result, palette=None):
+    from forensic_assistant.terminal import Palette
+    palette = palette or Palette()
+    lines=[palette('forensic_note', 'AI-proposed investigative organization — unverified'),
            '  Synthesis: '+result['status']+'; requests: '+str(result['attempts'])+' / 2']
     ids=sorted({d['evidence_id'] for u in result['accepted'] for d in u['dependencies']})
     labels={eid:'E'+str(i+1) for i,eid in enumerate(ids)}
@@ -340,8 +342,9 @@ def render(result):
         lines.extend('    Support: '+labels[d['evidence_id']]+' '+json.dumps(d['field']['pointer']) for d in unit['dependencies'])
     if ids:lines.append('  E-labels abbreviate original record IDs; exact IDs and lineage are in structured synthesis diagnostics.')
     if result['termination']:lines.append('  Termination: '+result['termination'])
-    lines.append('  Citations do not establish causation, successful execution or complete coverage.')
+    lines.append(palette('forensic_note', '  Citations do not establish causation, successful execution or complete coverage.'))
     return '\n'.join(lines)
+
 
 
 def reconstruct(root, identity, *, _validate_organization=True):

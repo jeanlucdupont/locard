@@ -208,7 +208,7 @@ def assessment(anchor, stamp, selected, anchor_slot):
 
 def render(view, result, anchor, stamp, anchor_slot):
     """Append only human presentation through the existing palette/escaping."""
-    def line(text, role='secondary_text'):
+    def line(text, role='label'):
         view.lines.append(view.palette(role, safe_path(text)))
 
     view.section('Investigation summary')
@@ -236,7 +236,7 @@ def render(view, result, anchor, stamp, anchor_slot):
             text += ' (containing-key timestamp; not an execution time)'
         if obs.kind == 'file' and t['slot'] == 'Sysmon.CreationUtcTime':
             text = 'Sysmon-reported target-file creation timestamp for ' + name
-        role = {'prefetch': 'string_value', 'registry': 'key', 'mft': 'number_value', 'evtx': 'boolean_value', 'browser': 'heading'}[r['source_type']]
+        role = 'value'
         line(delta(t['timestamp_utc'], stamp) + '  ' + text + ' [' + t['slot'] + ']', role)
         if obs.kind == 'browser_download':
             line('    State: ' + (r.get('detail') or {}).get('state_name', 'unknown'))

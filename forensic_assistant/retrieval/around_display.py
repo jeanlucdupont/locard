@@ -73,7 +73,7 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
              and (args.timestamp_slot is None or t['slot'] == args.timestamp_slot)]
     selected = slots[0] if len(slots) == 1 else None
     lines = []
-    def line(text, role='secondary_text'):
+    def line(text, role='label'):
         lines.extend(palette(role, part) for part in
                      (textwrap.wrap(text, width, break_on_hyphens=False, replace_whitespace=False) or ['']))
     names = {}
@@ -93,11 +93,11 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
     context = [display_time(stamp).replace('T', ' ').removesuffix('Z') + ' UTC', safe(source_label(anchor))]
     if 'Artifact' in shared:
         context.append(('Rows: ' if shared['Artifact'] != artifact(anchor) else '') + safe(shared['Artifact']))
-    line(' | '.join(context), 'key')
+    line(' | '.join(context), 'value')
     if 'Source' in shared and shared['Source'] != source(anchor):
         line('Rows source: ' + safe(source_label(rows[0])))
     if selected is None:
-        line('Anchor slot ambiguous; select --timestamp-slot to identify one observation.', 'warning')
+        line('Anchor slot ambiguous; select --timestamp-slot to identify one observation.', 'forensic_note')
     elif anchor['source_type'] == 'prefetch':
         line('Anchor: Prefetch run [' + safe(selected) + ']')
     elif anchor.get('detail', {}).get('userassist'):
@@ -157,18 +157,18 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
             shown_time = time.split('T')[1][:-1] if one_date else time
             line(
                 f'{shown_time:<{time_width}} | {relative:>{delta_width}} | {obj}{suffix}',
-                'heading' if marker else 'secondary_text'
+                'heading' if marker else 'label'
             )
         else:
-            line(f"{time} | {relative}", 'number_value')
-            line('  ' + obj + suffix, 'heading' if marker else 'string_value')
+            line(f"{time} | {relative}", 'value')
+            line('  ' + obj + suffix, 'heading' if marker else 'value')
         if ua:
             line('  Timestamp: ' + safe(r['timestamp']['source']) + ' [' + safe(r['timestamp']['slot']) + ']')
         for name, getter in getters:
             if r['source_type'] == 'mft' and name == 'Timestamp meaning':
                 continue
             if name not in shared:
-                line(f'  {name}: {safe(source_label(r) if name=="Source" else getter(r))}', 'key')
+                line(f'  {name}: {safe(source_label(r) if name=="Source" else getter(r))}', 'value')
         if r['source_type'] == 'mft':
             line('  State: ' + mft_display.state(r.get('detail', {}).get('allocated')))
             for label in mft_display.semantics(group, selected if marker else None):
@@ -178,7 +178,7 @@ def render(result, anchor, stamp, args, palette=None, *, width=None):
                 line('  Exact UTC: ' + safe(r['timestamp_utc']))
         if args.ids:
             # IDs are deliberately never shortened; the shared pager can wrap them.
-            lines.append(palette('evidence_id', '  ID: ' + safe(r['id'])))
+            lines.append(palette('value', '  ID: ' + safe(r['id'])))
             for item in group:
                 line('  Timestamp: ' + item['timestamp_utc'] + '; slot: ' + safe(item['timestamp']['slot']))
     from .layout import pagination

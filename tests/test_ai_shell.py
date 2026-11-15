@@ -26,7 +26,7 @@ def model(monkeypatch):
 
 def run_shell(tmp_path, *commands, no_color=True):
     database = case(tmp_path)
-    reader = Input(str(database), *commands, 'exit')
+    reader = Input(str(database), *commands, 'quit')
     shell = Shell(State(None), reader, no_color=no_color)
     before = database.read_bytes()
     assert shell.run() == 0
@@ -36,6 +36,10 @@ def run_shell(tmp_path, *commands, no_color=True):
 
 @pytest.mark.parametrize('no_color', [False, True])
 def test_compatibility_notices_preserve_prompt_style(tmp_path, monkeypatch, model, no_color):
+    # Prompt styling is independent of first-run provider setup (covered separately).
+    monkeypatch.setattr('forensic_assistant.ai.cli.offer_setup', lambda *a: None)
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))
     monkeypatch.delenv('NO_COLOR', raising=False)
     monkeypatch.setattr('forensic_assistant.terminal.capable', lambda _: True)
     fresh = Shell(State(None))
@@ -43,9 +47,9 @@ def test_compatibility_notices_preserve_prompt_style(tmp_path, monkeypatch, mode
     shell, reader, _ = run_shell(tmp_path, 'ai', 'expert', no_color=no_color)
     assert not hasattr(shell, 'mode') and not model
     prompts = reader.prompts[1:]
-    assert prompts == [Palette(not no_color)('prompt', '[case é.db]> '),
-                       Palette(not no_color)('prompt', '[case é.db]> '),
-                       Palette(not no_color)('prompt', '[case é.db]> ')]
+    assert prompts == [Palette(not no_color)('shell_prompt', '[case é.db]> '),
+                       Palette(not no_color)('shell_prompt', '[case é.db]> '),
+                       Palette(not no_color)('shell_prompt', '[case é.db]> ')]
 
 
 def test_no_color_environment_preserves_single_prompt(tmp_path, monkeypatch, model):

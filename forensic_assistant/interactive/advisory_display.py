@@ -85,9 +85,9 @@ def render(response, context, palette=None, *, width=None):
                 output.append('')
             line(f'{index}. ' + step['text'])
             for command in step['commands']:
-                line(command, indent='     ', role='key')
+                line(command, indent='     ', role='command')
     if response['cautions']:
         heading('Important cautions')
         for item in response['cautions']:
-            line('- ' + item, role='warning')
+            line('- ' + item, role='forensic_note')
     return '\n'.join(output)

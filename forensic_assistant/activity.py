@@ -474,4 +474,4 @@ def render(result, *, verify=False, palette=None):
         return 'No activity recorded.'
     return '\n'.join(table(['TIME (UTC)', 'ACTION', 'OUTCOME', 'DETAILS'], rows, palette,
                            minimums=[20, 12, 9, 16], maximums=[27, 20, 9, 65],
-                           roles=['number_value', 'key', 'secondary_text', 'string_value'], text=safe_text))
+                           roles=['value', 'value', 'label', 'value'], text=safe_text))

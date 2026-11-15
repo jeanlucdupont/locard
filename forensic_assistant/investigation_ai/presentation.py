@@ -154,12 +154,12 @@ def timestamp_text(value):
 
 def proposal_text(proposal, palette=None, *, introduction=False):
     palette = palette or Palette()
-    lines = ([palette('secondary_text', 'More evidence is needed to answer the question.'), ''] if introduction else []) + [
+    lines = ([palette('label', 'More evidence is needed to answer the question.'), ''] if introduction else []) + [
              palette('heading', 'Proposed forensic lookup'),
-             '  Tool: ' + palette('key', safe(proposal.get('tool', '')))]
+             '  Tool: ' + palette('label', safe(proposal.get('tool', '')))]
     for key, value in proposal.get('arguments', {}).items():
         label = 'Evidence ID' if key == 'evidence_id' else key.replace('_', ' ').capitalize()
-        role = 'evidence_id' if key == 'evidence_id' else 'string_value'
+        role = 'value'
         lines.append('  ' + label + ': ' + palette(role, safe(value)))
     if proposal.get('reason'):
         lines.append('  Reason: ' + safe(proposal['reason']))
@@ -173,7 +173,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
     findings = result.get('findings') or {}
     accumulated = incremental and bool(findings.get('observed') or findings.get('interpretations'))
     dry_run = dry_run or bool(result.get('dry_run_proposal'))
-    lines = [palette('success' if supported else 'warning',
+    lines = [palette('heading',
                      'Investigation result' if supported else 'Partial investigation findings' if accumulated else 'Investigation incomplete')]
     assessment = result.get('answer_assessment')
     if assessment:
@@ -208,7 +208,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
         for number, group in enumerate(narrative['records'], 1):
             lines.append('  ' + group['title'] + ' [' + str(number) + ']')
             lines.append('    ' + ' '.join(safe(s['text']) for s in group['sentences']))
-            lines.append('    ' + group['caution'])
+            lines.append(palette('forensic_note', '    ' + group['caution']))
         for item in narrative['interpretations']:
             lines.append('  Derived interpretation: ' + safe(item['text']))
         if narrative['records']:
@@ -240,7 +240,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
                 label, timestamp = field_label(row)
                 value = timestamp_text(row.get('reported_value')) if timestamp else safe(row.get('reported_value'))
                 if not concise:
-                    lines.append('  ' + palette('key', label) + ': ' + palette('string_value', value))
+                    lines.append('  ' + palette('label', label) + ': ' + palette('value', value))
                 caveats.append(row.get('qualifier'))
             else:
                 source_material |= source_dependency(row)
@@ -249,7 +249,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
                 if row.get('reason'):
                     lines.append('    ' + safe(row['reason']))
             for eid in ([] if concise else row.get('evidence_ids', [])):
-                lines.append('    Evidence: ' + palette('evidence_id', safe(eid)))
+                lines.append('    Evidence: ' + palette('value', safe(eid)))
             context = row.get('source_context') or {}
             source_material |= source_dependency(row)
             if context:
@@ -265,7 +265,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
         for item in findings['interpretations'][:4]:
             lines.extend(['  ' + safe(item['text']), '    Derivation: ' + safe(item['derivation_id'])])
             for eid in item['evidence_ids']:
-                lines.append('    Evidence: ' + palette('evidence_id', safe(eid)))
+                lines.append('    Evidence: ' + palette('value', safe(eid)))
     if result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1', 'incremental-s4-b2-v1'):
         lines.extend(['', palette('heading','Incremental investigation status'),
                         '  '+safe(termination_label(result)),
@@ -288,7 +288,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
             lines.append('  - ' + safe(str(unknown)[:200]))
     completed = sum(p.get('operation') != 'initial' for p in state.get('investigation_path', []) if isinstance(p, dict))
     if completed and not dry_run:
-        lines.extend(['', palette('heading', 'Forensic lookups'), '  Completed: ' + palette('number_value', str(completed))])
+        lines.extend(['', palette('heading', 'Forensic lookups'), '  Completed: ' + palette('value', str(completed))])
     for entry in state.get('investigation_path', []):
         if entry.get('outcome') == 'unresolved':
             lines.append(palette('warning', '  Lookup unresolved: ' + safe(entry.get('operation', 'unknown'))))
@@ -301,7 +301,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
         lines.extend(['', palette('heading', 'AI validation'), palette('warning', '  Rejected proposals: ' + str(state['rejected_requests']))])
     if result.get('dry_run_proposal'):
         lines.extend(['', palette('heading', 'Dry-run proposal'), '', proposal_text(result['dry_run_proposal'], palette, introduction=True),
-                      '', palette('secondary_text', 'No operation was executed.')])
+                      '', palette('label', 'No operation was executed.')])
     termination = result.get('termination')
     integrity = (result.get('metrics') or {}).get('integrity') or {}
     integrity_warning = (integrity.get('strategy') in ('private_sqlite_snapshot', 'read_only_transaction')
@@ -316,10 +316,10 @@ def render(result, palette=None, *, dry_run=False, details=False):
         if metrics.get('failed_lookup_tool'):
             lines.extend(['  Tool: ' + safe(metrics['failed_lookup_tool']), '  Reason: ' + safe(metrics.get('failed_lookup_reason', 'Lookup execution failed'))])
         if incremental:
-            lines.append(palette('warning', '  Accumulated partial findings are retained; no global conclusion is asserted.' if accumulated else
+            lines.append(palette('forensic_note', '  Accumulated partial findings are retained; no global conclusion is asserted.' if accumulated else
                                  '  No validated factual findings were accumulated; any hypotheses remain unverified.'))
         else:
-            lines.append(palette('warning', '  No supported conclusion was produced.'))
+            lines.append(palette('forensic_note', '  No supported conclusion was produced.'))
     # Render one integrity warning; suppress only duplicate controller check details.
     if integrity_warning:
         text = ('The live case changed during the investigation. Findings were not accepted against the changed case state.'
@@ -337,12 +337,12 @@ def render(result, palette=None, *, dry_run=False, details=False):
     caveats = [v for v in caveats if str(v).rstrip('.') != 'No supported conclusion was produced']
     unique = limitations(caveats, source_material=source_material)
     if unique:
-        lines.extend(['', palette('heading', 'Limitations'), *(palette('warning', '  - ' + safe(value)) for value in unique)])
+        lines.extend(['', palette('heading', 'Limitations'), *(palette('forensic_note', '  - ' + safe(value)) for value in unique)])
     if concise:
         lines.extend(['', palette('heading', 'Suggested next steps'), *('  - ' + safe(v) for v in narrative['next_steps'])])
     if result.get('question_decomposition'):
         from .decomposition import render as render_decomposition
-        lines.extend(['', render_decomposition(result['question_decomposition'])])
+        lines.extend(['', render_decomposition(result['question_decomposition'], palette)])
     if result.get('synthesis'):
         coverage=result.get('analysis_coverage',{})
         if coverage.get('analysis_error_limited'):
@@ -358,7 +358,7 @@ def render(result, palette=None, *, dry_run=False, details=False):
                 '  Rejected-batch evidence was not promoted into accepted findings.',
                 '  Synthesis completion does not imply completed evidence examination.'])
         from .synthesis_consumer import render as render_synthesis
-        lines.extend(['',render_synthesis(result['synthesis'])])
+        lines.extend(['',render_synthesis(result['synthesis'], palette)])
     if result.get('explanation'):
         from . import explanation_status
         local=result['explanation']

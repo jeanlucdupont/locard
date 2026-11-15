@@ -4,10 +4,10 @@ from . import d2, d2_execution as service
 from .explanation import _safe
 
 
-def render(result, prepared):
+def render(result, prepared, palette=None):
     if result.get('validated',{}).get('contract')=='d2-quality-validation-v1' or prepared.profile in ('d2q1','d2x1'):
         from . import d2_presentation
-        return d2_presentation.render(d2_presentation.view(result,prepared))
+        return d2_presentation.render(d2_presentation.view(result,prepared), palette)
     packet=prepared.packet['content']
     lines=['Ephemeral D2 result — not saved', 'Established by the evidence']
     for leaf in packet['supports']:
@@ -103,7 +103,8 @@ def run(args, *, read=None):
         if args.json:
             from . import d2_presentation
             print(json.dumps(dict(contract='d2-quality-result-v1',result=result,view=d2_presentation.view(result,prepared)),ensure_ascii=True))
-        else:print(render(result,prepared))
+        else:from forensic_assistant.terminal import Palette, enabled
+    print(render(result,prepared,Palette(enabled(args))))
     if not args.findings_workspace:
         display(service.execute(service.authorize(prepared,approve)),prepared)
         return

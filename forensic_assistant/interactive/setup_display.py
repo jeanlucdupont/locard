@@ -10,16 +10,16 @@ from forensic_assistant.terminal import Palette, capable, replace_progress_line,
 
 def role(status):
     return ('success' if status == 'complete' else 'error' if status in ('failed', 'changed', 'requires extraction')
-            else 'secondary_text' if status in ('not selected', 'no supported history found') else 'warning')
+            else 'label' if status in ('not selected', 'no supported history found') else 'warning')
 
 
 def category_line(kind, progress, palette):
     status = progress.outcome
-    return (palette('key', kind) + ': ' + palette(role(status), status) + ' | ' +
-            palette('success' if progress.records else 'error' if status == 'failed' else 'secondary_text',
+    return (palette('label', kind) + ': ' + palette(role(status), status) + ' | ' +
+            palette('value',
                     f'{progress.records:,} records') + ' | ' +
-            palette('warning' if progress.duplicates else 'success', f'{progress.duplicates:,} duplicates') + ' | ' +
-            palette('error' if progress.errors else 'success', f'{progress.errors:,} error' + ('' if progress.errors == 1 else 's')))
+            palette('value', f'{progress.duplicates:,} duplicates') + ' | ' +
+            palette('value', f'{progress.errors:,} error' + ('' if progress.errors == 1 else 's')))
 
 
 def file_outcomes(statuses, palette, kind=None):
@@ -55,7 +55,7 @@ class FileProgress:
 
     def _frame(self):
         # Caller holds the display lock. Never print fallback lines from animation.
-        if not replace_progress_line(self.palette('key', self._text()), self.stream):
+        if not replace_progress_line(self.palette('label', self._text()), self.stream):
             self.stop.set()
         self.index += 1
 
@@ -83,7 +83,7 @@ class FileProgress:
             if self.last is not None and processed < self.total and current - self.last < interval:
                 return
             self.last = current
-            text = self.palette('key', self._text())
+            text = self.palette('label', self._text())
             if not self.inplace or not replace_progress_line(text, self.stream):
                 print(text, file=self.stream, flush=True)
 
@@ -167,12 +167,12 @@ def print_diagnostics(db, palette, *, run_ids=None):
     evtx = [(g, evtx_diagnostic(g)) for g in groups]
     selected = [(g, text) for g, text in evtx if text]
     if selected:
-        print(palette('key', 'EVTX ingestion limitations'))
+        print(palette('heading', 'EVTX ingestion limitations'))
         for group, text in selected:
             print('- ' + palette('forensic_note' if group['limitation'] else 'error', text))
     other = [g for g, text in evtx if not text]
     if other:
-        print(palette('key', 'Other ingestion limitations and errors'))
+        print(palette('heading', 'Other ingestion limitations and errors'))
     from forensic_assistant.artifacts.registry_logs import LIMITATION
     for group in other:
         count = group['count']
@@ -185,12 +185,13 @@ def print_diagnostics(db, palette, *, run_ids=None):
         print('- ' + palette('forensic_note' if group['message'] == LIMITATION else 'error', text))
 
 
-def completion_line(message, palette):
-    if message.startswith('Case created.'):
-        return palette('success', 'Case created.') + palette('warning', message[len('Case created.'):])
-    if message.startswith('Case created,'):
-        return palette('success', 'Case created') + palette('error', message[len('Case created'):])
-    return palette('success', message)
+def completion_line(message, palette, *, plan=None, outcomes=None, stored=None):
+    # Presentation follows the same structured outcome used to construct the message.
+    if plan is None:
+        return palette('label', message)
+    failed = bool(plan.items and not stored and outcomes and all(v == 'failed' for v in outcomes.values()))
+    limited = bool(plan.items and (not stored or plan.deferred or plan.limited or any(v != 'complete' for v in (outcomes or {}).values())))
+    return palette('error' if failed else 'forensic_note' if limited else 'success', message)
 
 
 def completion(plan, outcomes, stored):
@@ -276,5 +277,5 @@ def print_file_exceptions(kind, rows, palette):
         description = 'file could not be read' if row.get('unreadable') else failure_description(kind, status)
         if status == 'partial' or not retained:
             description += (f'; {retained:,} records retained/previously present' if retained else '; no records retained')
-        print(palette('warning', '  ' + label + ': ') + safe(row['path']) + ' — ' + description)
+        print(palette('error' if label == 'Failed' else 'warning', '  ' + label + ': ') + palette('value', safe(row['path'])) + ' — ' + description)
     return len(companions)

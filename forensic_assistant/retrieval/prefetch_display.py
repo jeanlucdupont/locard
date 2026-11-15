@@ -19,7 +19,7 @@ def render_timeline(result, *, palette=None, width=None):
     lines = table(
         ['TIME (UTC)', 'EXECUTABLE', 'RUN SLOT'], rows, palette,
         minimums=[23, 10, 8], maximums=[23, 60, 16],
-        roles=['number_value', 'string_value', 'secondary_text'], width=width
+        roles=['value', 'value', 'label'], width=width
     ) if rows else ['No matching evidence.']
     if note := pagination(len(records), result['total'], result.get('offset', 0)):
         lines.append(note)

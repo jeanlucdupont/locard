@@ -28,7 +28,7 @@ def timeline(db):
 
 
 def arguments(eid, *extra):
-    return build_parser().parse_args(['around', eid, '--timestamp-slot', 'SystemTime', '--text', *extra])
+    return build_parser().parse_args(['evidence', 'around', eid, '--timestamp-slot', 'SystemTime', '--text', *extra])
 
 
 def test_equal_time_slots_are_display_only(case):
@@ -95,7 +95,7 @@ def test_around_exact_selected_slot(case, slot):
 def test_timeline_group_pagination_vs_structured(case, limit, offset, length):
     db, _ = case
     parser = build_parser()
-    base = ['timeline', '--around', '2026-09-15T14:30:55Z', '--artifact', 'evtx',
+    base = ['evidence', 'timeline', '--around', '2026-09-15T14:30:55Z', '--artifact', 'evtx',
             '--limit', str(limit), '--offset', str(offset)]
     text, _ = v2_cli.dispatch(db, parser.parse_args(base + ['--text']))
     assert len(text['records']) == length
@@ -149,7 +149,7 @@ def test_wrapping_color_controls_and_neutral_paths(case, width, colored):
         assert TARGET in plain
     else:
         assert 'target.bin' in plain.replace('\n', '').replace(' ', '')
-    assert any(role == 'string_value' and 'file_create' in value for role, value in calls)
+    assert any(role == 'value' and 'file_create' in value for role, value in calls)
     assert all(TARGET not in value and ACTOR not in value for _, value in calls)
     assert '\x1b' not in plain
 
@@ -221,7 +221,7 @@ def test_evtx_cap_precedes_hydration_and_releases_snapshot(case, monkeypatch):
             [(f'extra:{i}', anchor['id']) for i in range(10000)])
     from forensic_assistant.retrieval import evidence
     monkeypatch.setattr(evidence, 'get_evidence', lambda *a, **k: pytest.fail('Cap must precede hydration'))
-    args = build_parser().parse_args(['timeline', '--around', '2026-09-15T14:30:55Z', '--artifact', 'evtx', '--text'])
+    args = build_parser().parse_args(['evidence', 'timeline', '--around', '2026-09-15T14:30:55Z', '--artifact', 'evtx', '--text'])
     with pytest.raises(ValueError, match='10,000'):
         v2_cli.dispatch(db, args)
     assert not db.in_transaction
@@ -264,9 +264,15 @@ def test_timeline_cli_forwards_palette(case, tmp_path, monkeypatch, capsys):
         db.backup(destination)
     monkeypatch.setattr(terminal, 'capable', lambda stream: True)
     monkeypatch.delenv('NO_COLOR', raising=False)
-    command = ['--db', str(path), 'timeline', '--around', '2026-09-15T14:30:55Z', '--artifact', 'evtx', '--text']
+    command = ['--db', str(path), 'evidence', 'timeline', '--around', '2026-09-15T14:30:55Z', '--artifact', 'evtx', '--text']
     assert main(command) == 0
     colored = capsys.readouterr().out
     assert '\x1b[' in colored
     assert main(command + ['--no-color']) == 0
     assert capsys.readouterr().out == SGR.sub('', colored)
+
+
+@pytest.fixture(autouse=True)
+def isolated_presentation_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))

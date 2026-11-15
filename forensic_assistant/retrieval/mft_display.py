@@ -150,7 +150,7 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
     object_start = sum(sizes) + 2 * len(sizes)
     aligned = width - object_start >= 16
     lines = []
-    def wrapped(value, *, indent='', role='secondary_text'):
+    def wrapped(value, *, indent='', role='label'):
         for part in textwrap.wrap(value, max(1, width - len(indent)), break_on_hyphens=False,
                                   replace_whitespace=False, expand_tabs=False) or ['']:
             lines.append(palette(role, indent + part))
@@ -174,7 +174,7 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
         values = [time] + ([delta(r['timestamp_utc'], stamp)] if around else []) + [
             state(r.get('detail', {}).get('allocated')) if mft else '-']
         obj = (object_text(r) if mft else human_detail(r) if r['source_type'] == 'evtx' else safe(observation(r))) + (' <- anchor' if marker else '')
-        role = 'heading' if marker else 'secondary_text'
+        role = 'heading' if marker else 'label'
         if aligned:
             pieces = textwrap.wrap(obj, width - object_start, break_on_hyphens=False,
                                    replace_whitespace=False, expand_tabs=False) or ['']
@@ -187,11 +187,11 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
         for label in labels:
             wrapped(label, indent='    ')
         if around and (not mft or source(r) != source(anchor)):
-            wrapped('Source: ' + safe(source(r)), indent='    ', role='key')
+            wrapped('Source: ' + safe(source(r)), indent='    ', role='value')
         if (r['id'], display_time(r['timestamp_utc'])) in collisions:
             wrapped('Exact UTC: ' + safe(r['timestamp_utc']), indent='    ')
         if ids:
-            lines.append(palette('evidence_id', '    ID: ' + safe(r['id'])))
+            lines.append(palette('value', '    ID: ' + safe(r['id'])))
             for item in group:
                 wrapped('Timestamp: ' + item['timestamp_utc'] + '; slot: ' + safe(item['timestamp']['slot']), indent='    ')
     return lines

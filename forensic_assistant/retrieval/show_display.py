@@ -12,11 +12,11 @@ def render(record, palette=None, *, registry_values=None):
     if record['source_type'] == 'registry':
         from .registry_display import render as render_registry
         return render_registry(record, palette, values=registry_values)
-    from forensic_assistant.terminal import Palette, value_role
+    from forensic_assistant.terminal import Palette
     palette = palette or Palette()
     lines = []
     def field(name, value, *, path=False, account=False):
-        lines.append(palette('key', name + ': ') + palette(value_role(value), (safe_path if path else safe_text if account else safe)(value)))
+        lines.append(palette('label', name + ': ') + palette('value', (safe_path if path else safe_text if account else safe)(value)))
     kind = record['source_type']
     d = record.get('detail') or {}
     ctx = record.get('context', {})
@@ -75,7 +75,7 @@ def render(record, palette=None, *, registry_values=None):
         if 'value_ids' in d:
             field('Values in projection', len(d['value_ids']))
         if d.get('values_truncated'):
-            lines.append(palette('warning', 'Registry value ID projection is bounded to 100.'))
+            lines.append(palette('forensic_note', 'Registry value ID projection is bounded to 100.'))
     else:
         for key in (
             'event_id',
@@ -111,7 +111,7 @@ def render(record, palette=None, *, registry_values=None):
             for key, value in fields(record).items():
                 field(key.replace('_', ' ').capitalize(), value, path=key == 'image_path', account=key == 'account')
             lines += ['', palette('forensic_note', 'Forensic note'), palette('forensic_note', '- ' + NOTE)]
-        lines.append(palette('key', 'Observation: ') + palette('string_value', human_detail(record)))
+        lines.append(palette('label', 'Observation: ') + palette('value', human_detail(record)))
         from .event_data import projection, interpretation
         original, limitations = projection(record)
         if original:
@@ -119,9 +119,9 @@ def render(record, palette=None, *, registry_values=None):
             for item in original:
                 field('  [' + str(item['ordinal']) + '] ' + safe(item['name']), item['value'])
                 if item['truncated']:
-                    lines.append(palette('warning', '    Recorded field display truncated.'))
+                    lines.append(palette('forensic_note', '    Recorded field display truncated.'))
         for note in limitations:
-            lines.append(palette('warning', note))
+            lines.append(palette('forensic_note', note))
         interpreted = interpretation(record)
         if interpreted:
             lines += ['', palette('heading', 'Interpretation: recorded Defender ASR block'),
@@ -152,8 +152,8 @@ def render(record, palette=None, *, registry_values=None):
         if common_meaning and common_meaning != standard_meaning:
             field('Meaning', common_meaning)
         for t in populated:
-            lines.append(palette('number_value', timestamp(t['timestamp_utc']) + ' UTC')
-                         + '  ' + palette('secondary_text', '[' + safe(t['slot']) + ']'))
+            lines.append(palette('value', timestamp(t['timestamp_utc']) + ' UTC')
+                         + '  ' + palette('label', '[' + safe(t['slot']) + ']'))
             if t.get('meaning') and t['meaning'] != standard_meaning and not common_meaning:
                 field('Meaning', t['meaning'])
         if not populated:
@@ -177,18 +177,18 @@ def render(record, palette=None, *, registry_values=None):
         for path in candidates:
             field('Executable path candidate', path, path=True)
         if record.get('objects_truncated') and not candidates:
-            lines.append(palette('warning', 'Executable path candidate unavailable in the bounded projection.'))
+            lines.append(palette('forensic_note', 'Executable path candidate unavailable in the bounded projection.'))
         refs = d.get('references', [])
         total = d.get('reference_count', len(refs))
         field('Referenced files', total)
         for path in refs[:5]:
-            lines.append('  ' + palette('string_value', safe_path(path)))
+            lines.append('  ' + palette('value', safe_path(path)))
         footer = pagination(min(5, len(refs)), total)
         if footer:
             lines.append(footer)
         field('Volumes', len(d.get('volumes', [])))
     if ctx.get('conflicts'):
-        lines.append(palette('warning', 'Conflicting context: ' + safe(', '.join(ctx['conflicts']))))
+        lines.append(palette('forensic_note', 'Conflicting context: ' + safe(', '.join(ctx['conflicts']))))
     warnings = list(record.get('warnings', []))
     for note in warnings:
         if is_identifier_note(note):
@@ -212,5 +212,5 @@ def render(record, palette=None, *, registry_values=None):
     if warnings:
         lines += ['', palette('heading', 'Limitations / data quality')]
         for warning in dict.fromkeys(warnings):
-            lines.append(palette('warning', safe(warning)))
+            lines.append(palette('forensic_note', safe(warning)))
     return '\n'.join(lines)

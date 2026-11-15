@@ -96,7 +96,7 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
         from forensic_assistant.ingest.service import is_installation, fields
         service = is_installation(r)
         activity = 'ServiceInstall' if service else safe(kind)
-        role = 'key' if kind == 'process' else 'string_value' if kind == 'file_create' else 'secondary_text'
+        role = 'value'
         if kind == 'process':
             obj = safe_path(r.get('parent_process_name') or '?')
             detail = '-> ' + safe_path(r.get('process_name') or '?')
@@ -139,7 +139,7 @@ def render_blocks(grouped, *, width=None, palette=None, anchor=None, stamp=None,
         if (r['id'], display_time(r['timestamp_utc'])) in precision:
             wrapped('Exact UTC: ' + safe(r['timestamp_utc']))
         if ids:
-            lines.append(palette('evidence_id', '    ID: ' + safe(r['id'])))
+            lines.append(palette('value', '    ID: ' + safe(r['id'])))
             for item in group:
                 wrapped('Timestamp: ' + safe(item['timestamp_utc']) + '; slot: ' + safe(item['timestamp']['slot']))
     return lines
@@ -190,13 +190,13 @@ def render_around(result, anchor, stamp, args, palette=None, *, width=None):
     labels = sorted(s['display_name'] + (f" [{s['source_id']}]" if args.ids or len(names[s['display_name']]) > 1 else '')
                     for s in anchor.get('context', {}).get('source_assertions', []))
     context = display_time(stamp).replace('T', ' ').removesuffix('Z') + ' UTC | ' + safe('; '.join(labels) or 'unassigned')
-    lines = [palette('key', part) for part in textwrap.wrap(context, width, break_on_hyphens=False)]
+    lines = [palette('label', part) for part in textwrap.wrap(context, width, break_on_hyphens=False)]
     if selected:
         kind, label = timestamp_label(slots[0])
         heading = 'Anchor: ' + safe(kind + ' ' + label + ' [' + selected + ']')
         lines.extend(textwrap.wrap(heading, width, break_on_hyphens=False))
     else:
-        lines.append(palette('warning', 'Anchor slot ambiguous; select --timestamp-slot to identify one observation.'))
+        lines.append(palette('forensic_note', 'Anchor slot ambiguous; select --timestamp-slot to identify one observation.'))
     if args.ids:
         lines.append('Anchor: ' + safe(stamp) + '; slot: ' + safe(selected))
     lines.append('')

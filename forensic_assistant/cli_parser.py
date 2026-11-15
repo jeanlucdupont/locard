@@ -196,15 +196,29 @@ def semantic_help(parser):
         add(group.title + ':\n', 'heading')
         if group.description:
             prose(group.description, '  ')
+        # Plain invocation widths determine the columns before any ANSI encoding.
+        left_width = min(max(len(invocation(a)) for a in actions), max(12, width // 3))
+        description_column = left_width + 4
+        def row(left, description, indent=2):
+            add(' ' * indent); syntax(left)
+            if not description:
+                add('\n'); return
+            lines = []
+            for line in str(description).splitlines():
+                lines.extend(textwrap.wrap(safe_span_text(line), max(20, width-description_column)) or [''])
+            if len(left) > left_width or width < 55:
+                add('\n' + ' ' * description_column)
+            else:
+                add(' ' * (description_column-indent-len(left)))
+            add(lines[0] + '\n')
+            for line in lines[1:]:
+                add(' ' * description_column + line + '\n')
         for action in actions:
-            add('  '); syntax(invocation(action)); add('\n')
-            if action.help:
-                prose(formatter._expand_help(action), '    ')
+            row(invocation(action), formatter._expand_help(action) if action.help else '')
             if isinstance(action, argparse._SubParsersAction):
                 for child in action._choices_actions:
                     if child.help != argparse.SUPPRESS:
-                        add('    '); syntax(child.metavar or child.dest); add('\n')
-                        prose(formatter._expand_help(child), '      ')
+                        row(child.metavar or child.dest, formatter._expand_help(child), indent=2)
         add('\n')
     if parser.epilog:
         prose(parser.epilog)

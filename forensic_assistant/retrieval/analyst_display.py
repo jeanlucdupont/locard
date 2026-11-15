@@ -10,12 +10,12 @@ from .presentation import safe_text as safe
 
 
 EVENT_LABELS = {
-    'logon': ('Logon', 'success'),
-    'failed_logon': ('Failed logon', 'error'),
-    'privileged_logon': ('Privileged logon', 'warning'),
-    'explicit_credentials': ('Explicit credentials', 'warning'),
-    'logoff_request': ('Logoff request', 'key'),
-    'logoff': ('Logoff', 'key'),
+    'logon': ('Logon', 'value'),
+    'failed_logon': ('Failed logon', 'value'),
+    'privileged_logon': ('Privileged logon', 'value'),
+    'explicit_credentials': ('Explicit credentials', 'value'),
+    'logoff_request': ('Logoff request', 'value'),
+    'logoff': ('Logoff', 'value'),
 }
 SHARED_DETECTION_CAUTION = 'This observation alone does not establish malicious activity'
 
@@ -28,7 +28,7 @@ def notes(lines, messages, palette, *, informational=()):
     messages = list(dict.fromkeys(messages))
     if messages:
         lines.extend(['', palette('forensic_note', 'Forensic notes')])
-        lines.extend(palette('forensic_note' if message in informational else 'warning', '- ' + safe(message)) for message in messages)
+        lines.extend(palette('forensic_note', '- ' + safe(message)) for message in messages)
 
 
 def evtx_context(db, records):
@@ -78,7 +78,7 @@ def render_logons(result, palette=None, *, context=None, width=None):
                  r.get('username') or r.get('target_account') or r.get('subject_account')) for r in records]
         roles = {label: role for label, role in EVENT_LABELS.values()}
         def style(role, text):
-            return palette(roles.get(text.strip(), 'secondary_text') if role == 'event_category' else role, text)
+            return palette(roles.get(text.strip(), 'label') if role == 'event_category' else role, text)
         def detail(index):
             record = records[index]
             extra = ['    Event ID: ' + safe(record.get('event_id')) +
@@ -86,15 +86,15 @@ def render_logons(result, palette=None, *, context=None, width=None):
                      ' | Source IP: ' + safe(record.get('source_ip')) +
                      ' | Host: ' + safe(record.get('hostname')),
                      '    Process: ' + safe(record.get('process_name')),
-                     '    ID: ' + palette('evidence_id', safe(record['id']))]
+                     '    ID: ' + palette('value', safe(record['id']))]
             warnings = json.loads(record.get('warnings_json') or '[]') + json.loads(record.get('normalization_warnings_json') or '[]')
-            extra.extend('    ' + palette('warning', safe(w)) for w in dict.fromkeys(warnings))
+            extra.extend('    ' + palette('forensic_note', safe(w)) for w in dict.fromkeys(warnings))
             if index + 1 < len(records):
                 extra.append('')
             return extra
         lines += table(['TIME (UTC)', 'TYPE', 'USER'], rows, style,
                        minimums=[23, 20, 12], maximums=[23, 20, 50],
-                       roles=['key', 'event_category', 'secondary_text'], width=width, text=safe,
+                       roles=['value', 'event_category', 'label'], width=width, text=safe,
                        format_cell=lambda row, col, value, room: value if col < 2 else None, after_row=detail)
     if result['total']:
         unit = ' logon event' + ('s' if result['total'] != 1 else '')
@@ -119,21 +119,21 @@ def render_detections(result, palette=None, *, width=None):
     else:
         rows = [(timestamp(d.get('timestamp')), d['severity'], d['rule_id'], d['rule_name']) for d in findings]
         def style(role, text):
-            return palette({'high': 'error', 'medium': 'warning', 'low': 'key'}.get(text.strip(), 'secondary_text')
+            return palette('value'
                            if role == 'severity' else role, text)
         def detail(index):
             finding = findings[index]
-            extra = ['    ID: ' + palette('evidence_id', safe(finding['detection_id']))]
-            extra.extend('    Evidence: ' + palette('evidence_id', safe(eid)) for eid in finding['evidence_ids'])
+            extra = ['    ID: ' + palette('value', safe(finding['detection_id']))]
+            extra.extend('    Evidence: ' + palette('value', safe(eid)) for eid in finding['evidence_ids'])
             extra.append('    Reason: ' + safe(finding['reason']))
-            extra.extend('    ' + palette('warning', safe(message)) for message in dict.fromkeys(finding.get('limitations', []))
+            extra.extend('    ' + palette('forensic_note', safe(message)) for message in dict.fromkeys(finding.get('limitations', []))
                          if message != SHARED_DETECTION_CAUTION)
             if index + 1 < len(findings):
                 extra.append('')
             return extra
         lines += table(['TIME (UTC)', 'SEVERITY', 'RULE', 'DESCRIPTION'], rows, style,
                        minimums=[23, 8, 18, 15], maximums=[23, 8, 40, 60],
-                       roles=['key', 'severity', 'secondary_text', 'secondary_text'], width=width, text=safe,
+                       roles=['value', 'severity', 'label', 'label'], width=width, text=safe,
                        format_cell=lambda row, col, value, room: value if col < 3 else None, after_row=detail)
     total = result['total_evaluated_detections']
     unit = ' detection' + ('s' if total != 1 else '')
@@ -159,7 +159,7 @@ def render_detections(result, palette=None, *, width=None):
 def render_process_tree(result, palette=None, *, unicode=None):
     palette = palette or Palette()
     if 'nodes' not in result:
-        lines = [palette('key', 'Status: ') + palette('warning', safe(result['status']))]
+        lines = [palette('label', 'Status: ') + palette('forensic_note', safe(result['status']))]
         if result.get('total') == 0:
             lines.append('No matching process-creation evidence found in the requested time window.')
             notes(lines, ['Process-tree reconstruction requires supported process-creation evidence.',
@@ -168,8 +168,8 @@ def render_process_tree(result, palette=None, *, unicode=None):
             lines.extend(['Multiple candidate process-creation records found.',
                           'Select one using --evidence <ID>.'])
         else:
-            lines.append(palette('warning', safe(result['reason'])))
-        lines.extend('    Candidate ID: ' + palette('evidence_id', safe(eid)) for eid in result.get('candidate_evidence_ids', []))
+            lines.append(palette('forensic_note', safe(result['reason'])))
+        lines.extend('    Candidate ID: ' + palette('value', safe(eid)) for eid in result.get('candidate_evidence_ids', []))
         if result.get('total'):
             lines.append(f"Showing {len(result.get('candidate_evidence_ids', []))} of {result['total']} candidate anchors")
         return '\n'.join(lines)
@@ -197,16 +197,16 @@ def render_process_tree(result, palette=None, *, unicode=None):
             visited.add(eid)
             record = records[eid]
             label = safe(record.get('process_name') or 'Unknown process') + '  PID ' + safe(record.get('pid'))
-            lines.append(prefix + connector + palette('key', label) +
-                         (' ' + palette('key', '[anchor]') if eid == result['anchor_id'] else ''))
+            lines.append(prefix + connector + palette('label', label) +
+                         (' ' + palette('label', '[anchor]') if eid == result['anchor_id'] else ''))
             stem = prefix + (continuation if connector == branch else '    ' if connector else '')
             metadata = stem + '    '
-            lines.append(metadata + 'ID: ' + palette('evidence_id', safe(eid)))
+            lines.append(metadata + 'ID: ' + palette('value', safe(eid)))
             lines.append(metadata + 'Time (UTC): ' + safe(timestamp(record.get('timestamp_utc'))) + ' | Host: ' + safe(record.get('hostname')))
             if relation:
                 rendered_edges.add(id(relation))
                 lines.append(metadata + 'Parent relationship: ' + palette(
-                    'warning' if relation['status'] == 'LIKELY' else 'success', safe(relation['status'])))
+                    'value', safe(relation['status'])))
                 lines.append(metadata + '    ' + safe(relation['reason']))
             descendants = children.get(eid, [])
             pending.extend((edge['target_id'], stem, end if index == len(descendants) - 1 else branch, edge)
@@ -215,14 +215,14 @@ def render_process_tree(result, palette=None, *, unicode=None):
     if remaining:
         lines += ['', palette('heading', 'Unresolved or undisplayed relationships')]
         for edge in remaining:
-            lines.append(palette('success' if edge['status'] == 'CONFIRMED' else 'warning', safe(edge['status'])))
+            lines.append(palette('value', safe(edge['status'])))
             lines.append('    ' + safe(edge['reason']))
             for label, key in (('Parent ID', 'source_id'), ('Child ID', 'target_id')):
                 if edge.get(key):
-                    lines.append('    ' + label + ': ' + palette('evidence_id', safe(edge[key])))
-            lines.extend('    Supporting ID: ' + palette('evidence_id', safe(eid)) for eid in edge.get('evidence_ids', [])
+                    lines.append('    ' + label + ': ' + palette('value', safe(edge[key])))
+            lines.extend('    Supporting ID: ' + palette('value', safe(eid)) for eid in edge.get('evidence_ids', [])
                          if eid not in (edge.get('source_id'), edge.get('target_id')))
-            lines.extend('    Outside returned nodes: ' + palette('evidence_id', safe(eid)) for eid in edge.get('omitted_evidence_ids', []))
+            lines.extend('    Outside returned nodes: ' + palette('value', safe(eid)) for eid in edge.get('omitted_evidence_ids', []))
     parameters = result['parameters']
     lines += ['', palette('heading', 'Bounds'),
               f"  PID lookback: {parameters['pid_lookback_seconds']} seconds; child window: {parameters['child_window_seconds']} seconds",

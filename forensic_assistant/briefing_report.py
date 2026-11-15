@@ -9,13 +9,15 @@ LABELS = {'filename': 'Script or file', 'windows_path': 'File path', 'username':
           'registry_path': 'Registry path'}
 
 
-def render(packet):
+def render(packet, palette=None):
+    from .terminal import Palette
+    palette = palette or Palette()
     if packet.get('discovery', {}).get('artifact') == 'all':
         from .briefing_discovery import render as cross_render
         return cross_render(packet)
     if packet.get('canonical') and not packet.get('discovery'):
         from .briefing_canonical import render as render_canonical
-        text=render_canonical(packet['canonical'])
+        text=render_canonical(packet['canonical'], palette=palette)
         if packet.get('ai_error'):
             rejected=packet['ai_error'].get('rejected_items',[])
             if packet.get('summary_editorial') and rejected and all(v.get('component')=='summary' for v in rejected):
@@ -24,7 +26,7 @@ def render(packet):
         summary_only=bool(packet.get('summary_editorial') and packet.get('ai_error',{}).get('rejected_items') and all(v.get('component')=='summary' for v in packet['ai_error']['rejected_items']))
         text+='\n'+'\n'.join(safe(note) for note in packet['limitations'] if not (summary_only and note.startswith('AI interpretation failed:')))
         return text+'\nNo forensic evidence searched. Review does not authorize discovery.'
-    lines = ['Case briefing — unverified analyst input']
+    lines = [palette('forensic_note', 'Case briefing — unverified analyst input')]
     def paragraph(value, indent='  '):
         for original_line in str(value).splitlines():
             line = safe(original_line)

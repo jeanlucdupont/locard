@@ -85,7 +85,7 @@ class ActivityIndicator:
                 width = max(1, shutil.get_terminal_size(fallback=(80, 24)).columns - 1)
                 room = max(0, width - 2)
                 text = text if len(text) <= room else (text[:max(0, room-1)] + '…' if room else '')
-                line = self.palette('key', FRAMES[index % len(FRAMES)])
+                line = self.palette('label', FRAMES[index % len(FRAMES)])
                 if room:
                     line += ' ' + text
                 self._visible = replace_progress_line(line, self.stream)

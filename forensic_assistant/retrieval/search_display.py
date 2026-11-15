@@ -85,7 +85,7 @@ def render(result, palette=None, *, ids=False, width=None):
             'registry': [23, 7, 5, 8, 8, 5],
             'evtx': [23, 5, 7, 7, 12]
         }[kind]
-        roles = ['number_value', 'number_value', 'string_value', 'secondary_text', 'string_value']
+        roles = ['value', 'value', 'value', 'label', 'value']
         maximums = [23, 20, 32, 24, 65]
         if kind == 'registry':
             maximums = [23, 24, 5, 65, 32, 32]
@@ -94,20 +94,20 @@ def render(result, palette=None, *, ids=False, width=None):
                 minimums[4] = max(12, min(24, max(
                     len(safe(ntpath.basename(r['detail']['userassist']['decoded_name']))) + 4
                     for _, r in group if (r.get('detail') or {}).get('userassist'))))
-            roles = ['number_value', 'string_value', 'secondary_text', 'secondary_text', 'secondary_text', 'secondary_text']
+            roles = ['value', 'value', 'label', 'label', 'label', 'label']
         if auth:
             headers = ['TIME (UTC)', 'EVENT', 'HOST', 'USER', 'TYPE', 'LOGON ID']
             # Keep the copyable identifier intact, shrinking descriptive cells first.
             id_width = max(8, *(len(row[-1] or '-') for row in rows))
             minimums = [23, 5, 7, 7, 4, id_width]
             maximums = [23, 5, 24, 32, 4, id_width]
-            roles = ['number_value', 'number_value', 'string_value', 'string_value',
-                     'number_value', 'number_value']
+            roles = ['value', 'value', 'value', 'value',
+                     'value', 'value']
         if ids:
             headers = ['#'] + headers
             minimums = [1] + minimums
             maximums = [5] + maximums
-            roles = ['number_value'] + roles
+            roles = ['value'] + roles
         def format_cell(row_index, column, value, available):
             record = group[row_index][1]
             if kind == 'registry' and column == 4 + int(ids) and (ua := (record.get('detail') or {}).get('userassist')):
@@ -131,15 +131,15 @@ def render(result, palette=None, *, ids=False, width=None):
             record = group[row_index][1]
             details = []
             if ids:
-                details.append('    ID: ' + palette('evidence_id', safe(record['id'])))
+                details.append('    ID: ' + palette('value', safe(record['id'])))
             if kind == 'registry':
                 from .registry_display import DIRTY_WARNING, warning_text
                 for warning in dict.fromkeys(record.get('warnings', [])):
                     if warning != DIRTY_WARNING:
-                        details.append('    ' + palette('warning', safe(warning_text(warning))))
+                        details.append('    ' + palette('forensic_note', safe(warning_text(warning))))
                 conflicts = record.get('context', {}).get('conflicts')
                 if conflicts:
-                    details.append('    ' + palette('warning', 'Conflicting context: ' + safe(', '.join(conflicts))))
+                    details.append('    ' + palette('forensic_note', 'Conflicting context: ' + safe(', '.join(conflicts))))
             if ids and row_index + 1 < len(group):
                 details.append('')
             return details
@@ -185,17 +185,17 @@ def render(result, palette=None, *, ids=False, width=None):
             if is_identifier_note(warning):
                 continue
             if r['source_type'] != 'prefetch' or warning not in PREFETCH_CAUTIONS:
-                lines.append(palette('warning', f'Row {index}: ' + safe(warning)))
+                lines.append(palette('forensic_note', f'Row {index}: ' + safe(warning)))
         if ctx.get('conflicts') and r['source_type'] != 'registry':
-            lines.append(palette('warning', f"Row {index}: conflicting context: " + safe(', '.join(ctx['conflicts']))))
+            lines.append(palette('forensic_note', f"Row {index}: conflicting context: " + safe(', '.join(ctx['conflicts']))))
         if r['source_type'] == 'prefetch':
             paths = {o['original'] for o in r.get('objects', []) if o['role'] == 'executable_path_candidate'}
             if len(paths) > 1:
-                lines.append(palette('warning', f'Row {index}: multiple executable path candidates.'))
+                lines.append(palette('forensic_note', f'Row {index}: multiple executable path candidates.'))
             if r.get('objects_truncated') and not paths:
                 missing_candidates.append(str(index))
     if missing_candidates:
-        lines.append(palette('warning', 'Note: executable path candidate unavailable in the bounded projection for rows '
+        lines.append(palette('forensic_note', 'Note: executable path candidate unavailable in the bounded projection for rows '
                              + ', '.join(missing_candidates) + '.'))
     from .browser_display import shared_notes
     from .registry_display import search_notes
@@ -207,7 +207,7 @@ def render(result, palette=None, *, ids=False, width=None):
         coverage = result['content_search']
         lines += ['', f"{len(records)} matches in this batch; {coverage['examined']} candidates examined."]
         for note in result.get('limits', []):
-            lines.append(palette('warning', safe(note)))
+            lines.append(palette('forensic_note', safe(note)))
         if coverage['continued']:
             lines.append('Continuation batch only; earlier coverage limitations still apply.')
         if coverage['next_cursor']:

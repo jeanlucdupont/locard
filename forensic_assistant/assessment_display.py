@@ -68,7 +68,9 @@ def chronology(result, citations):
     return rows[:20],omitted
 
 
-def render(result,details=False):
+def render(result,details=False, palette=None):
+    from .terminal import Palette, TextSpan, render_spans
+    palette = palette or Palette()
     if details:
         return ('TECHNICAL ASSESSMENT — saved projections; no new queries\n'
                 'Per-page raw query responses were not retained by 6.91; rows contain aggregate coverage and continuation.\n'
@@ -79,18 +81,18 @@ def render(result,details=False):
     if result.get('briefing_report_context'):context.update(result['briefing_report_context'])
     case=ntpath.basename(ntpath.dirname(plan['case']['path']))
     completed=result['status'] in ('COMPLETE','COMPLETE_WITH_LIMITATIONS')
-    lines=['INITIAL CASE ASSESSMENT — '+safe(case),'',
+    lines=[TextSpan('INITIAL CASE ASSESSMENT — '+safe(case), 'heading'),'',
            'Discovery pass: '+('completed within authorized bounds' if completed else result['status'].lower()),
-           'Forensic investigation: preliminary and incomplete.']
+           TextSpan('Forensic investigation: preliminary and incomplete.', 'forensic_note')]
     incomplete=[r for r in result['rows'] if r['status'] in ('incomplete','failed','not_searched')]
     lines.append('Search coverage: '+('incomplete — '+', '.join(sorted({r['artifact'] for r in incomplete})) if incomplete else 'supported bounded searches completed; searchable fields remain limited'))
     if result['status']=='RUNNING':lines.append('Saved RUNNING checkpoint; completion and current process activity are unconfirmed.')
-    lines += ['','Evidence discovered',
+    lines += ['',TextSpan('Evidence discovered', 'heading'),
               f'  {len(records)} distinct records across {len({r["artifact"] for r in records.values()})} artifact families.']
     for family,title in [('browser','Browser activity'),('mft','Filesystem metadata'),('prefetch','Prefetch references'),('evtx','Recorded events'),('registry','Registry evidence')]:
         members=[(eid,r) for eid,r in sorted(records.items()) if r['artifact']==family]
         if not members:continue
-        lines.append('  '+title)
+        lines.append(TextSpan('  '+title, 'heading'))
         for eid,record in members[:12]:
             fields=[f for fs in record.get('matched_fields_by_lead',{}).values() for f in fs]
             values=list(dict.fromkeys(prose(f['value']) for f in fields))
@@ -102,19 +104,19 @@ def render(result,details=False):
                     'evtx':'Event record matches','registry':'Registry record matches'}[family]
             if family=='prefetch' and info.get('process_name'):prefix=prose(info['process_name'])+' Prefetch references'
             if family=='browser' and (info.get('artifact_type')=='browser_download' or any(t.get('slot') in ('Browser.DownloadStart','Browser.DownloadEnd') for t in record['match'].get('timestamps',[]))):prefix=(prose(info.get('browser_product') or 'Browser'))+' recorded a download matching'
-            lines.append('    ['+citations[eid]+'] '+prefix+': '+display)
+            lines.append(TextSpan('    ['+citations[eid]+'] '+prefix+': '+display, 'value'))
             associated=[l['occurrences'][0]['original'] for l in plan['leads'] if l['id'] in record['lead_ids']]
             lines.append('      Associated reported indicators: '+', '.join(prose(v) for v in associated))
             for interpretation in result.get('interpretations',[]):
                 if interpretation['evidence_id']==eid:lines.append('      '+prose(interpretation.get('text','')))
             ctx=record.get('source_context',{})
             if ctx.get('conflicts') or len(ctx.get('source_ids') or [])>1:
-                lines.append('      Host/source attribution is ambiguous; no same-host/file identity is inferred.')
+                lines.append(TextSpan('      Host/source attribution is ambiguous; no same-host/file identity is inferred.', 'forensic_note'))
             if info.get('truncated_fields') or any(f.get('truncated') for f in fields) or record['match'].get('timestamps_truncated') or record['match'].get('source_file_truncated'):
-                lines.append('      Some saved fields are truncated; inspect --details.')
+                lines.append(TextSpan('      Some saved fields are truncated; inspect --details.', 'forensic_note'))
         if len(members)>12:lines.append(f'    {len(members)-12} further records retained in --details.')
-        if family=='prefetch':lines.append('    A referenced filename does not establish execution of that referenced file.')
-    if not records:lines.append('  No matches retained within the searched fields and coverage; this does not establish absence.')
+        if family=='prefetch':lines.append(TextSpan('    A referenced filename does not establish execution of that referenced file.', 'forensic_note'))
+    if not records:lines.append(TextSpan('  No matches retained within the searched fields and coverage; this does not establish absence.', 'forensic_note'))
     lines += ['',*context_lines(context)]
     chronology_rows,omitted=chronology(result,citations)
     lines += ['','Preliminary chronology — UTC; proximity does not establish causation',*(chronology_rows or ['  Other timestamp types are retained in --details.' if result.get('timeline') else '  No timestamps retained.'])]
@@ -132,22 +134,22 @@ def render(result,details=False):
         lines.append('  '+family+': '+', '.join(str(n)+' '+status.replace('_',' ') for status,n in sorted(counts.items()))+' lead searches.')
     unknown_hosts=sum(not r.get('source_context',{}).get('hostname') for r in records.values())
     if unknown_hosts:lines.append(f'  Host context unavailable for {unknown_hosts} records; no common host is assumed.')
-    lines.append('  No-match results apply only to supported fields and covered ranges, not all possible evidence.')
+    lines.append(TextSpan('  No-match results apply only to supported fields and covered ranges, not all possible evidence.', 'forensic_note'))
     # Deduplicate material projection, consistency and cleanup warnings without raw diagnostics.
     notes=list(dict.fromkeys([*result.get('warnings',[]),*[n for r in result['rows'] for n in r.get('limitations',[])],
                              *[n for r in records.values() for n in r['match'].get('limitations',[])]]))
     important=[n for n in notes if any(term in n.lower() for term in ('truncat','dirty','replay','ambig','cleanup','failure','interrupt','not merged','consistency','final'))]
-    lines += ['  '+prose(n) for n in important[:10]]
+    lines += [TextSpan('  '+prose(n), 'forensic_note') for n in important[:10]]
     if len(important)>10:lines.append('  Further limitations retained in --details.')
-    if result.get('briefing_stale'):lines.append('  Based on an older briefing revision.')
-    if not result.get('integrity_verified'):lines.append('  Final read-view consistency was not confirmed.')
+    if result.get('briefing_stale'):lines.append(TextSpan('  Based on an older briefing revision.', 'forensic_note'))
+    if not result.get('integrity_verified'):lines.append(TextSpan('  Final read-view consistency was not confirmed.', 'forensic_note'))
     lines += ['  Current evidence freshness: unknown; this is a saved historical read view.',
               '','Next investigative steps',
               '  Use --details to map citations to evidence IDs, source paths and original matching fields.',
               '  Compare executable/process evidence, download provenance and source/host identity before linking activity.',
               '  Review incomplete coverage before drawing negative conclusions.',
               f"  Assessment {result['id']} | briefing revision {plan['revision']} | {result['metrics']['elapsed_seconds']:.1f}s elapsed"]
-    return '\n'.join(safe(line) for line in lines)
+    return '\n'.join(render_spans((line if isinstance(line, TextSpan) else TextSpan(safe(line)),), palette) for line in lines)
 
 
 class Progress:

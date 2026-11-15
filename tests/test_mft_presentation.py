@@ -181,16 +181,17 @@ def test_ambiguous_equal_mft_slots_still_require_selection():
 @pytest.mark.parametrize('artifact', ['mft', 'evtx', 'prefetch', 'registry'])
 def test_shared_search_limit_and_explicit_override(artifact):
     parser = build_parser()
-    assert parser.parse_args(['search', '--artifact', artifact]).limit == 20
-    args = parser.parse_args(['search', '--artifact', artifact, '--limit', '7', '--offset', '12'])
+    assert parser.parse_args(['evidence', 'search', '--artifact', artifact]).limit == 20
+    args = parser.parse_args(['evidence', 'search', '--artifact', artifact, '--limit', '7', '--offset', '12'])
     assert (args.limit, args.offset) == (7, 12)
-    assert parser.parse_args(['timeline']).limit == 100
+    assert parser.parse_args(['evidence', 'timeline']).limit == 100
 
 
 def test_timeline_help_and_timezone_validation():
     from forensic_assistant.retrieval.queries import required_time
     parser = build_parser()
-    sub = next(a for a in parser._actions if a.dest == 'command').choices['timeline']
+    family = next(a for a in parser._actions if a.dest == 'family').choices['evidence']
+    sub = next(a for a in family._actions if isinstance(a, __import__('argparse')._SubParsersAction)).choices['timeline']
     for dest in ('timestamp', 'start', 'end', 'around'):
         action = next(a for a in sub._actions if a.dest == dest)
         assert 'ISO 8601' in action.help and 'explicit UTC offset' in action.help
@@ -216,7 +217,7 @@ def test_ingested_observations_source_update_paths_and_pagination(tmp_path):
         sid = sources.create(db, name='Synthetic')
         sources.assign(db, sid, [r['file_sha256']], reason='Synthetic fixture')
         db.commit()
-        args = build_parser().parse_args(['around', r['id'], '--timestamp-slot', r['timestamps'][0]['slot'], '--text'])
+        args = build_parser().parse_args(['evidence', 'around', r['id'], '--timestamp-slot', r['timestamps'][0]['slot'], '--text'])
         with pytest.raises(ValueError, match='Host context missing'):
             v2_cli.dispatch(db, args)
         sources.update(db, sid, hostname='Example-PC')
@@ -236,3 +237,9 @@ def test_ingested_observations_source_update_paths_and_pagination(tmp_path):
         assert before == list(map(tuple, db.execute('SELECT * FROM evidence_timestamps ORDER BY evidence_id,slot')))
     finally:
         db.close()
+
+
+@pytest.fixture(autouse=True)
+def isolated_presentation_recording(tmp_path, monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path/'app'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path/'user'))
