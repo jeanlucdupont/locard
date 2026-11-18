@@ -87,7 +87,13 @@ def error_data(exc):
                 secret = original.partition('=')[2] if original.startswith('--') and '=' in original else original
                 if secret:
                     message = message.replace(secret, '<redacted>')
-    return dict(error_category=type(exc).__name__, message=message[:2048])
+    result = dict(error_category=type(exc).__name__, message=message[:2048])
+    if isinstance(exc, AuditError):
+        for key in ('reason_code', 'action_outcome'):
+            value = getattr(exc, key, None)
+            if isinstance(value, str) and re.fullmatch('[a-z_]{1,80}', value):
+                result[key] = value
+    return result
 
 
 def _safe(path):
@@ -127,7 +133,9 @@ def locked(path, *, write=False):
                         break
                     except OSError as exc:
                         if time.monotonic() >= deadline:
-                            raise AuditError('Audit log is busy; retry the command') from exc
+                            error = AuditError('Audit log is busy; retry the command')
+                            error.reason_code = 'lock_acquisition_timeout'
+                            raise error from exc
                         time.sleep(.01)
                 _safe(path)
                 current = path.stat()
@@ -241,7 +249,9 @@ def append_batch(log_path, session_id, records):
                     raise OSError('Short audit write')
             stream.flush()
             os.fsync(stream.fileno())
-        except BaseException:
+        except BaseException as exc:
+            if isinstance(exc, OSError) and not isinstance(exc, PermissionError):
+                exc.reason_code = 'flush_fsync_failure'
             # Only this failed append, under the exclusive lock, may be removed.
             stream.truncate(original_size)
             stream.flush()
@@ -297,12 +307,18 @@ class Session:
             if recorder:
                 recorder.emit('activity_reference', dict(action=action, outcome=outcome,
                               activity_entry_hash=entry['entry_hash'], activity_sequence=entry['sequence'],
-                              activity_operation_id=fields.get('operation_id')))
+                              activity_operation_id=fields.get('operation_id')), required=required)
+                if required:
+                    recorder.anchor(required=True)
             return entry
         except (OSError, ValueError) as exc:
-            message = 'Activity log unavailable: ' + str(exc)
+            from .session_recording import failure_reason
+            reason = failure_reason(exc)
+            message = 'Activity log unavailable [' + reason + ']: ' + type(exc).__name__
             if required:
-                raise AuditError(message) from exc
+                failure = AuditError(message)
+                failure.reason_code = reason
+                raise failure from exc
             from .retrieval.presentation import safe_text
             print('Warning: ' + safe_text(message), file=sys.stderr)
             return None
@@ -342,22 +358,50 @@ def event(action, outcome='success', *, required=False, **fields):
 def mutation(action, **fields):
     """Persist an intent before yielding. Never silently lose a completion."""
     operation_id = str(uuid.uuid4())
-    event(action, 'pending', required=True, phase='intent', operation_id=operation_id, **fields)
-    result = dict(fields)
+    from .session_recording import ACTIVE, completing
+    recorder = ACTIVE.get()
     try:
-        yield result
-    except BaseException as exc:
-        event(action, 'cancelled' if isinstance(exc, (KeyboardInterrupt, EOFError, Cancelled)) else 'failure',
-              phase='complete', operation_id=operation_id, **result, **error_data(exc))
-        raise
-    else:
         try:
-            event(action, result.pop('_outcome', 'success'), required=True, phase='complete', operation_id=operation_id, **result)
+            if recorder:
+                session = CURRENT.get()
+                if session and recorder.case != session.case:
+                    recorder.open(session.case)
+                recorder.reserve_mutation(operation_id)
+            event(action, 'pending', required=True, phase='intent', operation_id=operation_id, **fields)
         except AuditError as exc:
-            failure = AuditError('Action completed but its audit completion failed; the durable intent remains. '
-                                 'Inspect authoritative provenance/output before retrying. ' + str(exc))
-            failure.action_completed = True
-            raise failure from exc
+            refused = AuditError('Action refused before execution: ' + str(exc))
+            refused.reason_code = getattr(exc, 'reason_code', 'audit_intent_failed')
+            refused.action_outcome = 'refused'
+            raise refused from exc
+        result = dict(fields)
+        try:
+            yield result
+        except BaseException as exc:
+            try:
+                with completing(recorder, operation_id):
+                    event(action, 'cancelled' if isinstance(exc, (KeyboardInterrupt, EOFError, Cancelled)) else 'failure',
+                          required=True, phase='complete', operation_id=operation_id, **result, **error_data(exc))
+            except AuditError as audit_exc:
+                failure = AuditError('Action outcome unknown; failure audit could not be persisted. '
+                                     'Inspect durable intent and authoritative provenance before retrying. ' + str(audit_exc))
+                failure.reason_code = 'failure_recording_failed_outcome_unknown'
+                failure.action_outcome = 'unknown'
+                raise failure from exc
+            raise
+        else:
+            try:
+                with completing(recorder, operation_id):
+                    event(action, result.pop('_outcome', 'success'), required=True, phase='complete', operation_id=operation_id, **result)
+            except AuditError as exc:
+                failure = AuditError('Action completed but its audit completion failed; the durable intent remains. '
+                                     'Inspect authoritative provenance/output before retrying. ' + str(exc))
+                failure.action_completed = True
+                failure.reason_code = 'completion_recording_failed_after_action'
+                failure.action_outcome = 'completed_audit_failed'
+                raise failure from exc
+    finally:
+        if recorder:
+            recorder.release_mutation(operation_id)
 
 
 def note_error(exc):

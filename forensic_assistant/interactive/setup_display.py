@@ -55,8 +55,10 @@ class FileProgress:
 
     def _frame(self):
         # Caller holds the display lock. Never print fallback lines from animation.
-        if not replace_progress_line(self.palette('label', self._text()), self.stream):
-            self.stop.set()
+        from forensic_assistant.session_recording import suspended
+        with suspended():
+            if not replace_progress_line(self.palette('label', self._text()), self.stream):
+                self.stop.set()
         self.index += 1
 
     def _animate(self):
@@ -84,7 +86,10 @@ class FileProgress:
                 return
             self.last = current
             text = self.palette('label', self._text())
-            if not self.inplace or not replace_progress_line(text, self.stream):
+            from forensic_assistant.session_recording import suspended
+            with suspended():
+                replaced = self.inplace and replace_progress_line(text, self.stream)
+            if not replaced:
                 print(text, file=self.stream, flush=True)
 
     def close(self):
@@ -96,7 +101,9 @@ class FileProgress:
                 return
             self.closed = True
             if self.inplace:
-                replace_progress_line('', self.stream)
+                from forensic_assistant.session_recording import suspended
+                with suspended():
+                    replace_progress_line('', self.stream)
 
 
 def diagnostic_groups(db, run_ids=None):

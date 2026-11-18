@@ -189,7 +189,7 @@ def test_activity_snapshot_precedes_own_command(case, capsys):
     assert not any(e.get('command') == 'activity' for e in snapshot['records'])
     assert any(e.get('command') == 'activity' for e in records(path))
     assert main(['--db', str(path), 'audit', 'verify']) == 0
-    assert 'Activity chain: verified' in capsys.readouterr().out
+    assert 'Activity chain: Verified' in ' '.join(capsys.readouterr().out.split())
 
 
 def test_read_warns_but_source_mutation_fails_before_change(case, monkeypatch, capsys):

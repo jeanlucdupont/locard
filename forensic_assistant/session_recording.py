@@ -27,16 +27,41 @@ from .investigation_ai.storage import DirectoryGuard, local_path
 
 ACTIVE = ContextVar('session_recorder', default=None)
 SUPPRESS = ContextVar('session_capture_suppressed', default=False)
+COMPLETING = ContextVar('session_mutation_completion', default=None)
 EVENT_BYTES = 16 * 1024
 OUTPUT_BYTES = 64 * 1024
 SESSION_BYTES = 2 * 1024 * 1024
 ROOT_BYTES = 100 * 1024 * 1024
 MAX_FILES = 1000
 RESERVE = 64 * 1024
+# A mutation holds this capacity through its body, including nested mutations.
+# Completion needs a bounded check, activity reference and checkpoint, or a
+# bounded failure record. The terminal reserve is separate.
+MUTATION_BYTES = 128 * 1024
+CONTRACT = 'session-record-v2'
 SECRET = re.compile(r'password|passwd|secret|credential|authorization|api.?key|access.?token|refresh.?token|^token$', re.I)
 ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))')
 ASSIGNMENT = re.compile(r'(?i)((?:password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|credentials|authorization)["\x27]?\s*[:=]\s*)(?:"[^"\r\n]*"|\x27[^\x27\r\n]*\x27|[^\s,;}]+)')
 BEARER = re.compile(r'(?i)\bBearer\s+[^\s,;"\x27]+')
+
+
+def audit_failure(reason):
+    error = activity.AuditError(reason)
+    error.reason_code = reason
+    return error
+
+
+def failure_reason(exc):
+    if isinstance(exc, PermissionError):
+        return 'writer_permission_failure'
+    if getattr(exc, 'reason_code', None):
+        return exc.reason_code
+    if str(exc) in ('Case location identity changed', 'Session file identity changed',
+                    'Audit path changed while opening', 'Audit path changed while acquiring the lock'):
+        return 'file_identity_mismatch'
+    if isinstance(exc, OSError):
+        return 'writer_io_failure'
+    return 'session_unavailable'
 
 
 def app_root():
@@ -135,6 +160,16 @@ def suspended():
         SUPPRESS.reset(token)
 
 
+@contextmanager
+def completing(recorder, operation_id):
+    """Only the completing thread may spend this mutation's held capacity."""
+    token = COMPLETING.set((recorder, operation_id))
+    try:
+        yield
+    finally:
+        COMPLETING.reset(token)
+
+
 class Recorder:
     def __init__(self, warning_stream=None):
         from . import __version__
@@ -153,6 +188,12 @@ class Recorder:
         self.buffered = {'stdout': '', 'stderr': ''}
         self.events = []
         self.event_bytes = 0
+        self.chain_id = None
+        self.segment_index = 0
+        self.previous_segment = None
+        self.reservations = set()
+        self.rotating = False
+        self.failure_reason = None
 
     def warning(self):
         # Fixed text: filesystem/provider exceptions can contain secrets.
@@ -162,6 +203,9 @@ class Recorder:
     def fail(self, exc, required=False):
         first = not self.broken
         self.broken = True
+        reason = failure_reason(exc)
+        if first:
+            self.failure_reason = reason
         if first and self.authority:
             try:
                 # Independent authority can still record loss of its supplemental file.
@@ -169,13 +213,100 @@ class Recorder:
                 with DirectoryGuard(self.authority.parent):
                     activity.append(self.authority, self.id, 'SESSION_CAPTURE_FAILURE', 'failure',
                                     recording_id=self.segment, error_category=type(exc).__name__,
+                                    reason_code=reason, session_bytes=self.size,
+                                    underlying_reason=getattr(exc, 'underlying_reason', None),
+                                    underlying_exception=getattr(exc, 'underlying_exception', None),
+                                    buffered_estimated_bytes=self.event_bytes,
                                     operation_id=self.operation_id)
             except (OSError, ValueError):
                 pass  # Fixed visible warning is the remaining channel.
         if first or required:
             self.warning()
         if required:
-            raise activity.AuditError('Required session audit could not be persisted; action not authorized') from exc
+            error = activity.AuditError('Required session audit could not be persisted [' +
+                                        (self.failure_reason or reason) + ']')
+            error.reason_code = self.failure_reason or reason
+            raise error from exc
+
+    def allocate_segment(self, root, identity):
+        """Serialize quota admission with other writers; scan only on allocation.
+
+        Unclosed/empty segments reserve their entire 2 MiB envelope, so concurrent
+        application sessions cannot overcommit the directory's existing quota.
+        """
+        with DirectoryGuard(root), activity.locked(self.authority, write=True):
+            total = count = 0
+            for file in root.iterdir():
+                activity._safe(file)
+                size = file.stat().st_size
+                charge = size
+                if re.fullmatch(r'[0-9a-f]{32}\.jsonl', file.name):
+                    with file.open('rb') as stream:
+                        last = activity.tail(stream)
+                    if not last or last['action'] != 'session_end':
+                        charge = max(size, SESSION_BYTES)
+                total += charge
+                count += 1
+            if count >= MAX_FILES or total + SESSION_BYTES > ROOT_BYTES:
+                raise audit_failure('session_directory_quota_exceeded')
+            if shutil.disk_usage(root).free < SESSION_BYTES + RESERVE:
+                raise audit_failure('insufficient_storage')
+            path = root / (identity + '.jsonl')
+            with path.open('xb'):
+                pass
+            return path
+
+    def start_segment(self, path):
+        self.path, self.segment = path, path.stem
+        self.head = None
+        self.size = self.event_bytes = 0
+        self.events = []
+        info = path.stat()
+        self.file_identity = (info.st_dev, info.st_ino)
+        self.emit('session_start', dict(application_version=self.version, case_binding=self.binding,
+                  limitations=['bounded output; no external editor keystrokes',
+                               'parent-visible worker diagnostics only; raw AI debug output excluded']), required=True)
+        self.anchor('SESSION_RECORD_START', required=True)
+
+    def rotate(self):
+        if self.rotating or self.broken:
+            raise audit_failure('segment_rotation_failed')
+        self.rotating = True
+        try:
+            self.flush_events(required=True)
+            following = uuid.uuid4().hex
+            # Failure here leaves the old segment unsealed and blocks admission.
+            path = self.allocate_segment(self.path.parent, following)
+            self.emit('session_end', dict(reason='rotation', next_segment=following), required=True)
+            self.anchor('SESSION_RECORD_END', required=True)
+            self.previous_segment = dict(recording_id=self.segment, sequence=self.head['sequence'],
+                                         entry_hash=self.head['entry_hash'], bytes=self.size)
+            self.segment_index += 1
+            self.start_segment(path)
+        except (OSError, ValueError) as exc:
+            error = audit_failure('segment_rotation_failed')
+            error.underlying_reason = failure_reason(exc)
+            error.underlying_exception = type(exc).__name__
+            self.fail(error, True)
+        except (KeyboardInterrupt, SystemExit):
+            self.fail(audit_failure('segment_rotation_interrupted'))
+            raise
+        finally:
+            self.rotating = False
+
+    def reserve_mutation(self, operation_id):
+        with self.lock:
+            self.require()
+            held = (len(self.reservations) + 1) * MUTATION_BYTES
+            if held + RESERVE + EVENT_BYTES >= SESSION_BYTES:
+                raise audit_failure('session_capacity_exhausted')
+            if self.size + self.event_bytes + held + RESERVE + EVENT_BYTES > SESSION_BYTES:
+                self.rotate()
+            self.reservations.add(operation_id)
+
+    def release_mutation(self, operation_id):
+        with self.lock:
+            self.reservations.discard(operation_id)
 
     def check_binding(self):
         if self.case:
@@ -189,6 +320,8 @@ class Recorder:
             if self.segment and self.case == (Path(case).absolute() if case else None):
                 self.check_binding()
                 return
+            if self.reservations:
+                raise audit_failure('case_transition_during_mutation')
             self.close('case transition')
             self.path = self.segment = self.head = self.authority = None
             self.case = Path(case).absolute() if case else None
@@ -197,6 +330,10 @@ class Recorder:
             self.output_bytes = self.omitted_bytes = self.size = 0
             self.events = []
             self.event_bytes = 0
+            self.chain_id = uuid.uuid4().hex
+            self.segment_index = 0
+            self.previous_segment = None
+            self.failure_reason = None
             try:
                 if self.case:
                     from .case_management import validate_identity
@@ -216,27 +353,8 @@ class Recorder:
                             bound = previous.get('case_binding')
                             if bound is not None and bound != self.binding:
                                 raise activity.AuditError('Recorded case location identity mismatch; no history attachment')
-                total = count = 0
-                for file in root.iterdir():
-                    activity._safe(file)
-                    total += file.stat().st_size
-                    count += 1
-                    if count >= MAX_FILES or total > ROOT_BYTES - SESSION_BYTES:
-                        raise activity.AuditError('Session storage quota reached')
-                if shutil.disk_usage(root).free < SESSION_BYTES + RESERVE:
-                    raise activity.AuditError('Insufficient session storage')
                 self.authority = authority
-                self.segment = uuid.uuid4().hex
-                self.path = root / (self.segment + '.jsonl')
-                with DirectoryGuard(root):
-                    with self.path.open('xb'):
-                        pass
-                    info = self.path.stat()
-                    self.file_identity = (info.st_dev, info.st_ino)
-                self.emit('session_start', dict(application_version=self.version, case_binding=self.binding,
-                          limitations=['bounded output; no external editor keystrokes',
-                                       'parent-visible worker diagnostics only; raw AI debug output excluded']), required=True)
-                self.anchor('SESSION_RECORD_START', required=True)
+                self.start_segment(self.allocate_segment(root, uuid.uuid4().hex))
             except (OSError, ValueError, sqlite3.Error) as exc:
                 self.fail(exc)
 
@@ -256,13 +374,23 @@ class Recorder:
                 if len(raw) > EVENT_BYTES // 2:
                     # Do not cut JSON or silently lose a structural value.
                     data = dict(capture_gap='event_payload_limit', omitted_serialized_bytes=len(raw))
-                fields = dict(contract='session-record-v1', event_id=uuid.uuid4().hex,
+                fields = dict(contract=CONTRACT, chain_id=self.chain_id, segment_index=self.segment_index,
+                              previous_segment=self.previous_segment, event_id=uuid.uuid4().hex,
                               observed_utc=datetime.now(timezone.utc).isoformat(timespec='microseconds').replace('+00:00', 'Z'),
                               application_session_id=self.id, operation_id=self.operation_id, data=data)
-                ceiling = SESSION_BYTES if kind in ('session_end', 'capture_gap') else SESSION_BYTES - RESERVE
+                terminal = kind == 'session_end'
+                completing_id = COMPLETING.get()
+                spending = (completing_id is not None and completing_id[0] is self
+                            and completing_id[1] in self.reservations)
+                held = len(self.reservations) - int(spending)
+                ceiling = SESSION_BYTES if terminal else SESSION_BYTES - RESERVE - held * MUTATION_BYTES
                 estimate = len(activity.canonical(fields)) + 1024
                 if self.size + self.event_bytes + estimate > ceiling:
-                    raise activity.AuditError('Session size limit reached')
+                    if self.size > SESSION_BYTES or self.rotating or terminal:
+                        raise audit_failure('session_capacity_exhausted')
+                    self.rotate()
+                    # Rebuild the event with the new immutable segment binding.
+                    return self.emit(kind, data, required=required, outcome=outcome)
                 self.events.append((kind, outcome, fields))
                 self.event_bytes += estimate
                 if required or self.event_bytes >= EVENT_BYTES or len(self.events) >= 100:
@@ -301,7 +429,10 @@ class Recorder:
             self.check_binding()
             with DirectoryGuard(self.authority.parent):
                 activity.append(self.authority, self.id, action, 'success',
-                                recording_contract='session-record-v1', recording_id=self.segment,
+                                recording_contract=CONTRACT, recording_id=self.segment,
+                                chain_id=self.chain_id, segment_index=self.segment_index,
+                                previous_segment=self.previous_segment,
+                                next_segment=self.head.get('data', {}).get('next_segment'),
                                 recording_sequence=self.head['sequence'], recording_hash=self.head['entry_hash'],
                                 recording_bytes=self.size, case_binding=self.binding,
                                 application_version=self.version, operation_id=self.operation_id)
@@ -580,19 +711,46 @@ def verify(case=None):
     root, authority = locations(case)
     audit = activity.inspect(authority, limit=1)
     anchors = {}
+    promised = set()
+    anchor_issues = set()
     if audit['valid'] and audit.get('exists'):
+        authority_head = None
+        authority_count = 0
         with activity.locked(authority) as stream:
             while raw := stream.readline(activity.MAX_ENTRY + 1):
                 entry = activity.decode(raw)
-                if entry.get('recording_contract') == 'session-record-v1':
+                authority_count += 1
+                if entry['sequence'] != authority_count or entry['previous_entry_hash'] != authority_head:
+                    raise activity.AuditError('Activity changed during session verification; retry')
+                authority_head = entry['entry_hash']
+                if entry.get('recording_contract') in ('session-record-v1', CONTRACT):
                     key = entry.get('recording_id', '')
                     if not re.fullmatch('[0-9a-f]{32}', key):
                         raise activity.AuditError('Invalid recording identity')
                     if key not in anchors and len(anchors) >= MAX_FILES:
                         raise activity.AuditError('Session verification limit exceeded')
+                    if entry.get('recording_contract') == CONTRACT:
+                        earlier = anchors.get(key, [None])[-1]
+                        if earlier and (earlier['action'] == 'SESSION_RECORD_END' or any(
+                                earlier.get(k) != entry.get(k) for k in
+                                ('recording_contract', 'chain_id', 'segment_index', 'previous_segment', 'session_id'))):
+                            anchor_issues.add(key)
+                        following = entry.get('next_segment')
+                        if following is not None:
+                            if not re.fullmatch('[0-9a-f]{32}', str(following)):
+                                raise activity.AuditError('Invalid linked recording identity')
+                            promised.add(following)
                     anchors[key] = [entry]  # Latest trusted prefix commits all earlier links.
+        if authority_head != audit['head_hash'] or authority_count != audit['entries']:
+            raise activity.AuditError('Activity changed during session verification; retry')
     rows = []
-    names = set(anchors)
+    names = set(anchors) | promised
+    for refs in anchors.values():
+        following = refs[-1].get('next_segment')
+        if following is not None:
+            if not re.fullmatch('[0-9a-f]{32}', str(following)):
+                raise activity.AuditError('Invalid linked recording identity')
+            names.add(following)
     if root.exists():
         local_path(root)
         for index, file in enumerate(root.iterdir()):
@@ -620,14 +778,29 @@ def verify(case=None):
                     prefix_bytes = {}
                     consumed = 0
                     binding = None
+                    segment_binding = None
+                    sealed = False
+                    previous_hash = None
                     with activity.locked(path) as stream:
                         while raw := stream.readline(activity.MAX_ENTRY + 1):
                             e = activity.decode(raw)
+                            if e['sequence'] != len(entries) + 1 or e['previous_entry_hash'] != previous_hash:
+                                raise activity.AuditError('Session event ordering mismatch')
+                            previous_hash = e['entry_hash']
                             consumed += len(raw)
                             prefix_bytes[e['sequence']] = consumed
                             entries[e['sequence']] = e
-                            if e['session_id'] != identity or e.get('contract') != 'session-record-v1':
+                            if e['session_id'] != identity or e.get('contract') not in ('session-record-v1', CONTRACT):
                                 raise activity.AuditError('Session identity or contract mismatch')
+                            if e.get('contract') == CONTRACT:
+                                if sealed or ((e['sequence'] == 1) != (e['action'] == 'session_start')):
+                                    raise activity.AuditError('Invalid segment lifecycle')
+                                sealed = e['action'] == 'session_end'
+                            metadata = {k: e.get(k) for k in ('contract', 'application_session_id', 'chain_id', 'segment_index', 'previous_segment')}
+                            if segment_binding is None:
+                                segment_binding = metadata
+                            elif metadata != segment_binding:
+                                raise activity.AuditError('Session segment binding changed')
                             if e['action'] == 'session_start':
                                 binding = e['data'].get('case_binding')
                                 row.update(start=e['timestamp_utc'], application_version=e['data'].get('application_version'))
@@ -635,10 +808,27 @@ def verify(case=None):
                             if e['action'] == 'capture_gap':
                                 row['limitations'].append(e['data'])
                     row['records'] = len(entries)
+                    if previous_hash != checked['head_hash'] or len(entries) != checked['entries']:
+                        raise audit_failure('verification_changed_retry')
+                    row.update(segment_binding or {})
+                    row['case_binding'] = binding
+                    row['recording_bytes'] = consumed
+                    row['next_segment'] = entries.get(len(entries), {}).get('data', {}).get('next_segment')
+                    row['anchor_sequence'] = refs[-1]['sequence'] if refs else None
+
                     row['head_hash'] = checked['head_hash']
                     row['anchored_through'] = refs[-1]['recording_sequence'] if refs else 0
                     if refs:
                         for ref in refs:
+                            if row.get('contract') == CONTRACT:
+                                if ref.get('recording_contract') != CONTRACT or any(
+                                        ref.get(k) != row.get(k) for k in ('chain_id', 'segment_index', 'previous_segment')):
+                                    raise activity.AuditError('Anchor segment binding mismatch')
+                                if ref['session_id'] != row.get('application_session_id'):
+                                    raise activity.AuditError('Logical session identity mismatch')
+                                if (ref['recording_sequence'] == len(entries) and
+                                        ref.get('next_segment') != row.get('next_segment')):
+                                    raise activity.AuditError('Anchor successor mismatch')
                             e = entries.get(ref['recording_sequence'])
                             if not e or e['entry_hash'] != ref['recording_hash']:
                                 raise activity.AuditError('Anchored session prefix is missing or changed')
@@ -649,12 +839,91 @@ def verify(case=None):
                         row.update(integrity='verified' if complete else 'incomplete',
                                    completion=last.get('data', {}).get('reason', 'incomplete') if complete else 'incomplete',
                                    end=last.get('timestamp_utc') if complete else None)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            if getattr(exc, 'reason_code', None) == 'verification_changed_retry':
+                raise activity.AuditError('Session changed during verification; retry') from exc
             row['integrity'] = 'corrupt'
+        if identity in anchor_issues:
+            row['integrity'] = 'corrupt'
+            row['limitations'].append('Activity anchors changed segment binding or followed its seal')
         rows.append(row)
+    validate_segment_links(rows)
+    if audit['valid'] and audit.get('exists'):
+        with activity.locked(authority) as stream:
+            last = activity.tail(stream)
+        if (last['entry_hash'] if last else None) != audit['head_hash']:
+            raise activity.AuditError('Activity changed during session verification; retry')
     rows.sort(key=lambda r: (r['start'] or '', r['session_id']))
     return dict(kind='session_audit', valid=audit['valid'] and all(r['integrity'] in ('verified', 'incomplete') for r in rows),
                 activity=audit, sessions=rows)
+
+
+def validate_segment_links(rows):
+    """Check reciprocal, anchored links; a valid per-file hash is not enough."""
+    by_id = {r['session_id']: r for r in rows}
+    chains = {}
+    for row in rows:
+        if row.get('contract') != CONTRACT:
+            continue
+        chain = row.get('chain_id')
+        if not isinstance(chain, str) or not re.fullmatch('[0-9a-f]{32}', chain):
+            row['integrity'] = 'corrupt'
+            continue
+        chains.setdefault(chain, []).append(row)
+    for chain in chains.values():
+        good = True
+        seen = set()
+        for row in chain:
+            index = row.get('segment_index')
+            if type(index) is not int or index < 0 or index in seen:
+                good = False
+                continue
+            seen.add(index)
+            previous = row.get('previous_segment')
+            if index == 0:
+                if previous is not None:
+                    good = False
+            else:
+                if (not isinstance(previous, dict) or not isinstance(previous.get('recording_id'), str)):
+                    good = False
+                    continue
+                earlier = by_id.get(previous.get('recording_id'))
+                if not earlier or previous != dict(recording_id=earlier['session_id'],
+                        sequence=earlier['records'], entry_hash=earlier.get('head_hash'),
+                        bytes=earlier.get('recording_bytes')):
+                    good = False
+                    continue
+                if (earlier.get('next_segment') != row['session_id'] or
+                        earlier.get('segment_index') != index - 1 or
+                        any(earlier.get(k) != row.get(k) for k in ('chain_id', 'application_session_id', 'case_binding')) or
+                        earlier.get('completion') != 'rotation' or
+                        not earlier.get('anchor_sequence') or not row.get('anchor_sequence') or
+                        earlier['anchor_sequence'] >= row['anchor_sequence']):
+                    good = False
+            following = row.get('next_segment')
+            if row.get('completion') == 'rotation' and following is None:
+                good = False
+            if following is not None:
+                if not isinstance(following, str):
+                    good = False
+                    continue
+                later = by_id.get(following)
+                if (not later or later.get('contract') != CONTRACT or
+                        not isinstance(later.get('previous_segment'), dict) or
+                        later['previous_segment'].get('recording_id') != row['session_id']):
+                    good = False
+            if row['integrity'] not in ('verified', 'incomplete'):
+                good = False
+        if not good:
+            for row in chain:
+                row['linked_integrity'] = 'invalid'
+                if row['integrity'] in ('verified', 'incomplete'):
+                    row['integrity'] = 'corrupt'
+                row['limitations'].append('Linked segment sequence is missing, inconsistent or unverified')
+        else:
+            complete = all(r['integrity'] == 'verified' for r in chain)
+            for row in chain:
+                row['linked_integrity'] = 'verified' if complete else 'incomplete'
 
 
 def review(case=None, *, selector='latest', limit=100, diagnostics=False, severity=None, operation_id=None, since=None):

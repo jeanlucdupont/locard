@@ -220,7 +220,7 @@ def test_cli_review_and_status_do_not_change_evidence(tmp_path, capsys):
     assert main(['--db', str(path), 'audit', 'session', 'show', 'latest', '--json']) == 0
     assert json.loads(capsys.readouterr().out)['records']
     assert main(['--db', str(path), 'audit', 'verify']) == 0
-    assert 'Activity chain: Verified' in capsys.readouterr().out
+    assert 'Activity chain: Verified' in ' '.join(capsys.readouterr().out.split())
     assert path.read_bytes() == original
 
 
