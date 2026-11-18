@@ -61,8 +61,10 @@ def failed_run(db, volume, started, exc, batch_id, cancelled=False):
                 inserted=0, duplicates=0, errors=1, acquisition_error=category, limitation=reason)
 
 
-def ingest(db, volume, *, batch_id=None, timeout=300, record_size=None):
+def ingest(db, volume, *, batch_id=None, timeout=None, record_size=None, mft_startup_timeout=60, mft_hard_timeout=21600):
     from .ingest import ingest_artifact
+    from .progress import policy
+    policy(900 if timeout is None else timeout, mft_startup_timeout, mft_hard_timeout)
     storage = check_storage(db, volume)
     started = now()
     try:
@@ -80,6 +82,7 @@ def ingest(db, volume, *, batch_id=None, timeout=300, record_size=None):
                 return failed_run(db, volume, started, exc, batch_id)
             emit(parser_stage='hashing acquired MFT')
             result = ingest_artifact(db, path, 'mft', batch_id=batch_id, timeout=timeout,
+                                     mft_startup_timeout=mft_startup_timeout, mft_hard_timeout=mft_hard_timeout,
                                      record_size=record_size, acquisition=metadata,
                                      source_label=volume + '\\$MFT')
             result['limitation'] = ntfs.LIVE_LIMITATION

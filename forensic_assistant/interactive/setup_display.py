@@ -45,19 +45,29 @@ class FileProgress:
         self.stop = threading.Event()
         self.thread = None
         self.closed = False
+        self.phase_text = ""
 
     def _text(self):
         elapsed = max(0, int(self.clock() - self.started))
         percent = (100 * self.processed // self.total) if self.total else 0
         text = (f'{self.kind}  {self.processed} / {self.total} files  {percent}%  '
                 f'{elapsed // 60:02d}:{elapsed % 60:02d} elapsed  {self.records:,} records stored')
+        if self.phase_text:
+            text += ' | ' + self.phase_text
         return (self.frames[self.index % len(self.frames)] + ' ' if self.animated else '') + text
+
+    def observe(self, fields):
+        if self.kind != 'mft':
+            return
+        from forensic_assistant.artifacts.progress import description
+        with self.lock:
+            self.phase_text = description(fields)
 
     def _frame(self):
         # Caller holds the display lock. Never print fallback lines from animation.
         from forensic_assistant.session_recording import suspended
         with suspended():
-            if not replace_progress_line(self.palette('label', self._text()), self.stream):
+            if not replace_progress_line(self.palette('progress' if self.kind == 'mft' else 'label', self._text()), self.stream):
                 self.stop.set()
         self.index += 1
 
@@ -85,7 +95,7 @@ class FileProgress:
             if self.last is not None and processed < self.total and current - self.last < interval:
                 return
             self.last = current
-            text = self.palette('label', self._text())
+            text = self.palette('progress' if self.kind == 'mft' else 'label', self._text())
             from forensic_assistant.session_recording import suspended
             with suspended():
                 replaced = self.inplace and replace_progress_line(text, self.stream)

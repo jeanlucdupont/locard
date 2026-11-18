@@ -151,7 +151,8 @@ def test_directory_reserves_live_segments_and_refuses_new_work(tmp_path, monkeyp
         assert not first.broken
 
 
-def test_spinner_suppressed_but_outcomes_retained(tmp_path, monkeypatch):
+@pytest.mark.parametrize('kind', ['prefetch', 'mft'])
+def test_spinner_suppressed_but_outcomes_retained(tmp_path, monkeypatch, kind):
     class Terminal(io.StringIO):
         def isatty(self): return True
         @property
@@ -160,7 +161,8 @@ def test_spinner_suppressed_but_outcomes_retained(tmp_path, monkeypatch):
     with recording(path) as rec:
         stream = sr.Stream(Terminal(), rec, 'stdout')
         monkeypatch.setattr('forensic_assistant.terminal.capable', lambda s: True)
-        meter = FileProgress('prefetch', 500, Palette(), stream=stream)
+        meter = FileProgress(kind, 500, Palette(), stream=stream)
+        meter.observe(dict(parser_stage='reconstruction', paths_processed=120))
         for _ in range(10000):
             meter._frame()
         meter.close()

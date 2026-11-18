@@ -391,7 +391,7 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
     override = os.environ.pop('LOCARD_GUIDED_MFT_PARSER_TIMEOUT', None)
     if override not in (None, '3600'):
         raise ValueError('LOCARD_GUIDED_MFT_PARSER_TIMEOUT must be 3600 or unset')
-    mft_timeout = 3600 if override is not None else 300
+    mft_timeout = 3600 if override is not None else 900
     browser_options = {path: (product, profile) for path, product, profile in plan.browsers}
     with closing(creation.open_existing(plan.target)) as db:
         with activity.mutation('SOURCE_CREATE', basis=basis) as event, db:
@@ -427,7 +427,7 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
                     if kind == 'browser':
                         args.browser, args.profile = browser_options[item.path]
                     with closing(creation.open_existing(plan.target)) as db:
-                        with Observation('Ingesting artifact') as observed:
+                        with Observation('Ingesting artifact', on_update=meter.observe) as observed:
                             observed.update(current_path=str(item.path), artifact_type=kind,
                                             file_index=processed, total_files=len(selected),
                                             total_records_stored=progress.records, parser_stage='starting')

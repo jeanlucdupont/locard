@@ -20,12 +20,14 @@ def configure(commands):
         p.add_argument('--hostname', help='Analyst-supplied source hostname')
         p.add_argument('--user', help='Analyst-supplied source username')
         p.add_argument('--volume-root', help='Original volume root asserted by the analyst')
-        p.add_argument('--parser-timeout', type=int, default=300,
-                       help='EVTX: seconds without parser advancement; other artifacts: wall-clock limit')
+        p.add_argument('--parser-timeout', type=int, default=None,
+                       help='Seconds without progress: MFT default 900, EVTX 300; other artifacts wall-clock default 300')
         if name in ('ingest-evtx', 'ingest-all'):
             p.add_argument('--evtx-hard-timeout', type=int, default=21600,
                            help='EVTX emergency absolute ceiling in seconds (default: 21600)')
         if name in ('ingest-mft', 'ingest-all'):
+            p.add_argument('--mft-startup-timeout', type=int, default=60, help='MFT startup limit, 1..300 seconds')
+            p.add_argument('--mft-hard-timeout', type=int, default=21600, help='MFT emergency ceiling, 1..86400 seconds')
             p.add_argument('--record-size', type=int, help='MFT record size in bytes')
         else:
             p.set_defaults(record_size=None)
@@ -64,7 +66,9 @@ def ingest_sources(db, args, progress=None):
         check_storage(db, native_volume)
     with activity.mutation('INGEST_BATCH', command=args.command, path=str(args.path),
                            source_id=getattr(args, 'source', None)) as audit_result:
-        results = _ingest_sources(db, args, progress)
+        from forensic_assistant.artifacts.progress import display
+        with display(args):
+            results = _ingest_sources(db, args, progress)
         audit_result.update(files=len(results), inserted=sum(r['inserted'] for r in results),
                             duplicates=sum(r['duplicates'] for r in results), errors=sum(r['errors'] for r in results))
         if not results or any(r['status'] != 'complete' for r in results):
@@ -121,21 +125,27 @@ def _ingest_sources(db, args, progress=None):
         if requested == 'browser':
             files = [(args.path, 'browser')]
         for path, kind in files:
+            timeout = getattr(args, 'parser_timeout', None)
+            if timeout is None:
+                timeout = 900 if kind == 'mft' else 300
+            mft_limits = dict(mft_startup_timeout=getattr(args, 'mft_startup_timeout', 60),
+                              mft_hard_timeout=getattr(args, 'mft_hard_timeout', 21600)) if kind == 'mft' else {}
             with activity.mutation('INGEST', source_id=source_id, batch_id=batch_id,
                                    source_file=str(path), artifact_type=kind) as audit_result:
                 if kind == 'mft' and mounted_volume(path):
                     from forensic_assistant.artifacts.native_mft import ingest as ingest_native_mft
                     result = ingest_native_mft(db, mounted_volume(path), batch_id=batch_id,
-                                               timeout=args.parser_timeout, record_size=args.record_size)
+                                               timeout=timeout, record_size=args.record_size, **mft_limits)
                 elif kind == 'evtx':
-                    result = ingest_file(db, path, batch_id=batch_id, timeout=getattr(args, 'parser_timeout', 300),
+                    result = ingest_file(db, path, batch_id=batch_id, timeout=timeout,
                                          hard_timeout=getattr(args, 'evtx_hard_timeout', 21600))
                 else:
                     result = ingest_artifact(
                         db,
                         path,
                         kind,
-                        timeout=args.parser_timeout,
+                        timeout=timeout,
+                        **mft_limits,
                         record_size=args.record_size,
                         batch_id=batch_id,
                         **({'browser_product': args.browser, 'profile': args.profile} if kind == 'browser' else {})

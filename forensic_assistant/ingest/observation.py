@@ -16,7 +16,8 @@ def emit(**fields):
 
 
 class Observation:
-    def __init__(self, label, *, stream=None, clock=time.monotonic, interval=3, slow_after=10, diagnostics=False):
+    def __init__(self, label, *, stream=None, clock=time.monotonic, interval=3, slow_after=10, diagnostics=False, on_update=None):
+        self.on_update = on_update
         self.diagnostics = diagnostics
         self.label = label
         self.stream = sys.stdout if stream is None else stream
@@ -39,6 +40,9 @@ class Observation:
             self.fields.update(fields)
             if progress:
                 self.last_progress = self.clock()
+
+        if self.on_update is not None:
+            self.on_update(dict(self.fields))
 
     def render(self):
         with self.lock:

@@ -311,7 +311,7 @@ def _attempt(shell):
             hostname=None,
             user=None,
             volume_root=None,
-            parser_timeout=300,
+            parser_timeout=None,
             record_size=None
         )
         while True:

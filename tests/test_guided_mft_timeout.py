@@ -43,12 +43,12 @@ def test_guided_override_is_mft_only_and_one_shot(tmp_path, monkeypatch, overrid
                     setup.execute(plan, session, Palette())
             else:
                 setup.execute(plan, session, Palette())
-                assert dict(seen) == {kind: 3600 if kind == 'mft' and override else 300 for kind in discovery.CATEGORIES}
+                assert dict(seen) == {kind: (3600 if override else 900) if kind == 'mft' else 300 for kind in discovery.CATEGORIES}
             assert ENV not in os.environ
-            assert seen[0] == ('mft', 3600 if override else 300)
+            assert seen[0] == ('mft', 3600 if override else 900)
             seen.append(('separator', 0))  # Avoid the injected first-call cancellation.
             setup.execute(plan, session, Palette())
-            assert all(timeout == 300 for kind, timeout in seen[seen.index(('separator',0))+1:])
+            assert all(timeout == (900 if kind == 'mft' else 300) for kind, timeout in seen[seen.index(('separator',0))+1:])
     finally:
         session.end()
 
@@ -83,6 +83,6 @@ def test_extended_timeout_does_not_disable_stage_cap(tmp_path, monkeypatch):
         def wait(self,**kw):self.returncode=-1;return -1
     monkeypatch.setattr(ingest.subprocess,'Popen',Process)
     with pytest.raises(ValueError,match='exceeds 8 GiB'):
-        ingest.worker('mft','unused','a'*64,stage,{},3600)
+        ingest.worker('mft',str(stage),'a'*64,stage,{},3600)
     assert processes[0].poll() is not None  # Cooperative startup exit is valid cleanup.
     assert processes[0].stdin.closed

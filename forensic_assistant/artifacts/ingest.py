@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from .progress import Deadline, WorkerFailure, ProgressError, policy, read_snapshot, snapshot_path
 from forensic_assistant.ingest.observation import emit
 from forensic_assistant.ingest.evtx import digest
 from forensic_assistant.database.db import now, register_source
@@ -34,6 +35,11 @@ TABLES = (
 
 
 def worker(kind, path, sha, stage, options, timeout):
+    deadline = None
+    if kind == 'mft':
+        configuration = options.get('_supervision', policy(inactivity=timeout))
+        deadline = Deadline(configuration, Path(path).stat().st_size, clock=time.monotonic)
+    failure = None
     args = [
         sys.executable,
         '-m',
@@ -47,14 +53,20 @@ def worker(kind, path, sha, stage, options, timeout):
     ]
     # Diagnostics go to disk so a noisy native parser cannot grow parent memory.
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-        proc = subprocess.Popen(
-            args,
-            stdout=stdout,
-            stderr=stderr,
-            stdin=subprocess.PIPE,
-            start_new_session=sys.platform != 'win32',
-            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-        )
+        try:
+            proc = subprocess.Popen(
+                args,
+                stdout=stdout,
+                stderr=stderr,
+                stdin=subprocess.PIPE,
+                start_new_session=sys.platform != 'win32',
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            )
+        except OSError as exc:
+            if deadline:
+                raise WorkerFailure('startup_failure', dict(deadline.details(), cleanup='no process created',
+                                                           exception_class=type(exc).__name__)) from exc
+            raise
         job = None
         permitted = False
         ready = Path(str(stage) + '.ready')
@@ -67,14 +79,24 @@ def worker(kind, path, sha, stage, options, timeout):
                     emit(stage_bytes=stage.stat().st_size)
                 except OSError:
                     pass  # Diagnostic availability never determines parser outcome.
-                if time.monotonic() - started > timeout:
+                if deadline:
+                    category = deadline.check()
+                    if category:
+                        raise WorkerFailure(category, deadline.details())
+                    progress_file = snapshot_path(stage)
+                    if progress_file.exists():
+                        deadline.observe(read_snapshot(progress_file))
+                        emit(parser_stage=deadline.phase, records_processed=deadline.counts['records'],
+                             bytes_read=deadline.counts['bytes_read'], paths_processed=deadline.counts['paths'])
+                if not deadline and time.monotonic() - started > timeout:
                     raise ValueError('Parser worker timed out; staged output rejected')
                 if stage.exists() and stage.stat().st_size > 8 * 1024 ** 3:
-                    raise ValueError('Parser stage exceeds 8 GiB; staged output rejected')
+                    raise WorkerFailure('resource_limit', dict(deadline.details(), reason='Parser stage exceeds 8 GiB')) if deadline else ValueError('Parser stage exceeds 8 GiB; staged output rejected')
                 if any(os.fstat(f.fileno()).st_size > 65536 for f in (stdout, stderr)):
-                    raise ValueError('Parser worker diagnostic limit exceeded')
+                    raise WorkerFailure('resource_limit', dict(deadline.details(), reason='Parser diagnostic limit exceeded')) if deadline else ValueError('Parser worker diagnostic limit exceeded')
                 if not permitted and ready.exists():
-                    raw = ready.read_bytes()
+                    with ready.open('rb') as handshake:
+                        raw = handshake.read(129)
                     if len(raw) > 128:
                         raise ValueError('Invalid parser worker handshake')
                     message = json.loads(raw)
@@ -87,6 +109,8 @@ def worker(kind, path, sha, stage, options, timeout):
                     proc.stdin.close()
                     permitted = True
                 if proc.poll() is not None:
+                    if deadline and snapshot_path(stage).exists():
+                        deadline.observe(read_snapshot(snapshot_path(stage)))
                     break
                 time.sleep(.25)
             stdout.seek(0)
@@ -94,11 +118,32 @@ def worker(kind, path, sha, stage, options, timeout):
             out = stdout.read(65537)
             err = stderr.read(65537)
             if len(out) > 65536 or len(err) > 65536:
-                raise ValueError('Parser worker diagnostic limit exceeded')
+                raise WorkerFailure('resource_limit', dict(deadline.details(), reason='Parser diagnostic limit exceeded')) if deadline else ValueError('Parser worker diagnostic limit exceeded')
+            if deadline and proc.returncode:
+                try:
+                    category = json.loads(out).get('error_category')
+                except (ValueError, AttributeError):
+                    category = None
+                raise WorkerFailure('startup_failure' if not permitted else category if category in ('parser_exception', 'progress_communication') else 'worker_crash', deadline.details())
+            if deadline and (not permitted or deadline.phase != 'complete'):
+                raise WorkerFailure('incomplete_progress', deadline.details())
             if proc.returncode:
                 raise ValueError('Parser worker failed; staged output rejected: ' + out.decode(errors='replace')[:1000] + err.decode(errors='replace')[:1000])
             return json.loads(out)
+        except BaseException as exc:
+            if deadline:
+                if isinstance(exc, WorkerFailure):
+                    failure = exc
+                elif isinstance(exc, KeyboardInterrupt):
+                    failure = exc
+                    failure.diagnostics = dict(deadline.details(), category='cancelled', staged_output='rejected')
+                else:
+                    failure = WorkerFailure('progress_communication' if isinstance(exc, ProgressError) else 'worker_failure', deadline.details())
+                    failure.diagnostics['exception_class'] = type(exc).__name__
+                    raise failure from exc
+            raise
         finally:
+            contained = False
             try:
                 if job:
                     job.close()
@@ -111,6 +156,7 @@ def worker(kind, path, sha, stage, options, timeout):
                         proc.wait(timeout=5)
                     except subprocess.TimeoutExpired as exc:
                         raise CleanupError('Unconfirmed parser startup cleanup; exiting session') from exc
+                contained = True
             finally:
                 try:
                     if sys.platform != 'win32':
@@ -127,6 +173,9 @@ def worker(kind, path, sha, stage, options, timeout):
                     stream = getattr(proc, 'stdin', None)
                     if stream and not stream.closed:
                         stream.close()
+                    if failure is not None:
+                        failure.diagnostics.update(worker_exit_code=proc.poll(),
+                                                   cleanup='confirmed' if contained and proc.poll() is not None else 'unconfirmed')
 
 
 def ingest_artifact(
@@ -137,7 +186,9 @@ def ingest_artifact(
     hostname=None,
     username=None,
     volume_root=None,
-    timeout=300,
+    timeout=None,
+    mft_startup_timeout=60,
+    mft_hard_timeout=21600,
     record_size=None,
     runner=worker,
     batch_id=None,
@@ -155,6 +206,8 @@ def ingest_artifact(
             raise ValueError('Browser ingestion requires an explicit source-associated ingestion batch')
     if kind not in PARSERS:
         raise ValueError('Unknown artifact type')
+    timeout = (900 if kind == 'mft' else 300) if timeout is None else timeout
+    supervision = policy(timeout, mft_startup_timeout, mft_hard_timeout) if kind == 'mft' else None
     if not 1 <= timeout <= 3600:
         raise ValueError('Parser timeout must be 1..3600 seconds')
     path = str(Path(path).resolve())
@@ -171,6 +224,8 @@ def ingest_artifact(
         if not re.fullmatch(r'[A-Za-z]:\\?', volume_root):
             raise ValueError('Volume root must be an explicit drive letter such as C:')
     options = {'record_size': record_size} if kind == 'mft' else {}
+    if supervision is not None:
+        options['_supervision'] = supervision
     if source_label is not None:
         options['_source_path'] = source_file
     parameters = {**options, 'acquisition': acquisition} if acquisition is not None else options
@@ -272,11 +327,24 @@ def ingest_artifact(
                 'UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?',
                 (now(), status, inserted, duplicates, errors, run_id)
             )
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as exc:
         from forensic_assistant.ingest.interruption import record_interruption
         record_interruption(db, run_id, inserted, duplicates)
+        if getattr(exc, 'diagnostics', None):
+            with db:
+                error_id = db.execute("SELECT id FROM ingestion_errors WHERE run_id=? AND stage='interruption' ORDER BY id DESC LIMIT 1", (run_id,)).fetchone()
+                if error_id:
+                    db.execute('INSERT INTO artifact_errors VALUES (?,?)', (error_id[0], dump(exc.diagnostics)))
         raise
     except CleanupError:
+        if kind == 'mft' and run_id is not None:
+            db.rollback()
+            with db:
+                report('MFT worker cleanup could not be confirmed; staged output rejected',
+                       locator=dict(artifact='mft', category='cleanup_failure', policy=supervision,
+                                    cleanup='unconfirmed', staged_output='rejected'))
+                db.execute("UPDATE ingestion_runs SET finished_utc=?,status='failed',error_count=? WHERE id=?",
+                           (now(), errors, run_id))
         raise
     except Exception as exc:
         db.rollback()
@@ -291,7 +359,7 @@ def ingest_artifact(
             inserted = duplicates = 0
         status = 'partial' if published[0] is not None else 'failed'
         with db:
-            report(f'{type(exc).__name__}: {exc}')
+            report(f'{type(exc).__name__}: {exc}', locator=getattr(exc, 'diagnostics', None))
             db.execute(
                 'UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?',
                 (now(), status, inserted, duplicates, errors, run_id)

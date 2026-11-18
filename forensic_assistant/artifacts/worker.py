@@ -16,12 +16,23 @@ MAX_RECORDS = 5_000_000
 
 
 def run(kind, path, sha, stage_path, options, reader=None):
+    if kind != 'mft':
+        return _run(kind, path, sha, stage_path, options, reader)
+    from .progress import reporting
+    with reporting(stage_path) as progress:
+        result = _run(kind, path, sha, stage_path, options, reader)
+        progress.update(phase='complete', force=True)
+        return result
+
+
+def _run(kind, path, sha, stage_path, options, reader=None):
     if kind == 'browser_probe':
         from .browser_probe import check
         return check(path, Path(stage_path).parent)
     module = importlib.import_module('forensic_assistant.artifacts.' + kind)
     version = sqlite3.sqlite_version if kind == 'browser' else importlib.metadata.version(PARSERS[kind])
     options = dict(options)
+    options.pop('_supervision', None)
     source_path = options.pop('_source_path', path)
     db = connect(stage_path, _mft_stage=True) if kind == 'mft' else connect(stage_path)
     if kind == 'mft':
@@ -37,6 +48,9 @@ def run(kind, path, sha, stage_path, options, reader=None):
                 'INSERT INTO ingestion_runs(source_file,started_utc,status) VALUES (?,?,?)',
                 (path, now(), 'running')
             ).lastrowid
+        from .progress import advance, ProgressError
+        if kind == 'mft':
+            advance(phase='parsing')
         stream = reader(path, sha, **options) if reader else module.parse(path, sha, **options)
         def error(message, locator):
             nonlocal errors
@@ -66,15 +80,19 @@ def run(kind, path, sha, stage_path, options, reader=None):
                 elif index % 500 == 0:
                     db.commit()
         except Exception as exc:
-            if kind == 'mft' and writer.failed:
+            if isinstance(exc, ProgressError) or (kind == 'mft' and writer.failed):
                 raise
             error(f'Iteration stopped: {type(exc).__name__}: {exc}', {})
         if kind == 'mft':
+            advance(phase='staging')
             writer.flush()
+            advance(phase='reconstruction')
             module.reconstruct_paths(writer, sha)
         if kind == 'registry':
             from forensic_assistant.artifacts.registry_extractors import extract_all
             extract_all(db)
+        if kind == 'mft':
+            advance(phase='finalizing')
         writer.commit()
         return {'records': inserted, 'errors': errors, 'parser_version': version}
     finally:
@@ -151,5 +169,7 @@ if __name__ == '__main__':
                 raise ValueError('Parent containment handshake cancelled')
         print(json.dumps(run(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], json.loads(sys.argv[5]))))
     except Exception as exc:
-        print(json.dumps({'error': f'{type(exc).__name__}: {exc}'}))
+        from .progress import ProgressError
+        print(json.dumps({'error': f'{type(exc).__name__}: {exc}',
+                          'error_category': 'progress_communication' if isinstance(exc, ProgressError) else 'parser_exception'}))
         sys.exit(1)

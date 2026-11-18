@@ -2,6 +2,7 @@
 import base64
 import io
 from functools import lru_cache
+from .progress import advance, ProgressError
 from forensic_assistant.artifacts.storage import base_record
 from forensic_assistant.artifacts.times import filetime
 from forensic_assistant.database.artifacts import add_object, dump
@@ -30,6 +31,7 @@ def parse(path, sha, record_size=None):
                 if len(raw) != record_size:
                     raise ValueError('Truncated MFT record')
                 if not any(raw):
+                    advance(records=offset // record_size + 1, bytes_read=offset + len(raw))
                     offset += record_size
                     continue
                 r = MftRecord.from_bytes(raw)
@@ -118,7 +120,10 @@ def parse(path, sha, record_size=None):
                     timestamps=stamps
                 )
             except Exception as exc:
+                if isinstance(exc, ProgressError):
+                    raise
                 yield {'error': f'{type(exc).__name__}: {exc}', 'locator': locator}
+            advance(records=offset // record_size + 1, bytes_read=offset + len(raw))
             offset += record_size
 
 
@@ -165,6 +170,7 @@ def reconstruct_paths(db, sha, max_depth=128, max_paths=32):
         'SELECT n.*,r.record_number FROM mft_names n JOIN mft_records r USING(evidence_id) WHERE n.evidence_id LIKE ? ORDER BY n.evidence_id,n.slot',
         (prefix + '%',)
     )
+    completed = 0
     while rows := cursor.fetchmany(500):
         for n in rows:
             roots, status = parent_paths(
@@ -186,3 +192,5 @@ def reconstruct_paths(db, sha, max_depth=128, max_paths=32):
                 add_object(db, n['evidence_id'], n['slot'], 'filename', n['filename'])
             for i, p in enumerate(paths):
                 add_object(db, n['evidence_id'], n['slot'] + f':path:{i}', 'file_path', p)
+            completed += 1
+            advance(paths=completed)
