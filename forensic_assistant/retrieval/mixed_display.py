@@ -183,11 +183,11 @@ def render(result, *, palette=None, width=None, anchor=None, stamp=None, args=No
 
 
 def compact_timeline(result, *, palette=None, width=None):
-    """Same displayed groups, exact time strings; details remain separately available."""
+    """Round display only; group and paginate using the original observations."""
     from .layout import table
     palette = palette or Palette()
     grouped = mft_display.groups(result['records'], source_types=('mft','evtx'))
-    rows = [[g[0]['timestamp_utc'].replace('T',' ').removesuffix('Z'),
+    rows = [[display_time(g[0]['timestamp_utc']).replace('T',' ').removesuffix('Z'),
              g[0]['source_type'].upper(), object_text(g[0])] for g in grouped]
     time_width = max([10] + [len(r[0]) for r in rows])
     lines = table(['TIME (UTC)','TYPE','OBSERVATION'], rows, palette,

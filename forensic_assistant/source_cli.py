@@ -81,6 +81,30 @@ def display_name(data):
     return 'Unnamed source' if data['display_name'] == generated else data['display_name']
 
 
+def identity_note(source, *, detail=False):
+    """One human-facing identity limitation for this source's structured state."""
+    if source.get('host_conflict'):
+        return ('Source identity is unconfirmed. Conflicting hostnames were observed; '
+                'evaluate host attribution per evidence record.' if detail else
+                'Source computer identity is unconfirmed; conflicting hostnames were observed.')
+    if not source.get('hostname'):
+        return 'Source computer identity has not been confirmed.'
+    return None
+
+
+def compact_limitations(source):
+    # Replace only the two application-owned identity notes, and only when the
+    # corresponding structured condition exists on this same source. Other
+    # provenance limitations (and the detailed/JSON originals) remain intact.
+    replaced = set()
+    if not source.get('hostname'):
+        replaced.add('Analyst hostname unknown; source membership alone does not establish a host')
+    if source.get('host_conflict'):
+        replaced.add('Source-level conflicting hostname assertions; record hosts are resolved individually')
+    note = identity_note(source, detail=True)
+    return ([note] if note else []) + [w for w in source.get('limitations', []) if w not in replaced]
+
+
 def render_list(data, palette=None, *, ids=False, width=None):
     from forensic_assistant.terminal import Palette
     from forensic_assistant.retrieval.layout import table, pagination
@@ -94,7 +118,7 @@ def render_list(data, palette=None, *, ids=False, width=None):
     for n,r in enumerate(data['sources'], data['offset']+1):
         if ids: lines.append(palette('value', f"  {n}: " + safe_text(r['source_id'])))
         if r.get('host_conflict'):
-            lines.append(palette('forensic_note', f'  Source {n}: conflicting hostname assertions; identity is not established.'))
+            lines.append(palette('forensic_note', f'  Source {n}: ' + identity_note(r)))
         if r.get('ambiguous_files'):
             lines.append(palette('forensic_note', f"  Source {n}: {r['ambiguous_files']:,} files have multiple source memberships."))
     footer = pagination(len(rows),data['total'],data['offset'])
@@ -248,7 +272,7 @@ def render_show(data, palette=None, *, details=False):
         lines += [field(kind.upper(), f'{count:,}', palette) for kind,count in sorted(data['artifacts'].items())]
         if data.get('hostname'): lines.append(field('Analyst-asserted hostname', data['hostname'], palette))
         if data.get('artifact_hostnames'): lines.append(field('Observed hostnames', ', '.join(data['artifact_hostnames']), palette))
-        lines += [palette('forensic_note', safe(w)) for w in data.get('limitations', [])]
+        lines += [palette('forensic_note', safe(w)) for w in compact_limitations(data)]
         if data.get('artifact_hostnames_truncated'): lines.append(palette('forensic_note', 'Observed hostname list is bounded to 100.'))
         return aligned_lines(lines)
     lines = []

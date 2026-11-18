@@ -126,7 +126,7 @@ def test_evtx_fallback_and_exact_timeline():
     assert 'logon' not in human_detail(r)
     result=dict(records=[r,dict(r,timestamp={'slot':'Another slot'})],total=2,offset=0,truncated=False)
     text=compact_timeline(result,width=160)
-    assert text.count('2026-09-30 00:00:00.123456789')==1 and 'Other provider — Event 4624' in text
+    assert text.count('2026-09-30 00:00:00.123')==1 and 'Other provider — Event 4624' in text
     assert r==before
 
 

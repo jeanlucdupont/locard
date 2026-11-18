@@ -449,7 +449,8 @@ def _dispatch(args, output, *, existing_only=False):
             presentation = {}
             from contextlib import nullcontext
             from forensic_assistant.terminal_activity import operation
-            label = {'status': 'Retrieving case status...', 'search': 'Searching evidence...'}.get(args.command)
+            label = {'status': 'Retrieving case status...', 'search': 'Searching evidence...',
+                     'timeline': 'Retrieving timeline...'}.get(args.command)
             with operation(label, args) if label else nullcontext():
                 v2_result = v2_cli.dispatch(db, args, presentation=presentation)
             if v2_result is not None:

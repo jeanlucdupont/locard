@@ -85,10 +85,17 @@ def render(result, case, details, palette=None, *, verbose=False):
     lines.append(field('  Unfinished batches', coverage.get('unfinished_batches', 'unknown'), palette))
     limitations = list(coverage.get('limitations', []))
     if not verbose:
-        if coverage.get('unknown_hostname_sources'):
-            limitations.append('Source computer identity has not been confirmed.')
-        if any(s.get('host_conflict') for s in coverage.get('sources', [])):
-            limitations.append('Conflicting artifact/analyst hostnames were observed; source computer identity is not established.')
+        from forensic_assistant.source_cli import identity_note
+        sources = coverage.get('sources', [])
+        for n, source in enumerate(sources, coverage.get('offset', 0) + 1):
+            note = identity_note(source)
+            if note:
+                # Keep different sources distinct, including identical names.
+                prefix = f'Source {n}: ' if coverage.get('total', len(sources)) > 1 else ''
+                limitations.append(prefix + note)
+        unlisted = coverage.get('unknown_hostname_sources', 0) - sum(not s.get('hostname') for s in sources)
+        if unlisted > 0:
+            limitations.append(f'Source computer identity has not been confirmed for {unlisted} additional sources outside this source page.')
         if log_files or details['dirty_hives']:
             limitations.append('Registry recovery incomplete: transaction logs were not replayed' +
                 (f"; {details['dirty_hives']} hives are marked dirty." if details['dirty_hives'] else '.'))

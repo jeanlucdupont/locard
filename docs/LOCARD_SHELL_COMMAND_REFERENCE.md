@@ -1,6 +1,6 @@
 # Locard shell command reference
 
-Generated from the canonical interactive parser for 6.149. Documentation wraps at 100 columns; live help uses terminal width.
+Generated from the canonical interactive parser for 6.150. Documentation wraps at 100 columns; live help uses terminal width.
 
 Use `help <path>`, `? <path>`, or `<path> ?` without executing the operation. `help all` lists nested commands.
 
@@ -883,6 +883,13 @@ Advanced options:
 ```
 
 ## evidence timeline
+
+Compact text shows UTC timestamps rounded to the nearest millisecond, half up
+(`YYYY-MM-DD HH:MM:SS.mmm`). This does not change observation ordering, grouping,
+filters or stored timestamps. Use `--details` for timestamp semantics and `--json`
+for exact structured timestamps; existing raw/detailed views are unchanged.
+Slow interactive retrieval displays `Retrieving timeline...` after 500 ms and clears
+it before results. JSON, redirected output, output files and paging do not animate.
 
 ```text
 usage: evidence timeline [--details] [timestamp] [--around AROUND] [--start START] [--end END]
