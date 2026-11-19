@@ -184,9 +184,17 @@ def dispatch(db, args, *, presentation=None):
     command = args.command
     q = EvidenceQueries(db)
     if command.startswith('ingest-'):
-        results = ingest_sources(db, args)
+        from forensic_assistant.ingest.presentation import Timer, report_failure
+        timer = getattr(args, '_ingestion_timer', None) or Timer()
+        try:
+            results = ingest_sources(db, args)
+        except BaseException as exc:
+            report_failure(timer, exc, args=args)
+            raise
+        timer.reported = True
         return {
             'results': results,
+            'elapsed_seconds': round(timer.elapsed(), 3),
             'status': 'complete' if results and all(r['status'] == 'complete' for r in results) else 'incomplete'
         }, 0 if results and all(r['status'] == 'complete' for r in results) else 1
     if command == 'show':
@@ -328,19 +336,9 @@ def anchor_time(anchor, slot=None, *, require_slot=False):
 
 
 def render_native_ingestion(result, palette):
-    """Native acquisition details stay in explicit JSON/provenance output."""
-    lines = []
-    for row in result['results']:
-        state = row['status']
-        role = 'success' if state == 'complete' else 'warning' if state == 'partial' else 'error'
-        line = (safe(row.get('source_type', 'evtx')) + ': ' + palette(role, safe(state)) +
-                f" | {row['inserted']} records | {row['errors']} errors")
-        if row['duplicates']:
-            line += f" | {row['duplicates']} duplicates"
-        lines.append(line)
-        if row.get('limitation'):
-            lines.append('  ' + palette('forensic_note', safe(row['limitation'])))
-    return '\n'.join(lines)
+    """Compatibility entry point for the shared ingestion result projection."""
+    from forensic_assistant.ingest.presentation import render
+    return render(result, palette)
 
 
 def render(result, *, methodology=True, palette=None):

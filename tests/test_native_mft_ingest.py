@@ -237,7 +237,7 @@ def test_native_cli_summary_or_explicit_json(native, tmp_path, capsys, structure
     from forensic_assistant.cli import main
     target = tmp_path / 'case.db'
     connect(target).close()
-    command = ['--db', str(target), 'ingest', 'mft', 'E:']
+    command = ['--db', str(target), 'evidence', 'ingest', 'mft', 'E:']
     if structured: command.append('--json')
     assert main(command) == 0
     text = capsys.readouterr().out
@@ -245,7 +245,10 @@ def test_native_cli_summary_or_explicit_json(native, tmp_path, capsys, structure
         result = json.loads(text)
         assert result['results'][0]['acquisition']['sha256']
     else:
-        assert 'mft: complete | 3 records | 0 errors' in text
+        assert 'MFT INGESTION' in text and 'Outcome: Completed' in ' '.join(text.split())
+        assert 'Records retained (new): 3' in ' '.join(text.split())
+        assert 'Recorded errors: 0' in ' '.join(text.split())
+        assert 'Elapsed time:' in text
         assert ntfs.LIVE_LIMITATION in text
         assert 'sha256' not in text and 'acquisition' not in text.splitlines()[0]
 

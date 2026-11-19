@@ -371,8 +371,8 @@ class Progress:
         self.records += result['inserted']
         self.duplicates += result['duplicates']
         self.errors += result['errors']
-        if result.get('limitation'):
-            self.limitations[result['limitation']] += 1
+        from forensic_assistant.ingest.presentation import limitations
+        self.limitations.update(limitations(result))
 
     @property
     def outcome(self):
@@ -489,6 +489,7 @@ def create(shell):
     plan = None
     published = False
     session = None
+    started = elapsed = None
 
     def mark_published():
         nonlocal published
@@ -520,7 +521,7 @@ def create(shell):
                     elapsed = monotonic() - started
                 if not stored:
                     if elapsed is not None:
-                        print('Elapsed time: ' + setup_display.duration(elapsed))
+                        print(setup_display.elapsed_line(elapsed, palette))
                     print('Case created, but no evidence records were stored. Review the ingestion outcomes before activation.')
                     response = read_input(shell, palette, 'Activate this empty/failed-ingestion case explicitly? [y/N]: ').casefold()
                     if response not in ('y', 'yes'):
@@ -532,7 +533,7 @@ def create(shell):
         message = setup_display.completion(plan, outcomes, stored)
         print("\n████ " + setup_display.completion_line(message, palette, plan=plan, outcomes=outcomes, stored=stored))
         if elapsed is not None and stored:
-            print('Elapsed time: ' + setup_display.duration(elapsed))
+            print(setup_display.elapsed_line(elapsed, palette))
         ingestion_summary(plan, outcomes, palette)
         print("\n" + _separator(palette) + '\nYou can add more evidence at any time, or start investigating now.\n\n'
               'Use Locard commands directly. Prefix a natural-language request with ! to ask the local AI assistant.')
@@ -548,9 +549,11 @@ def create(shell):
     except (OSError, ValueError, sqlite3.Error) as exc:
         if session:
             session.record('CASE_PREPARATION', 'failure', **activity.error_data(exc))
-        print(palette('error', 'Setup failed: ' + human_error(exc)))
+        print(palette('error', ('Setup outcome uncertain (audit persistence failed): ' if isinstance(exc, activity.AuditError) else 'Setup failed: ') + human_error(exc)))
         return False
     finally:
+        if started is not None and elapsed is None:
+            print(setup_display.elapsed_line(monotonic() - started, palette))
         if published and shell.active != plan.target:
             print('Database retained: ' + safe(plan.target) + '. Already committed evidence was not rolled back.')
         if plan and not published:
@@ -581,6 +584,7 @@ def add_evidence(shell):
     palette = Palette(enabled(shell))
     confirmed = False
     totals = Progress()
+    started = elapsed = None
     try:
         if shell.active is None:
             raise ValueError('No case is currently open.')
@@ -611,7 +615,7 @@ def add_evidence(shell):
             setup_display.print_diagnostics(db, palette, run_ids=totals.run_ids)
         elapsed = monotonic() - started
         print(setup_display.addition_line(plan, outcomes, totals, palette))
-        print('Elapsed time: ' + setup_display.duration(elapsed))
+        print(setup_display.elapsed_line(elapsed, palette))
         simple = (len(plan.items) == 1 and setup_display.simple_success(totals)
                   and not plan.deferred and not plan.limited
                   and not (plan.considered - set(outcomes)))
@@ -627,7 +631,11 @@ def add_evidence(shell):
             print('Already committed evidence and provenance were retained; no rollback is implied.')
         return False
     except (OSError, ValueError, sqlite3.Error) as exc:
-        print(palette('error', 'Evidence addition failed: ' + human_error(exc)))
+        print(palette('error', ('Evidence addition outcome uncertain (audit persistence failed): ' if isinstance(exc, activity.AuditError) else 'Evidence addition failed: ') + human_error(exc)))
         if confirmed:
             print('Already committed evidence and provenance were retained; no rollback is implied.')
         return False
+
+    finally:
+        if confirmed and started is not None and elapsed is None:
+            print(setup_display.elapsed_line(monotonic() - started, palette))

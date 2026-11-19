@@ -277,6 +277,24 @@ def _dispatch_recorded(args, *, existing_only=False):
 
 
 def _dispatch_command(args, *, existing_only=False):
+    if not args.command.startswith('ingest-'):
+        return _dispatch_command_body(args, existing_only=existing_only)
+    from forensic_assistant.ingest.presentation import Timer, report_failure, elapsed_line
+    from forensic_assistant.terminal import Palette, enabled
+    timer = Timer()
+    args._ingestion_timer = timer
+    try:
+        return _dispatch_command_body(args, existing_only=existing_only)
+    except BaseException as exc:
+        report_failure(timer, exc, args=args)
+        raise
+    finally:
+        if not timer.reported:
+            print(elapsed_line(timer.elapsed(), Palette(enabled(args, sys.stderr))), file=sys.stderr)
+        del args._ingestion_timer
+
+
+def _dispatch_command_body(args, *, existing_only=False):
     if args.command == 'ai':
         from forensic_assistant.ai import cli as ai_cli
         if not hasattr(args, '_confirm') and sys.stdin.isatty():
@@ -321,6 +339,9 @@ def _dispatch_command(args, *, existing_only=False):
             command.code = 130
             return 130
         except (ValueError, OSError, sqlite3.Error) as exc:
+            if isinstance(exc, activity.AuditError) and hasattr(args, '_ingestion_timer'):
+                from forensic_assistant.ingest.presentation import report_failure
+                report_failure(args._ingestion_timer, exc, args=args)
             from forensic_assistant.terminal import message
             activity.note_error(exc)
             message(human_error(exc), args)
@@ -468,8 +489,7 @@ def _dispatch(args, output, *, existing_only=False):
                 elif args.command == 'around' and args.text and not args.raw:
                     from forensic_assistant.retrieval.around_display import render
                     output.write(render(result, presentation['anchor'], presentation['stamp'], args, output.palette))
-                elif args.command.startswith('ingest-') and not args.json and any(
-                        r.get('acquisition') or r.get('acquisition_error') for r in result.get('results', [])):
+                elif args.command.startswith('ingest-') and not args.json:
                     output.write(v2_cli.render_native_ingestion(result, output.palette))
                 elif args.command == 'timeline' and args.text and not args.raw and not getattr(args, 'details', False):
                     from forensic_assistant.retrieval.mixed_display import compact_timeline

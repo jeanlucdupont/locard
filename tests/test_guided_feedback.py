@@ -127,7 +127,7 @@ def test_split_completion_colors():
     from types import SimpleNamespace
     palette = SemanticPalette()
     plan = SimpleNamespace(items=[object()], deferred=False, limited=False)
-    for outcomes, stored, role in (({'mft': 'partial'}, 1, 'forensic_note'),
+    for outcomes, stored, role in (({'mft': 'partial'}, 1, 'warning'),
                                    ({'mft': 'failed'}, 0, 'error'),
                                    ({'mft': 'complete'}, 1, 'success')):
         message = setup_display.completion(plan, outcomes, stored)

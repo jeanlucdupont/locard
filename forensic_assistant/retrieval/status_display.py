@@ -114,10 +114,13 @@ def render(result, case, details, palette=None, *, verbose=False):
     from .registry_display import DIRTY_WARNING
     for raw in details['hive_warnings']:
         limitations.extend(w for w in json.loads(raw) if w != DIRTY_WARNING)
-    for error in (details['error_summaries'][:5] if verbose else []):
-        limitations.append(f"Recorded error ({error['count']}): " + error['message'])
-    if len(details['error_summaries']) > 5 or len(details['hive_warnings']) > 5:
-        limitations.append('Additional error/warning groups omitted; inspect detailed evidence and ingestion metadata')
+    if len(details['hive_warnings']) > 5:
+        limitations.append('Additional hive warning groups omitted; inspect detailed evidence metadata')
+    for meta in details['runs'].values():
+        acquisition = meta.get('parameters', {}).get('acquisition') or {}
+        if acquisition.get('source_state') == 'live mounted volume; not frozen':
+            from forensic_assistant.artifacts.ntfs_acquisition import LIVE_LIMITATION
+            limitations.append(LIVE_LIMITATION)
     for error in result.get('ingestion_errors', []):
         diagnostic = error.get('diagnostics', {})
         if diagnostic.get('format') == 'evtx' and diagnostic.get('resume_offset') is not None:
@@ -136,11 +139,29 @@ def render(result, case, details, palette=None, *, verbose=False):
         lines += [palette('forensic_note', '  ' + fit(safe(value), 180)) for value in limitations[:12]]
         if len(limitations) > 12:
             lines.append(f'  Showing 12 of {len(limitations)} limitation summaries')
-    lines.append(palette('forensic_note', 'Attempt outcomes and recorded parser errors are separate counts; error counts do not measure lost records.'))
     if verbose:
-        grouped = Counter((e['stage'], e['message']) for e in result.get('ingestion_errors', []))
-        if grouped:
-            lines += ['', palette('heading', 'Recorded ingestion error groups')]
-            lines += [palette('forensic_note', safe(stage) + f' ({count:,}): ' + safe(message)) for (stage,message),count in list(sorted(grouped.items()))[:100]]
-            if len(grouped)>100: lines.append('Showing 100 error groups; use --json for all recorded errors.')
+        lines += diagnostic_lines(result, details, palette)
     return aligned_lines(lines)
+
+
+def diagnostic_lines(result, details, palette):
+    """Recorded history is neutral regardless of the original exception wording."""
+    runs = {row['id']: row for row in result.get('ingestion_runs', [])}
+    grouped = Counter()
+    for error in result.get('ingestion_errors', []):
+        run_id = error.get('run_id')
+        artifact = details['runs'].get(run_id, {}).get('source_type', 'unclassified artifact')
+        status = runs.get(run_id, {}).get('status', 'unknown')
+        grouped[(artifact, status, error['stage'], error['message'])] += 1
+    lines = ['', palette('heading', 'Ingestion diagnostics'),
+             field('  Per-attempt elapsed time', 'unavailable (not recorded)', palette, role='unknown')]
+    if not grouped:
+        lines.append(palette('label', '  No recorded ingestion errors.'))
+    for (artifact, status, stage, message), count in sorted(grouped.items())[:100]:
+        lines += [palette('label', f'  {safe(artifact)} / {safe(status)} attempt / {safe(stage)}'),
+                  field('    Occurrences', f'{count:,}', palette),
+                  palette('label', '    Original diagnostic: ' + safe(message))]
+    if len(grouped) > 100:
+        lines.append(palette('label', 'Showing 100 groups; use case status --json for all recorded errors.'))
+    lines.append(palette('label', 'Attempt outcomes and recorded parser errors are separate counts; error counts do not measure lost records.'))
+    return lines

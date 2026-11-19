@@ -132,26 +132,26 @@ class IngestionProgress:
             return
         label = self.browsers.get(str(file), str(file))
         status = result['status']
-        role = 'success' if status == 'complete' else (
-            'warning' if status in ('partial', 'unsupported', 'cancelled', 'interrupted') else 'error')
+        from forensic_assistant.ingest.presentation import role as outcome_role
+        role = outcome_role(status)
         print('  ' + safe(label) + '   ' + self.palette(
             'value', f"{result['inserted']:,} records"))
         if result['duplicates'] or result['errors'] or status != 'complete':
             print('    ' + self.palette(role, safe(status)) + ' | ' +
                   self.palette('value', f"{result['duplicates']:,} duplicates") + ' | ' +
                   self.palette('value', f"{result['errors']:,} errors"))
-        if result.get('limitation'):
-            self.limitations[result['limitation']] += 1
+        from forensic_assistant.ingest.presentation import limitations
+        self.limitations.update(limitations(result))
 
     def finish(self):
         for limitation, count in self.limitations.items():
-            print(self.palette('warning', 'Limitation: ' + safe(limitation) + f' ({count} result occurrences)'))
+            print(self.palette('forensic_note', 'Limitation: ' + safe(limitation) + f' ({count} result occurrences)'))
         self.limitations.clear()
         if self.companions:
             print(self.palette('label', 'Skipped companion transaction logs:'))
             for file in self.companions:
                 print(self.palette('warning', '  ' + safe(file)))
-            print(self.palette('warning', 'Limitation: Registry transaction-log replay is not supported; companion logs were not parsed as hives.'))
+            print(self.palette('forensic_note', 'Limitation: Registry transaction-log replay is not supported; companion logs were not parsed as hives.'))
             self.companions.clear()
 
 

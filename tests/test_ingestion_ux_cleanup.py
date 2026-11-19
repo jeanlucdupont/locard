@@ -101,10 +101,12 @@ def test_simple_success_is_terse_but_keeps_provenance_and_colors(opened, tmp_pat
     assert 'Large evidence sets can take several minutes.' not in ingestion
     assert 'Source\n' not in ingestion and str(path) not in ingestion
     assert 'continue investigating' not in ingestion
-    assert 'Elapsed time: <1 sec' in ingestion
+    assert 'Elapsed time: 0s' in ingestion
     palette = Palette(True)
-    for value in ('complete', '0 duplicates', '0 errors', 'Evidence added to case.'):
+    for value in ('complete', 'Evidence added to case.'):
         assert palette('success', value) in colored
+    for value in ('0 duplicates', '0 errors'):
+        assert palette('value', value) in colored
     assert rows(opened, 'evidence_records')
     assert rows(opened, 'ingestion_batches')[0]['requested_path'] == str(path)
     assert rows(opened, 'source_assertions')

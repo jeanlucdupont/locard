@@ -10,6 +10,8 @@ Analyst absolute-time CLI filters accept ISO shorthand and default omitted time/
 
 `! <question>` asks AI under existing disclosure and approval rules. `quit` ends the session. `settings color off` disables styling. JSON output is always uncolored.
 
+Ingestion presentation (6.153): all direct `evidence ingest` commands show structured outcomes, newly retained records, duplicates, recorded errors and measured elapsed time. Explicit JSON adds `elapsed_seconds` without removing existing fields. Guided ingestion also reports duration on cancellation/failure. `case status --details` separates neutral historical diagnostics from forensic limitations; old per-attempt durations are unavailable unless independently recorded. See [ingestion result semantics and timing boundaries](LOCARD_6_153_INGESTION_RESULTS.md).
+
 ## Command families
 
 ```text

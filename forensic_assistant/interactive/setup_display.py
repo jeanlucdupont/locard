@@ -5,6 +5,7 @@ import time
 import threading
 
 from forensic_assistant.retrieval.presentation import safe_text as safe
+from forensic_assistant.ingest.presentation import elapsed_line
 from forensic_assistant.terminal import Palette, capable, replace_progress_line, supports_unicode
 
 
@@ -17,7 +18,7 @@ def category_line(kind, progress, palette):
     status = progress.outcome
     return (palette('label', kind) + ': ' + palette(role(status), status) + ' | ' +
             palette('value',
-                    f'{progress.records:,} records') + ' | ' +
+                    f'{progress.records:,} records retained') + ' | ' +
             palette('value', f'{progress.duplicates:,} duplicates') + ' | ' +
             palette('value', f'{progress.errors:,} error' + ('' if progress.errors == 1 else 's')))
 
@@ -186,7 +187,7 @@ def print_diagnostics(db, palette, *, run_ids=None):
     if selected:
         print(palette('heading', 'EVTX ingestion limitations'))
         for group, text in selected:
-            print('- ' + palette('forensic_note' if group['limitation'] else 'error', text))
+            print('- ' + palette('forensic_note' if group['limitation'] else 'label' if run_ids is None else 'error', text))
     other = [g for g, text in evtx if not text]
     if other:
         print(palette('heading', 'Other ingestion limitations and errors'))
@@ -199,7 +200,9 @@ def print_diagnostics(db, palette, *, run_ids=None):
             category = {'parse': 'Parsing', 'normalize': 'Normalization',
                         'integrity': 'Source integrity', 'file': 'File ingestion'}.get(group['stage'], 'Ingestion')
             text = f'{category}: {count:,} recorded error' + ('' if count == 1 else 's') + '; detailed diagnostics retained.'
-        print('- ' + palette('forensic_note' if group['message'] == LIMITATION else 'error', text))
+        print('- ' + (palette('forensic_note', text) if group['message'] == LIMITATION else
+                      palette('label', category + ': ') + palette('value', f'{count:,}') +
+                      palette('label', ' recorded errors; detailed diagnostics retained.')))
 
 
 def completion_line(message, palette, *, plan=None, outcomes=None, stored=None):
@@ -208,7 +211,7 @@ def completion_line(message, palette, *, plan=None, outcomes=None, stored=None):
         return palette('label', message)
     failed = bool(plan.items and not stored and outcomes and all(v == 'failed' for v in outcomes.values()))
     limited = bool(plan.items and (not stored or plan.deferred or plan.limited or any(v != 'complete' for v in (outcomes or {}).values())))
-    return palette('error' if failed else 'forensic_note' if limited else 'success', message)
+    return palette('error' if failed else 'warning' if limited else 'success', message)
 
 
 def completion(plan, outcomes, stored):
@@ -240,17 +243,8 @@ def addition_line(plan, outcomes, totals, palette):
 
 
 def duration(seconds):
-    """Whole monotonic seconds; never imply sub-second measurement precision."""
-    seconds = max(0, int(seconds))
-    if seconds == 0:
-        return "<1 sec"
-    minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f'{hours} hr {minutes} min'
-    if minutes:
-        return f'{minutes} min {seconds} sec'
-    return f'{seconds} sec'
+    from forensic_assistant.ingest.presentation import duration as format_duration
+    return format_duration(seconds)
 
 
 def simple_success(progress):

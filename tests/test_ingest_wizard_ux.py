@@ -12,9 +12,9 @@ from test_guided_setup import tree
 from v2_fixtures import mft_file
 
 
-@pytest.mark.parametrize('seconds,expected', [(0, '<1 sec'), (.9, '<1 sec'), (1, '1 sec'), (42.9, '42 sec'),
-    (59.99, '59 sec'), (60, '1 min 0 sec'), (402.283, '6 min 42 sec'),
-    (3599, '59 min 59 sec'), (3600, '1 hr 0 min'), (4320, '1 hr 12 min')])
+@pytest.mark.parametrize('seconds,expected', [(0, '0s'), (.9, '0s'), (1, '1s'), (42.9, '42s'),
+    (59.99, '59s'), (60, '1m 00s'), (402.283, '6m 42s'),
+    (3599, '59m 59s'), (3600, '1h 00m 00s'), (4320, '1h 12m 00s')])
 def test_elapsed_format(seconds, expected):
     assert setup_display.duration(seconds) == expected
 
@@ -114,7 +114,7 @@ def test_addition_clock_excludes_navigation_includes_summary(opened, tmp_path, m
     assert setup.add_evidence(opened) is not failed
     text = capsys.readouterr().out
     assert clock['calls'] == [600, 660]
-    assert 'Elapsed time: 1 min 0 sec' in text
+    assert 'Elapsed time: 1m 00s' in text
     if failed:
         assert 'No evidence was added. Selected evidence ingestion failed.' in text
         assert 'Evidence added to case.' not in text
@@ -148,7 +148,7 @@ def test_creation_clock_and_preserved_manual_decoration(tmp_path, monkeypatch, c
     assert clock['calls'] == [600, 1002.283]
     final = text.split('████ ', 1)[1]
     assert final.startswith('Case ready.')
-    assert 'Elapsed time: 6 min 42 sec' in final
+    assert 'Elapsed time: 6m 42s' in final
     assert 'Case\n' not in final and 'Workspace\n' not in final
     assert 'Ingestion' in final
     assert '\n\n' + get_thin() + '\nYou can add more evidence at any time' in final
