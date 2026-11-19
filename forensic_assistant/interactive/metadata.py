@@ -12,3 +12,13 @@ def read_volume_root(read, prompt, palette):
             return normalize_volume_root(value)
         except ValueError:
             print(palette('error', 'Please enter a drive letter followed by a colon, for example C:.'))
+
+
+def read_time_zone(read, palette):
+    from forensic_assistant.database.source_timezone import validate
+    while True:
+        value = read('Source computer time zone (optional): ').strip()
+        try:
+            return validate(value)
+        except ValueError as exc:
+            print(palette('error', str(exc)))

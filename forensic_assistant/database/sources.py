@@ -4,6 +4,7 @@ import sqlite3
 from forensic_assistant.database.db import now
 from forensic_assistant.database.context import host_key
 from forensic_assistant.artifacts.context import normalize_volume_root
+from . import source_timezone
 
 
 DDL = (
@@ -13,7 +14,7 @@ DDL = (
         assertion_id INTEGER PRIMARY KEY, source_id TEXT NOT NULL REFERENCES sources(source_id),
         display_name TEXT NOT NULL, hostname TEXT, username TEXT, volume_root TEXT,
         recorded_utc TEXT NOT NULL, basis TEXT NOT NULL,
-        supersedes INTEGER UNIQUE REFERENCES source_assertions(assertion_id))""",
+        supersedes INTEGER UNIQUE REFERENCES source_assertions(assertion_id), time_zone TEXT)""",
     "CREATE INDEX source_assertion_history ON source_assertions(source_id,assertion_id)",
     """CREATE TABLE ingestion_batches (batch_id TEXT PRIMARY KEY,
         source_id TEXT NOT NULL REFERENCES sources(source_id), started_utc TEXT NOT NULL,
@@ -50,48 +51,53 @@ def current(db, source_id):
     if row is None:
         raise ValueError('Source ID not found')
     data = dict(row)
+    data.setdefault('time_zone', None)
     data['updated_utc'] = data['recorded_utc']
     return data
 
 
-def metadata(name, hostname, username, volume_root):
+def metadata(name, hostname, username, volume_root, time_zone=None):
+    source_timezone.validate(time_zone)
     for value in (name, hostname, username, volume_root):
         if value is not None and (not isinstance(value, str) or len(value) > 4096 or '\x00' in value):
             raise ValueError('Invalid source metadata')
     return (name, host_key(hostname) if hostname else None, username or None, normalize_volume_root(volume_root))
 
 
-def create(db, *, name=None, hostname=None, username=None, volume_root=None, automatic=False):
+def create(db, *, name=None, hostname=None, username=None, volume_root=None, time_zone=None, automatic=False):
     require4(db)
     sid = identifier('src')
     values = metadata(name or 'Source ' + sid[4:16], hostname, username, volume_root)
+    time_zone = source_timezone.validate(time_zone)
     stamp = now()
     # Caller owns the transaction, including any associated batch creation.
     db.execute('INSERT INTO sources VALUES (?,?,?)', (sid, stamp, 'automatic' if automatic else 'analyst'))
-    db.execute(
-        '''INSERT INTO source_assertions
-        (source_id,display_name,hostname,username,volume_root,recorded_utc,basis,supersedes)
-        VALUES (?,?,?,?,?,?,?,NULL)''',
-        (sid, *values, stamp, 'analyst-supplied; generated label' if not name else 'analyst-supplied')
-    )
+    _assert(db, sid, values, stamp, 'analyst-supplied; generated label' if not name else 'analyst-supplied', None, time_zone)
     return sid
 
 
 def update(db, source_id, **changes):
     old = current(db, source_id)
-    if not changes or set(changes) - {'display_name', 'hostname', 'username', 'volume_root'}:
+    if not changes or set(changes) - {'display_name', 'hostname', 'username', 'volume_root', 'time_zone'}:
         raise ValueError('Specify source metadata to update')
     data = {**old, **changes}
     if not data['display_name']:
         raise ValueError('Source display name must not be empty')
     values = metadata(*(data[k] for k in ('display_name', 'hostname', 'username', 'volume_root')))
-    db.execute(
-        '''INSERT INTO source_assertions
-        (source_id,display_name,hostname,username,volume_root,recorded_utc,basis,supersedes)
-        VALUES (?,?,?,?,?,?,?,?)''',
-        (source_id, *values, now(), 'analyst-supplied', old['assertion_id'])
-    )
+    time_zone = source_timezone.validate(data.get('time_zone'))
+    _assert(db, source_id, values, now(), 'analyst-supplied', old['assertion_id'], time_zone)
     return current(db, source_id)
+
+
+def _assert(db, source_id, values, stamp, basis, supersedes, time_zone):
+    source_timezone.enable_for_assertion(db, time_zone)
+    columns = 'source_id,display_name,hostname,username,volume_root,recorded_utc,basis,supersedes'
+    parameters = (source_id, *values, stamp, basis, supersedes)
+    if source_timezone.has_column(db):
+        columns += ',time_zone'
+        parameters += (time_zone,)
+    db.execute('INSERT INTO source_assertions (' + columns + ') VALUES (' +
+               ','.join('?' for _ in parameters) + ')', parameters)
 
 
 MEMBERSHIP = '''SELECT b.source_id,r.file_sha256 FROM ingestion_batches b
@@ -223,6 +229,7 @@ def detail(db, source_id, limit=100, offset=0):
         )]
         if table == 'source_assertions':
             for row in rows:
+                row.setdefault('time_zone', None)
                 row['active'] = row['assertion_id'] == data['assertion_id']
                 next_row = db.execute(
                     'SELECT assertion_id FROM source_assertions WHERE supersedes=?',

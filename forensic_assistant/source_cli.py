@@ -31,6 +31,7 @@ def configure(commands):
         if name in ('create', 'update'):
             for flag in ('name', 'hostname', 'user', 'volume-root'):
                 p.add_argument('--' + flag, help={'name':'Source display name','hostname':'Analyst-supplied source hostname','user':'Analyst-supplied source username','volume-root':'Analyst-supplied original volume root'}[flag])
+            p.add_argument('--time-zone', nargs='?', const='', help='Analyst-supplied IANA source time zone; omit value to clear to unknown')
         if name in ('update', 'assign'):
             p.add_argument(
                 '--yes',
@@ -67,12 +68,16 @@ def configure(commands):
 
 
 def changes(args):
-    return {
-        key: getattr(args, flag) for key,
+    result = {
+        key: getattr(args, flag, None) for key,
         flag in
-        [('display_name', 'name'), ('hostname', 'hostname'), ('username', 'user'), ('volume_root', 'volume_root')]
-        if getattr(args, flag) is not None
+        [('display_name', 'name'), ('hostname', 'hostname'), ('username', 'user'), ('volume_root', 'volume_root'), ('time_zone', 'time_zone')]
+        if getattr(args, flag, None) is not None
     }
+    if 'time_zone' in result:
+        from forensic_assistant.database.source_timezone import validate
+        result['time_zone'] = validate(result['time_zone'])
+    return result
 
 
 def display_name(data):
@@ -116,6 +121,7 @@ def render_list(data, palette=None, *, ids=False, width=None):
     lines += table(['#','NAME','FILES','RECORDS'],rows,palette,minimums=[3,12,7,10],
                    maximums=[6,55,15,18],roles=['value']*4,right=(2,3),width=width)
     for n,r in enumerate(data['sources'], data['offset']+1):
+        lines.append(palette('label', f'  Source {n} time zone: ') + palette('value' if r.get('time_zone') else 'unknown', safe_text(r.get('time_zone') or 'unknown')))
         if ids: lines.append(palette('value', f"  {n}: " + safe_text(r['source_id'])))
         if r.get('host_conflict'):
             lines.append(palette('forensic_note', f'  Source {n}: ' + identity_note(r)))
@@ -144,7 +150,8 @@ def dispatch(db, args):
                 name=args.name,
                 hostname=args.hostname,
                 username=args.user,
-                volume_root=args.volume_root
+                volume_root=args.volume_root,
+                time_zone=getattr(args, 'time_zone', None)
             )
             audit_result.update(source_id=sid, assertion=sources.current(db, sid))
         return sources.summary(db, sid)
@@ -217,7 +224,7 @@ def render_update(data, palette):
     if not data['applied']:
         return render_update_preview(data['preview'], palette) + '\nPreview only. Repeat with --yes to apply.'
     old, new = data['scope']['source'], data['result']
-    labels = {'display_name': 'Name', 'hostname': 'Hostname', 'username': 'User', 'volume_root': 'Volume root'}
+    labels = {'display_name': 'Name', 'hostname': 'Hostname', 'username': 'User', 'volume_root': 'Volume root', 'time_zone': 'Time zone'}
     lines = [palette('success', 'Source updated.')]
     for key in data['scope']['proposed']:
         lines.append(palette('label', labels[key] + ': ') + safe_text(old.get(key) or 'unknown')
@@ -270,6 +277,7 @@ def render_show(data, palette=None, *, details=False):
         lines = [field('Source', display_name(data), palette), field('Retained files', f"{data['files']:,}", palette),
                  field('Evidence records', f"{data['evidence_count']:,}", palette)]
         lines += [field(kind.upper(), f'{count:,}', palette) for kind,count in sorted(data['artifacts'].items())]
+        lines.append(field('Analyst-asserted time zone', data.get('time_zone') or 'unknown', palette, role='value' if data.get('time_zone') else 'unknown'))
         if data.get('hostname'): lines.append(field('Analyst-asserted hostname', data['hostname'], palette))
         if data.get('artifact_hostnames'): lines.append(field('Observed hostnames', ', '.join(data['artifact_hostnames']), palette))
         lines += [palette('forensic_note', safe(w)) for w in compact_limitations(data)]
@@ -287,6 +295,7 @@ def render_show(data, palette=None, *, details=False):
         ('Analyst hostname', 'hostname'),
         ('Analyst user', 'username'),
         ('Volume root', 'volume_root'),
+        ('Analyst-asserted time zone', 'time_zone'),
         ('Current assertion', 'assertion_id'),
         ('Assertion basis', 'basis'),
         ('Batches', 'batches'),
@@ -294,7 +303,7 @@ def render_show(data, palette=None, *, details=False):
         ('Evidence records', 'evidence_count'),
         ('Files with multiple source memberships', 'ambiguous_files')
     ]:
-        field(name, data.get(key), path=key == 'volume_root')
+        field(name, (data.get(key) or 'unknown') if key == 'time_zone' else data.get(key), path=key == 'volume_root')
     # Source-wide assertions cannot establish each file's effective host: legacy
     # file assertions and multiple memberships are resolved at evidence retrieval.
     field('Artifact hostnames', ', '.join(data.get('artifact_hostnames', [])) or 'unknown')

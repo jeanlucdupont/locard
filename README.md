@@ -3907,3 +3907,19 @@ Existing authorization and window limits still apply.
 
 See [6.149 evidence exploration](docs/LOCARD_6_149_EVIDENCE_EXPLORATION.md) for measured
 source-query changes, boundaries and manual acceptance commands.
+
+### Source time-zone metadata
+
+Source `time_zone` is an optional IANA analyst assertion, not timestamp normalization
+or a case/display preference. Keep it in `source_assertions` and retain revisions.
+Use `database.source_timezone.validate`; Windows installs the standard `tzdata`
+dependency. Never infer the zone or use it to reinterpret evidence without a
+separately reviewed parser change. Reads must not migrate existing cases. The
+nullable extension is enabled transactionally only by explicit supplied-zone
+metadata writes; do not add an unconditional ALTER to case opening. Metadata
+corrections invalidate ordinary case fingerprints as other source revisions do.
+
+Wizard output uses shared semantic spans/palettes; its existing ReaderProxy owns
+question coloring and response recording. Do not pre-color prompts a second time.
+All artifact spinner frames use `progress`; retain animation recording suppression.
+See [6.154 implementation and acceptance](docs/LOCARD_6_154_SOURCE_TIMEZONE_AND_INGESTION_UI.md).

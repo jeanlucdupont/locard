@@ -34,6 +34,8 @@ def opened(tmp_path, monkeypatch, capsys):
 
 
 def manual(path, kind='mft', metadata=None, confirm='yes'):
+    if metadata and len(metadata) == 4:
+        metadata = [*metadata, '']
     return ['2', kind, str(path), '', *(['yes', *metadata] if metadata else ['n']), confirm]
 
 

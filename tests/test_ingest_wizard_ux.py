@@ -65,7 +65,7 @@ def test_manual_short_path_and_operation_only_summary(opened, tmp_path, capsys):
     assert 'Selected evidence' in text and '1 file' in text
     assert 'Optional analyst-supplied source assertions' not in text
     assert 'using the manual ingest commands' not in text
-    assert 'Source metadata' in text and 'name: Extracted MFT' in text
+    assert 'Source metadata' in text and 'Name: Extracted MFT' in text
     final = text.split('Evidence added to case.', 1)[1]
     assert 'Human case' not in final and 'Workspace' not in final
     assert 'Added evidence' not in final and 'mft: complete |' in text

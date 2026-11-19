@@ -1358,7 +1358,7 @@ Options:
 
 ```text
 usage: evidence source create [--json] [--name NAME] [--hostname HOSTNAME] [--user USER]
-       [--volume-root VOLUME_ROOT] [--force] [--page | --output FILE | --append FILE]
+       [--volume-root VOLUME_ROOT] [--time-zone [TIME_ZONE]] [--force] [--page | --output FILE | --append FILE]
 
 Create analyst-supplied source metadata
 
@@ -1368,6 +1368,7 @@ Common options:
   --hostname HOSTNAME        Analyst-supplied source hostname
   --user USER                Analyst-supplied source username
   --volume-root VOLUME_ROOT  Analyst-supplied original volume root
+  --time-zone [TIME_ZONE]    Analyst-supplied IANA zone; flag without a value clears to unknown
   --page                     View output page by page
   --output FILE              Save output to a file
 
@@ -1380,7 +1381,7 @@ Advanced options:
 
 ```text
 usage: evidence source update [--json] source_id [--name NAME] [--hostname HOSTNAME] [--user USER]
-       [--volume-root VOLUME_ROOT] [--yes] [--force] [--page | --output FILE | --append FILE]
+       [--volume-root VOLUME_ROOT] [--time-zone [TIME_ZONE]] [--yes] [--force] [--page | --output FILE | --append FILE]
 
 Update source metadata after confirmation
 
@@ -1393,6 +1394,7 @@ Common options:
   --hostname HOSTNAME        Analyst-supplied source hostname
   --user USER                Analyst-supplied source username
   --volume-root VOLUME_ROOT  Analyst-supplied original volume root
+  --time-zone [TIME_ZONE]    Analyst-supplied IANA zone; flag without a value clears to unknown
   --yes                      Apply without interactive confirmation; otherwise confirm in the
                              shell or preview in scripts
   --page                     View output page by page
@@ -2165,3 +2167,18 @@ Show the version and optional installation details
 Options:
   --details  Show technical details
 ```
+
+### Source time zone (6.154)
+
+`evidence source create --time-zone America/Chicago` records an optional analyst assertion.
+`evidence source update <source-id> --time-zone Europe/Paris` previews a correction;
+confirm in the shell or append `--yes` in scripts. `--time-zone` without a value clears
+the assertion to unknown; omitting the option preserves the current value on update.
+`evidence source list` and `evidence source show <source-id>` show current metadata;
+`evidence source show <source-id> --json` includes paginated assertion history.
+Guided `evidence ingest wizard` asks for a zone with optional source metadata.
+
+Zones do not convert stored timestamps or alter timeline/search windows. Existing
+cases remain unchanged on reads. An explicit supplied-zone mutation transactionally
+adds the nullable assertion column when necessary; historical rows remain unknown.
+See [6.154 details and acceptance](LOCARD_6_154_SOURCE_TIMEZONE_AND_INGESTION_UI.md).

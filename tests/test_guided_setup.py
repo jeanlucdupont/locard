@@ -142,7 +142,7 @@ def test_collect_requires_root_choice_and_category_confirmation(tmp_path, capsys
     plan = setup.collect(shell)
     assert {i.kind for i in plan.items} == {'mft', 'registry'}
     assert all(i.path.is_relative_to(second) for i in plan.items)
-    assert plan.metadata == dict(name=None, hostname=None, username=None, volume_root=None)
+    assert plan.metadata == dict(name=None, hostname=None, username=None, volume_root=None, time_zone=None)
     assert not target.exists()
     text = capsys.readouterr().out
     assert 'Multiple Windows roots' in text and '3. Generate a report' in text
@@ -193,7 +193,7 @@ def test_real_mixed_ingestion_partial_retention_metadata_and_ids(tmp_path, capsy
     before = snapshot(root)
     target = tmp_path / 'cases/Synthetic case/case.db'
     shell = Shell(State(None), Input(*prefix(target, metadata=('Examiner source', 'HOST-A', 'AnalystUser', 'C:')),
-                                   '1', str(root), '1', 'all', 'yes', 'Examiner source', 'HOST-A', 'AnalystUser', 'C:', 'yes'))
+                                   '1', str(root), '1', 'all', 'yes', 'Examiner source', 'HOST-A', 'AnalystUser', 'C:', '', 'yes'))
     assert setup.create(shell)
     assert shell.active == target and not hasattr(shell, 'mode')
     assert snapshot(root) == before

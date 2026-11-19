@@ -13,9 +13,9 @@ from forensic_assistant import activity, v2_cli
 from forensic_assistant.database import sources
 from forensic_assistant.interactive import creation, discovery, workspace, setup_display
 from forensic_assistant.retrieval.presentation import human_error, safe_text as safe
-from forensic_assistant.terminal import Palette, enabled
+from forensic_assistant.terminal import Palette, enabled, TextSpan, render_spans
 from forensic_assistant.cli import get_thin
-from .metadata import read_volume_root
+from .metadata import read_volume_root, read_time_zone
 
 WORKFLOW = ('A Locard investigation has three steps:\n  1. Create a case and ingest evidence\n'
             '  2. Investigate using commands or ! advisory requests\n  3. Generate a report\n\n'
@@ -36,11 +36,21 @@ class Plan:
     limited: bool = False
     browser_scanned: bool = False
     browser_found: int = 0
+    metadata_requested: bool = False
     considered: set = field(default_factory=set)
 
 
 def _separator(palette):
     return get_thin(SimpleNamespace(no_color=not palette.enabled))
+
+
+def _parts(palette, *parts):
+    return render_spans([TextSpan(text, role) for role, text in parts], palette)
+
+
+def _menu(palette, *labels):
+    return '\n'.join(_parts(palette, ('command', f'{n}. '), ('label', label))
+                     for n, label in enumerate(labels, 1))
 
 
 def outside_evidence(target, roots):
@@ -59,38 +69,38 @@ def inventory_text(inventory, *, details=False, palette=None, manual=False):
         items = [i for i in inventory.candidates if i.kind == kind]
         if not items:
             continue
-        lines.append('  ' + palette('label', kind.ljust(10)) + palette('value', str(len(items))) + (' file' if len(items) == 1 else ' files'))
+        lines.append('  ' + palette('value', kind.ljust(10)) + palette('value', str(len(items))) + (' file' if len(items) == 1 else ' files'))
         groups = Counter(i.group for i in items if i.group)
-        lines.extend('    ' + label + ': ' + str(count) for label, count in groups.items())
+        lines.extend(_parts(palette, ('label', '    ' + label + ': '), ('value', str(count))) for label, count in groups.items())
         if details:
-            lines.extend('    ' + safe(i.path) for i in items)
+            lines.extend('    ' + palette('value', safe(i.path)) for i in items)
         for item in items:
             if item.native_volume:
-                lines.extend(['    Found: ' + safe(item.path), '    Acquisition: native read-only NTFS'])
+                lines.extend([_parts(palette, ('label', '    Found: '), ('value', safe(item.path))), palette('forensic_note', '    Acquisition: native read-only NTFS')])
     if inventory.profiles_scanned or inventory.access_limits.get('User profiles') or inventory.redirected.get('User profiles'):
         lines.append(palette('heading', 'User profile discovery'))
         if inventory.profiles_scanned:
-            lines.append('  Profiles found: ' + str(inventory.profiles_found))
+            lines.append(_parts(palette, ('label', '  Profiles found: '), ('value', str(inventory.profiles_found))))
         if inventory.access_limits.get('User profiles'):
-            lines.append('  Inaccessible: ' + palette('warning', str(len(inventory.access_limits['User profiles']))))
+            lines.append(_parts(palette, ('forensic_note', '  Inaccessible: '), ('value', str(len(inventory.access_limits['User profiles'])))))
         if inventory.redirected.get('User profiles'):
-            lines.append('  Redirected/junction entries skipped: ' + str(len(inventory.redirected['User profiles'])))
+            lines.append(_parts(palette, ('forensic_note', '  Redirected/junction entries skipped: '), ('value', str(len(inventory.redirected['User profiles'])))))
     access = {k: v for k, v in inventory.access_limits.items() if k != 'User profiles'}
     if access:
         lines.append(palette('heading', 'Access limitations'))
-        lines.extend('  ' + label + ': ' + palette('warning', f'{len(paths)} inaccessible') for label, paths in access.items())
+        lines.extend(_parts(palette, ('forensic_note', '  ' + label + ': '), ('value', str(len(paths))), ('forensic_note', ' inaccessible')) for label, paths in access.items())
     redirects = {k: v for k, v in inventory.redirected.items() if k != 'User profiles'}
     if redirects:
         lines.append(palette('heading', 'Redirected/junction entries skipped'))
-        lines.extend('  ' + label + ': ' + str(len(paths)) for label, paths in redirects.items())
+        lines.extend(_parts(palette, ('forensic_note', '  ' + label + ': '), ('value', str(len(paths)))) for label, paths in redirects.items())
     if inventory.unsupported:
         lines.append(palette('heading', 'Other forensic artifacts detected'))
-        lines.extend('  ' + safe(path if details else path.name) + ' — not currently supported' for path in inventory.unsupported)
+        lines.extend(_parts(palette, ('value', '  ' + safe(path if details else path.name)), ('unknown', ' — not currently supported')) for path in inventory.unsupported)
     unsupported_notes = {'Not currently supported by Locard: ' + str(p) for p in inventory.unsupported}
     notes = list(dict.fromkeys(n for n in inventory.notes if n not in unsupported_notes and (details or n not in inventory.access_notes)))
     if notes:
         lines.append(palette('heading', 'Discovery notes'))
-    lines.extend('  ' + palette('warning', safe(note)) for note in (notes if details else notes[:10]))
+    lines.extend('  ' + palette('forensic_note', safe(note)) for note in (notes if details else notes[:10]))
     if not details and len(notes) > 10:
         lines.append(f'  {len(notes) - 10} further discovery notes; choose review for details.')
     return '\n'.join(lines)
@@ -107,6 +117,7 @@ def select_categories(value, available):
 
 def read_input(shell, palette, prompt, *, required=False):
     while True:
+        # ReaderProxy applies the shared question role and records one response.
         value = shell.reader.read(prompt).strip()
         if value.casefold() == 'cancel':
             raise EOFError
@@ -130,9 +141,8 @@ def access_guidance(read, palette):
         return
     print('\n' + _separator(palette))
     print(palette('warning', 'Limited access may prevent complete Windows artifact discovery.'))
-    print('Administrator privileges are recommended for mounted Windows evidence.\n'
-          'Administrator status does not guarantee access to every evidence path.\n'
-          '1. Cancel and restart Locard as Administrator\n2. Continue with limited discovery\n3. Cancel setup')
+    print(palette('forensic_note', 'Administrator privileges are recommended for mounted Windows evidence.\nAdministrator status does not guarantee access to every evidence path.'))
+    print(_menu(palette, 'Cancel and restart Locard as Administrator', 'Continue with limited discovery', 'Cancel setup'))
     if choice(read, 'Selection: ', ('1', '2', '3')) != '2':
         raise EOFError
 
@@ -143,12 +153,12 @@ def browser_selection(items, read, palette):
         return items, []
     print(palette('heading', 'Browser profiles found'))
     for n, item in enumerate(candidates, 1):
-        print(f'  [{n}] ' + safe(item.browser_product or 'unspecified') + '  ' +
-              safe(item.owner or 'owner not supplied') + '  ' + safe(item.profile or item.path.name))
-    print('Location labels are not asserted Windows identities. Selection confirms browser/profile context.')
-    print('Choose browser profiles to ingest: all, none, or comma-separated numbers.')
+        print(_parts(palette, ('command', f'  [{n}] '),
+                     ('value', safe(item.browser_product or 'unspecified') + '  ' +
+                      safe(item.owner or 'owner not supplied') + '  ' + safe(item.profile or item.path.name))))
+    print(palette('forensic_note', 'Location labels are not asserted Windows identities. Selection confirms browser/profile context.'))
     while True:
-        value = read('Selection [1]: ' if len(candidates) == 1 else 'Selection (required): ').casefold()
+        value = read('Select profiles (all, none, or numbers): ').casefold()
         if not value and len(candidates) == 1:
             value = '1'
         if value == 'none':
@@ -164,7 +174,7 @@ def browser_selection(items, read, palette):
             selected = [item for n, item in enumerate(candidates, 1) if n in indexes]
             break
         except ValueError:
-            print(palette('warning', 'Select all, none, or listed profile numbers; multiple profiles have no default.'))
+            print(palette('error', 'Select all, none, or listed profile numbers; multiple profiles have no default.'))
     options = []
     from forensic_assistant.artifacts.browser import validate_options
     for item in selected:
@@ -199,7 +209,7 @@ def collect(shell, *, adding=False):
         name = shell.case_label or workspace.case_label(target)
         analyst = organization = ''
         print('\n' + _separator(palette))
-        print(palette('label', 'Add evidence to case: ' + safe(name)))
+        print(_parts(palette, ('label', 'Add evidence to case: '), ('value', safe(name))))
         print('Type cancel at any prompt to return to the case. Nothing is ingested before confirmation.')
     else:
         print(palette('label', _separator(palette) + '\n' + WORKFLOW))
@@ -214,12 +224,11 @@ def collect(shell, *, adding=False):
         analyst = read('Analyst name (optional): ')
         organization = read('Organization (optional): ')
     plan = Plan(name, analyst, organization, target,
-                metadata=dict(name=None, hostname=None, username=None, volume_root=None))
+                metadata=dict(name=None, hostname=None, username=None, volume_root=None, time_zone=None))
     while True:
         print('\n' + _separator(palette))
         print(palette('question', 'How would you like to add evidence?'))
-        print('1. Scan a mounted Windows volume or folder (recommended)\n'
-              '2. Select evidence manually\n3. ' + ('Cancel' if adding else 'Skip ingestion for now'))
+        print(_menu(palette, 'Scan a mounted Windows volume or folder (recommended)', 'Select evidence manually', 'Cancel' if adding else 'Skip ingestion for now'))
         mode = choice(read, 'Selection [1]: ', ('1', '2', '3'), '1')
         inventory = discovery.Inventory()
         roots = []
@@ -237,9 +246,9 @@ def collect(shell, *, adding=False):
                 if len(candidates) > 1:
                     print('Multiple Windows roots found; select one (not combined):')
                     for n, candidate in enumerate(candidates, 1):
-                        print(f'  {n}. ' + safe(candidate))
+                        print(_parts(palette, ('command', f'  {n}. '), ('value', safe(candidate))))
                     root = candidates[int(choice(read, 'Windows root number: ', tuple(str(i) for i in range(1, len(candidates) + 1)))) - 1]
-                print('Windows root: ' + safe(root))
+                print(_parts(palette, ('label', 'Windows root: '), ('value', safe(root))))
                 with Observation('Discovering evidence'):
                     inventory = discovery.scan(root)
                 plan.browser_scanned = True
@@ -281,8 +290,8 @@ def collect(shell, *, adding=False):
         categories = set(available)
         if mode == '1':
             while True:
-                print(palette('label', '\nWhat would you like to do?'))
-                print('1. Ingest all discovered artifacts\n2. Select artifact categories\n3. Review discovered paths\n4. Cancel')
+                print(palette('question', '\nWhat would you like to do?'))
+                print(_menu(palette, 'Ingest all discovered artifacts', 'Select artifact categories', 'Review discovered paths', 'Cancel'))
                 action = choice(read, 'Selection [1]: ', ('1', '2', '3', '4'), '1')
                 if action == '4':
                     raise EOFError
@@ -292,7 +301,7 @@ def collect(shell, *, adding=False):
                 if action == '1':
                     categories = set(available)
                 else:
-                    print('Available categories:\n  ' + '\n  '.join(available))
+                    print(palette('heading', 'Available categories:') + '\n  ' + '\n  '.join(palette('value', k) for k in available))
                     while True:
                         try:
                             categories = select_categories(read('Enter categories separated by commas: ', required=True), available)
@@ -309,38 +318,44 @@ def collect(shell, *, adding=False):
         plan.roots = roots
         plan.limited = bool(inventory.access_limits)
         if plan.items and choice(read, 'Add optional source metadata? [y/N]: ', ('y', 'yes', 'n', 'no'), 'n') in ('y', 'yes'):
+            plan.metadata_requested = True
             plan.metadata.update(name=read('Source display name (optional): ') or None,
                                  hostname=read('Hostname (optional): ') or None,
                                  username=read('Username (optional): ') or None,
-                                 volume_root=read_volume_root(read, 'Original volume root, e.g. C: (optional): ', palette))
+                                 volume_root=read_volume_root(read, 'Original volume root, e.g. C: (optional): ', palette),
+                                 time_zone=read_time_zone(read, palette))
             sources.metadata(**plan.metadata)
         break
     print('\n' + _separator(palette))
     if adding:
-        print(palette('heading', 'Add evidence to case') + '\n  ' + safe(plan.name))
+        print(palette('heading', 'Add evidence to case') + '\n  ' + palette('value', safe(plan.name)))
     else:
         print(palette('heading', 'Proposed case'))
-        print('Case\n  Name: ' + safe(plan.name) + '\n  Analyst: ' + safe(analyst or 'not supplied') +
-              '\n  Organization: ' + safe(organization or 'not supplied'))
-        print('Workspace\n  ' + safe(target.parent))
+        print(palette('heading', 'Case'))
+        for label, value in (('Name', plan.name), ('Analyst', analyst), ('Organization', organization)):
+            print(_parts(palette, ('label', '  ' + label + ': '),
+                         ('value' if value else 'unknown', safe(value or 'not supplied'))))
+        print(palette('heading', 'Workspace') + '\n  ' + palette('value', safe(target.parent)))
     for root in plan.roots:
-        print('Evidence source\n  ' + safe(root))
+        print(palette('heading', 'Evidence source') + '\n  ' + palette('value', safe(root)))
     print(palette('heading', 'Selected evidence'))
     for kind, count in Counter(i.kind for i in plan.items).items():
-        print('  ' + palette('label', kind.ljust(10)) + palette('value', str(count)) +
+        print('  ' + palette('value', kind.ljust(10)) + palette('value', str(count)) +
               (' selected profiles' if kind == 'browser' else ' file' if count == 1 else ' files'))
-    if any(plan.metadata.values()):
+    if plan.metadata_requested or any(plan.metadata.values()):
         print(palette('heading', 'Source metadata'))
-    for key, value in plan.metadata.items():
-        if value:
-            print('  ' + key + ': ' + safe(value))
+        for key, label in (('name', 'Name'), ('hostname', 'Hostname'), ('username', 'Username'),
+                           ('volume_root', 'Volume root'), ('time_zone', 'Time zone')):
+            value = plan.metadata.get(key)
+            print(_parts(palette, ('label', '  ' + label + ': '),
+                         ('value' if value else 'unknown', safe(value or 'unknown'))))
     for item in plan.deferred:
-        print(palette('heading', 'MFT') + '\n  Found: ' + safe(item.path))
+        print(palette('heading', 'MFT') + '\n  Found: ' + palette('value', safe(item.path)))
         print(palette('error', '  Direct ingestion: unavailable'))
         if item.access_reason:
-            print(palette('warning', '  ' + safe(item.access_reason) + '\n  Supply an accessible extracted $MFT.'))
+            print(palette('forensic_note', '  ' + safe(item.access_reason) + '\n  Supply an accessible extracted $MFT.'))
         elif item.access == 'requires extraction':
-            print(palette('warning', '  Direct access is not possible on this mounted NTFS volume.\n'
+            print(palette('forensic_note', '  Direct access is not possible on this mounted NTFS volume.\n'
                           '  Use a third-party tool to extract $MFT as a standard file, then ingest the extracted file with Locard.'))
         else:
             print(palette('warning', 'File access is unavailable; supply an accessible extracted MFT.'))

@@ -11,12 +11,12 @@ from forensic_assistant.terminal import Palette, capable, replace_progress_line,
 
 def role(status):
     return ('success' if status == 'complete' else 'error' if status in ('failed', 'changed', 'requires extraction')
-            else 'label' if status in ('not selected', 'no supported history found') else 'warning')
+            else 'unknown' if status == 'unsupported' else 'label' if status in ('not selected', 'no supported history found') else 'warning')
 
 
 def category_line(kind, progress, palette):
     status = progress.outcome
-    return (palette('label', kind) + ': ' + palette(role(status), status) + ' | ' +
+    return (palette('value', kind) + ': ' + palette(role(status), status) + ' | ' +
             palette('value',
                     f'{progress.records:,} records retained') + ' | ' +
             palette('value', f'{progress.duplicates:,} duplicates') + ' | ' +
@@ -68,7 +68,7 @@ class FileProgress:
         # Caller holds the display lock. Never print fallback lines from animation.
         from forensic_assistant.session_recording import suspended
         with suspended():
-            if not replace_progress_line(self.palette('progress' if self.kind == 'mft' else 'label', self._text()), self.stream):
+            if not replace_progress_line(self.palette('progress', self._text()), self.stream):
                 self.stop.set()
         self.index += 1
 
@@ -96,7 +96,7 @@ class FileProgress:
             if self.last is not None and processed < self.total and current - self.last < interval:
                 return
             self.last = current
-            text = self.palette('progress' if self.kind == 'mft' else 'label', self._text())
+            text = self.palette('progress', self._text())
             from forensic_assistant.session_recording import suspended
             with suspended():
                 replaced = self.inplace and replace_progress_line(text, self.stream)
