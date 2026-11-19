@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from .progress import Deadline, WorkerFailure, ProgressError, policy, read_snapshot, snapshot_path
+from .progress import Deadline, WorkerFailure, ProgressError, policy, read_snapshot, snapshot_path, safe_diagnostics
 from forensic_assistant.ingest.observation import emit
 from forensic_assistant.ingest.evtx import digest
 from forensic_assistant.database.db import now, register_source
@@ -120,11 +120,16 @@ def worker(kind, path, sha, stage, options, timeout):
             if len(out) > 65536 or len(err) > 65536:
                 raise WorkerFailure('resource_limit', dict(deadline.details(), reason='Parser diagnostic limit exceeded')) if deadline else ValueError('Parser worker diagnostic limit exceeded')
             if deadline and proc.returncode:
+                diagnostics = {}
                 try:
-                    category = json.loads(out).get('error_category')
+                    message = json.loads(out)
+                    category = message.get('error_category')
+                    if category == 'progress_communication':
+                        diagnostics = safe_diagnostics(message.get('progress_diagnostics'))
                 except (ValueError, AttributeError):
                     category = None
-                raise WorkerFailure('startup_failure' if not permitted else category if category in ('parser_exception', 'progress_communication') else 'worker_crash', deadline.details())
+                raise WorkerFailure('startup_failure' if not permitted else category if category in ('parser_exception', 'progress_communication') else 'worker_crash',
+                                    dict(deadline.details(), **diagnostics))
             if deadline and (not permitted or deadline.phase != 'complete'):
                 raise WorkerFailure('incomplete_progress', deadline.details())
             if proc.returncode:
@@ -140,9 +145,13 @@ def worker(kind, path, sha, stage, options, timeout):
                 else:
                     failure = WorkerFailure('progress_communication' if isinstance(exc, ProgressError) else 'worker_failure', deadline.details())
                     failure.diagnostics['exception_class'] = type(exc).__name__
+                    if isinstance(exc, ProgressError):
+                        failure.diagnostics.update(safe_diagnostics(exc.diagnostics))
                     raise failure from exc
             raise
         finally:
+            if failure is not None:
+                failure.diagnostics['worker_exit_code_before_cleanup'] = proc.poll()
             contained = False
             try:
                 if job:

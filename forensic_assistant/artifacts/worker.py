@@ -169,7 +169,10 @@ if __name__ == '__main__':
                 raise ValueError('Parent containment handshake cancelled')
         print(json.dumps(run(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], json.loads(sys.argv[5]))))
     except Exception as exc:
-        from .progress import ProgressError
-        print(json.dumps({'error': f'{type(exc).__name__}: {exc}',
-                          'error_category': 'progress_communication' if isinstance(exc, ProgressError) else 'parser_exception'}))
+        from .progress import ProgressError, safe_diagnostics
+        message = {'error': f'{type(exc).__name__}: {exc}',
+                   'error_category': 'progress_communication' if isinstance(exc, ProgressError) else 'parser_exception'}
+        if isinstance(exc, ProgressError):
+            message['progress_diagnostics'] = safe_diagnostics(exc.diagnostics)
+        print(json.dumps(message))
         sys.exit(1)
