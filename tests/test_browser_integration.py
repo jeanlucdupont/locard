@@ -116,7 +116,8 @@ def test_browser_human_commands_and_mixed_host_window(mixed_case, tmp_path):
     result, code = v2_cli.dispatch(db, build_parser().parse_args(['case', 'status']))
     assert result['browser_counts'] == {'browser_download': 2, 'browser_visit': 2}
     shown = status_render(result, 'synthetic.db', context(db))
-    assert 'Browser: 4' in shown and 'Visits: 2' in shown and 'Downloads: 2' in shown
+    aligned = ' '.join(shown.split())
+    assert 'Browser: 4' in aligned and 'Visits: 2' in aligned and 'Downloads: 2' in aligned
     assert before == list(db.iterdump())
 
 

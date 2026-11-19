@@ -119,7 +119,7 @@ def test_empty_case_has_no_source_metadata_or_batches(tmp_path):
             assert db.execute('SELECT count(*) FROM ' + table).fetchone()[0] == 0
     path = tmp_path / 'History'
     history(path).close()
-    assert main(['--db', str(target), 'ingest-browser', str(path), '--browser', 'chrome', '--profile', 'Default']) == 0
+    assert main(['--db', str(target), 'evidence', 'ingest', 'browser', str(path), '--browser', 'chrome', '--profile', 'Default']) == 0
     with closing(connect(target)) as db:
         assert db.execute('SELECT count(*) FROM sources').fetchone()[0] == 1
 
@@ -171,10 +171,10 @@ def test_browser_kind_preserves_identity_order_and_timeline(browser_case, capsys
             with pytest.raises(ValueError):
                 q.search(**kwargs)
         assert list(db.iterdump()) == before
-    assert main(['--db', str(browser_case), 'search', '--artifact', 'browser', '--browser-kind', 'visit', '--json']) == 0
+    assert main(['--db', str(browser_case), 'evidence', 'search', '--artifact', 'browser', '--browser-kind', 'visit', '--json']) == 0
     assert len(json.loads(capsys.readouterr().out)['records']) == 2
     from forensic_assistant.interactive.completion import complete
-    prefix = 'search --'
+    prefix = 'evidence search --'
     assert '--browser-kind' in complete(prefix, len(prefix)).candidates
 
 
@@ -232,7 +232,7 @@ def test_around_missing_host_and_investigation_cautions_unchanged(browser_case, 
         assert text.count(SHARED_NOTES[-2]) == 1
         assert 'Browser-recorded activity; not proof' not in text
         assert result == before and list(db.iterdump()) == original
-    assert main(['--db', str(browser_case), 'around', row['id'], '--timestamp-slot', 'Browser.VisitTime']) == 2
+    assert main(['--db', str(browser_case), 'evidence', 'around', row['id'], '--timestamp-slot', 'Browser.VisitTime']) == 2
     error = capsys.readouterr().err
     assert 'Host context missing or conflicting' in error
     assert 'Locard:' not in error and '"' not in error
@@ -241,7 +241,7 @@ def test_around_missing_host_and_investigation_cautions_unchanged(browser_case, 
 def test_source_update_human_and_complete_json(browser_case, capsys):
     with closing(connect(browser_case)) as db:
         sid = sources.listing(db)['sources'][0]['source_id']
-    base = ['--db', str(browser_case), 'source', 'update', sid]
+    base = ['--db', str(browser_case), 'evidence', 'source', 'update', sid]
     assert main(base + ['--hostname', 'Host-A', '--user', 'alice', '--yes']) == 0
     text = capsys.readouterr().out
     assert 'Source updated.' in text and 'Hostname: unknown -> host-a' in text

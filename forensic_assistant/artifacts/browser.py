@@ -37,27 +37,27 @@ def inventory(path):
         if size > MAX_INPUT:
             raise ValueError('Browser input exceeds 8 GiB per-file limit')
         result[suffix] = {'sha256': digest(item), 'size': size}
-    if result.get('-journal', {}).get('size'):
-        raise ValueError('History rollback journal present; supply a consistent acquired snapshot (no recovery performed)')
     return result
 
 
 def copy_snapshot(path, destination):
     """Copy and validate History/companions without asserting browser identity."""
     before = inventory(path)
-    for suffix in ('', '-wal'):
+    from .browser_journal import validate, SnapshotError
+    for suffix in ('', '-wal', '-journal'):
         if suffix in before:
             target = Path(str(destination) + suffix)
             with open(str(path) + suffix, 'rb') as source, target.open('xb') as output:
                 shutil.copyfileobj(source, output, 1024 * 1024)
             if digest(target) != before[suffix]['sha256']:
-                raise ValueError('History changed while copying; snapshot rejected')
+                raise SnapshotError('snapshot_consistency_not_established', 'History changed while copying', before)
     if inventory(path) != before:
-        raise ValueError('History companions changed while copying; snapshot rejected')
+        raise SnapshotError('snapshot_consistency_not_established', 'History companions changed while copying', before)
+    validation = validate(destination, before)
     # SHM is a reconstructible index, never the identity of committed evidence.
     identity = {key: before[key] for key in ('', '-wal') if key in before}
     sha = hashlib.sha256(dump(identity).encode()).hexdigest()
-    return dict(snapshot_sha256=sha, manifest=before)
+    return dict(snapshot_sha256=sha, manifest=before, sqlite_validation=validation)
 
 
 def snapshot(path, destination, product, profile):
@@ -100,7 +100,7 @@ def schema_columns(db):
     return columns
 
 
-def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, manifest):
+def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, manifest, sqlite_validation=None):
     validate_options(browser_product, profile)
     # Writable private directory permits SQLite to reconstruct SHM, but the
     # evidence connection itself is read-only. No checkpoint/repair is issued.
@@ -115,6 +115,9 @@ def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, m
         allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ}
         db.set_authorizer(lambda action, a, b, c, d: sqlite3.SQLITE_OK if action in allowed else sqlite3.SQLITE_DENY)
         warnings = ['Browser history may be deleted, expired, synchronized, or absent from the supplied profile; missing history is not proof of no activity.']
+        if sqlite_validation and sqlite_validation['rollback_journal'] == 'inactive':
+            warnings.append('Inactive rollback journal accepted after stable-copy and read-only SQLite validation; no recovery performed.')
+            warnings.append(sqlite_validation['acquisition_limitation'])
         if '-wal' not in manifest:
             warnings.append('No WAL supplied; uncheckpointed browser activity may be absent.')
         else:
