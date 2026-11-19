@@ -26,6 +26,9 @@ def has_column(db):
 
 def enable_for_assertion(db, value):
     """Approved additive extension on explicit metadata writes, never on reads."""
+    if value is not None:
+        from forensic_assistant.interactive.case import check_source_assertions
+        check_source_assertions(db)
     if value is not None and not has_column(db):
         if not db.in_transaction:
             db.execute('BEGIN')

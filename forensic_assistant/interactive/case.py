@@ -42,6 +42,15 @@ def expected_schema(version=5):
         return tuple(result)
 
 
+def check_source_assertions(db):
+    """Accept only the legacy layout or the nullable analyst-zone extension."""
+    columns = dict(expected_schema(5))['source_assertions']
+    legacy = tuple(column for column in columns if column[0] != 'time_zone')
+    actual = tuple(tuple(row)[1:] for row in db.execute('PRAGMA table_info(source_assertions)'))
+    if actual not in (columns, legacy):
+        raise ValueError('Unsupported Locard table structure: source_assertions')
+
+
 def check_structure(db):
     version = db.execute('PRAGMA user_version').fetchone()[0]
     if version not in (3, 4, 5):
@@ -51,6 +60,9 @@ def check_structure(db):
     for name, columns in expected_schema(version):
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone():
             raise ValueError('Incomplete Locard database structure')
+        if name == 'source_assertions':
+            check_source_assertions(db)
+            continue
         actual = tuple(tuple(row)[1:] for row in db.execute(f'PRAGMA table_info("{name}")'))
         if actual != columns:
             raise ValueError('Unsupported Locard table structure: ' + name)
