@@ -18,7 +18,7 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
     stream = sys.stderr if json_output else sys.stdout
     print('Using saved assessment ' + selected['id'], file=stream)
     question = question or read_answer(read, 'What would you like to investigate? ')
-    handoff = service.prepare(case, selected['id'], question, start, end)
+    handoff = service.prepare(case, selected['id'], question, start, end,diverse=autonomous)
     if autonomous:
         from .investigation_ai.autonomous import start
         from .ai.backend import backend
@@ -33,6 +33,19 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
             print('  Window: '+grant['start']+' to '+grant['end'],file=stream)
             print('  Sources: '+', '.join(grant['source_ids']),file=stream)
             print('  Families: '+', '.join(grant['families']),file=stream)
+            if grant.get('selection'):
+                selection=grant['selection']
+                from .terminal import field,Palette,enabled
+                palette=Palette(enabled(presentation,stream))
+                print('  Assessment: '+safe(grant['assessment_id']),file=stream)
+                for label,key in (('Available assessment records','available_by_family'),('Selected seed records','selected_by_family')):
+                    print(field('  '+label,', '.join(f'{family} {count}' for family,count in selection[key].items()),palette),file=stream)
+                print('  Eligible assessment families: '+', '.join(selection['eligible_families']),file=stream)
+                print('  Omitted eligible records: '+str(selection['omitted_eligible_records'])+'; excluded: '+safe(str(selection['excluded'])),file=stream)
+                print('  Effective scope is ONLY the selected IDs, not every record in these families.',file=stream)
+                print('  '+selection['limitation'],file=stream)
+                for hint in handoff['hints']:print('    '+hint['ref']+': '+hint['id'],file=stream)
+                for limitation in handoff['limitations']:print('  Limitation: '+safe(limitation),file=stream)
             print('  OpenAI model: '+safe(grant['model'])+'; authorized evidence will be sent to OpenAI.',file=stream)
             print('  Inspect only '+str(len(grant['evidence_ids']))+' listed assessment references; show_evidence only, no search.',file=stream)
             print('  Eligibility: any of the first 32 recorded timestamps in the window. Bounded full-record context, including other timestamps, is permitted.',file=stream)
@@ -61,7 +74,8 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
             if synthesize:extra['synthesize']=True
             if live_explanation:extra['live_explanation']=True
             result=start(handoff,selected,backend(),authorize_envelope,status=indicator.phase,**extra)
-        return {'kind':'assessment_investigation',**({'result':result} if result is not None else {'message':'Investigation cancelled; no evidence retrieved or model called.'})}
+        return {'kind':'assessment_investigation',**({'selection':handoff['selection']} if handoff.get('selection') else {}),
+                **({'result':result} if result is not None else {'message':'Investigation cancelled; no evidence retrieved or model called.'})}
     def confirm(plan):
         print('Proposed investigation window: ' + plan['scope']['start'] + ' to ' + plan['scope']['end'], file=stream)
         print('Initial read-only verification of these historical references:', file=stream)

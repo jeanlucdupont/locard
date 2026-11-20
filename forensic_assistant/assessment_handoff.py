@@ -44,7 +44,7 @@ def resolve_references(question, mapping):
     return requested
 
 
-def prepare(case, identity, question, start=None, end=None):
+def prepare(case, identity, question, start=None, end=None, *, diverse=False):
     assessment = select(case, identity)
     mapping = references(assessment)
     requested = resolve_references(question, mapping)
@@ -53,6 +53,13 @@ def prepare(case, identity, question, start=None, end=None):
     if bool(start) != bool(end):
         raise ValueError('Supply both --start and --end')
     scope = window(start or plan['start'], end or plan['end'], source='analyst-confirmed assessment handoff')
+    selection=None
+    if diverse:
+        from .assessment_selection import select as select_seeds
+        from .correlation.models import time_ns
+        if time_ns(required_time(scope['start']))<time_ns(required_time(plan['start'])) or time_ns(required_time(scope['end']))>time_ns(required_time(plan['end'])):
+            raise ValueError('Seed selection cannot expand the saved assessment time window')
+        selected,selection=select_seeds(assessment,mapping,requested,question,scope,MAX_REFERENCES)
     state = Store(case).load()
     revision = next((r for r in (state or {}).get('revisions', []) if r['digest'] == plan['digest']), None)
     document = revision['content'].get('canonical', {}).get('document', {}) if revision else {}
@@ -71,6 +78,11 @@ def prepare(case, identity, question, start=None, end=None):
         if coverage[status]:limitations.append('Historical routes '+status+': '+', '.join(coverage[status])+'; not an absence conclusion.')
     if stale:
         limitations.append('Assessment references an older or unavailable briefing revision; no current revision is substituted.')
+    if selection:
+        limitations.append(selection['limitation'])
+        limitations.extend(str(value) for row in assessment['rows'] for value in row.get('limitations',[]))
+        limitations.extend(assessment.get('warnings',[]))
+        limitations=list(dict.fromkeys(limitations))
     if len(mapping) > len(selected):
         limitations.append('Assessment evidence references omitted by the 12-record initial retrieval bound.')
     historical = dict(objectives=plan.get('objectives', [])[:4],
@@ -89,6 +101,7 @@ def prepare(case, identity, question, start=None, end=None):
     return dict(case=assessment['case'], assessment_id=assessment['id'], assessment_digest=digest(assessment),
                 briefing_revision=plan['revision'], briefing_digest=plan['digest'], question=question,
                 scope=scope, hints=hints, historical=historical, limitations=limitations, incomplete_families=incomplete, coverage_states=coverage,
+                **({'selection':selection} if selection else {}),
                 briefing_stale=stale, latest_briefing_digest=state['revisions'][-1]['digest'] if state else None, context_is_unverified=True)
 
 

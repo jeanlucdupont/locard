@@ -46,6 +46,13 @@ def prepare(handoff, assessment, client, *, decompose=False, synthesize=False):
         grant['contract'] = policy.S4_CONTRACT
         grant['limits']['requests'] = 7
         grant['allocations'] = deepcopy(policy.S4_ALLOCATION)
+    if handoff.get('selection'):
+        grant['selection']=deepcopy(handoff['selection'])
+        explicit_source=assessment['plan'].get('source_id')
+        allowed_sources=[explicit_source] if explicit_source else sorted(sources)
+        if grant['selection']['selected_ids']!=ids or grant['selection']['source_ids']!=allowed_sources or not sources<=set(allowed_sources):
+            raise ValueError('Seed selection does not match assessment source/reference authority')
+        grant['source_ids']=allowed_sources
     if synthesize:
         grant['contract']=policy.B2_CONTRACT
         grant['limits']=deepcopy(policy.B2_LIMITS)
@@ -60,7 +67,12 @@ def start(handoff,assessment,client,confirm,*,status=None,decompose=False,synthe
     from forensic_assistant.ai.backend import ModelBackend
     # Capture cached provider configuration before approval; never probe here.
     descriptor=client.descriptor() if isinstance(client,ModelBackend) else None
-    if confirm(deepcopy(grant)) is not True:return None
+    if confirm(deepcopy(grant)) is not True:
+        if grant.get('selection'):
+            from forensic_assistant import activity
+            activity.event('INVESTIGATION_AUTHORIZATION','cancelled',required=True,assessment_id=grant['assessment_id'],
+                           selection=grant['selection'],provider_requests=0,evidence_lookups=0)
+        return None
     started=time.monotonic()
     grant.update(id=uuid.uuid4().hex,issued=time.time());grant['expires']=grant['issued']+300
     from forensic_assistant.assessment_handoff import authorize
@@ -70,7 +82,14 @@ def start(handoff,assessment,client,confirm,*,status=None,decompose=False,synthe
         grant['objective'],grant['case']+'.investigations',client=client,budget=Budget(),status=status,prepared_backend=descriptor)
 
 
-def choose(pending,hints,previous):
+def choose(pending,hints,previous,selection=None,inspected=()):
+    if selection:
+        for eid in selection['requested_ids']:
+            if eid in pending:return eid
+        from collections import Counter
+        counts=Counter(selection['buckets'][eid] for eid in inspected)
+        bucket=min({selection['buckets'][eid] for eid in pending},key=lambda b:(counts[b],selection['bucket_order'].index(b)))
+        pending={eid for eid in pending if selection['buckets'][eid]==bucket}
     # Accepted unresolved questions/observations influence order, never authorization.
     text=' '.join(previous.get('model_proposed_unknowns',[]))+' '+ ' '.join(str(r['reported_value']) for r in previous.get('observed',[]))
     terms=set(re.findall(r'[a-z0-9_]{4,}',text.casefold()))-{'that','this','with','from','evidence','unknown'}
@@ -202,7 +221,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 break
             guard();state.steps+=1;phase='operation'
             previous=deltas[-1]['findings'] if deltas else {}
-            eid=choose(pending,config.get('_stage_a_hints',{}),previous);args={'evidence_id':eid}
+            eid=choose(pending,config.get('_stage_a_hints',{}),previous,grant.get('selection'),set(grant['evidence_ids'])-pending);args={'evidence_id':eid}
             policy.operation(grant,config['case_path'],'show_evidence',args)
             transcript.append('authorized_operation',dict(tool='show_evidence',arguments=args,grant_id=grant['id'],
                 based_on_delta=deltas[-1]['id'] if deltas else None))
