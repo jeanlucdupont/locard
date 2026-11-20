@@ -146,7 +146,7 @@ def run(args):
         from contextlib import nullcontext,redirect_stdout
         with redirect_stdout(sys.stderr) if args.json else nullcontext():
             if op=='start':return investigation_workflow.start(args.db,read=read,presentation=args)
-            return investigation_workflow.run(args.db,args.assessment,args.question,read=read,presentation=args)
+            return investigation_workflow.run(args.db,args.assessment,args.question,read=read,presentation=args,json_output=args.json)
     if op=='assessment-advanced':
         from .assessment_handoff_cli import execute
         return execute(args.db,args.assessment,args.question,read=read,start=args.start,end=args.end,

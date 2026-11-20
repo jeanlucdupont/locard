@@ -59,11 +59,15 @@ def start(case, *, read, display=print, presentation=None):
     return run(case, assessment['id'], question, read=read, display=display, presentation=presentation)
 
 
-def run(case, identity='latest', question=None, *, read, display=print, presentation=None):
+def run(case, identity='latest', question=None, *, read, display=print, presentation=None, json_output=False):
     """Stage choices precede, and never replace, the engine's exact grant approval."""
     from .assessment_handoff import prepare
     from .ai.settings import load
     from .interactive.console import safe
+    if json_output:
+        import sys
+        from functools import partial
+        display=partial(print,file=sys.stderr)
     answer = lambda prompt: briefing_workflow.read_answer(read, prompt).strip()
     question = question or answer('Investigation question: ')
     handoff = prepare(case, identity, question)
@@ -75,8 +79,8 @@ def run(case, identity='latest', question=None, *, read, display=print, presenta
     for limitation in handoff['limitations']:
         display(safe(limitation))
     config = load()
-    if config['provider'] != 'openai':
-        raise ValueError('The autonomous workflow currently supports OpenAI only; use ! for other configured-provider routing')
+    from .ai.investigation_preflight import require
+    require(config)  # Local only, before asking for investigation allocations.
     if answer('Permit bounded evidence disclosure to OpenAI for this investigation? [y/N]: ').lower() not in ('y','yes'):
         return {'status':'cancelled', 'stage':'cloud_disclosure'}
     decompose = answer('Authorize a separate question-decomposition request within the displayed grant? [y/N]: ').lower() in ('y','yes')
@@ -84,6 +88,6 @@ def run(case, identity='latest', question=None, *, read, display=print, presenta
     if decompose:
         synthesize = answer('Authorize up to two additional bounded evidence-synthesis requests? [y/N]: ').lower() in ('y','yes')
     result = assessment_handoff_cli.execute(case, identity, question, read=read, autonomous=True,
-        decompose=decompose, synthesize=synthesize, live_explanation=synthesize, presentation=presentation)
+        decompose=decompose, synthesize=synthesize, live_explanation=synthesize, presentation=presentation,json_output=json_output)
     display('Review recorded output with investigation history. Findings and reports are separate explicit operations; nothing is automatically captured or published.')
     return result

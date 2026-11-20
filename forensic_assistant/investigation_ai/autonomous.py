@@ -19,12 +19,9 @@ DELTA='analysis-delta-v1'
 
 def prepare(handoff, assessment, client, *, decompose=False, synthesize=False):
     if synthesize and not decompose:raise ValueError('Synthesis requires decomposition')
-    if client.provider_name!='openai' or not client.config.get('cloud_acknowledged'):
-        raise ValueError('Autonomous Stage A requires acknowledged OpenAI configuration')
     # Do not spend unaccounted compatibility requests inside a six-request grant.
-    from forensic_assistant.ai import readiness
-    if readiness.status(client.config).get('investigation_compatibility')!='ready':
-        raise ValueError('Verify OpenAI investigation compatibility before starting autonomous mode')
+    from forensic_assistant.ai.investigation_preflight import require
+    require(client.config,provider=client.provider_name,model=client.model_name)
     path=Path(handoff['case']['path']).resolve(strict=True);info=path.stat()
     ids=[h['id'] for h in handoff['hints']]
     if not ids:raise ValueError('Assessment contains no evidence references for autonomous inspection')

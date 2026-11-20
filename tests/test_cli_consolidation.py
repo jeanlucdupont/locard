@@ -33,7 +33,8 @@ def test_record_size_only_mft(kind):
 @pytest.mark.parametrize('choice,expected',[(('n',),None),(('y','n'),(False,False)),(('y','y','n'),(True,False)),(('y','y','y'),(True,True))])
 def test_guided_separate_approvals(monkeypatch,choice,expected):
     monkeypatch.setattr('forensic_assistant.assessment_handoff.prepare',lambda *a:dict(assessment_id='saved',limitations=['Incomplete'],scope={'start':'s','end':'e'}))
-    monkeypatch.setattr('forensic_assistant.ai.settings.load',lambda:{'provider':'openai','model':'synthetic'})
+    monkeypatch.setattr('forensic_assistant.ai.settings.load',lambda:{'provider':'openai','model':'synthetic','cloud_acknowledged':True})
+    monkeypatch.setattr('forensic_assistant.ai.readiness.status',lambda _: {'investigation_compatibility':'ready'})
     calls=[]
     monkeypatch.setattr(flow.assessment_handoff_cli,'execute',lambda *a,**k:calls.append((a,k)) or {'kind':'assessment_investigation','message':'Synthetic'})
     answers=iter(choice)
@@ -48,7 +49,8 @@ def test_guided_separate_approvals(monkeypatch,choice,expected):
 @pytest.mark.parametrize('cancel',[KeyboardInterrupt,EOFError])
 def test_guided_cancel_before_dispatch(monkeypatch,cancel):
     monkeypatch.setattr('forensic_assistant.assessment_handoff.prepare',lambda *a:dict(assessment_id='saved',limitations=[]))
-    monkeypatch.setattr('forensic_assistant.ai.settings.load',lambda:{'provider':'openai'})
+    monkeypatch.setattr('forensic_assistant.ai.settings.load',lambda:{'provider':'openai','model':'synthetic','cloud_acknowledged':True})
+    monkeypatch.setattr('forensic_assistant.ai.readiness.status',lambda _: {'investigation_compatibility':'ready'})
     monkeypatch.setattr(flow.assessment_handoff_cli,'execute',lambda *a,**k:pytest.fail('execution'))
     def read(p):raise cancel()
     with pytest.raises((KeyboardInterrupt,EOFError)):flow.run('synthetic','saved','Question',read=read,display=lambda t:None)

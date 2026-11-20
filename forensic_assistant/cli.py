@@ -602,8 +602,14 @@ def _dispatch(args, output, *, existing_only=False):
             return 0
     except (ValueError, OSError, sqlite3.Error, OverflowError, LLMError) as exc:
         from forensic_assistant.terminal import message
+        from forensic_assistant.ai.investigation_preflight import InvestigationPreflightError
         activity.note_error(exc)
-        message(human_error(exc), args)
+        if isinstance(exc, InvestigationPreflightError) and getattr(args,'json',False):
+            emit({'status':'not_started','error':exc.diagnostic})
+        elif isinstance(exc, InvestigationPreflightError):
+            message('\n'.join(human_error(line) for line in str(exc).splitlines()),args)
+        else:
+            message(human_error(exc), args)
         return 2
 
 

@@ -140,7 +140,7 @@ def test_stopped_style_tty_and_machine(monkeypatch):
     monkeypatch.delenv('NO_COLOR',raising=False)
     monkeypatch.setattr(terminal,'capable',lambda stream:True)
     text=cli.render({'runtime':'stopped'},SimpleNamespace(json=False))
-    assert '\x1b[2mstopped\x1b[0m' in text
+    assert terminal.Palette(True)('unknown','stopped') in text
     assert '\x1b[31m' not in text and '\x1b[33m' not in text
     assert '\x1b[' not in cli.render({'runtime':'stopped'},SimpleNamespace(json=True))
     monkeypatch.setattr(terminal,'capable',lambda stream:False)
