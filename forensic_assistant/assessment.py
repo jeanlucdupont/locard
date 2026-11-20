@@ -15,6 +15,18 @@ POLICY={'seconds':300,'queries':120,'candidates':100000,'records':500,'bytes':2*
         'records_per_query':10,'query_seconds':15}
 
 
+def exclusion_ids(p,text):
+    """Normalize identifier casing only; never accept prefixes or fuzzy matches."""
+    import re
+    known={lead['id'].casefold():lead['id'] for lead in p['leads']}
+    values=[v for v in re.split(r'[,\s]+',text.strip()) if v]
+    unknown=[v for v in values if v.casefold() not in known]
+    if unknown:
+        raise ValueError('Unknown exclusion ID; no searches executed. Valid IDs: '+', '.join(known.values())+
+                         '. Copy the complete ID only; rerun assessment to review and approve a new plan.')
+    return {known[v.casefold()] for v in values}
+
+
 def inventory(case,worker_factory):
     with worker_factory(dict(case_path=str(case),semantic_enabled=False,_transaction_view=True,
                              _briefing_initial=True,_briefing_all=True,_deadline=time.monotonic()+20)) as worker:
@@ -23,7 +35,7 @@ def inventory(case,worker_factory):
         return result['result']['available_artifacts']
 
 
-def plan(revision,case,available,start,end):
+def plan(revision,case,available,start,end,source_id=None):
     from .briefing_canonical import check_envelope
     from .briefing_semantics import technical
     briefing.window(start,end,source='explicit assessment authorization')
@@ -62,7 +74,16 @@ def plan(revision,case,available,start,end):
             status='unavailable' if family not in available else 'unsupported' if query is None else 'not_searched'
             rows.append(dict(lead_id=lead['id'],artifact=family,query=query,status=status,candidates=0,pages=0,
                              candidate_count_known=True,evidence_ids=[],cursor=None,seen_cursors=[],coverage={},limitations=[]))
+    if source_id:
+        from .assessment_discovery import plans
+        for lead in leads.values():
+            excluded.append(dict(field=','.join(lead['fields']),value=lead['normalized'],reason='Context only in source-scoped initial overview; no indicator-specific query authorized'))
+        leads,rows=plans(source_id,available,start,end)
+        for item in excluded:
+            if item['field'].startswith('when:'):
+                item['reason']='Reported time remains context; the explicit authorized window controls discovery'
     return dict(case=case,revision=revision['revision'],digest=revision['digest'],start=start,end=end,
+                **({'source_id':source_id} if source_id else {}),
                 objectives=[r['value'] for r in document['categories']['objectives'] if r['value']],
                 **({'editorial_summary':document['summary']['text']} if document['summary']['status']=='accepted' else {}),
                 reported_times=copy.deepcopy(document['categories']['when']),
@@ -79,6 +100,9 @@ def plan_text(p):
     from .assessment_display import reported_time
     lines += reported_time(p['reported_times'])
     lines += ['Authorized window: '+p['start']+' to '+p['end'], 'Proposed discovery:']
+    if p.get('source_id'):
+        lines += ['Authorized source membership: '+p['source_id']+' (not proof of a common host)',
+                  'Time scope uses normalized timestamps [start, end); metadata times are not execution proof.']
     for lead in p['leads']:
         families=[r['artifact'] for r in p['rows'] if r['lead_id']==lead['id'] and r['status']=='not_searched']
         lines.append('  '+lead['id']+' '+lead['occurrences'][0]['original']+' ['+('contextual search term' if lead['type']=='term' else lead['type'])+'] => '+(', '.join(families) or 'none available'))
@@ -139,11 +163,12 @@ def execute(p,store,*,worker_factory=ForensicWorker,progress=lambda text:None,pa
                 if remaining<=0 or m['queries']>=POLICY['queries'] or m['candidates']+1000>POLICY['candidates'] or len(result['records'])+10>POLICY['records']:break
                 row=queue.popleft();query=copy.deepcopy(row['query'])
                 if row['cursor']:
-                    query['object_after' if 'object_basename' in query else 'evtx_after']=row['cursor']
+                    query['time_after' if query.get('time_discovery') else 'object_after' if 'object_basename' in query else 'evtx_after']=row['cursor']
                 m['queries']+=1
                 row['status']='incomplete'
                 notify(f"{row['artifact']} Searching — query {m['queries']}; {time.monotonic()-started:.1f}s elapsed")
-                activity.event('BRIEFING_LOOKUP','pending',lead_id=row['lead_id'],artifact=row['artifact'])
+                activity.event('BRIEFING_LOOKUP','pending',lead_id=row['lead_id'],artifact=row['artifact'],
+                               **({'scope':{k:query[k] for k in ('source_id','start','end','purpose')}} if query.get('time_discovery') else {}))
                 try:
                     reply=worker.call('briefing_search',query,seconds=min(POLICY['query_seconds'],remaining))
                     if reply.get('evidence_state')!=result['evidence_state']:raise WorkerError('Read view changed')
@@ -159,7 +184,7 @@ def execute(p,store,*,worker_factory=ForensicWorker,progress=lambda text:None,pa
                 if used_bytes+size>POLICY['bytes']:
                     row['status']='incomplete';row['limitations'].append('Payload bound; last page not retained');break
                 used_bytes+=size;m['bytes']=used_bytes
-                coverage=payload.get('object_search',payload.get('content_search',{}))
+                coverage=payload.get('time_search',payload.get('object_search',payload.get('content_search',{})))
                 examined=coverage.get('examined')
                 if isinstance(examined,int):row['candidates']+=examined;m['candidates']+=examined
                 else:row['candidate_count_known']=False

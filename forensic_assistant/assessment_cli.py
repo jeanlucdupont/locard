@@ -31,11 +31,11 @@ def run(args, *, worker_factory=None):
         return previous
     return assess(args.db, read=getattr(args,'_confirm',None) or (input if sys.stdin.isatty() else None),
                   start=getattr(args,'start',None), end=getattr(args,'end',None), previous=previous, details=getattr(args,'details',False),
-                  json_output=args.json, worker_factory=worker_factory)
+                  json_output=args.json, worker_factory=worker_factory, source_id=getattr(args,'source',None))
 
 
 def assess(case, *, read, start=None, end=None, previous=None, details=False,
-           json_output=False, worker_factory=None):
+           json_output=False, worker_factory=None, source_id=None):
     """Reusable assessment orchestration with explicit input/approval callback."""
     if not callable(read): raise ValueError('Assessment requires explicit plan approval')
     worker_factory=worker_factory or a.ForensicWorker
@@ -53,13 +53,16 @@ def assess(case, *, read, start=None, end=None, previous=None, details=False,
         if previous['plan']['digest']!=revision['digest']:raise ValueError('Briefing changed; start a new investigation assess plan')
         if start or end:raise ValueError('Reauthorization retains the previously approved time scope')
         start,end=previous['plan']['start'],previous['plan']['end']
+        source_id=previous['plan'].get('source_id')
         display('Reauthorization starts a new read view and restarts approved searches. Prior results and cursors remain separate.')
     else:
         start=start or read_answer(read,'Authorized start (ISO timestamp with timezone): ').strip()
         end=end or read_answer(read,'Authorized end (ISO timestamp with timezone; at most 24 hours): ').strip()
     a.briefing.window(start,end,source='explicit assessment authorization')
     available=a.inventory(case,worker_factory)
-    p=a.plan(revision,store.identity,available,start,end)
+    p=a.plan(revision,store.identity,available,start,end,source_id=source_id)
+    if not p['leads']:
+        raise ValueError('No usable indicator searches. Start investigation assess with --source SOURCE_ID and an explicit --start/--end window; use evidence source list to select an existing source.')
     if previous:
         old=previous['plan']
         if any(lead not in p['leads'] for lead in old['leads']):raise ValueError('Approved leads changed; start a new assessment')
@@ -71,14 +74,13 @@ def assess(case, *, read, start=None, end=None, previous=None, details=False,
     display(a.plan_text(p))
     excluded=read_answer(read,'Exclude lead IDs (comma-separated), or Enter to keep the displayed plan: ').strip()
     if excluded:
-        ids={v.strip() for v in excluded.split(',')}
-        if not ids<={lead['id'] for lead in p['leads']}:raise ValueError('Unknown exclusion ID; no searches executed')
+        ids=a.exclusion_ids(p,excluded)
         p['leads']=[r for r in p['leads'] if r['id'] not in ids]
         p['rows']=[r for r in p['rows'] if r['lead_id'] not in ids]
         p['excluded'].extend(dict(field=i,value='',reason='Excluded by analyst before authorization') for i in sorted(ids))
         display(a.plan_text(p))
     if not any(r['status']=='not_searched' for r in p['rows']):
-        display('No eligible available searches; approval will save a coverage-only assessment.')
+        display('No eligible available searches; approval will save a coverage-only assessment. Decline and rerun to change exclusions, source or authorized window.')
     if read_answer(read,'Approve this bounded assessment plan? [y/N]: ').strip().lower() not in ('y','yes'):
         return {'kind':'case_assessment','message':'Assessment cancelled; no evidence searches executed.'}
     current=briefing.load()

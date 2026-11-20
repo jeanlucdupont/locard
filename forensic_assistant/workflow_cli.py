@@ -36,6 +36,7 @@ def configure(operations, *, interactive=False):
         if name in ('show','reauthorize','run'):p.add_argument('assessment',nargs='?',default='latest', help='Saved assessment ID or latest')
         if name == 'run':p.add_argument('--question',help='Investigation question; otherwise prompted')
         if name == 'assess':
+            p.add_argument('--source', help='Existing source ID for bounded initial time-window discovery')
             p.add_argument('--start', help='Start time; ISO shorthand defaults to UTC');p.add_argument('--end', help='End time; ISO shorthand defaults to UTC')
     p=add(('audit',),'verify','audit-verify','Verify activity and session integrity')
     p.add_argument('--json',action='store_true', help='Output as JSON')

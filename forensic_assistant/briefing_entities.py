@@ -11,7 +11,8 @@ LABEL = r"(?i:hostname|host|computer|machine|workstation|device|laptop|server)"
 PROSE = {'a', 'an', 'per-user', 'type-library', 'follow-on', 'follow-up', 'command-line',
          'process-creation', 'read-only', 'unknown', 'unavailable', 'affected',
          'was', 'is', 'named', 'the', 'not', 'reported', 'it', 'this', 'that', 'which', 'name', 'broken', 'involved', 'compromised', 'infected',
-         'offline', 'online', 'running'}
+         'offline', 'online', 'running', 'on', 'in', 'at', 'by', 'from', 'to', 'for',
+         'with', 'during', 'after', 'before', 'and', 'or', 'of', 'activity', 'windows'}
 USER_PROSE = {'tried', 'reported', 'was', 'is', 'has', 'had', 'did', 'opened',
               'clicked', 'logged', 'received', 'downloaded', 'unknown', 'not',
               'the', 'com', 'type', 'activity', 'account', 'user', 'name',
@@ -52,6 +53,10 @@ def candidates(text):
     for match in re.finditer(r'(?<![\w-])' + LABEL + r'\s*(?:(?i:is|was|named)\s+|[:=]\s*|\s+)["\']?(?P<value>' + HOST + r')', text):
         a,b=match.span('value')
         while b>a and text[b-1]=='.':b-=1
+        prefix=text[match.start():a]
+        # Bare narrative roles ("computer during ...") do not assert a name.
+        if not re.search(r'(?i)\b(?:is|was|named)\b|[:=]',prefix) and not machine_like(text[a:b]) and '.' not in text[a:b]:
+            continue
         if valid_host(text[a:b]) and not re.match(r'(?i)\s+(?:laptop|computer|workstation|server)\b',text[b:b+20]):hosts[a,b]=Candidate(a,b)
     for match in re.finditer(r'(?<![\w.-])[A-Za-z][A-Za-z0-9-]{1,62}(?![\w.-])', text):
         if machine_like(match.group()):hosts[match.span()]=Candidate(*match.span())

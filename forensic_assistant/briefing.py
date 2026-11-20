@@ -416,6 +416,9 @@ def validate_query(args):
 
 
 def execute_query(db,args, *, cross=False):
+    if args.get('time_discovery'):
+        from .assessment_discovery import search
+        return search(db,args)
     validate_query(args)
     from forensic_assistant.retrieval.evidence import EvidenceQueries
     from forensic_assistant.investigation_ai.tools import envelope
