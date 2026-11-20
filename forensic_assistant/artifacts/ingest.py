@@ -92,6 +92,11 @@ def worker(kind, path, sha, stage, options, timeout):
                     raise ValueError('Parser worker timed out; staged output rejected')
                 if stage.exists() and stage.stat().st_size > 8 * 1024 ** 3:
                     raise WorkerFailure('resource_limit', dict(deadline.details(), reason='Parser stage exceeds 8 GiB')) if deadline else ValueError('Parser stage exceeds 8 GiB; staged output rejected')
+                if kind == 'sqlite_recovery':
+                    from .sqlite_recovery import MAX_BYTES
+                    sizes = sum(p.stat().st_size for p in stage.parent.rglob('*') if p.is_file())
+                    if sizes > MAX_BYTES:
+                        raise ValueError('SQLite recovery staging limit exceeded')
                 if any(os.fstat(f.fileno()).st_size > 65536 for f in (stdout, stderr)):
                     raise WorkerFailure('resource_limit', dict(deadline.details(), reason='Parser diagnostic limit exceeded')) if deadline else ValueError('Parser worker diagnostic limit exceeded')
                 if not permitted and ready.exists():
@@ -133,6 +138,25 @@ def worker(kind, path, sha, stage, options, timeout):
             if deadline and (not permitted or deadline.phase != 'complete'):
                 raise WorkerFailure('incomplete_progress', deadline.details())
             if proc.returncode:
+                if kind in ('sqlite_recovery', 'sqlite_validate'):
+                    from .browser_journal import SnapshotError
+                    details = {}
+                    try:
+                        details = json.loads(out)['sqlite_diagnostics']
+                        category = details['category']
+                    except (ValueError, KeyError, TypeError):
+                        category = 'sqlite_recovery_failed'
+                    allowed = ('recovery_unsupported', 'inconsistent_acquisition', 'journal_malformed',
+                               'journal_incomplete', 'resource_limit', 'sqlite_recovery_failed', 'derived_validation_failed',
+                               'sqlite_validation_failed', 'snapshot_consistency_not_established', 'journal_active_or_hot',
+                               'journal_indeterminate', 'missing_required_companion')
+                    from forensic_assistant.retrieval.presentation import safe_text
+                    reason = safe_text(details.get('reason', 'SQLite snapshot worker rejected the acquired set'))[:300] if category in allowed else 'SQLite snapshot worker failed'
+                    error = SnapshotError(category if category in allowed else 'sqlite_recovery_failed',
+                                          reason, options['manifest'], attempted=details.get('recovery_attempted') is True)
+                    for key in ('sqlite_errorcode', 'errno', 'winerror'):
+                        if type(details.get(key)) is int: error.diagnostics[key] = details[key]
+                    raise error
                 raise ValueError('Parser worker failed; staged output rejected: ' + out.decode(errors='replace')[:1000] + err.decode(errors='replace')[:1000])
             return json.loads(out)
         except BaseException as exc:
@@ -219,6 +243,9 @@ def ingest_artifact(
     supervision = policy(timeout, mft_startup_timeout, mft_hard_timeout) if kind == 'mft' else None
     if not 1 <= timeout <= 3600:
         raise ValueError('Parser timeout must be 1..3600 seconds')
+    if kind == 'browser':
+        from .sqlite_recovery import regular
+        regular(path)  # Reject redirects before resolve could erase their identity.
     path = str(Path(path).resolve())
     source_file = source_label or path
     if acquisition is not None and (kind != 'mft' or source_label is None):
@@ -291,14 +318,25 @@ def ingest_artifact(
             parse_path = path
             if kind == 'browser':
                 from .browser import snapshot, inventory
-                parse_path = str(Path(temp) / 'History')
-                options = snapshot(path, parse_path, browser_product, profile)
+                from forensic_assistant.investigation_ai.snapshot import _private_mkdir
+                acquired_directory = Path(temp) / 'sqlite-acquired'
+                _private_mkdir(acquired_directory)
+                parse_path = str(acquired_directory / 'History')
+                source_row = db.execute('SELECT source_id FROM ingestion_batches WHERE batch_id=?', (batch_id,)).fetchone()
+                options = snapshot(path, parse_path, browser_product, profile,
+                                   dict(run_id=run_id, batch_id=batch_id, source_id=source_row[0] if source_row else None))
+                parse_path = options.pop('_database_path', parse_path)
                 if options['manifest']['']['sha256'] != sha:
                     raise ValueError('History changed before snapshot; rejected')
                 options['_source_path'] = path
                 with db:
                     db.execute('UPDATE artifact_runs SET parameters_json=? WHERE run_id=?', (dump(options), run_id))
-            result = runner(kind, parse_path, sha, stage, options, timeout)
+            try:
+                result = runner(kind, parse_path, sha, stage, options, timeout)
+            finally:
+                if kind == 'browser' and options.get('recovery'):
+                    from .sqlite_recovery import release
+                    release(parse_path, options['recovery'])
             changed_companions = kind == 'browser' and inventory(path) != options['manifest']
             if changed_companions or digest(path) != sha or Path(path).stat().st_size != size:
                 with db:

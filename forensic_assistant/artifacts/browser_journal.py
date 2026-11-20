@@ -10,10 +10,12 @@ VALIDATION_SECONDS = 30
 
 
 class SnapshotError(ValueError):
-    def __init__(self, category, reason, manifest):
-        super().__init__('Browser History requires a consistent acquisition; ' + reason + ' (no recovery performed)')
-        self.diagnostics = dict(artifact='browser', category=category, recovery_performed=False,
-                                companions=manifest)
+    def __init__(self, category, reason, manifest, *, attempted=False):
+        super().__init__('Browser History requires a consistent acquisition; ' + reason +
+                         (' (recovery attempted only on a disposable copy)' if attempted else ' (no recovery performed)'))
+        self.diagnostics = dict(artifact='browser', category=category,
+                                recovery_performed='unconfirmed' if attempted else False,
+                                recovery_attempted=attempted, companions=manifest, reason=reason)
 
 
 def head(path, length):

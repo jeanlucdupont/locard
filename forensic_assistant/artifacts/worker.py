@@ -26,6 +26,12 @@ def run(kind, path, sha, stage_path, options, reader=None):
 
 
 def _run(kind, path, sha, stage_path, options, reader=None):
+    if kind == 'sqlite_validate':
+        from .browser_journal import validate
+        return validate(path, options['manifest'])
+    if kind == 'sqlite_recovery':
+        from .sqlite_recovery import recover_worker
+        return recover_worker(path, stage_path, options)
     if kind == 'browser_probe':
         from .browser_probe import check
         return check(path, Path(stage_path).parent)
@@ -43,7 +49,11 @@ def _run(kind, path, sha, stage_path, options, reader=None):
     inserted = errors = 0
     try:
         with db:
-            register_source(db, sha, Path(path).stat().st_size, path)
+            if kind == 'browser':
+                # sha identifies acquired evidence, never the recovered working file.
+                register_source(db, sha, options['manifest']['']['size'], source_path)
+            else:
+                register_source(db, sha, Path(path).stat().st_size, path)
             run_id = db.execute(
                 'INSERT INTO ingestion_runs(source_file,started_utc,status) VALUES (?,?,?)',
                 (path, now(), 'running')
@@ -174,5 +184,8 @@ if __name__ == '__main__':
                    'error_category': 'progress_communication' if isinstance(exc, ProgressError) else 'parser_exception'}
         if isinstance(exc, ProgressError):
             message['progress_diagnostics'] = safe_diagnostics(exc.diagnostics)
+        from .browser_journal import SnapshotError
+        if isinstance(exc, SnapshotError):
+            message['sqlite_diagnostics'] = exc.diagnostics
         print(json.dumps(message))
         sys.exit(1)

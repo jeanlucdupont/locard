@@ -1,6 +1,7 @@
 """Human ingestion results. Never changes stored outcomes or evidence counts."""
 import sys
 import time
+import json
 
 from forensic_assistant.terminal import Palette, aligned_lines, enabled, field
 from forensic_assistant.retrieval.presentation import safe_text
@@ -66,6 +67,19 @@ def elapsed_line(seconds, palette):
                      role='unknown' if seconds is None else 'value'))
 
 
+def diagnostics(db, row):
+    """Bounded shared outcome details; full errors remain in case history."""
+    if row.get('run_id') is None or not row.get('errors'):
+        return
+    entries = db.execute('''SELECT substr(e.message,1,2048) AS message,
+        substr(a.locator_json,1,8193) AS locator_json FROM ingestion_errors e
+        LEFT JOIN artifact_errors a ON a.error_id=e.id WHERE e.run_id=? ORDER BY e.id LIMIT 3''',
+        (row['run_id'],)).fetchall()
+    row['diagnostics'] = [dict(message=safe_text(e['message'])[:500],
+                               details=({'truncated': True} if len(e['locator_json'] or '') > 8192
+                                        else json.loads(e['locator_json'] or '{}'))) for e in entries]
+
+
 def render(result, palette=None):
     palette = palette or Palette()
     lines = []
@@ -73,16 +87,22 @@ def render(result, palette=None):
         if lines:
             lines.append('')
         lines.extend([palette('heading', safe_text(row.get('source_type', 'evtx').upper()) + ' INGESTION'), '',
-                      field('Outcome', outcome(row['status'], row['inserted']), palette, role=role(row['status'])),
+                      field('Outcome', outcome(row['status'], row['inserted']), palette, role=role(row['status']))])
+        details = row.get('diagnostics', [])
+        if row['status'] in ('failed', 'changed') and details:
+            lines.append(field('Reason', safe_text(details[0]['message'])[:300], palette, role='error'))
+        lines.extend([
                       field('Records retained (new)', f"{row['inserted']:,}", palette),
                       field('Duplicates', f"{row['duplicates']:,}", palette),
-                      field('Recorded errors', f"{row['errors']:,}", palette)])
-        if row.get('limitation') and not row.get('acquisition') and (row['status'] in ('failed', 'changed') or row.get('acquisition_error')):
+                      field('Recorded errors', f"{row['errors']:,}", palette, role='error' if row['errors'] else 'value')])
+        if not details and row.get('limitation') and not row.get('acquisition') and (row['status'] in ('failed', 'changed') or row.get('acquisition_error')):
             lines.append(field('Failure detail', safe_text(row['limitation']), palette, role='error'))
         acquisition_time = (row.get('acquisition') or {}).get('elapsed_seconds')
         if isinstance(acquisition_time, (int, float)) and acquisition_time >= 0:
             lines.append(field('Acquisition time', duration(acquisition_time), palette))
         notes = limitations(row)
+        if row['status'] == 'partial':
+            notes += [safe_text(item['message'])[:300] for item in details]
         if notes:
             lines += ['', palette('heading', 'Limitations')]
             lines += [palette('forensic_note', '  ' + safe_text(note)) for note in notes]

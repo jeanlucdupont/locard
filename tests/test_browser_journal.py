@@ -90,9 +90,10 @@ def test_read_only_source_files_and_bounded_validation(tmp_path, monkeypatch):
         source.chmod(stat.S_IREAD | stat.S_IWRITE); journal.chmod(stat.S_IREAD | stat.S_IWRITE)
     with closing(sqlite3.connect(source)) as db:
         with db: db.executemany('INSERT INTO visits VALUES(?,1,1,1)', ((i,) for i in range(2,2002)))
+    options = browser.snapshot(source, tmp_path / 'timed', 'edge', 'Default')
     monkeypatch.setattr(browser_journal, 'VALIDATION_SECONDS', -1)
     with pytest.raises(SnapshotError) as caught:
-        browser.snapshot(source, tmp_path / 'timed', 'edge', 'Default')
+        browser_journal.validate(tmp_path / 'timed', options['manifest'])
     assert caught.value.diagnostics['category'] == 'sqlite_validation_failed'
 
 
@@ -114,7 +115,7 @@ os._exit(0)
                                  batch_id=batch(db), runner=local_runner)
         assert result['status'] == 'failed' and result['inserted'] == 0
         detail = json.loads(db.execute('SELECT locator_json FROM artifact_errors').fetchone()[0])
-        assert detail['category'] == 'journal_active_or_hot'
+        assert detail['category'] == 'recovery_unsupported'  # No mandatory audit session bound.
         assert detail['recovery_performed'] is False
         assert db.execute('SELECT count(*) FROM browser_record_occurrences').fetchone()[0] == 0
     assert files(source) == before
@@ -181,7 +182,7 @@ def test_original_never_connected_and_source_change_rejected(tmp_path, monkeypat
     original_copy = browser.shutil.copyfileobj
     def changed(src, dst, size):
         original_copy(src, dst, size)
-        if str(src.name).endswith('-journal'):
+        if str(dst.name).endswith('-journal'):
             with source.open('ab') as stream: stream.write(b'changed synthetic data')
     monkeypatch.setattr(browser.shutil, 'copyfileobj', changed)
     with pytest.raises(SnapshotError, match='changed while copying'):

@@ -153,6 +153,8 @@ def _ingest_sources(db, args, progress=None):
                 audit_result.update({key: result[key] for key in ('status', 'inserted', 'duplicates', 'errors')})
                 if result['status'] != 'complete':
                     audit_result['_outcome'] = 'failure'
+            from forensic_assistant.ingest.presentation import diagnostics
+            diagnostics(db, result)
             results.append(result)
             if progress is not None:
                 progress(path, kind, result)

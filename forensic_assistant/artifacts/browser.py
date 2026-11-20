@@ -23,46 +23,26 @@ def validate_options(product, profile):
 
 
 def inventory(path):
-    """No SQLite connection to original evidence, including its companions."""
-    result = {}
-    for suffix in ('', '-wal', '-shm', '-journal'):
-        item = Path(str(path) + suffix)
-        if not item.exists():
-            if not suffix:
-                raise ValueError('History must be an existing file')
-            continue
-        if not item.is_file() or item.is_symlink():
-            raise ValueError('History and companions must be regular files')
-        size = item.stat().st_size
-        if size > MAX_INPUT:
-            raise ValueError('Browser input exceeds 8 GiB per-file limit')
-        result[suffix] = {'sha256': digest(item), 'size': size}
+    from .sqlite_recovery import inventory as acquire_inventory
+    return acquire_inventory(path)
+
+
+def copy_snapshot(path, destination, source_context=None):
+    """Browser identity adapter around the reusable SQLite acquisition service."""
+    from .sqlite_recovery import acquire
+    result = acquire(path, destination, source_context)
+    before = result['manifest']
+    identity = {key: before[key] for key in ('', '-wal') if key in before}
+    if result.get('recovery'):
+        identity = dict(contract='sqlite-derived-context-v1', acquired=identity,
+                        journal=before['-journal'], derived=result['recovery']['derived'])
+    result['snapshot_sha256'] = hashlib.sha256(dump(identity).encode()).hexdigest()
     return result
 
 
-def copy_snapshot(path, destination):
-    """Copy and validate History/companions without asserting browser identity."""
-    before = inventory(path)
-    from .browser_journal import validate, SnapshotError
-    for suffix in ('', '-wal', '-journal'):
-        if suffix in before:
-            target = Path(str(destination) + suffix)
-            with open(str(path) + suffix, 'rb') as source, target.open('xb') as output:
-                shutil.copyfileobj(source, output, 1024 * 1024)
-            if digest(target) != before[suffix]['sha256']:
-                raise SnapshotError('snapshot_consistency_not_established', 'History changed while copying', before)
-    if inventory(path) != before:
-        raise SnapshotError('snapshot_consistency_not_established', 'History companions changed while copying', before)
-    validation = validate(destination, before)
-    # SHM is a reconstructible index, never the identity of committed evidence.
-    identity = {key: before[key] for key in ('', '-wal') if key in before}
-    sha = hashlib.sha256(dump(identity).encode()).hexdigest()
-    return dict(snapshot_sha256=sha, manifest=before, sqlite_validation=validation)
-
-
-def snapshot(path, destination, product, profile):
+def snapshot(path, destination, product, profile, source_context=None):
     validate_options(product, profile)
-    copied = copy_snapshot(path, destination)
+    copied = copy_snapshot(path, destination, source_context)
     return dict(browser_product=product, profile=profile,
                 context_id=context_id(copied['snapshot_sha256'], product, profile), **copied)
 
@@ -100,7 +80,7 @@ def schema_columns(db):
     return columns
 
 
-def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, manifest, sqlite_validation=None):
+def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, manifest, sqlite_validation=None, recovery=None):
     validate_options(browser_product, profile)
     # Writable private directory permits SQLite to reconstruct SHM, but the
     # evidence connection itself is read-only. No checkpoint/repair is issued.
@@ -115,6 +95,8 @@ def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, m
         allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ}
         db.set_authorizer(lambda action, a, b, c, d: sqlite3.SQLITE_OK if action in allowed else sqlite3.SQLITE_DENY)
         warnings = ['Browser history may be deleted, expired, synchronized, or absent from the supplied profile; missing history is not proof of no activity.']
+        if recovery:
+            warnings += ['SQLite rollback recovery completed on a disposable derived copy.', *recovery['limitations']]
         if sqlite_validation and sqlite_validation['rollback_journal'] == 'inactive':
             warnings.append('Inactive rollback journal accepted after stable-copy and read-only SQLite validation; no recovery performed.')
             warnings.append(sqlite_validation['acquisition_limitation'])

@@ -34,7 +34,7 @@ def test_structured_outcome_roles_and_unchanged_data(status,retained,role):
     text = view.render(value,p)
     assert p(role,view.outcome(status,retained)) in text
     assert p('value',f'{retained:,}') in text
-    assert p('value','2,451') in text
+    assert p('error','2,451') in text
     assert p('value','2h 34m 18s') in text
     assert 'Acquisition time:' in SGR.sub('',text)
     assert 'Legacy combined' not in text
@@ -182,7 +182,7 @@ def test_forensic_note_uses_existing_brown_role(monkeypatch):
     monkeypatch.setenv('COLORTERM','truecolor')
     text=view.render(dict(results=[row()],elapsed_seconds=8),Palette(True))
     assert '\x1b[38;5;136m  Source volume was live' in text
-    assert '\x1b[31m' not in text
+    assert '\x1b[31m' not in text.split('Limitations', 1)[1]
 
 
 def test_acquisition_failure_is_operational_not_forensic_note():
