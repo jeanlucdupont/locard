@@ -8,10 +8,12 @@ PERSON = NAME + r"(?: " + NAME + r"){1,3}"
 ACCOUNT = r"[A-Za-z][\w.-]{0,63}\\[A-Za-z][\w.-]{0,63}|[A-Za-z][\w.-]{0,63}@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}"
 HOST = r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?"
 LABEL = r"(?i:hostname|host|computer|machine|workstation|device|laptop|server)"
-PROSE = {'a', 'an', 'per-user', 'type-library', 'follow-on', 'follow-up', 'command-line',
+CANONICAL_V1_PROSE = frozenset({'a', 'an', 'per-user', 'type-library', 'follow-on', 'follow-up', 'command-line',
          'process-creation', 'read-only', 'unknown', 'unavailable', 'affected',
          'was', 'is', 'named', 'the', 'not', 'reported', 'it', 'this', 'that', 'which', 'name', 'broken', 'involved', 'compromised', 'infected',
-         'offline', 'online', 'running', 'on', 'in', 'at', 'by', 'from', 'to', 'for',
+         'offline', 'online', 'running'})
+# Persisted format-1 validation must not track evolving extraction heuristics.
+PROSE = CANONICAL_V1_PROSE | {'on', 'in', 'at', 'by', 'from', 'to', 'for',
          'with', 'during', 'after', 'before', 'and', 'or', 'of', 'activity', 'windows'}
 USER_PROSE = {'tried', 'reported', 'was', 'is', 'has', 'had', 'did', 'opened',
               'clicked', 'logged', 'received', 'downloaded', 'unknown', 'not',
@@ -19,8 +21,9 @@ USER_PROSE = {'tried', 'reported', 'was', 'is', 'has', 'had', 'did', 'opened',
               'windows', 'microsoft', 'defender', 'powershell', 'registry'}
 
 
-def valid_host(value):
-    return (len(value) <= 253 and value.casefold() not in PROSE and
+def valid_host(value, *, canonical_v1=False):
+    excluded = CANONICAL_V1_PROSE if canonical_v1 else PROSE
+    return (len(value) <= 253 and value.casefold() not in excluded and
             all(re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', part)
                 for part in value.split('.')) and not value.isdigit())
 

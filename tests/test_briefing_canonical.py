@@ -81,14 +81,14 @@ def test_accept_correct_add_reject_summary_and_originals(store):
 def test_json_roundtrip_confirmation_no_overwrite(store,tmp_path):
     raw=store.case.read_bytes();doc=c.empty();doc['categories']['files']=[entry()]
     path=tmp_path/'input.json';path.write_text(json.dumps(doc),encoding='utf-8')
-    a=args(store,'--import-json',str(path));a._confirm=lambda p:'n'
+    a=args(store,'import-json',str(path));a._confirm=lambda p:'n'
     cli.run(a);assert store.load() is None
     a._confirm=lambda p:'y';cli.run(a)
     saved=store.load()['revisions'][-1]
-    out=tmp_path/'out.json';cli.run(args(store,'--export-json',str(out)))
+    out=tmp_path/'out.json';cli.run(args(store,'export',str(out)))
     assert json.loads(out.read_text())==doc
     assert set(json.loads(out.read_text()))=={'format','categories','summary'}
-    with pytest.raises(ValueError,match='already exists'):cli.run(args(store,'--export-json',str(out)))
+    with pytest.raises(ValueError,match='already exists'):cli.run(args(store,'export',str(out)))
     assert store.case.read_bytes()==raw
     assert saved['content']['canonical']['verification']=='UNVERIFIED ANALYST INPUT'
 
@@ -106,7 +106,7 @@ def test_closed_import_contract(alter):
 def test_malformed_import_preserves_revision(store,tmp_path):
     state=store.save(content(dict.fromkeys(FIELDS,''),'old'),None)
     path=tmp_path/'bad.json';path.write_text('{bad')
-    a=args(store,'--import-json',str(path));a._confirm=lambda p:'y'
+    a=args(store,'import-json',str(path));a._confirm=lambda p:'y'
     with pytest.raises(ValueError):cli.run(a)
     assert store.load()==state
 
@@ -120,15 +120,19 @@ def test_old_revision_and_optimistic_lock(store):
 
 
 def test_json_exchange_cannot_authorize_search(store,tmp_path):
+    with pytest.raises(SystemExit):
+        args(store,'export',str(tmp_path/'x.json'),'--discover','--approve','L-fake')
+    request=args(store,'export',str(tmp_path/'x.json'))
+    request.discover=True;request.approve=['L-fake']
     with pytest.raises(ValueError,match='cannot combine'):
-        cli.run(args(store,'--export-json',str(tmp_path/'x.json'),'--discover','--approve','L-fake'))
+        cli.run(request)
     assert not (tmp_path/'x.json').exists()
 
 
 def test_saved_analysis_acceptance_finish_and_case_hash(store):
     before=store.case.read_bytes()
     original=store.save(content(dict.fromkeys(FIELDS,''),'sample.ps1'),None)['revisions'][0]
-    a=args(store,'--analyze','--deterministic');a._confirm=lambda p:'finish'
+    a=args(store,'analyze','--deterministic');a._confirm=lambda p:'finish'
     result=cli.run(a)
     assert not result['canonical']['accepted'] and len(store.load()['revisions'])==1
     a._confirm=lambda p:'accept';result=cli.run(a)
@@ -140,7 +144,7 @@ def test_saved_analysis_acceptance_finish_and_case_hash(store):
 def test_accepted_person_survives_deterministic_reanalysis(store):
     doc=c.empty();doc['categories']['person']=[entry('Callie Wade','person')]
     store.save({**content(dict.fromkeys(FIELDS,''),'Original'), 'canonical':c.envelope(doc)},None)
-    result=cli.run(args(store,'--analyze','--deterministic'))
+    result=cli.run(args(store,'analyze','--deterministic'))
     assert result['canonical']['document']['categories']['person']==doc['categories']['person']
     assert not result['canonical']['accepted']
 
@@ -164,12 +168,12 @@ def test_internal_provenance_tampering_rejected(store):
 def test_empty_accepted_template_does_not_request_provider(store,monkeypatch):
     store.save({**content(dict.fromkeys(FIELDS,''),''),'canonical':c.envelope(c.empty())},None)
     monkeypatch.setattr(b,'interpret',lambda *a,**k:pytest.fail('No provider for empty content'))
-    assert cli.run(args(store,'--analyze'))['kind']=='saved_briefing'
+    assert cli.run(args(store,'analyze'))['kind']=='saved_briefing'
 
 
 def test_output_cannot_poison_sqlite_sidecars(store):
     with pytest.raises(ValueError,match='overlaps'):
-        cli.run(args(store,'--export-json',str(store.case)+'-journal'))
+        cli.run(args(store,'export',str(store.case)+'-journal'))
     assert not Path(str(store.case)+'-journal').exists()
 
 

@@ -34,16 +34,33 @@ def empty():
             'summary':{'text':'','status':'not_provided','statement':''}}
 
 
-def validate_document(value,schema):
+class CanonicalValidationError(ValueError):
+    """Schema-owned path and fixed reason only; never include analyst values."""
+    def __init__(self,path,reason):
+        self.path=path
+        self.reason=reason
+        super().__init__(path+': '+reason)
+
+
+def validate_document(value,schema,path='canonical.document'):
+    try:
+        _validate_document(value,schema,path)
+    except CanonicalValidationError:
+        raise
+    except ValueError as exc:
+        raise CanonicalValidationError(path,str(exc)) from None
+
+
+def _validate_document(value,schema,path):
     """Closed fixed document schema; unlike tool arguments, empty fields are valid."""
     kind=schema['type']
     if kind=='object':
         if type(value) is not dict or set(value)!=set(schema['required']):raise ValueError('Invalid canonical object fields.')
-        for key,item in value.items():validate_document(item,schema['properties'][key])
+        for key,item in value.items():validate_document(item,schema['properties'][key],path+'.'+key)
     elif kind=='array':
         if type(value) is not list or not schema['minItems']<=len(value)<=schema['maxItems']:raise ValueError('Invalid canonical array size.')
         if len({json.dumps(item,sort_keys=True) for item in value})!=len(value):raise ValueError('Duplicate canonical items.')
-        for item in value:validate_document(item,schema['items'])
+        for index,item in enumerate(value):validate_document(item,schema['items'],path+f'[{index}]')
     elif kind=='string':
         if type(value) is not str or not schema.get('minLength',0)<=len(value)<=schema.get('maxLength',1000):raise ValueError('Invalid canonical string.')
         if 'enum' in schema and value not in schema['enum']:raise ValueError('Invalid canonical enum.')
@@ -56,14 +73,17 @@ def check(document):
     if len(json.dumps(document,ensure_ascii=True).encode())>MAX_DOCUMENT:raise ValueError('Canonical briefing exceeds 64 KiB.')
     validate_document(document,DOCUMENT)
     if sum(len(items) for items in document['categories'].values())>48:raise ValueError('At most 48 briefing entries.')
-    for items in document['categories'].values():
-        for item in items:
+    for category,items in document['categories'].items():
+        for index,item in enumerate(items):
             if any('\0' in item[key] for key in ('value','statement','note')):raise ValueError('Invalid briefing text.')
             if item['status'] in ('provided','approximate','conflicting','ambiguous') and not item['value'].strip():raise ValueError('Supplied briefing entries require a value.')
             if item['status'] in ('unknown','not_provided','not_applicable') and item['value']:
                 raise ValueError('Unknown/missing/inapplicable fields cannot supply a value.')
             if item['kind'] in TECHNICAL and item['value']:
-                technical(item['kind'],item['value'])
+                # Format 1 stores analyst assertions, not current search eligibility.
+                try:technical(item['kind'],item['value'],canonical_v1=True)
+                except ValueError:
+                    raise CanonicalValidationError(f'canonical.document.categories.{category}[{index}].value','invalid_technical_value') from None
             if item['value'] and item['value'] not in item['statement']:
                 raise ValueError('Briefing value must occur exactly in its analyst statement.')
     summary=document['summary']

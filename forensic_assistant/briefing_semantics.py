@@ -39,7 +39,7 @@ def occurrences(literal, cited, inputs):
     return result
 
 
-def technical(kind,value):
+def technical(kind,value, *, canonical_v1=False):
     """Validate a whole supplied value; never guess its boundary in prose."""
     if any(ord(c)<32 for c in value) or len(value.encode('utf-8'))>1024:
         raise ValueError('invalid_technical_value')
@@ -51,7 +51,7 @@ def technical(kind,value):
         try:ipaddress.ip_address(parsed.hostname)
         except ValueError:
             from .briefing_entities import valid_host
-            if not valid_host(parsed.hostname):raise ValueError('invalid_technical_value')
+            if not valid_host(parsed.hostname,canonical_v1=canonical_v1):raise ValueError('invalid_technical_value')
         return value
     if kind in ('ipv4','ipv6'):
         address=ipaddress.ip_address(value)
@@ -62,7 +62,7 @@ def technical(kind,value):
         return value.lower()
     if kind in ('domain','hostname'):
         from .briefing_entities import valid_host
-        if not valid_host(value) or not any(c.isalpha() for c in value) or (kind=='domain' and ('.' not in value or not value.rsplit('.',1)[1].isalpha())):
+        if not valid_host(value,canonical_v1=canonical_v1) or not any(c.isalpha() for c in value) or (kind=='domain' and ('.' not in value or not value.rsplit('.',1)[1].isalpha())):
             raise ValueError('invalid_technical_value')
         return value.casefold()
     if kind=='filename':

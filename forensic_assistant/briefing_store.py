@@ -56,8 +56,11 @@ class Store:
             raise ValueError('Case file identity changed; briefing not saved.')
 
     def load(self):
+        from .briefing_canonical import CanonicalValidationError
         try:
             return self._load()
+        except CanonicalValidationError as exc:
+            raise ValueError('BRIEFING_MALFORMED: '+str(exc)+'; original preserved') from None
         except ValueError as exc:
             if str(exc).startswith(('BRIEFING_', 'CASE_')):raise
             raise ValueError('BRIEFING_MALFORMED: saved data failed structural validation; original preserved') from None
