@@ -92,7 +92,7 @@ def worker(kind, path, sha, stage, options, timeout):
                     raise ValueError('Parser worker timed out; staged output rejected')
                 if stage.exists() and stage.stat().st_size > 8 * 1024 ** 3:
                     raise WorkerFailure('resource_limit', dict(deadline.details(), reason='Parser stage exceeds 8 GiB')) if deadline else ValueError('Parser stage exceeds 8 GiB; staged output rejected')
-                if kind == 'sqlite_recovery':
+                if kind in ('sqlite_recovery', 'sqlite_immutable'):
                     from .sqlite_recovery import MAX_BYTES
                     sizes = sum(p.stat().st_size for p in stage.parent.rglob('*') if p.is_file())
                     if sizes > MAX_BYTES:
@@ -138,7 +138,7 @@ def worker(kind, path, sha, stage, options, timeout):
             if deadline and (not permitted or deadline.phase != 'complete'):
                 raise WorkerFailure('incomplete_progress', deadline.details())
             if proc.returncode:
-                if kind in ('sqlite_recovery', 'sqlite_validate'):
+                if kind in ('sqlite_recovery', 'sqlite_validate', 'sqlite_immutable'):
                     from .browser_journal import SnapshotError
                     details = {}
                     try:
@@ -332,7 +332,14 @@ def ingest_artifact(
                 with db:
                     db.execute('UPDATE artifact_runs SET parameters_json=? WHERE run_id=?', (dump(options), run_id))
             try:
-                result = runner(kind, parse_path, sha, stage, options, timeout)
+                if kind == 'browser' and options.get('extraction'):
+                    from .sqlite_immutable import extract
+                    result = extract(runner, parse_path, sha, stage, options, timeout)
+                    options['extraction'] = result['extraction']
+                    with db:
+                        db.execute('UPDATE artifact_runs SET parameters_json=? WHERE run_id=?', (dump(options), run_id))
+                else:
+                    result = runner(kind, parse_path, sha, stage, options, timeout)
             finally:
                 if kind == 'browser' and options.get('recovery'):
                     from .sqlite_recovery import release
@@ -369,6 +376,11 @@ def ingest_artifact(
                     db.execute('DETACH DATABASE artifact_stage')
                     attached = False
                 status = ('partial' if inserted or duplicates else 'failed') if errors and kind == 'browser' else 'partial' if errors else 'complete'
+                if kind == 'browser' and options.get('extraction'):
+                    status = 'partial' if inserted or duplicates or options['extraction'].get('empty_readable') else 'failed'
+                    options['extraction']['counts'].update(retained=inserted, duplicates=duplicates)
+                    with db:
+                        db.execute('UPDATE artifact_runs SET parameters_json=? WHERE run_id=?', (dump(options), run_id))
         with db:
             db.execute(
                 'UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?',
@@ -420,7 +432,10 @@ def ingest_artifact(
         duplicates=duplicates,
         errors=errors,
         parser=parser,
-        parser_version=version
+        parser_version=version,
+        **({'extraction_mode': 'best_effort_immutable' if options.get('extraction') else
+             'recovered' if options.get('recovery') else 'normal' if options.get('manifest') else 'unknown'} if kind == 'browser' else {}),
+        **({'extraction': options['extraction']} if kind == 'browser' and options.get('extraction') else {})
     )
 
 

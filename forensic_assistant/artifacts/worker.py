@@ -32,6 +32,9 @@ def _run(kind, path, sha, stage_path, options, reader=None):
     if kind == 'sqlite_recovery':
         from .sqlite_recovery import recover_worker
         return recover_worker(path, stage_path, options)
+    if kind == 'sqlite_immutable':
+        from .sqlite_immutable import prepare_worker
+        return prepare_worker(path, stage_path, options)
     if kind == 'browser_probe':
         from .browser_probe import check
         return check(path, Path(stage_path).parent)
@@ -104,7 +107,10 @@ def _run(kind, path, sha, stage_path, options, reader=None):
         if kind == 'mft':
             advance(phase='finalizing')
         writer.commit()
-        return {'records': inserted, 'errors': errors, 'parser_version': version}
+        result = {'records': inserted, 'errors': errors, 'parser_version': version}
+        if kind == 'browser' and options.get('extraction'):
+            result['extraction'] = options['extraction']
+        return result
     finally:
         if kind == 'mft':
             writer.discard()

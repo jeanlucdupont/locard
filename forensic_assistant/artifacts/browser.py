@@ -36,6 +36,9 @@ def copy_snapshot(path, destination, source_context=None):
     if result.get('recovery'):
         identity = dict(contract='sqlite-derived-context-v1', acquired=identity,
                         journal=before['-journal'], derived=result['recovery']['derived'])
+    elif result.get('extraction'):
+        # Main-only immutable evidence must not collide with WAL/recovered contexts.
+        identity = dict(contract='sqlite-immutable-context-v1', main=result['extraction']['derived'])
     result['snapshot_sha256'] = hashlib.sha256(dump(identity).encode()).hexdigest()
     return result
 
@@ -80,8 +83,12 @@ def schema_columns(db):
     return columns
 
 
-def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, manifest, sqlite_validation=None, recovery=None):
+def parse(path, sha, *, browser_product, profile, snapshot_sha256, context_id, manifest, sqlite_validation=None, recovery=None, extraction=None):
     validate_options(browser_product, profile)
+    if extraction:
+        from .browser_best_effort import parse as parse_immutable
+        yield from parse_immutable(path, browser_product, profile, context_id, extraction)
+        return
     # Writable private directory permits SQLite to reconstruct SHM, but the
     # evidence connection itself is read-only. No checkpoint/repair is issued.
     with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=.2)) as db:

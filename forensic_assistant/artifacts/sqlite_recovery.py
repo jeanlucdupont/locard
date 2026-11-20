@@ -97,6 +97,12 @@ def _acquire(path, destination, source_context):
         validation = worker('sqlite_validate', str(destination), before['']['sha256'],
                             Path(str(destination)+'.validation'), dict(manifest=before), 30)
     except SnapshotError as exc:
+        if exc.diagnostics['category'] in ('journal_indeterminate', 'snapshot_consistency_not_established',
+                                            'missing_required_companion', 'sqlite_validation_failed'):
+            from .sqlite_immutable import prepare
+            extracted, extraction = prepare(destination, before, path, identities, source_context, exc.diagnostics)
+            return dict(manifest=before, extraction=extraction, _database_path=str(extracted),
+                        sqlite_validation=dict(rollback_journal=exc.diagnostics['category'], recovery_performed=False))
         if exc.diagnostics['category'] != 'journal_active_or_hot': raise
         extracted, recovery = recover(destination, before, path, identities, source_context)
         validation = dict(rollback_journal='recovered', recovery_performed=True,
@@ -108,6 +114,9 @@ def _acquire(path, destination, source_context):
         category = 'resource_limit' if 'timed out' in str(exc) or 'limit' in str(exc) else 'filesystem_io_failure' if isinstance(exc,OSError) else 'sqlite_validation_failed'
         raise SnapshotError(category, 'bounded SQLite snapshot validation did not complete', before) from exc
     result = dict(manifest=before, sqlite_validation=validation)
+    validation.update(extraction_mode='recovered' if recovery else 'normal',
+                      acquisition_consistency='not_established',
+                      transactional_consistency='not_established', integrity_check='passed')
     if recovery: result.update(recovery=recovery, _database_path=str(extracted))
     return result
 

@@ -151,6 +151,8 @@ def _ingest_sources(db, args, progress=None):
                         **({'browser_product': args.browser, 'profile': args.profile} if kind == 'browser' else {})
                     )
                 audit_result.update({key: result[key] for key in ('status', 'inserted', 'duplicates', 'errors')})
+                if kind == 'browser':
+                    audit_result['extraction_mode'] = result.get('extraction_mode', 'unknown')
                 if result['status'] != 'complete':
                     audit_result['_outcome'] = 'failure'
             from forensic_assistant.ingest.presentation import diagnostics

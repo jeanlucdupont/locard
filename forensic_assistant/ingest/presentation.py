@@ -49,6 +49,8 @@ def outcome(status, retained=0):
 
 
 def limitations(row):
+    if row.get('extraction'):
+        return row['extraction']['limitations']
     if row.get('acquisition'):
         # Native acquisition supplies structured provenance; its legacy combined
         # limitation string also contains an operational message, not a cause.
@@ -91,6 +93,10 @@ def render(result, palette=None):
         details = row.get('diagnostics', [])
         if row['status'] in ('failed', 'changed') and details:
             lines.append(field('Reason', safe_text(details[0]['message'])[:300], palette, role='error'))
+        if row.get('extraction'):
+            lines.append(field('Extraction mode', 'Best-effort immutable', palette, role='warning'))
+            if row['extraction'].get('empty_readable'):
+                lines.append(field('Coverage', 'Readable supported tables contained no relevant records', palette, role='unknown'))
         lines.extend([
                       field('Records retained (new)', f"{row['inserted']:,}", palette),
                       field('Duplicates', f"{row['duplicates']:,}", palette),
