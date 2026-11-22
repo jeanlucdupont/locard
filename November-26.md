@@ -37,7 +37,7 @@ Step 1 to 5 were done in a few weeks. Just need to review the user interface and
 
 ## Oh, the humanity!
 
-<img width="560" height="760" alt="image" src="https://github.com/user-attachments/assets/799841df-3a94-4cd4-8e72-cdd6c3c51548" />
+<img alt="image" src="https://github.com/user-attachments/assets/799841df-3a94-4cd4-8e72-cdd6c3c51548" />
 
 I wanted the interface to be text. And Locard was verbose inside out. You had to enter extremely long and complex commands and Locard would answer with extremely, complex, and pedantic answers. And MiniCPM... Well, let's put it this way. I have rocks in my driveway that are smarter than MiniCPM. It's not fair. MiniCPM is awesome. It's just I don't think it is the right model for this job, contrary to what my LLM told me.
 
@@ -46,7 +46,7 @@ And then, the more I tried Locard the more I saw it fall flat on its face. It wa
 
 So I tried Qwen 4b.
 
-<img width="600" height="360" alt="image" src="https://github.com/user-attachments/assets/65b37453-b7dc-4df8-8090-002bf5c1af21" />
+<img width="360" height="260" alt="image" src="https://github.com/user-attachments/assets/65b37453-b7dc-4df8-8090-002bf5c1af21" />
 
 Qwen 4b was better but it did not cut it. Now, the issue is that I don't have a $6000 gaming machine at home and I refuse to pay the outrageous price of today's IT. I can't test bigger local models.
 
