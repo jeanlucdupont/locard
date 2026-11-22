@@ -41,40 +41,45 @@ Step 1 to 5 were done in a few weeks. Just need to review the user interface and
 
 I wanted the interface to be text. And Locard was verbose inside out. You had to enter extremely long and complex commands and Locard would answer with extremely, complex, and pedantic answers. And MiniCPM... Well, let's put it this way. I have rocks in my driveway that are smarter than MiniCPM. It's not fair. MiniCPM is awesome. It's just I don't think it is the right model for this job, contrary to what my LLM told me.
 
+And then, the more I tried Locard the more I saw it fall flat on its face. It was pedantic, impractical, and really unusable by a human.
+
+
 So I tried Qwen 4b.
+
 <img width="600" height="360" alt="image" src="https://github.com/user-attachments/assets/65b37453-b7dc-4df8-8090-002bf5c1af21" />
 
+Qwen 4b was better but it did not cut it. Now, the issue is that I don't have a $6000 gaming machine at home and I refuse to pay the outrageous price of today's IT. I can't test bigger local models.
+
+Anthropic, DeepSeek, OpenAI and Google could laugh at me. I will use their greater power for my task. So much for "your data never leaves the forensic environment" stance. But I'm not done yet. I still believe Locard can work with Local AI first in mind.
+
+<img width="1169" height="779" alt="image" src="https://github.com/user-attachments/assets/71eb7e5e-5ed1-4671-a18a-0a27fefd9ed5" />
+
+So now that I call the big dawgs, it will be a breathe, right? I mean we can even go further. There's no way a forensic would learn so mega long and complex Locard command. My idea is to go to the next phase with full AI mode.
+1 Plug a copy of the SSD of the machine to investigate to the machine where Locard run.
+2 Let Locard chug the SSD data.
+3 Describe what you think happen.
+4 Let Locard look for evidence and ask you questions.
+5 Let Locard give its conclusions and you to approve.
+6 Let Locard write the report. Thank you. Good bye. Done.
+
+That would be awesome, right?
 
 
-In the beginning, the local-first idea felt central. We experimented with MiniCPM, then moved through local **Qwen 4B** work, before exploring the possibilities and practical differences of full cloud models and services—**Claude, Gemini, DeepSeek, and OpenAI**. The underlying dream stayed recognizable, but the route kept changing. The more demanding the investigative reasoning became, the more obvious it was that model size, speed, context, cost, tool use, and reliability were all part of the problem. A common AI interface did not magically make those models interchangeable.
+## Pedantic, rigourous, and stuborn Locard
 
-I had imagined a clever little forensic assistant. What we were beginning to design was a system that needed to acquire evidence, preserve it, understand its limitations, consult an AI, challenge the AI, remember the result, and explain everything to a human being.
+Locard had to ingest artifacts, normalize them, preserve their identities, associate them with sources, and make the results searchable. Even this mundane work carried traps. 
 
-This may be the project's first encounter with the **Dunning–Kruger effect**, or at least with its popular cartoon version. At the summit of early optimism, the thought was: *This should be easy.* Somewhere further down the slope, after dozens of releases and a great many weekends, it became: *It might never work.* Neither judgment was quite right. But the distance between them was the project.
+A forensic tool can be wrong in a very professional-looking way. Analyst assertions versus artifact-reported information, observations versus hypotheses, evidence sources versus host claims, known limitations versus actual failures.
 
-Codex's account of our work opens later, with an apparently modest request for **Tab completion**. That request was not the birth of Locard; by then the adventure was already underway. But it captures the pattern beautifully. A small improvement promised a pleasant afternoon. Somewhere between that afternoon and the present day, we acquired native Windows filesystem acquisition, several generations of AI investigation, an auditable memory of analyst decisions, a reporting system, a rather strict understanding of what “executed” means, and a strong opinion about SQLite journals.
 
-Edmond Locard's exchange principle tells us that contact leaves a trace. We were trying to build something capable of reading those traces without inventing the contact.
+<img width="550" height="370" alt="image" src="https://github.com/user-attachments/assets/3c0db642-174e-4bfe-aca6-32adbf7347dc" />
 
-We were also building an elaborate machine for discovering just how many ways software can say “almost.”
+Ingesting a disk properly took 2 months (All my weekends, all my evenings). And yet, sometimes it fails because Locard does not consider the condition as perfect to chug the data. Bro! Do your best effort to chug the data and add a comment or warning about the context but don't flat out refuse to scan the disk.
 
-## Act I — Before the detective, the filing cabinet
+<img width="690" height="430" alt="image" src="https://github.com/user-attachments/assets/4d7a7702-330a-4784-8e74-48f9e3ca27f7" />
 
-Our first great ambition was not intelligence. It was plumbing.
+I was naively thinking that Locard would talk to the AI in free text format and retrieve the answer for me to approve. Nope. Codex insisted that the data must be strictly format in and out. And guess what? ChatGPT, Claude, and Gemini cannot agree on that format. So I have to adapt for each LLM. DeepSeek is just OpenAI. I wanted to do Grok but I gave up. Also, I might not do Gemini. The obvious answer was to use OpenRouter or LiteLLM. ChatGPT recommended LiteLLM but there's so many changes to the request that I am now challenging if writing a procedure directly for each LLM would not have been better.
 
-Locard had to ingest artifacts, normalize them, preserve their identities, associate them with sources, and make the results searchable. Even this mundane work carried traps. An MFT timestamp is not evidence of process execution. A Registry key's last-write time does not tell you when each value was created. A file merely referenced by Prefetch did not necessarily execute. And an event mentioning a hostname does not automatically prove that the hostname belongs to the machine under examination.
-
-A forensic tool can be wrong in a very professional-looking way. We wanted to make that difficult.
-
-So the database accumulated more than records. It accumulated distinctions: analyst assertions versus artifact-reported information, observations versus hypotheses, evidence sources versus host claims, known limitations versus actual failures.
-
-We made search more useful, source inventory faster, and the command-line interface more coherent. One guided operation that had taken almost a minute dropped to a fraction of a second. Other optimizations were less dramatic but still mattered. You cannot expect an investigator to stay curious when listing evidence feels like waiting for a ferry.
-
-The shell acquired friendlier help, command families and eventually the ability to start with an uncomplicated `python locard.py`. Cases could live on a different drive instead of slowly consuming the already cramped system disk.
-
-And we polished the terminal. The section headings, the colors, the progress spinner, even the goodbye banner had their turns in the spotlight.
-
-Codex remembers an especially revealing comedy: change a cosmetic separator in the shutdown message and suddenly a whole family of tests complains. We learned that an old expected sentence is not necessarily a product requirement. A test that protects evidence integrity is sacred. A test that insists the goodbye line contain exactly the same number of dashes may need to grow up.
 
 This became part of our rhythm: focused tests while developing, real manual acceptance on the intended workflow, broader regression work at the appropriate release boundary. Hundreds of green checkmarks are not a substitute for understanding what changed.
 
