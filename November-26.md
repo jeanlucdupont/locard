@@ -54,7 +54,7 @@ Anthropic, DeepSeek, OpenAI and Google could laugh at me. I will use their great
 
 <img width="360" height="260" alt="image" src="https://github.com/user-attachments/assets/71eb7e5e-5ed1-4671-a18a-0a27fefd9ed5" />
 
-So now that I call the big dawgs, it will be a breathe, right? I mean we can even go further. There's no way a forensic would learn so mega long and complex Locard command. My idea is to go to the next phase with full AI mode.
+So now that I call the big dawgs, it will be a breeze, right? I mean we can even go further. There's There’s no way a forensic investigator would learn so mega long and complex Locard command. My idea is to go to the next phase with full AI mode.
 1 Plug a copy of the SSD of the machine to investigate to the machine where Locard run.
 2 Let Locard chug the SSD data.
 3 Describe what you think happen.
@@ -65,7 +65,7 @@ So now that I call the big dawgs, it will be a breathe, right? I mean we can eve
 That would be awesome, right?
 
 
-## Pedantic, rigourous, and stuborn Locard
+## Pedantic, rigourous and stuborn Locard
 
 Locard had to ingest artifacts, normalize them, preserve their identities, associate them with sources, and make the results searchable. Even this mundane work carried traps. 
 
@@ -82,13 +82,13 @@ Ingesting a disk properly took 2 months (All my weekends, all my evenings). And 
 
 <img width="360" height="260" alt="image" src="https://github.com/user-attachments/assets/4d7a7702-330a-4784-8e74-48f9e3ca27f7" />
 
-I was naively thinking that Locard would talk to the AI in free text format and retrieve the answer for me to approve. Nope. Codex insisted that the data must be strictly format in and out. And guess what? ChatGPT, Claude, and Gemini cannot agree on that format. So I have to adapt for each LLM. DeepSeek is just OpenAI. I wanted to do Grok but I gave up. Also, I might not do Gemini. The obvious answer was to use OpenRouter or LiteLLM. ChatGPT recommended LiteLLM but there's so many changes to the request that I am now challenging if writing a procedure directly for each LLM would not have been better.
+I was naively thinking that Locard would talk to the AI in free text format and retrieve the answer for me to approve. Nope. Codex insisted that the data must be strictly format input and output. And guess what? ChatGPT, Claude, and Gemini cannot agree on that format. So I have to adapt for each LLM. DeepSeek's API is just OpenAI's API. I wanted to do Grok but I gave up. Also, I might not do Gemini. The obvious answer was to use OpenRouter or LiteLLM. ChatGPT recommended LiteLLM but there's so many changes to the request that I am now challenging if writing a procedure directly for each LLM would not have been better.
 
 
 
 ## Coding through AI
 
-Again, LLMs are awesome. They're better than me. But sometimes, they get stuck in a loop to fix a minutia. They insist one making lengthy and expensive tests that bring little. I've spent 5 nights working on a useless item that the AI was trying to fix like a fly is trying to go through the glass of a closed window. 
+Again, LLMs are awesome. They're better than me. But sometimes, they get stuck in a loop to fix a minutia. They insist on running lengthy and expensive tests that bring little. I've spent 5 nights working on a useless item that the AI was trying to fix like a fly is trying to go through the glass of a closed window. 
 
 We have an agreement with my AI. I am polite and respectful. I expect my AI to challenge my challenges and questions.
 
