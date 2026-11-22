@@ -52,7 +52,7 @@ Qwen 4b was better but it did not cut it. Now, the issue is that I don't have a 
 
 Anthropic, DeepSeek, OpenAI and Google could laugh at me. I will use their greater power for my task. So much for "your data never leaves the forensic environment" stance. But I'm not done yet. I still believe Locard can work with Local AI first in mind.
 
-<img width="560" height="360" alt="image" src="https://github.com/user-attachments/assets/71eb7e5e-5ed1-4671-a18a-0a27fefd9ed5" />
+<img width="360" height="260" alt="image" src="https://github.com/user-attachments/assets/71eb7e5e-5ed1-4671-a18a-0a27fefd9ed5" />
 
 So now that I call the big dawgs, it will be a breathe, right? I mean we can even go further. There's no way a forensic would learn so mega long and complex Locard command. My idea is to go to the next phase with full AI mode.
 1 Plug a copy of the SSD of the machine to investigate to the machine where Locard run.
@@ -72,11 +72,11 @@ Locard had to ingest artifacts, normalize them, preserve their identities, assoc
 A forensic tool can be wrong in a very professional-looking way. Analyst assertions versus artifact-reported information, observations versus hypotheses, evidence sources versus host claims, known limitations versus actual failures.
 
 
-<img width="550" height="370" alt="image" src="https://github.com/user-attachments/assets/3c0db642-174e-4bfe-aca6-32adbf7347dc" />
+<img width="360" height="260" alt="image" src="https://github.com/user-attachments/assets/3c0db642-174e-4bfe-aca6-32adbf7347dc" />
 
 Ingesting a disk properly took 2 months (All my weekends, all my evenings). And yet, sometimes it fails because Locard does not consider the condition as perfect to chug the data. Bro! Do your best effort to chug the data and add a comment or warning about the context but don't flat out refuse to scan the disk.
 
-<img width="690" height="430" alt="image" src="https://github.com/user-attachments/assets/4d7a7702-330a-4784-8e74-48f9e3ca27f7" />
+<img width="360" height="260" alt="image" src="https://github.com/user-attachments/assets/4d7a7702-330a-4784-8e74-48f9e3ca27f7" />
 
 I was naively thinking that Locard would talk to the AI in free text format and retrieve the answer for me to approve. Nope. Codex insisted that the data must be strictly format in and out. And guess what? ChatGPT, Claude, and Gemini cannot agree on that format. So I have to adapt for each LLM. DeepSeek is just OpenAI. I wanted to do Grok but I gave up. Also, I might not do Gemini. The obvious answer was to use OpenRouter or LiteLLM. ChatGPT recommended LiteLLM but there's so many changes to the request that I am now challenging if writing a procedure directly for each LLM would not have been better.
 
