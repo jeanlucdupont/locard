@@ -37,7 +37,7 @@ Step 1 to 5 were done in a few weeks. Just need to review the user interface and
 
 ## Oh, the humanity!
 
-<img width="1171" height="781" alt="image" src="https://github.com/user-attachments/assets/799841df-3a94-4cd4-8e72-cdd6c3c51548" />
+<img width="560" height="760" alt="image" src="https://github.com/user-attachments/assets/799841df-3a94-4cd4-8e72-cdd6c3c51548" />
 
 I wanted the interface to be text. And Locard was verbose inside out. You had to enter extremely long and complex commands and Locard would answer with extremely, complex, and pedantic answers. And MiniCPM... Well, let's put it this way. I have rocks in my driveway that are smarter than MiniCPM. It's not fair. MiniCPM is awesome. It's just I don't think it is the right model for this job, contrary to what my LLM told me.
 
@@ -52,7 +52,7 @@ Qwen 4b was better but it did not cut it. Now, the issue is that I don't have a 
 
 Anthropic, DeepSeek, OpenAI and Google could laugh at me. I will use their greater power for my task. So much for "your data never leaves the forensic environment" stance. But I'm not done yet. I still believe Locard can work with Local AI first in mind.
 
-<img width="1169" height="779" alt="image" src="https://github.com/user-attachments/assets/71eb7e5e-5ed1-4671-a18a-0a27fefd9ed5" />
+<img width="560" height="360" alt="image" src="https://github.com/user-attachments/assets/71eb7e5e-5ed1-4671-a18a-0a27fefd9ed5" />
 
 So now that I call the big dawgs, it will be a breathe, right? I mean we can even go further. There's no way a forensic would learn so mega long and complex Locard command. My idea is to go to the next phase with full AI mode.
 1 Plug a copy of the SSD of the machine to investigate to the machine where Locard run.
