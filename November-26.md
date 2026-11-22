@@ -13,7 +13,7 @@ Then came the dangerous question: **What if we used it for digital forensics?**
 
 ChatGPT was enthusiastic. “Great idea,” was the gist of the response. Yeah, I know. LLMs have a tendency to flatter, especially OpenAI (They're working on it: https://mixed-news.com/en/openai-gpt-6-chatgpt-less-flattering-shorter-free-go/). My AI assistant said it totally doable. It does not have to spend its evenings and Weekends implementing it.
 
-<img width="750" height="512" alt="image" src="https://github.com/user-attachments/assets/17302a22-1311-4ba1-a353-ba89eaa5f932" />
+<img width="360" height="260" alt="image" src="https://github.com/user-attachments/assets/17302a22-1311-4ba1-a353-ba89eaa5f932" />
 
 A small local model might help an investigator ask ordinary questions about evidence, connect related observations, and explain what happened without shipping an entire case to a cloud provider. 
 
