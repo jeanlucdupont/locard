@@ -3,20 +3,44 @@
 <img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/6d48ed85-814c-4b4f-bea8-ffb5082aefc4" />
 
 
-## Prologue — It started with MiniCPM
+## It started with MiniCPM
 
-Locard did not begin with a grand product strategy, a team of developers, or even a plan to build forensic software. It began with a conversation about **MiniCPM**.
+It all began with a conversation about **MiniCPM**.
 
 I was intrigued by the idea that a relatively small language model could be genuinely useful. The enormous models made sense: give them enough resources and they could do impressive things. But how could a much smaller one still deliver? What could you realistically ask of it? Where was the intelligence coming from, and where did the limitations begin?
 
 Then came the dangerous question: **What if we used it for digital forensics?**
 
-ChatGPT—my OpenAI-powered brainstorming partner—was enthusiastic. “Great idea,” was the gist of the response. It is worth remembering that an AI assistant is remarkably willing to agree that an idea sounds promising. It does not have to spend its Saturday implementing it.
+ChatGPT was enthusiastic. “Great idea,” was the gist of the response. Yeah, I know. LLMs have a tendency to flatter, especially OpenAI (They're working on it: https://mixed-news.com/en/openai-gpt-6-chatgpt-less-flattering-shorter-free-go/). My AI assistant said it totally doable. It does not have to spend its evenings and Weekends implementing it.
 
 <img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/17302a22-1311-4ba1-a353-ba89eaa5f932" />
 
+A small local model might help an investigator ask ordinary questions about evidence, connect related observations, and explain what happened without shipping an entire case to a cloud provider. 
 
-A small local model might help an investigator ask ordinary questions about evidence, connect related observations, and explain what happened without shipping an entire case to a cloud provider. I had worked around cybersecurity long enough to know how difficult investigations can be. I also knew how useful a patient assistant could be.
+## 6 steps
+
+<img width="1468" height="750" alt="image" src="https://github.com/user-attachments/assets/dadc31d7-b54b-4265-a097-bb9a923143f1" />
+
+The software started with 6 steps. OpenAI had a very clear roadmap and delivery in mind. Great! 
+
+There is another strange part of this story that would have sounded implausible a few years ago: **I am not programming Locard myself.**
+
+I used to program. But with Locard, my daily development method became something different. I describe a problem to one AI. Together we shape an implementation prompt. I give that prompt to another AI—Codex—which writes and revises the code. I examine what it reports, try the software, point out what is wrong, and send it back for another round.
+
+**I have one AI prompting another AI to generate code. Welcome to 2026.**
+
+I am not pretending that I would type Python faster than the coding agent. I would not. At the work of producing and modifying code, AI is faster than me and often better.
+
+So my job gradually changed. I became the product owner, test analyst, architect, reviewer, and sometimes the manager. I would read an AI's explanation, challenge its assumptions, send it to investigate a defect, reject the wrong solution, and insist on preserving the evidence and the bigger goal.
+
+Step 1 to 5 were done in a few weeks. Just need to review the user interface and we're good to go!
+
+## Oh, the humanity!
+
+<img width="1171" height="781" alt="image" src="https://github.com/user-attachments/assets/799841df-3a94-4cd4-8e72-cdd6c3c51548" />
+
+
+A
 
 In the beginning, the local-first idea felt central. We experimented with MiniCPM, then moved through local **Qwen 4B** work, before exploring the possibilities and practical differences of full cloud models and services—**Claude, Gemini, DeepSeek, and OpenAI**. The underlying dream stayed recognizable, but the route kept changing. The more demanding the investigative reasoning became, the more obvious it was that model size, speed, context, cost, tool use, and reliability were all part of the problem. A common AI interface did not magically make those models interchangeable.
 
@@ -56,19 +80,7 @@ There was a very good reason for that. We were about to become intimately famili
 
 ## Interlude — I stopped writing code. I did not stop developing software.
 
-There is another strange part of this story that would have sounded implausible a few years ago: **I am not programming Locard myself.**
-
-I used to program. I know what writing software entails, how to break a problem down, and the peculiar satisfaction of finding the exact line that made everything go wrong. But with Locard, my daily development method became something different. I describe a problem to one AI. Together we shape an implementation prompt. I give that prompt to another AI—Codex—which writes and revises the code. I examine what it reports, try the software, point out what is wrong, and send it back for another round.
-
-**I have one AI prompting another AI to generate code. Welcome to 2026.**
-
-I am not pretending that I would type Python faster than the coding agent. I would not. At the work of producing and modifying code, AI is faster than me and often better. It can read a large repository, trace call paths, write tests, and propose a patch while I am still deciding which file to open. That is an extraordinary change in what a one-person project can attempt.
-
-But speed at writing code is not the same as knowing which product to build. Someone still has to choose the trade-offs, judge whether the result makes sense, notice the missing user experience, and decide when the implementation has become more elaborate than the problem deserves. Someone still has to run the real case and say, “No, that is not useful.”
-
-So my job gradually changed. I became the product owner, test analyst, architect, reviewer, and sometimes the manager of an unusually fast team that happened not to contain any humans except me. I would read an AI's explanation, challenge its assumptions, send it to investigate a defect, reject the wrong solution, and insist on preserving the evidence and the bigger goal. When it was right, progress was astonishing. When it was wrong, it could be astonishingly productive in the wrong direction.
-
-And this was not some effortless hobby running in the background. **Most of my evenings and weekends went into Locard.** Launch a test, read a console, find a regression, prepare another prompt, examine the fix, pull a new version, and do it again. Sometimes the reward was thousands of recovered forensic records. Sometimes the reward was a better error message. Sometimes the reward was learning that we had built an impressively sophisticated mechanism for not getting to the next screen.
+nd this was not some effortless hobby running in the background. **Most of my evenings and weekends went into Locard.** Launch a test, read a console, find a regression, prepare another prompt, examine the fix, pull a new version, and do it again. Sometimes the reward was thousands of recovered forensic records. Sometimes the reward was a better error message. Sometimes the reward was learning that we had built an impressively sophisticated mechanism for not getting to the next screen.
 
 The coding had become easier for me to delegate. The responsibility for deciding what mattered had not.
 
