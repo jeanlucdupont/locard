@@ -39,8 +39,12 @@ Step 1 to 5 were done in a few weeks. Just need to review the user interface and
 
 <img width="1171" height="781" alt="image" src="https://github.com/user-attachments/assets/799841df-3a94-4cd4-8e72-cdd6c3c51548" />
 
+I wanted the interface to be text. And Locard was verbose inside out. You had to enter extremely long and complex commands and Locard would answer with extremely, complex, and pedantic answers. And MiniCPM... Well, let's put it this way. I have rocks in my driveway that are smarter than MiniCPM. It's not fair. MiniCPM is awesome. It's just I don't think it is the right model for this job, contrary to what my LLM told me.
 
-A
+So I tried Qwen 4b.
+<img width="600" height="360" alt="image" src="https://github.com/user-attachments/assets/65b37453-b7dc-4df8-8090-002bf5c1af21" />
+
+
 
 In the beginning, the local-first idea felt central. We experimented with MiniCPM, then moved through local **Qwen 4B** work, before exploring the possibilities and practical differences of full cloud models and services—**Claude, Gemini, DeepSeek, and OpenAI**. The underlying dream stayed recognizable, but the route kept changing. The more demanding the investigative reasoning became, the more obvious it was that model size, speed, context, cost, tool use, and reliability were all part of the problem. A common AI interface did not magically make those models interchangeable.
 
