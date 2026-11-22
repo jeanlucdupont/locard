@@ -37,7 +37,7 @@ Step 1 to 5 were done in a few weeks. Just need to review the user interface and
 
 ## Oh, the humanity!
 
-<img alt="image" src="https://github.com/user-attachments/assets/799841df-3a94-4cd4-8e72-cdd6c3c51548" />
+<img width="360" height="260" alt="image" src="https://github.com/user-attachments/assets/799841df-3a94-4cd4-8e72-cdd6c3c51548" />
 
 I wanted the interface to be text. And Locard was verbose inside out. You had to enter extremely long and complex commands and Locard would answer with extremely, complex, and pedantic answers. And MiniCPM... Well, let's put it this way. I have rocks in my driveway that are smarter than MiniCPM. It's not fair. MiniCPM is awesome. It's just I don't think it is the right model for this job, contrary to what my LLM told me.
 
