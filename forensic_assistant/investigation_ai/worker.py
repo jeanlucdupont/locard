@@ -26,6 +26,8 @@ def serve():
     index_identity = None
     view = None
     autonomous_calls = 0
+    follow_records = {}
+    follow_searches = set()
     integrity = dict(strategy='sqlite_read_view_v1', fingerprint_count=0,
                      fingerprint_seconds=0.0, transaction_seconds=0.0,
                      live_case_matches=None)
@@ -130,6 +132,15 @@ def serve():
                                 elif op == 'briefing_search' and config.get('_briefing_initial'):
                                     from forensic_assistant.briefing import execute_query
                                     result = execute_query(db, request['arguments'], cross=bool(config.get('_briefing_all')))
+                                elif op == 'follow_up' and grant is not None:
+                                    from forensic_assistant.investigation_ai import follow_up
+                                    from forensic_assistant.investigation_ai.transcript import digest
+                                    plan=follow_up.record_window(grant,request['arguments'],follow_records)
+                                    key=digest(plan)
+                                    if key in follow_searches or len(follow_searches)>=2:
+                                        raise ValueError('FOLLOW_UP_BUDGET_OR_DUPLICATE')
+                                    follow_searches.add(key)
+                                    result=follow_up.search(db,grant,request['arguments'],follow_records)
                                 else:
                                     if grant is not None:
                                         autonomous_policy.dispatch(db,grant,config['case_path'],op,request['arguments'])
@@ -140,6 +151,10 @@ def serve():
                                         {**tool_config, 'known_ids': request['known_ids']},
                                         model
                                     )
+                            if grant is not None and grant.get('contract')=='investigation-temporal-follow-up-v1':
+                                for record in result.get('records',[]):
+                                    follow_records[record['id']]=record
+                                if len(follow_records)>18:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
                             if view is not None:
                                 view.check_identity()
                                 integrity.update(fingerprint_count=view.fingerprint_count,

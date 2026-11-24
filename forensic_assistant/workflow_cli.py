@@ -34,7 +34,9 @@ def configure(operations, *, interactive=False):
         p=add(('investigation',), name, name, help)
         p.add_argument('--json',action='store_true', help='Structured result; prompts remain explicit')
         if name in ('show','reauthorize','run'):p.add_argument('assessment',nargs='?',default='latest', help='Saved assessment ID or latest')
-        if name == 'run':p.add_argument('--question',help='Investigation question; otherwise prompted')
+        if name == 'run':
+            p.add_argument('--question',help='Investigation question; otherwise prompted')
+            p.add_argument('--follow-up',action='store_true',help='Authorize bounded timestamp-based discovery instead of decomposition/synthesis')
         if name == 'assess':
             p.add_argument('--source', help='Existing source ID for bounded initial time-window discovery')
             p.add_argument('--start', help='Start time; ISO shorthand defaults to UTC');p.add_argument('--end', help='End time; ISO shorthand defaults to UTC')
@@ -146,7 +148,7 @@ def run(args):
         from contextlib import nullcontext,redirect_stdout
         with redirect_stdout(sys.stderr) if args.json else nullcontext():
             if op=='start':return investigation_workflow.start(args.db,read=read,presentation=args)
-            return investigation_workflow.run(args.db,args.assessment,args.question,read=read,presentation=args,json_output=args.json)
+            return investigation_workflow.run(args.db,args.assessment,args.question,read=read,presentation=args,json_output=args.json,**({'follow_up':True} if getattr(args,'follow_up',False) else {}))
     if op=='assessment-advanced':
         from .assessment_handoff_cli import execute
         return execute(args.db,args.assessment,args.question,read=read,start=args.start,end=args.end,

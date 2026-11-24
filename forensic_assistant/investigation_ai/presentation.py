@@ -168,6 +168,9 @@ def proposal_text(proposal, palette=None, *, introduction=False):
 
 def render(result, palette=None, *, dry_run=False, details=False):
     palette = palette or Palette()
+    if result.get('follow_up') and not details:
+        from .follow_up import render as render_follow_up
+        return render_follow_up(result,palette)
     supported = result.get('termination') == 'ANSWER_SUPPORTED'
     incremental = result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1', 'incremental-s4-b2-v1')
     findings = result.get('findings') or {}

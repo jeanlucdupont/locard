@@ -59,7 +59,7 @@ def start(case, *, read, display=print, presentation=None):
     return run(case, assessment['id'], question, read=read, display=display, presentation=presentation)
 
 
-def run(case, identity='latest', question=None, *, read, display=print, presentation=None, json_output=False):
+def run(case, identity='latest', question=None, *, read, display=print, presentation=None, json_output=False, follow_up=False):
     """Stage choices precede, and never replace, the engine's exact grant approval."""
     from .assessment_handoff import prepare
     from .ai.settings import load
@@ -81,13 +81,15 @@ def run(case, identity='latest', question=None, *, read, display=print, presenta
     config = load()
     from .ai.investigation_preflight import require
     require(config)  # Local only, before asking for investigation allocations.
-    if answer('Permit bounded evidence disclosure to OpenAI for this investigation? [y/N]: ').lower() not in ('y','yes'):
+    # The opt-in discovery grant itself includes explicit OpenAI disclosure and
+    # search authority. One exact approval, with no redundant preliminary grant.
+    if not follow_up and answer('Permit bounded evidence disclosure to OpenAI for this investigation? [y/N]: ').lower() not in ('y','yes'):
         return {'status':'cancelled', 'stage':'cloud_disclosure'}
-    decompose = answer('Authorize a separate question-decomposition request within the displayed grant? [y/N]: ').lower() in ('y','yes')
+    decompose = False if follow_up else answer('Authorize a separate question-decomposition request within the displayed grant? [y/N]: ').lower() in ('y','yes')
     synthesize = False
     if decompose:
         synthesize = answer('Authorize up to two additional bounded evidence-synthesis requests? [y/N]: ').lower() in ('y','yes')
     result = assessment_handoff_cli.execute(case, identity, question, read=read, autonomous=True,
-        decompose=decompose, synthesize=synthesize, live_explanation=synthesize, presentation=presentation,json_output=json_output)
+        decompose=decompose, synthesize=synthesize, live_explanation=synthesize, presentation=presentation,json_output=json_output,**({'follow_up':True} if follow_up else {}))
     display('Review recorded output with investigation history. Findings and reports are separate explicit operations; nothing is automatically captured or published.')
     return result

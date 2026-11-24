@@ -20,6 +20,10 @@ TEMPORAL = 'any retained timestamp in window; bounded full-record context permit
 
 
 def validate(grant, case):
+    from . import follow_up
+    if grant.get('contract') == follow_up.CONTRACT:
+        follow_up.shape(grant)
+        grant = {**grant, 'contract': CONTRACT, 'tools':['show_evidence']}
     if grant.get('contract') == B2_CONTRACT:
         validate_b2_shape(grant)
         grant = {**grant, 'contract': CONTRACT, 'limits': {**grant['limits'], 'requests':6, 'steps':8}}
@@ -65,6 +69,10 @@ def validate_b2_shape(grant):
 
 def operation(grant, case, name, args):
     validate(grant,case)
+    from . import follow_up
+    if grant.get('contract') == follow_up.CONTRACT and name == 'follow_up':
+        follow_up.arguments(grant,args)
+        return
     if name!='show_evidence' or set(args)!={'evidence_id'} or args['evidence_id'] not in grant['evidence_ids']:
         raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
 
@@ -72,7 +80,10 @@ def operation(grant, case, name, args):
 def dispatch(db, grant, case, name, args):
     """Check source and time metadata BEFORE retrieving original record content."""
     operation(grant,case,name,args)
-    eid=args['evidence_id']
+    record_scope(db,grant,args['evidence_id'])
+
+
+def record_scope(db,grant,eid,*,start=None,end=None):
     row=db.execute('SELECT evidence_id,source_type,file_sha256 FROM evidence_records WHERE evidence_id=?',(eid,)).fetchone()
     if row is None or row['source_type'] not in grant['families']:raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
     sources=(provenance(db,eid)[0] if row['source_type']=='browser' else memberships(db,row['file_sha256']))
@@ -80,5 +91,6 @@ def dispatch(db, grant, case, name, args):
     if not ids or not ids <= set(grant['source_ids']):raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
     # Same bounded timestamp eligibility as assessment handoff; no timezone inference.
     stamps=db.execute('SELECT timestamp_utc FROM evidence_timestamps WHERE evidence_id=? ORDER BY slot LIMIT 32',(eid,))
-    low,high=time_ns(required_time(grant['start'])),time_ns(required_time(grant['end']))
-    if not any(r[0] and low<=time_ns(required_time(r[0]))<=high for r in stamps):raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
+    low,high=time_ns(required_time(start or grant['start'])),time_ns(required_time(end or grant['end']))
+    from .follow_up import CONTRACT as FOLLOW_UP
+    if not any(r[0] and low<=time_ns(required_time(r[0])) and (time_ns(required_time(r[0]))<high if grant.get('contract')==FOLLOW_UP else time_ns(required_time(r[0]))<=high) for r in stamps):raise ValueError('ADDITIONAL_SCOPE_REQUIRED')

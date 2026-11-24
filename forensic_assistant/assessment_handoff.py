@@ -44,7 +44,7 @@ def resolve_references(question, mapping):
     return requested
 
 
-def prepare(case, identity, question, start=None, end=None, *, diverse=False):
+def prepare(case, identity, question, start=None, end=None, *, diverse=False,temporal=False):
     assessment = select(case, identity)
     mapping = references(assessment)
     requested = resolve_references(question, mapping)
@@ -59,7 +59,7 @@ def prepare(case, identity, question, start=None, end=None, *, diverse=False):
         from .correlation.models import time_ns
         if time_ns(required_time(scope['start']))<time_ns(required_time(plan['start'])) or time_ns(required_time(scope['end']))>time_ns(required_time(plan['end'])):
             raise ValueError('Seed selection cannot expand the saved assessment time window')
-        selected,selection=select_seeds(assessment,mapping,requested,question,scope,MAX_REFERENCES)
+        selected,selection=select_seeds(assessment,mapping,requested,question,scope,MAX_REFERENCES,temporal=temporal)
     state = Store(case).load()
     revision = next((r for r in (state or {}).get('revisions', []) if r['digest'] == plan['digest']), None)
     document = revision['content'].get('canonical', {}).get('document', {}) if revision else {}

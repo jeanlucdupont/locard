@@ -8,9 +8,11 @@ from .interactive.console import safe
 
 def execute(case, identity, question=None, *, read, start=None, end=None, autonomous=False,
             decompose=False, synthesize=False, live_explanation=False, details=False,
-            json_output=False, presentation=None):
+            json_output=False, presentation=None, follow_up=False):
     """Shared terminal orchestration over the existing authorized handoff service."""
     if not callable(read):raise ValueError('Explicit interactive authorization required')
+    if follow_up and not autonomous:raise ValueError('Follow-up requires autonomous execution')
+    if follow_up and (decompose or synthesize):raise ValueError('Follow-up is a standalone analysis workflow')
     if live_explanation and not synthesize:raise ValueError('Live explanation requires synthesis')
     if synthesize and not (autonomous and decompose):raise ValueError('Synthesis requires autonomous decomposition')
     if decompose and not autonomous:raise ValueError('Decomposition requires autonomous execution')
@@ -18,7 +20,7 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
     stream = sys.stderr if json_output else sys.stdout
     print('Using saved assessment ' + selected['id'], file=stream)
     question = question or read_answer(read, 'What would you like to investigate? ')
-    handoff = service.prepare(case, selected['id'], question, start, end,diverse=autonomous)
+    handoff = service.prepare(case, selected['id'], question, start, end,diverse=autonomous,temporal=follow_up)
     if autonomous:
         from .investigation_ai.autonomous import start
         from .ai.backend import backend
@@ -42,12 +44,18 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
                     print(field('  '+label,', '.join(f'{family} {count}' for family,count in selection[key].items()),palette),file=stream)
                 print('  Eligible assessment families: '+', '.join(selection['eligible_families']),file=stream)
                 print('  Omitted eligible records: '+str(selection['omitted_eligible_records'])+'; excluded: '+safe(str(selection['excluded'])),file=stream)
-                print('  Effective scope is ONLY the selected IDs, not every record in these families.',file=stream)
-                print('  '+selection['limitation'],file=stream)
+                print('  Seeds plus bounded temporal search in the displayed source/window/families.' if follow_up else '  Effective scope is ONLY the selected IDs, not every record in these families.',file=stream)
+                if not follow_up:print('  '+selection['limitation'],file=stream)
+                if selection.get('temporal_coverage'):print('  '+selection['temporal_coverage'],file=stream)
                 for hint in handoff['hints']:print('    '+hint['ref']+': '+hint['id'],file=stream)
-                for limitation in handoff['limitations']:print('  Limitation: '+safe(limitation),file=stream)
+                for limitation in handoff['limitations']:
+                    if not follow_up or limitation!=selection['limitation']:print('  Limitation: '+safe(limitation),file=stream)
             print('  OpenAI model: '+safe(grant['model'])+'; authorized evidence will be sent to OpenAI.',file=stream)
-            print('  Inspect only '+str(len(grant['evidence_ids']))+' listed assessment references; show_evidence only, no search.',file=stream)
+            if follow_up:
+                print('  Follow-up: original disclosed timestamp -> authorized family; five-minute radius clamped to scope.',file=stream)
+                print('  At most 2 searches, 3 records/search, 6 search returns, 18 distinct disclosures; 1000 candidates and 5 seconds/search.',file=stream)
+                print('  Searches share 6 total tool calls and 6 model requests. No retries; exhaustion preserves PARTIAL findings.',file=stream)
+            else:print('  Inspect only '+str(len(grant['evidence_ids']))+' listed assessment references; show_evidence only, no search.',file=stream)
             print('  Eligibility: any of the first 32 recorded timestamps in the window. Bounded full-record context, including other timestamps, is permitted.',file=stream)
             if b2:
                 print('  Limits: 6 analysis + 1 decomposition + 2 synthesis; 9 model attempts; 6 lookups; 0 refill; 10 steps.',file=stream)
@@ -71,6 +79,7 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
             return read_answer(read,'Authorize this bounded autonomous investigation? [y/N] ').strip().casefold() in ('y','yes')
         with ActivityIndicator('Preparing investigation...',args=presentation) as indicator:
             extra = {'decompose':True} if decompose else {}
+            if follow_up:extra['follow_up']=True
             if synthesize:extra['synthesize']=True
             if live_explanation:extra['live_explanation']=True
             result=start(handoff,selected,backend(),authorize_envelope,status=indicator.phase,**extra)

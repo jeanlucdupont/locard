@@ -254,9 +254,11 @@ def test_live_grant_expiry(tmp_path):
 def test_cli_requires_explicit_combination():
     from forensic_assistant.cli import build_parser
     parser=build_parser()
-    args=parser.parse_args(['briefing','--show','--synthesize'])
-    from forensic_assistant import briefing_cli
-    with pytest.raises(ValueError,match='--synthesize requires'):briefing_cli.run(args)
+    with pytest.raises(SystemExit):
+        parser.parse_args(['investigation','briefing','show','--synthesize'])
+    from forensic_assistant.assessment_handoff_cli import execute
+    with pytest.raises(ValueError,match='Synthesis requires autonomous decomposition'):
+        execute(None,'latest',read=lambda _: 'n',synthesize=True)
 
 
 def test_prepared_backend_does_not_probe(monkeypatch):
