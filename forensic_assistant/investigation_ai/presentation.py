@@ -4,6 +4,10 @@ from forensic_assistant.interactive.console import safe
 from forensic_assistant.terminal import Palette
 
 LABELS = {
+    'BUDGET_CONTRACT_MISMATCH': 'Startup budget does not match the approved investigation contract',
+    'HANDOFF_VALIDATION_FAILED': 'Authorized assessment handoff validation failed',
+    'PROVIDER_START_FAILURE': 'Authorized AI provider could not initialize',
+    'READ_VIEW_START_FAILURE': 'Evidence read view could not be established',
     'ANSWER_SUPPORTED': 'Supported findings from disclosed evidence',
     'USER_REJECTED': 'Analyst rejected proposed lookup',
     'TOO_MANY_REJECTIONS': 'Rejection limit reached',

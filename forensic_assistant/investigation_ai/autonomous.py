@@ -84,10 +84,11 @@ def start(handoff,assessment,client,confirm,*,status=None,decompose=False,synthe
     started=time.monotonic()
     grant.update(id=uuid.uuid4().hex,issued=time.time());grant['expires']=grant['issued']+300
     from forensic_assistant.assessment_handoff import authorize
+    from .state import execution_budget
     return supervised({'case_path':grant['case'],'semantic_enabled':False,'_stage_a':grant,'_stage_a_hints':hints,
         '_stage_a_handoff':authorize(handoff,lambda _:True),'_stage_a_started':started,'_stage_a_deadline':started+300,
         '_live_explanation':live_explanation},
-        grant['objective'],grant['case']+'.investigations',client=client,budget=Budget(),status=status,prepared_backend=descriptor)
+        grant['objective'],grant['case']+'.investigations',client=client,budget=execution_budget({'_stage_a':grant}),status=status,prepared_backend=descriptor)
 
 
 def choose(pending,hints,previous,selection=None,inspected=()):

@@ -58,7 +58,7 @@ def blocked_phase_child(connection,gate,request):
 def configured(tmp_path,phase):
     path=tmp_path/'case.db';make_case(path)
     g=grant(path,records()[:1])
-    c=dict(case_path=str(path),_stage_a=g,_test_phase=phase,_test_pid=str(tmp_path/'child.pid'))
+    c=dict(case_path=str(path),_stage_a=g,_stage_a_deadline=time.monotonic()+3,_test_phase=phase,_test_pid=str(tmp_path/'child.pid'))
     if phase=='handoff_validation':c['_stage_a_handoff']={'synthetic':True}
     return c
 
@@ -86,7 +86,7 @@ def test_startup_and_operation_hangs_are_contained(tmp_path,monkeypatch,phase):
     monkeypatch.setattr(supervision,'_child',blocked_phase_child)
     phases=[];start=time.monotonic()
     result=supervision.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=LocalClient(),
-                           budget=Budget(seconds=3),status=phases.append)
+                           budget=Budget(),status=phases.append)
     assert time.monotonic()-start<3+supervision.CLEANUP_SECONDS+2
     assert phase in phases
     assert result['startup_diagnostic']['last_phase']==phase
@@ -103,7 +103,7 @@ def test_startup_and_operation_hangs_are_contained(tmp_path,monkeypatch,phase):
 def test_journal_creation_failure_is_actionable(tmp_path,monkeypatch):
     config=configured(tmp_path,'transcript_init')
     monkeypatch.setattr(supervision,'_child',blocked_phase_child)
-    result=supervision.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=LocalClient(),budget=Budget(seconds=3))
+    result=supervision.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=LocalClient(),budget=Budget())
     assert result['termination']=='TRANSCRIPT_FAILURE'
     assert result['startup_diagnostic']['last_phase']=='transcript_init'
     assert not result['startup_diagnostic']['read_view_established']
@@ -119,7 +119,7 @@ def test_cancellation_during_preparation_cleans_descendants(tmp_path,monkeypatch
             end=time.monotonic()+1
             while not Path(config['_test_pid']).exists() and time.monotonic()<end:time.sleep(.01)
             raise KeyboardInterrupt()
-    result=supervision.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=LocalClient(),budget=Budget(seconds=4),status=cancel)
+    result=supervision.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=LocalClient(),budget=Budget(),status=cancel)
     assert result['termination']=='ANALYST_CANCELLED'
     assert result['startup_diagnostic']['cleanup_confirmed']
     assert not alive(int(Path(config['_test_pid']).read_text()))
@@ -137,7 +137,7 @@ def test_expired_grant_reports_safe_reason_through_supervisor(tmp_path,monkeypat
     config=configured(tmp_path,'unused')
     config['_stage_a']['issued']-=301;config['_stage_a']['expires']-=301
     monkeypatch.setattr(supervision,'_child',blocked_phase_child)
-    result=supervision.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=LocalClient(),budget=Budget(seconds=3))
+    result=supervision.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=LocalClient(),budget=Budget())
     assert result['termination']=='AUTHORIZATION_EXPIRED'
     assert result['startup_diagnostic']['last_phase']=='authorization_validation'
     assert not result['startup_diagnostic']['read_view_established'] and not result['findings']
@@ -196,7 +196,7 @@ def test_unknown_launch_cleanup_cannot_return_to_prompt(tmp_path,monkeypatch):
     monkeypatch.setattr(supervision,'Launch',StuckLaunch)
     monkeypatch.setattr(supervision,'CLEANUP_SECONDS',.02)
     with pytest.raises(CleanupError) as failure:
-        supervision.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=LocalClient(),budget=Budget(seconds=1))
+        supervision.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=LocalClient(),budget=Budget())
     assert failure.value.result['startup_diagnostic']['cleanup_confirmed'] is False
     assert failure.value.result['termination']=='STARTUP_TIMEOUT'
 

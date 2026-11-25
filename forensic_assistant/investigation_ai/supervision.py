@@ -18,7 +18,7 @@ import uuid
 from forensic_assistant import activity
 from forensic_assistant.llm.client import LocalClient
 from forensic_assistant.ai.backend import ModelBackend
-from .state import Budget
+from .state import execution_budget
 from .timing import ExecutionClock, APPROVAL_SECONDS
 from .lifecycle import WorkerJob
 
@@ -46,7 +46,9 @@ class SynthesisDeadline:
     def expired(self, now):
         return self.deadline is not None and now>=self.deadline
 STARTUP_REASONS = frozenset(('AUTHORIZATION_EXPIRED','AUTHORIZATION_INVALID','AUTHORIZATION_CASE_CHANGED',
-                           'PROVIDER_SCOPE_CHANGED','ADDITIONAL_SCOPE_REQUIRED','READ_VIEW_INCONSISTENT'))
+                           'PROVIDER_SCOPE_CHANGED','ADDITIONAL_SCOPE_REQUIRED','READ_VIEW_INCONSISTENT',
+                           'BUDGET_CONTRACT_MISMATCH','HANDOFF_VALIDATION_FAILED','PROVIDER_START_FAILURE',
+                           'WORKER_START_FAILURE','READ_VIEW_START_FAILURE'))
 
 
 class Launch:
@@ -98,7 +100,12 @@ def _child(connection, gate, request):
     request['config']['_startup_complete'] = lambda: connection.send_bytes(b'{"kind":"startup_complete"}')
     if request['config'].get('_stage_a'):
         request['config']['_stage_a_checkpoint'] = lambda value: connection.send_bytes(json.dumps({'kind':'stage_a_checkpoint','value':value}).encode())
-    request['config']['_status'] = lambda phase: connection.send_bytes(json.dumps({'kind': 'status', 'phase': phase}).encode())
+    last_phase='budget_validation'
+    def status(phase):
+        nonlocal last_phase
+        if isinstance(phase,str):last_phase=phase
+        connection.send_bytes(json.dumps({'kind':'status','phase':phase}).encode())
+    request['config']['_status'] = status
     from forensic_assistant.ai import raw_diagnostics
     raw_diagnostics.sink = lambda item: connection.send_bytes(json.dumps({'kind':'raw_diagnostic','entry':item}).encode())
     def approve(proposal, seconds):
@@ -109,6 +116,8 @@ def _child(connection, gate, request):
         request['_execution_clock'].credit_wait(reply['wait_seconds'])
         return reply['approved']
     try:
+        status('budget_validation')
+        budget=execution_budget(request['config'],serialized=request['budget'])
         request['config']['_status']('audit_init')
         session = activity.Session(request['config']['case_path'])
         session.id = request['session_id']
@@ -116,7 +125,7 @@ def _child(connection, gate, request):
         client = ModelBackend.restore(request['backend']) if request.get('backend') else LocalClient(request['endpoint'])
         with activity.bind(session):
             result = run(request['config'], request['question'], request['root'],
-                         budget=Budget(**request['budget']),
+                         budget=budget,
                          client=client, dry_run=request['dry_run'],
                          approval=approve if request['approval'] else None)
         connection.send_bytes(json.dumps({'kind': 'result', 'result': result}).encode())
@@ -127,6 +136,10 @@ def _child(connection, gate, request):
             connection.send_bytes(json.dumps({'kind': 'cleanup_failure', 'result': exc.result}).encode())
         else:
             reason = str(exc) if request['config'].get('_stage_a') and str(exc) in STARTUP_REASONS else None
+            if reason is None and request['config'].get('_stage_a'):
+                reason={'authorization_validation':'AUTHORIZATION_INVALID','handoff_validation':'HANDOFF_VALIDATION_FAILED',
+                        'provider_init':'PROVIDER_START_FAILURE','worker_start':'WORKER_START_FAILURE',
+                        'read_transaction':'READ_VIEW_START_FAILURE'}.get(last_phase)
             connection.send_bytes(json.dumps({'kind': 'error', 'type': type(exc).__name__,
                                              **({'publication':exc.diagnostic} if type(exc).__name__=='JournalPublicationError' and hasattr(exc,'diagnostic') else {}),
                                              **({'reason':reason} if reason is not None else {})}).encode())
@@ -213,7 +226,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         from .controller import run as controlled
         return controlled({**config, '_status': status}, question, transcript_root, budget=budget, client=client,
                           dry_run=dry_run, approval=approval, **testing)
-    budget = budget or Budget()
+    budget = execution_budget(config,supplied=budget)
     client = client or ModelBackend()
     if isinstance(client, ModelBackend) and client.provider_name != 'local':
         from forensic_assistant.ai.backend import STATUS

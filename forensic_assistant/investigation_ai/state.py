@@ -54,6 +54,28 @@ def recorded_budget(manifest):
     return Budget()
 
 
+class BudgetContractError(ValueError):
+    def __init__(self):
+        super().__init__('BUDGET_CONTRACT_MISMATCH')
+
+
+def execution_budget(config, *, supplied=None, serialized=None):
+    """Select from the approved contract, then compare untrusted transported limits."""
+    if not config.get('_stage_a'):
+        return Budget(**serialized) if serialized is not None else (supplied or Budget())
+    expected=recorded_budget({'authorization':config['_stage_a']})
+    if supplied is not None and (type(supplied) is not type(expected) or supplied!=expected):
+        raise BudgetContractError()
+    if serialized is not None:
+        try:
+            candidate=type(expected)(**serialized)
+        except (TypeError,ValueError):
+            raise BudgetContractError() from None
+        if candidate!=expected or asdict(candidate)!=serialized:
+            raise BudgetContractError()
+    return expected
+
+
 def fields(value, prefix='', *, include_metadata=False):
     """Eligible scalar pointers; include_metadata is for visibility diagnostics only."""
     if isinstance(value, dict):

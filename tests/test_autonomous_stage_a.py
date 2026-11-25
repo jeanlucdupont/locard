@@ -316,8 +316,8 @@ def test_supervisor_retains_checkpoint_when_child_is_terminated(tmp_path,monkeyp
     a.run(config,config['_stage_a']['objective'],tmp_path/'runs',client=client,worker_factory=worker)
     monkeypatch.setattr(supervision,'_child',checkpoint_then_block)
     result=supervision.run({'case_path':config['case_path'],'_stage_a':config['_stage_a'],
-                           '_test_checkpoint':checkpoints[0]},'synthetic',tmp_path/'supervised',
-                          client=LocalClient(),budget=Budget(seconds=5))
+                           '_test_checkpoint':checkpoints[0], '_stage_a_deadline':time.monotonic()+5},'synthetic',tmp_path/'supervised',
+                          client=LocalClient(),budget=Budget())
     assert result['termination']=='MAX_SECONDS'
     assert result['validated_batches']==1 and result['findings']==checkpoints[0]['findings']
     assert result['transcript_complete'] is False
