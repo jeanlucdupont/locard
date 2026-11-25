@@ -8,9 +8,10 @@ from .interactive.console import safe
 
 def execute(case, identity, question=None, *, read, start=None, end=None, autonomous=False,
             decompose=False, synthesize=False, live_explanation=False, details=False,
-            json_output=False, presentation=None, follow_up=False):
+            json_output=False, presentation=None, follow_up=False, extended=False):
     """Shared terminal orchestration over the existing authorized handoff service."""
     if not callable(read):raise ValueError('Explicit interactive authorization required')
+    if extended and not follow_up:raise ValueError('Extended investigation requires follow-up')
     if follow_up and not autonomous:raise ValueError('Follow-up requires autonomous execution')
     if follow_up and (decompose or synthesize):raise ValueError('Follow-up is a standalone analysis workflow')
     if live_explanation and not synthesize:raise ValueError('Live explanation requires synthesis')
@@ -51,7 +52,14 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
                 for limitation in handoff['limitations']:
                     if not follow_up or limitation!=selection['limitation']:print('  Limitation: '+safe(limitation),file=stream)
             print('  OpenAI model: '+safe(grant['model'])+'; authorized evidence will be sent to OpenAI.',file=stream)
-            if follow_up:
+            if extended:
+                print('  EXTENDED: one read-only session; up to 3 batches of 6 AI requests, 6 operations and 2 searches.',file=stream)
+                print('  Overall: 18 AI requests, 18 operations, 6 searches; 900 seconds including startup. No retries.',file=stream)
+                print('  Each request: 24576 UTF-8 input-content bytes. Model work stops by 880 seconds; 15 seconds finalization and 5 seconds containment reserved.',file=stream)
+                print('  Tools: show_evidence, follow_up, inspect_context. Search: 3 records, 1000 candidates, 5 seconds; at most 30 disclosed records.',file=stream)
+                print('  Up to 442368 input-content bytes disclosed to OpenAI; 1024 output tokens/request. Additional billing may apply.',file=stream)
+                print('  Context inspection: disclosed EVTX fields only. Ctrl+C cancels; prior validated findings are retained. No automatic renewal.',file=stream)
+            elif follow_up:
                 print('  Follow-up: original disclosed timestamp -> authorized family; five-minute radius clamped to scope.',file=stream)
                 print('  At most 2 searches, 3 records/search, 6 search returns, 18 distinct disclosures; 1000 candidates and 5 seconds/search.',file=stream)
                 if grant.get('context_inspection'):
@@ -71,11 +79,11 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
                 print('  6 lookups, 8 steps, 5 minutes; 15 seconds reserved for finalization; decomposition at most 30 seconds.',file=stream)
                 print('  5600 prompt bytes and 1024 output tokens per request. No retries or allocation transfers.',file=stream)
                 print('  Proposed meaning remains unverified; scoped answers do not certify the original question answered.',file=stream)
-            else:
+            elif not extended:
                 print('  Limits: 6 AI requests, 6 lookups, 8 steps, 5 minutes; '+str(grant['limits']['prompt_bytes'])+' input-content bytes and 1024 output tokens per request.',file=stream)
                 if grant['limits']['prompt_bytes']>5600:
                     print('  Up to 147456 input-content bytes over 6 OpenAI requests; larger disclosures may increase token charges.',file=stream)
-            print('  View established after approval; expires after 5 minutes. No restart continuation or automatic scope expansion.',file=stream)
+            print('  View established after approval; grant expires '+('15' if extended else '5')+' minutes after approval. No restart continuation or automatic scope expansion.' if extended else '  View established after approval; expires after 5 minutes. No restart continuation or automatic scope expansion.',file=stream)
             if live_explanation:
                 print('  Local explanation persistence enabled; no additional model requests or evidence lookups.',file=stream)
             if details:
@@ -85,6 +93,13 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
         with ActivityIndicator('Preparing investigation...',args=presentation) as indicator:
             extra = {'decompose':True} if decompose else {}
             if follow_up:extra['follow_up']=True
+            if extended:
+                extra['extended']=True
+                def progress(value):
+                    from .investigation_ai.extended import summary
+                    indicator.stop()
+                    print(summary(value),file=stream)
+                extra['batch_progress']=progress
             if synthesize:extra['synthesize']=True
             if live_explanation:extra['live_explanation']=True
             result=start(handoff,selected,backend(),authorize_envelope,status=indicator.phase,**extra)

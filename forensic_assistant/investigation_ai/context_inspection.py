@@ -7,7 +7,8 @@ CAPACITY_CONTRACT = 'investigation-context-follow-up-v2'
 INPUT_BYTES = 24576
 
 def supported(grant):
-    return grant.get('contract') in (CONTRACT,CAPACITY_CONTRACT)
+    from .extended import CONTRACT as EXTENDED
+    return grant.get('contract') in (CONTRACT,CAPACITY_CONTRACT,EXTENDED)
 
 LIMITS = dict(family='evtx', categories=['event','actor','object','process'], fields=8, bytes=1800)
 ARGS = contracts.obj({'evidence_id':contracts.string(160),

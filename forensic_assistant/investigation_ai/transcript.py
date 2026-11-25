@@ -215,8 +215,9 @@ def load(root, investigation_id):
             if event['kind'] == 'exposure' and 'contract' in event['data'].get('content', {}):
                 from .disclosure import CONTRACT,CAPACITY_CONTRACT
                 from .context_inspection import CAPACITY_CONTRACT as GRANT
+                from .extended import CONTRACT as EXTENDED
                 allowed=(CONTRACT,)
-                if manifest.get('authorization',{}).get('contract')==GRANT:
+                if manifest.get('authorization',{}).get('contract') in (GRANT,EXTENDED):
                     from .follow_up import shape
                     shape(manifest['authorization'])
                     allowed=(CONTRACT,CAPACITY_CONTRACT)

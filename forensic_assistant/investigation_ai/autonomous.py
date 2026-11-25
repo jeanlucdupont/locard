@@ -17,7 +17,8 @@ ENGINE='incremental-stage-a-v1'
 DELTA='analysis-delta-v1'
 
 
-def prepare(handoff, assessment, client, *, decompose=False, synthesize=False,follow_up=False):
+def prepare(handoff, assessment, client, *, decompose=False, synthesize=False,follow_up=False,extended=False):
+    if extended and not follow_up:raise ValueError('Extended investigation requires follow-up')
     if follow_up and (decompose or synthesize):raise ValueError('Follow-up discovery currently uses the standalone analysis workflow')
     if synthesize and not decompose:raise ValueError('Synthesis requires decomposition')
     # Do not spend unaccounted compatibility requests inside a six-request grant.
@@ -65,12 +66,15 @@ def prepare(handoff, assessment, client, *, decompose=False, synthesize=False,fo
                      follow_up=deepcopy(follow.LIMITS),context_inspection=deepcopy(context.LIMITS))
         grant['limits']['prompt_bytes']=context.INPUT_BYTES
         if grant.get('selection'):grant['families']=grant['selection']['eligible_families']
+    if extended:
+        from .extended import authorize as extend
+        grant=extend(grant)
     return grant,hints
 
 
-def start(handoff,assessment,client,confirm,*,status=None,decompose=False,synthesize=False,live_explanation=False,follow_up=False):
+def start(handoff,assessment,client,confirm,*,status=None,batch_progress=None,decompose=False,synthesize=False,live_explanation=False,follow_up=False,extended=False):
     if live_explanation and not synthesize:raise ValueError('Live explanation requires synthesis')
-    grant,hints=prepare(handoff,assessment,client,decompose=decompose,synthesize=synthesize,follow_up=follow_up)
+    grant,hints=prepare(handoff,assessment,client,decompose=decompose,synthesize=synthesize,follow_up=follow_up,extended=extended)
     from .supervision import run as supervised
     from forensic_assistant.ai.backend import ModelBackend
     # Capture cached provider configuration before approval; never probe here.
@@ -82,13 +86,13 @@ def start(handoff,assessment,client,confirm,*,status=None,decompose=False,synthe
                            selection=grant['selection'],provider_requests=0,evidence_lookups=0)
         return None
     started=time.monotonic()
-    grant.update(id=uuid.uuid4().hex,issued=time.time());grant['expires']=grant['issued']+300
+    grant.update(id=uuid.uuid4().hex,issued=time.time());grant['expires']=grant['issued']+grant['limits']['seconds']
     from forensic_assistant.assessment_handoff import authorize
     from .state import execution_budget
     return supervised({'case_path':grant['case'],'semantic_enabled':False,'_stage_a':grant,'_stage_a_hints':hints,
-        '_stage_a_handoff':authorize(handoff,lambda _:True),'_stage_a_started':started,'_stage_a_deadline':started+300,
+        '_stage_a_handoff':authorize(handoff,lambda _:True),'_stage_a_started':started,'_stage_a_deadline':started+grant['limits']['seconds'],
         '_live_explanation':live_explanation},
-        grant['objective'],grant['case']+'.investigations',client=client,budget=execution_budget({'_stage_a':grant}),status=status,prepared_backend=descriptor)
+        grant['objective'],grant['case']+'.investigations',client=client,budget=execution_budget({'_stage_a':grant}),status=status,batch_progress=batch_progress,prepared_backend=descriptor)
 
 
 def choose(pending,hints,previous,selection=None,inspected=()):
@@ -142,7 +146,7 @@ def _packet_once(state,question,previous,current_id,follow=False,current_ids=(),
         context['follow_up_coverage']=deepcopy(search_context) if search_context else {'completed':[]}
         context['follow_up_coverage']['note']='Only the displayed neighborhoods were sampled. Empty and truncated results do not establish absence elsewhere.'
     if minimal:
-        context['previous_unresolved_unverified']=[]
+        context['previous_unresolved_unverified']=previous.get('model_proposed_unknowns',[])[:3] if state.budget.calls>6 else []
         context['byte_limits']='All string limits are UTF-8 byte ceilings. Preserve exact IDs, pointers and values.'
         context['optional_context_omitted']=True
         if follow:
@@ -152,9 +156,12 @@ def _packet_once(state,question,previous,current_id,follow=False,current_ids=(),
                 'note':'Bounded samples only; omissions do not establish absence.'}
     if completed_context is not None:
         from . import progress
-        context['completed_context']=progress.ledger(completed_context)
-        if state.budget.prompt_ceiling==24576:context['completed_context']=progress.summary(context['completed_context'],state.accepted,(search_context or {}).get('searches_remaining',0),final_analysis)
+        context['completed_context']=progress.ledger(completed_context,limit=state.budget.calls)
+        if state.budget.prompt_ceiling==24576:context['completed_context']=progress.summary(context['completed_context'],getattr(state,'work_calls',state.accepted),(search_context or {}).get('searches_remaining',0),final_analysis)
         context['batch_instruction']+=progress.INSTRUCTION
+    if state.budget.calls>6:
+        context['work_session']={'batch':getattr(state,'work_batch',1),'completed_operations':state.accepted,'completed_requests':getattr(state,'total_requests',0),'total_operations':18,'total_requests':18,'batch_requests':6,'batch_operations':6,'no_retries':True}
+        context['batch_instruction']+=' These six-request/tool limits apply to this work batch. The application may continue pending authorized leads in later batches under the same grant. Prior findings and unresolved questions guide planning only; new citations must be represented in this request.'
     if final_analysis:
         context['batch_instruction']='Return final with grounded observations or explicit insufficient evidence. No tools are available. Do not invent findings.'
     transport=0
@@ -195,11 +202,11 @@ def _packet_once(state,question,previous,current_id,follow=False,current_ids=(),
             raise PacketFailure(code) from exc
     finally:state.budget=original;state.records=records
     if completed_context is not None:
-        full_ledger=progress.ledger(completed_context,exposure)
-        context['completed_context']=progress.summary(full_ledger,state.accepted,(search_context or {}).get('searches_remaining',0),final_analysis) if original.prompt_ceiling==24576 else full_ledger
+        full_ledger=progress.ledger(completed_context,exposure,limit=state.budget.calls)
+        context['completed_context']=progress.summary(full_ledger,getattr(state,'work_calls',state.accepted),(search_context or {}).get('searches_remaining',0),final_analysis) if original.prompt_ceiling==24576 else full_ledger
     body=json.loads(messages[1]['content']);body['incremental']=context
     if follow:
-        body['controller'].update(final_only=False,tools=(['follow_up','inspect_context'] if search_context and search_context.get('contextual') else ['follow_up']),calls_remaining=max(0,6-state.accepted))
+        body['controller'].update(final_only=False,tools=(['follow_up','inspect_context'] if search_context and search_context.get('contextual') else ['follow_up']),calls_remaining=max(0,6-getattr(state,'work_calls',state.accepted)))
     if final_analysis:body['controller'].update(final_only=True,tools=[],calls_remaining=0)
     messages[1]['content']=encoded(body)
     size=sum(len(m['content'].encode()) for m in (instruct(messages) if follow else messages))
@@ -232,6 +239,8 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     from . import synthesis_consumer as consumer
     from . import organization, explanation_live
     from . import follow_up as follow
+    from . import extended as work
+    extended_session=work.enabled(grant)
     discovery = follow.supported(grant)
     from . import context_inspection as context
     contextual=context.supported(grant)
@@ -258,8 +267,8 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     budget=budget or expected_budget
     if budget!=expected_budget:raise ValueError('Stage A uses the approved fixed limits')
     if b2:budget=replace(budget,steps=10)
-    deadline=min(config.get('_deadline',float('inf')),config.get('_stage_a_deadline',float('inf')),time.monotonic()+300)
-    if b2:
+    deadline=min(config.get('_deadline',float('inf')),config.get('_stage_a_deadline',float('inf')),time.monotonic()+grant['limits']['seconds'])
+    if b2 or extended_session:
         overall=config.get('_stage_a_deadline',deadline)
         deadline=min(deadline,overall-5)  # parent containment must finish by overall
         model_deadline=min(overall-20,time.monotonic()+max(0,grant['expires']-time.time())-20)
@@ -274,6 +283,18 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     organizer=None;explainer=None
     deltas=[];pending=set(grant['evidence_ids']);requests=0;view=None;worker=None;stop='AUTHORIZED_PLAN_EXHAUSTED';sizes=[];usage=[];phase='operation'
     next_search=None;search_keys=set();search_proposed=0;search_executed=0;search_approved=0;disclosed_ids=set();inspected_seeds=set();search_results=[];context_calls=0;completed_context=[];duplicate_proposals=0;forced_seed=None;analyze_continuation=False;next_context=None;context_keys=set();operation='initial';operation_phase='startup';failure_diagnostic=None
+    batch=1;batch_start=(0,0,0);checkpoints=[]
+    def checkpoint(reason):
+        value=work.receipt(batch,requests,state.accepted,search_executed,deltas,pending,state.records,reason,batch_start)
+        transcript.append('work_batch_checkpoint',value)
+        recorded,events=load(root,identity)
+        _replay(recorded,events,identity)
+        checkpoints.append(value)
+        if config.get('_stage_a_checkpoint'):
+            config['_stage_a_checkpoint'](dict(findings=merge_findings(deltas),state=state.summary(),work_batches=deepcopy(checkpoints),
+                validated_batches=len(deltas),evidence_state=view,question=question,engine=engine))
+        if config.get('_work_batch_progress'):config['_work_batch_progress'](value)
+        return value
     def remaining():return min(45,max(.001,deadline-time.monotonic()))
     def guard():
         policy.validate(grant,config['case_path'])
@@ -283,7 +304,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         guard();status('audit_init')
         activity.event('INVESTIGATION_START',required=True,investigation_id=identity)
         guard();status('worker_start')
-        worker_config={k:v for k,v in config.items() if k not in ('_execution_clock','_startup_complete','_approval_clock_managed','_stage_a_checkpoint','_stage_a_hints','_stage_a_handoff')}
+        worker_config={k:v for k,v in config.items() if k not in ('_execution_clock','_startup_complete','_approval_clock_managed','_stage_a_checkpoint','_stage_a_hints','_stage_a_handoff','_work_batch_progress')}
         worker=worker_factory({**worker_config,'_transaction_view':True,'semantic_enabled':False,'_deadline':deadline})
         guard();status('read_transaction')
         initial=worker.call('initial',question=question,seconds=remaining())
@@ -312,12 +333,21 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             decision = decomposition_service.execute(client,question,grant,transcript,guard,available,
                 charge=charge_decomposition,decision_store=decision)
             status('operation')
-        while (pending or next_search or next_context) and requests<6 and state.accepted<6 and state.steps<8:
+        while (pending or next_search or next_context) and requests<budget.calls and state.accepted<budget.calls and state.steps<budget.steps:
+            if extended_session and (requests-batch_start[0]>=6 or state.accepted-batch_start[1]>=6):
+                value=checkpoint('BATCH_RESOURCE_LIMIT')
+                if batch>=3:stop='OVERALL_RESOURCE_EXHAUSTED';break
+                guard()
+                transcript.append('work_batch_started',dict(batch=batch+1,previous_checkpoint=digest(value)))
+                batch+=1;batch_start=(requests,state.accepted,search_executed)
+            state.work_calls=state.accepted-batch_start[1]
+            state.work_requests=requests-batch_start[0]
+            state.work_batch=batch;state.total_requests=requests
             if (s4 or discovery) and time.monotonic() >= model_deadline:
                 stop = 'RESOURCE_BUDGET_EXHAUSTED'
                 break
             guard();state.steps+=1;phase='operation';operation_phase='authorization'
-            previous=deltas[-1]['findings'] if deltas else {}
+            previous=merge_findings(deltas) if extended_session else (deltas[-1]['findings'] if deltas else {})
             operation='inspect_context' if next_context else ('follow_up' if next_search else 'show_evidence')
             if next_context:
                 args=next_context;eid=args['evidence_id'];next_context=None
@@ -372,12 +402,13 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 if operation=='follow_up':stop='FOLLOW_UP_EMPTY';break
                 continue
             operation_phase='packet_preparation'
-            final_analysis=contextual and (requests>=5 or state.accepted>=6 or analyze_continuation)
+            state.work_calls=state.accepted-batch_start[1]
+            final_analysis=contextual and (requests-batch_start[0]>=5 or state.accepted-batch_start[1]>=6 or analyze_continuation)
             analyze_continuation=False
             current_ids=[r['id'] for r in rows]
             messages,exposure,size=packet(state,question,previous,current_ids[0],discovery,(current_ids+([eid] if operation=='follow_up' else [])) if discovery else (),
-                dict(contextual=contextual,searches_remaining=2-search_approved,completed=[{k:r[k] for k in ('start','end','family','complete','returned_ids') } for r in search_results]) if discovery else None,completed_context=completed_context if contextual else None,final_analysis=final_analysis);sizes.append(size)
-            if discovery and len(disclosed_ids|{g['id'] for g in exposure['records']})>18:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
+                dict(contextual=contextual,searches_remaining=2-(search_approved-batch_start[2]),completed=[{k:r[k] for k in ('start','end','family','complete','returned_ids') } for r in search_results]) if discovery else None,completed_context=completed_context if contextual else None,final_analysis=final_analysis);sizes.append(size)
+            if discovery and len(disclosed_ids|{g['id'] for g in exposure['records']})>grant['follow_up']['distinct_disclosures']:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
             operation_phase='exposure_persistence'
             transcript.append('exposure',dict(content=exposure,prompt_bytes=size,prompt_sha256=digest(messages),
                 **({'operation_ledger':state.operation_ledger,'analysis_only':final_analysis,**({'progress_summary':state.progress_summary,'packet_capacity':state.packet_capacity} if budget.prompt_ceiling==24576 else {})} if contextual else {}),
@@ -425,14 +456,14 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                         if key in context_keys:
                             from .progress import continuation
                             duplicate_proposals+=1;state.rejected+=1
-                            forced_seed=continuation(pending,requests,state.accepted)
+                            forced_seed=continuation(pending,requests-batch_start[0],state.accepted-batch_start[1])
                             transcript.append('redundant_context',dict(reason='CONTEXT_DUPLICATE',arguments=proposal['arguments'],
                                 next_seed=forced_seed,model_attempt=requests,tool_calls=state.accepted))
                             if forced_seed is None:stop='CONTEXT_DUPLICATE';break
                             guard()
                             analyze_continuation=True
                             continue
-                        if state.accepted>=6 or requests>=6:stop='RESOURCE_BUDGET_EXHAUSTED';break
+                        if state.accepted>=budget.calls or requests>=budget.calls:stop='RESOURCE_BUDGET_EXHAUSTED';break
                         context_keys.add(key);next_context=proposal['arguments']
                         continue
                     search_proposed+=1
@@ -440,7 +471,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                     transcript.append('follow_up_proposed',dict(proposal=proposal,scope=scope,disclosure_sha256=digest(exposure)))
                     key=digest(scope)
                     if key in search_keys:stop='FOLLOW_UP_DUPLICATE';break
-                    if search_approved>=2 or state.accepted>=6 or requests>=6:stop='RESOURCE_BUDGET_EXHAUSTED';break
+                    if search_approved>=grant['follow_up']['searches'] or search_approved-batch_start[2]>=2 or state.accepted>=budget.calls or requests>=budget.calls:stop='RESOURCE_BUDGET_EXHAUSTED';break
                     search_keys.add(key);search_approved+=1;next_search=proposal['arguments']
                     continue
                 findings=state.render(proposal['answer'])
@@ -463,7 +494,11 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 if explainer:explainer.update(receipt,deadline=model_deadline,remaining_analysis=6-requests,remaining_synthesis=2)
             if config.get('_stage_a_checkpoint'):
                 config['_stage_a_checkpoint'](dict(findings=merge_findings(deltas),state=state.summary(),
-                    validated_batches=len(deltas),evidence_state=view,question=question,engine=engine))
+                    validated_batches=len(deltas),evidence_state=view,question=question,engine=engine,**({'work_batches':deepcopy(checkpoints)} if extended_session else {})))
+        if extended_session:
+            status('finalization')
+            reason='BATCH_RESOURCE_LIMIT' if (requests-batch_start[0]>=6 or state.accepted-batch_start[1]>=6) else 'NO_FURTHER_AUTHORIZED_LEADS' if not pending and not next_search and not next_context else 'SESSION_STOPPED'
+            checkpoint(reason)
         operation_phase='finalization'
         if (pending or next_search or next_context) and stop=='AUTHORIZED_PLAN_EXHAUSTED':stop='RESOURCE_BUDGET_EXHAUSTED'
         if b2 and deltas and time.monotonic()<model_deadline:
@@ -500,7 +535,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         activity.event('TOOL_REJECTED','failure',required=True,investigation_id=identity,tool=operation,reason=stop)
     finally:
         primary_stop=stop
-        if b2:status('finalization')
+        if b2 or extended_session:status('finalization')
         if worker is not None:
             try:
                 checked=worker.call('check',seconds=remaining())
@@ -536,6 +571,11 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 'Coverage remains partial; termination: '+stop+'. See disclosure omissions and validation history.')
         result['limitations'][1]=('Bounded EVTX context inspection and temporal follow-up' if contextual else 'Temporal follow-up')+' only: at most two searches, three records each; candidate, time and disclosure limits apply. No filename/path pivots. Omitted records were not assessed.'
         result['limitations'].append('Searches cover bounded neighborhoods, not the entire approved window; proximity does not establish causality or successful execution.')
+    if extended_session:
+        if stop=='RESOURCE_BUDGET_EXHAUSTED':result['termination']='OVERALL_RESOURCE_EXHAUSTED'
+        elif stop=='AUTHORIZED_PLAN_EXHAUSTED':result['termination']='NO_FURTHER_AUTHORIZED_LEADS'
+        result['work_batches']=checkpoints
+        result['limitations'][1]='Extended session: at most six bounded temporal searches, three records each; no filename/path pivots. Omitted records were not assessed.'
     if failure_diagnostic is not None:
         result['failure_diagnostic']=failure_diagnostic
         if failure_diagnostic['phase']=='packet_preparation' and getattr(state,'packet_capacity',None):result['packet_capacity']=state.packet_capacity
@@ -602,6 +642,8 @@ def reconstruct(root,identity, *, _on_validated=None, _b2_checked=False):
 def _replay(manifest, events, identity, *, _on_validated=None):
     """Validate analysis from a caller-owned, chain-validated recorded input."""
     from . import follow_up
+    from .extended import validate_checkpoints
+    validate_checkpoints(manifest,events)
     if follow_up.supported(manifest.get('authorization',{})):
         follow_up.validate_journal(manifest,events)
     from .state import recorded_budget

@@ -20,7 +20,13 @@ TEMPORAL = 'any retained timestamp in window; bounded full-record context permit
 
 
 def validate(grant, case):
-    from . import follow_up
+    from . import follow_up, extended
+    from .context_inspection import CAPACITY_CONTRACT
+    lifetime=900 if extended.enabled(grant) else 300
+    if extended.enabled(grant):
+        extended.shape(grant)
+        grant={**grant,'contract':CAPACITY_CONTRACT,
+               'limits':{**grant['limits'],'requests':6,'steps':8,'seconds':300,'tool_calls':6},'follow_up':follow_up.LIMITS}
     if follow_up.supported(grant):
         follow_up.shape(grant)
         grant = {**grant, 'contract': CONTRACT, 'tools':['show_evidence'], 'limits':{**grant['limits'],'prompt_bytes':5600}}
@@ -39,7 +45,7 @@ def validate(grant, case):
         raise ValueError('AUTHORIZATION_CASE_CHANGED')
     if grant['provider'] != 'openai' or not grant['model'] or grant['temporal_policy'] != TEMPORAL:
         raise ValueError('AUTHORIZATION_INVALID')
-    if not 0 < grant['expires']-grant['issued'] <= 300 or not grant['issued'] <= time.time() < grant['expires']:
+    if not 0 < grant['expires']-grant['issued'] <= lifetime or not grant['issued'] <= time.time() < grant['expires']:
         raise ValueError('AUTHORIZATION_EXPIRED')
     if not 1 <= len(grant['evidence_ids']) <= 12 or len(set(grant['evidence_ids'])) != len(grant['evidence_ids']):
         raise ValueError('AUTHORIZATION_INVALID')

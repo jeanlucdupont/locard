@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import re
 import time
 
-from . import contracts, disclosure
+from . import contracts, disclosure, extended
 from .transcript import digest
 from forensic_assistant.retrieval.queries import required_time
 from forensic_assistant.correlation.models import time_ns
@@ -33,10 +33,11 @@ INSTRUCTION = ('You may instead return action tool, tool follow_up, arguments ev
 
 def supported(grant):
     from .context_inspection import CONTRACT as CONTEXT, CAPACITY_CONTRACT
-    return grant.get('contract') in (CONTRACT,CONTEXT,CAPACITY_CONTRACT)
+    return grant.get('contract') in (CONTRACT,CONTEXT,CAPACITY_CONTRACT,extended.CONTRACT)
 
 
 def shape(grant):
+    if extended.enabled(grant):return extended.shape(grant)
     from .context_inspection import CONTRACT as CONTEXT, LIMITS as CONTEXT_LIMITS, CAPACITY_CONTRACT, INPUT_BYTES
     contextual=grant.get('contract') in (CONTEXT,CAPACITY_CONTRACT)
     if contextual and grant.get('context_inspection')!=CONTEXT_LIMITS:raise ValueError('AUTHORIZATION_INVALID')
@@ -210,6 +211,8 @@ def search(db, grant, args, records):
 def validate_journal(manifest, events):
     """Validate recorded scope/dispatch and disclosure; never renew the grant."""
     grant = manifest['authorization']; shape(grant)
+    batch_start=(0,0,0)
+    cap=grant['limits']['tool_calls'];search_cap=grant['follow_up']['searches'];record_cap=grant['follow_up']['distinct_disclosures']
     exposure = None; pending = None; searches = []; calls = 0; requests = 0; records = {}; active = None
     ready = False; outstanding = False; context_keys=set(); context_calls=0
     from . import progress
@@ -218,19 +221,20 @@ def validate_journal(manifest, events):
     completed=[];seeds=set(grant['evidence_ids']);forced=None;duplicate_count=0;last_context=None;analysis_only=False;continued=False;disclosed=set();finding_ids=set();redundancy_terminal=False
     for event in events:
         kind, data = event['kind'], event['data']
+        if kind=='work_batch_started' and extended.enabled(grant):batch_start=(requests,calls,len(searches))
         if kind == 'exposure':
             if outstanding or active is not None:raise ValueError('Invalid follow-up disclosure sequence')
             if type(data.get('prompt_bytes')) is not int or not 0<data['prompt_bytes']<=grant['limits']['prompt_bytes']:raise ValueError('Recorded prompt exceeds grant')
             exposure = data['content'];ready = True
             if modern:
-                if data.get('operation_ledger')!=progress.ledger(completed,exposure):raise ValueError('Invalid operation ledger')
-                analysis_only=requests>=5 or calls>=6 or continued
+                if data.get('operation_ledger')!=progress.ledger(completed,exposure,limit=cap):raise ValueError('Invalid operation ledger')
+                analysis_only=requests-batch_start[0]>=5 or calls-batch_start[1]>=6 or continued
                 continued=False
                 if type(data.get('analysis_only')) is not bool or data['analysis_only']!=analysis_only:raise ValueError('Invalid final-analysis allocation')
                 from .context_inspection import CAPACITY_CONTRACT
-                if grant['contract']==CAPACITY_CONTRACT:
+                if grant['contract']==CAPACITY_CONTRACT or extended.enabled(grant):
                     from . import packet_capacity
-                    if data.get('progress_summary')!=progress.summary(data['operation_ledger'],calls,2-len(searches),analysis_only):raise ValueError('Invalid model progress summary')
+                    if data.get('progress_summary')!=progress.summary(data['operation_ledger'],calls-batch_start[1],2-(len(searches)-batch_start[2]),analysis_only):raise ValueError('Invalid model progress summary')
                     packet_capacity.validate(data.get('packet_capacity'),grant['limits']['prompt_bytes'])
                     if data['packet_capacity']['actual_bytes']!=data['prompt_bytes'] or data['packet_capacity']['evidence_bytes']!=packet_capacity.size(exposure) or data['packet_capacity']['ledger_bytes']!=packet_capacity.size(data['progress_summary']):raise ValueError('Invalid packet capacity accounting')
         elif kind in ('follow_up_proposed','context_proposed'):
@@ -250,7 +254,7 @@ def validate_journal(manifest, events):
         elif kind=='redundant_context':
             if not modern or last_context is None or digest(last_context) not in context_keys:
                 raise ValueError('Forged redundant context decision')
-            expected=dict(reason='CONTEXT_DUPLICATE',arguments=last_context,next_seed=progress.continuation(seeds,requests,calls),
+            expected=dict(reason='CONTEXT_DUPLICATE',arguments=last_context,next_seed=progress.continuation(seeds,requests-batch_start[0],calls-batch_start[1]),
                           model_attempt=requests,tool_calls=calls)
             if data!=expected:raise ValueError('Invalid redundant context continuation')
             duplicate_count+=1;forced=data['next_seed'];pending=None;last_context=None
@@ -263,12 +267,12 @@ def validate_journal(manifest, events):
             elif modern and last_context is not None and digest(last_context) in context_keys:
                 raise ValueError('Missing redundant proposal decision')
             calls += 1
-            if outstanding or active is not None or calls > 6 or data['grant_id'] != grant['id']: raise ValueError('Invalid follow-up allocation')
+            if outstanding or active is not None or calls > cap or data['grant_id'] != grant['id']: raise ValueError('Invalid follow-up allocation')
             if data['tool'] == 'follow_up':
                 if pending != data['arguments']: raise ValueError('Unproposed follow-up')
                 scope = record_window(grant, pending, records)
                 key = digest(scope)
-                if key in searches or len(searches) >= 2: raise ValueError('Invalid follow-up allocation')
+                if key in searches or len(searches) >= search_cap: raise ValueError('Invalid follow-up allocation')
                 searches.append(key)
             elif data['tool']=='inspect_context':
                 from . import context_inspection as context
@@ -298,11 +302,11 @@ def validate_journal(manifest, events):
                 completed.append(result)
             seeds.difference_update(r['id'] for r in result['records'])
             records.update((r['id'], r) for r in result['records'])
-            if len(records)>18:raise ValueError('Invalid follow-up record allocation')
+            if len(records)>record_cap:raise ValueError('Invalid follow-up record allocation')
             active = None
         elif kind == 'follow_up_model_attempt':
             requests += 1
-            if not ready or outstanding or data != dict(ordinal=requests, grant_id=grant['id']) or requests > 6:
+            if not ready or outstanding or data != dict(ordinal=requests, grant_id=grant['id']) or requests > cap:
                 raise ValueError('Invalid follow-up model allocation')
             ready = False;outstanding = True
             disclosed.update(r['id'] for r in exposure['records'])
@@ -334,7 +338,7 @@ def render(result, palette):
     def text(value):
         return safe(re.sub(r'(https?://[^\s?#]+)[?#][^\s]*', r'\1?[query omitted]', str(value)))
     stats = result['follow_up']
-    lines = [palette('heading', 'INVESTIGATION'), '', palette('warning', 'Status: Partial'),
+    lines = [palette('heading', 'INVESTIGATION — EXTENDED MODE' if 'work_batches' in result else 'INVESTIGATION'), '', palette('warning', 'Status: Partial'),
         f"Evidence retrieved: {stats['records_returned']} records",
         f"Evidence disclosed: {stats['records_disclosed']} records",
         f"Evidence in accepted findings: {stats['records_examined']} records",
@@ -346,6 +350,8 @@ def render(result, palette):
         'Context inspections completed: '+str(stats.get('context_completed',stats.get('context_inspections',0)))+'; redundant proposals rejected: '+str(stats.get('redundant_context_proposals',0)),
         'Context inspections not completed: '+str(stats.get('context_inspections',0)-stats.get('context_completed',stats.get('context_inspections',0))),
         '', palette('heading', 'Investigative observations')]
+    if 'work_batches' in result:
+        lines[-2:]=['',palette('heading','Work-batch progress')]+[extended.summary(v) for v in result['work_batches']]+['',palette('heading','Investigative observations')]
     if stats.get('no_findings_reason'):lines.append('  '+palette('warning',text(stats['no_findings_reason'])))
     qualifications=[]
     for row in result['findings'].get('observed', []):

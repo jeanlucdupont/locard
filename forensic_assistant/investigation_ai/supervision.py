@@ -97,6 +97,7 @@ def _child(connection, gate, request):
         LOG.setLevel(logging.DEBUG)
     request['config']['_execution_clock'] = request['_execution_clock']
     request['config']['_approval_clock_managed'] = True
+    request['config']['_work_batch_progress'] = lambda value: connection.send_bytes(json.dumps({'kind':'work_batch_progress','value':value}).encode())
     request['config']['_startup_complete'] = lambda: connection.send_bytes(b'{"kind":"startup_complete"}')
     if request['config'].get('_stage_a'):
         request['config']['_stage_a_checkpoint'] = lambda value: connection.send_bytes(json.dumps({'kind':'stage_a_checkpoint','value':value}).encode())
@@ -219,12 +220,12 @@ def _stop(process, job, deadline):
     return not process.is_alive()
 
 
-def run(config, question, transcript_root, *, budget=None, client=None, dry_run=False, approval=None, status=None, prepared_backend=None, **testing):
+def run(config, question, transcript_root, *, budget=None, client=None, dry_run=False, approval=None, status=None, batch_progress=None, prepared_backend=None, **testing):
     # Explicit dependency injection is retained for deterministic in-process tests.
     # Production clients cross the disposable-worker boundary by descriptor.
     if testing or (client is not None and not isinstance(client, (LocalClient, ModelBackend))):
         from .controller import run as controlled
-        return controlled({**config, '_status': status}, question, transcript_root, budget=budget, client=client,
+        return controlled({**config, '_status': status, '_work_batch_progress':batch_progress}, question, transcript_root, budget=budget, client=client,
                           dry_run=dry_run, approval=approval, **testing)
     budget = execution_budget(config,supplied=budget)
     client = client or ModelBackend()
@@ -236,7 +237,9 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     deadline = min(started + budget.seconds, config.get('_stage_a_deadline', float('inf'))) if config.get('_stage_a') else started + budget.seconds
     b2=config.get('_stage_a',{}).get('contract')=='investigation-s4-b2-authorization-v1'
     overall=deadline
-    if b2:
+    from .extended import enabled as extended
+    bounded_session=b2 or extended(config.get('_stage_a',{}))
+    if bounded_session:
         overall=min(overall,time.monotonic()+max(0,config['_stage_a']['expires']-time.time()))
         deadline=overall-5
     synthesis_clock=SynthesisDeadline(overall-20)
@@ -308,8 +311,8 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
         decomposition_deadline = None
         s4 = isinstance(config.get('_stage_a'), dict) and config['_stage_a'].get('contract') in ('investigation-s4-authorization-v1','investigation-s4-b2-authorization-v1')
         while clock.remaining() > 0:
-            if b2 and (synthesis_clock.expired(time.monotonic()) or (not finalizing and time.monotonic()>=overall-20)):
-                reason='SYNTHESIS_TIMEOUT' if synthesis_clock.expired(time.monotonic()) else 'MODEL_PHASE_TIMEOUT'
+            if (b2 and synthesis_clock.expired(time.monotonic())) or (bounded_session and not finalizing and time.monotonic()>=overall-20):
+                reason='SYNTHESIS_TIMEOUT' if b2 and synthesis_clock.expired(time.monotonic()) else 'MODEL_PHASE_TIMEOUT'
                 break
             if decomposition_deadline is not None and time.monotonic() >= decomposition_deadline:
                 reason = 'DECOMPOSITION_TIMEOUT'
@@ -323,6 +326,9 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
             if message['kind'] == 'stage_a_checkpoint' and request['config'].get('_stage_a'):
                 stage_a_checkpoint = message['value']
                 continue
+            if message['kind']=='work_batch_progress':
+                if batch_progress is not None:batch_progress(message['value'])
+                continue
             if message['kind'] == 'raw_diagnostic':
                 from forensic_assistant.ai import raw_diagnostics
                 raw_diagnostics.capture(message.get('entry'))
@@ -332,7 +338,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
                 if b2 and isinstance(phase,dict):
                     synthesis_clock.update(phase,time.monotonic())
                     continue
-                if b2 and phase=='finalization':finalizing=True
+                if bounded_session and phase=='finalization':finalizing=True
                 if s4:
                     if phase == 'decomposition':
                         decomposition_deadline = min(overall-20 if b2 else deadline-15, time.monotonic() + 30)
@@ -392,7 +398,7 @@ def run(config, question, transcript_root, *, budget=None, client=None, dry_run=
     except (OSError, ValueError):
         reason = 'WORKER_FAILURE' if startup_complete else 'WORKER_START_FAILURE'
     finally:
-        cleanup_deadline = min(overall,time.monotonic()+CLEANUP_SECONDS) if b2 else time.monotonic()+CLEANUP_SECONDS
+        cleanup_deadline = min(overall,time.monotonic()+CLEANUP_SECONDS) if bounded_session else time.monotonic()+CLEANUP_SECONDS
         cleaned = True
         if startup_cancelled is not None:
             startup_cancelled.set()

@@ -59,8 +59,9 @@ def start(case, *, read, display=print, presentation=None):
     return run(case, assessment['id'], question, read=read, display=display, presentation=presentation)
 
 
-def run(case, identity='latest', question=None, *, read, display=print, presentation=None, json_output=False, follow_up=False):
+def run(case, identity='latest', question=None, *, read, display=print, presentation=None, json_output=False, follow_up=False, extended=False):
     """Stage choices precede, and never replace, the engine's exact grant approval."""
+    if extended and not follow_up:raise ValueError("Extended investigation requires --follow-up")
     from .assessment_handoff import prepare
     from .ai.settings import load
     from .interactive.console import safe
@@ -90,6 +91,6 @@ def run(case, identity='latest', question=None, *, read, display=print, presenta
     if decompose:
         synthesize = answer('Authorize up to two additional bounded evidence-synthesis requests? [y/N]: ').lower() in ('y','yes')
     result = assessment_handoff_cli.execute(case, identity, question, read=read, autonomous=True,
-        decompose=decompose, synthesize=synthesize, live_explanation=synthesize, presentation=presentation,json_output=json_output,**({'follow_up':True} if follow_up else {}))
+        decompose=decompose, synthesize=synthesize, live_explanation=synthesize, presentation=presentation,json_output=json_output,**({'follow_up':True} if follow_up else {}),**({'extended':True} if extended else {}))
     display('Review recorded output with investigation history. Findings and reports are separate explicit operations; nothing is automatically captured or published.')
     return result

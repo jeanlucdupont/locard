@@ -11,6 +11,9 @@ def encoded(value):
 @dataclass(frozen=True)
 class Budget:
     prompt_ceiling: ClassVar[int] = 5600
+    step_ceiling: ClassVar[int] = 16
+    call_ceiling: ClassVar[int] = 12
+    second_ceiling: ClassVar[int] = 600
     steps: int = 8
     calls: int = 6
     seconds: int = 300
@@ -22,9 +25,9 @@ class Budget:
 
     def __post_init__(self):
         ceilings = dict(
-            steps=16,
-            calls=12,
-            seconds=600,
+            steps=self.step_ceiling,
+            calls=self.call_ceiling,
+            seconds=self.second_ceiling,
             rejections=3,
             semantic=2,
             records=200,
@@ -42,10 +45,26 @@ class ContextBudget(Budget):
     prompt_bytes: int = 24576
 
 
+@dataclass(frozen=True)
+class ExtendedBudget(ContextBudget):
+    step_ceiling: ClassVar[int] = 24
+    call_ceiling: ClassVar[int] = 18
+    second_ceiling: ClassVar[int] = 900
+    steps: int = 24
+    calls: int = 18
+    seconds: int = 900
+
+
 def recorded_budget(manifest):
     from .context_inspection import CAPACITY_CONTRACT
     from .follow_up import shape
     grant=manifest.get('authorization',{})
+    from . import extended
+    if extended.enabled(grant):
+        extended.shape(grant)
+        value=ExtendedBudget()
+        if 'budgets' in manifest and manifest['budgets']!=asdict(value):raise ValueError('Recorded budget does not match authorization')
+        return value
     if grant.get('contract')==CAPACITY_CONTRACT:
         shape(grant)
         if 'budgets' in manifest and manifest['budgets'].get('prompt_bytes')!=24576:

@@ -28,6 +28,7 @@ def serve():
     autonomous_calls = 0
     follow_records = {}
     follow_searches = set()
+    batch_searches = 0
     integrity = dict(strategy='sqlite_read_view_v1', fingerprint_count=0,
                      fingerprint_seconds=0.0, transaction_seconds=0.0,
                      live_case_matches=None)
@@ -52,7 +53,8 @@ def serve():
                         if op!='initial':
                             autonomous_policy.operation(grant,config['case_path'],op,request['arguments'])
                             autonomous_calls+=1
-                            if autonomous_calls>6:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
+                            if (autonomous_calls-1)%6==0:batch_searches=0
+                            if autonomous_calls>grant['limits']['tool_calls']:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
                     if config.get('_briefing_initial') and op not in ('initial','briefing_search','check'):
                         raise ValueError('Operation outside approved briefing discovery surface')
                     def emit(value):
@@ -141,9 +143,12 @@ def serve():
                                     from forensic_assistant.investigation_ai.transcript import digest
                                     plan=follow_up.record_window(grant,request['arguments'],follow_records)
                                     key=digest(plan)
-                                    if key in follow_searches or len(follow_searches)>=2:
+                                    from forensic_assistant.investigation_ai.extended import enabled
+                                    if enabled(grant) and batch_searches>=2:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
+                                    if key in follow_searches or len(follow_searches)>=grant['follow_up']['searches']:
                                         raise ValueError('FOLLOW_UP_BUDGET_OR_DUPLICATE')
                                     follow_searches.add(key)
+                                    batch_searches+=1
                                     result=follow_up.search(db,grant,request['arguments'],follow_records)
                                 else:
                                     if grant is not None:
@@ -159,7 +164,7 @@ def serve():
                             if grant is not None and supported(grant):
                                 for record in result.get('records',[]):
                                     follow_records[record['id']]=record
-                                if len(follow_records)>18:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
+                                if len(follow_records)>grant['follow_up']['distinct_disclosures']:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
                             if view is not None:
                                 view.check_identity()
                                 integrity.update(fingerprint_count=view.fingerprint_count,

@@ -7,7 +7,7 @@ INSTRUCTION=(' Do not repeat completed inspections for the same record/category.
     'are not absent from the source. Other categories may differ. Names co-occurring do not establish attribution.')
 
 
-def ledger(completed, exposure=None):
+def ledger(completed, exposure=None, *, limit=6):
     """No values in operation history. Slot/ordinal pairs map original context fields.
 
     None reserves the maximum possible represented-field encoding before packing.
@@ -35,7 +35,7 @@ def ledger(completed, exposure=None):
     value=dict(contract=PROFILE,columns=['id','category','retrieved','disclosed_now','partial','slots_ordinals','disclosed_ordinals'],
                completed=True,repeat_available=False,slot_pointer='/original_event_data/N/value',rows=rows)
     if not rows:return dict(contract=PROFILE,rows=[])
-    if len(rows)>6 or len(disclosure.encoded(value).encode())>2400:
+    if len(rows)>limit or len(disclosure.encoded(value).encode())>400*limit:
         from .failure_diagnostics import PacketFailure
         raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
     return value

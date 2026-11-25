@@ -114,8 +114,9 @@ def _rehydrate(clause, ctx, meter):
     for entry in sorted(clause['lineage'], key=encoded):
         meter.check()
         from .context_inspection import CAPACITY_CONTRACT as GRANT
+        from .extended import CONTRACT as EXTENDED
         allowed=(disclosure.CONTRACT,)
-        if grant.get('contract')==GRANT:
+        if grant.get('contract') in (GRANT,EXTENDED):
             from .follow_up import shape
             shape(grant)
             allowed=(disclosure.CONTRACT,disclosure.CAPACITY_CONTRACT)
