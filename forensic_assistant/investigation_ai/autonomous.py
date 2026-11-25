@@ -113,6 +113,18 @@ def merge_findings(deltas):
 
 
 def packet(state,question,previous,current_id,follow=False,current_ids=(),search_context=None):
+    from .failure_diagnostics import PacketFailure
+    try:
+        result=_packet_once(state,question,previous,current_id,follow,current_ids,search_context)
+        if not state.prompt_diagnostics.get('prior_support_fields_omitted'):return result
+    except PacketFailure as exc:
+        if exc.code!='PROMPT_BUDGET_EXHAUSTED':raise
+    # A bounded deterministic repack, not a provider retry or new evidence read.
+    return _packet_once(state,question,previous,current_id,follow,current_ids,search_context,minimal=True)
+
+
+def _packet_once(state,question,previous,current_id,follow=False,current_ids=(),search_context=None,*,minimal=False):
+    from .failure_diagnostics import PacketFailure
     # Unresolved text is explicitly an unverified planning input, not evidence.
     context={'previous_unresolved_unverified':previous.get('model_proposed_unknowns',[])[:3],
              'byte_limits':'All response string maxLength values are local UTF-8 byte ceilings, not character allowances. Write short complete prose with margin; unknowns/alternatives target 100 bytes, hypotheses 240 bytes. Never shorten exact evidence IDs or pointers.',
@@ -120,31 +132,46 @@ def packet(state,question,previous,current_id,follow=False,current_ids=(),search
     if follow:
         from .follow_up import INSTRUCTION
         context['batch_instruction']=INSTRUCTION
-        context['follow_up_coverage']=search_context or {'completed':[]}
+        context['follow_up_coverage']=deepcopy(search_context) if search_context else {'completed':[]}
         context['follow_up_coverage']['note']='Only the displayed neighborhoods were sampled. Empty and truncated results do not establish absence elsewhere.'
+    if minimal:
+        context['previous_unresolved_unverified']=[]
+        context['byte_limits']='All string limits are UTF-8 byte ceilings. Preserve exact IDs, pointers and values.'
+        context['optional_context_omitted']=True
+        if follow:
+            coverage=context['follow_up_coverage']
+            context['follow_up_coverage']={'searches_remaining':coverage.get('searches_remaining',0),
+                'completed':[{k:v for k,v in row.items() if k in ('start','end','family','complete')} for row in coverage.get('completed',[])],
+                'note':'Bounded samples only; omissions do not establish absence.'}
     transport=0
     if follow:
         from forensic_assistant.ai.openai_schema import instruct
         transport=len(instruct([{'role':'system','content':''}])[0]['content'].encode())+180
     overhead=len(encoded(context).encode())+80+transport
     original=state.budget;records=state.records
+    if overhead>=original.prompt_bytes:raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
     prior_ids=[r['evidence_ids'][0] for r in previous.get('observed',[])]+[i['evidence_ids'][0] for i in previous.get('interpretations',[])]
-    selected={current_id,*current_ids,*prior_ids[:1]}
+    prior_fields=[(r['evidence_ids'][0],r['field'],r['reported_value']) for r in previous.get('observed',[])]
+    selected={current_id,*current_ids,*prior_ids}
     state.records={k:v for k,v in records.items() if k in selected}
     state.budget=replace(original,prompt_bytes=original.prompt_bytes-overhead)
-    try:messages,exposure,_=state.prompt(question,[],[])
+    try:
+        try:messages,exposure,_=state.prompt(question,[],[],required_id=current_id,prior_fields=prior_fields)
+        except PacketFailure:raise
+        except ValueError as exc:
+            code='PROMPT_BUDGET_EXHAUSTED' if str(exc)=='Prompt exceeds byte budget' else 'EVIDENCE_PACKET_VALIDATION_FAILED'
+            raise PacketFailure(code) from exc
     finally:state.budget=original;state.records=records
     body=json.loads(messages[1]['content']);body['incremental']=context
     if follow:
         body['controller'].update(final_only=False,tools=['follow_up'],calls_remaining=max(0,6-state.accepted))
     messages[1]['content']=encoded(body)
     size=sum(len(m['content'].encode()) for m in (instruct(messages) if follow else messages))
-    if size>5600:raise ValueError('PROMPT_BUDGET_EXHAUSTED')
+    if size>5600:raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
     # Earlier supports must be explicitly re-disclosed, never trusted from summaries.
-    represented={(g['id'],i[1]) for g in exposure['records'] for i in g['observations']}
-    prior={(r['evidence_ids'][0],r['field']) for r in previous.get('observed',[])}
-    if current_id not in {g['id'] for g in exposure['records']}:raise ValueError('CURRENT_RECORD_NOT_DISCLOSED')
-    if prior and not prior & represented:raise ValueError('PRIOR_SUPPORT_NOT_DISCLOSED')
+    if current_id not in {g['id'] for g in exposure['records']}:raise PacketFailure('CURRENT_RECORD_NOT_DISCLOSED')
+    state.prompt_diagnostics['prompt_bytes']=size
+    state.prompt_diagnostics['optional_context_omitted']=minimal
     return messages,exposure,size
 
 
@@ -198,7 +225,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             **({'explanation_profile':explanation_live.COMPACT_PROFILE} if config.get('_live_explanation',False) else {})} if b2 else {})),investigation_id=identity)
     organizer=None;explainer=None
     deltas=[];pending=set(grant['evidence_ids']);requests=0;view=None;worker=None;stop='AUTHORIZED_PLAN_EXHAUSTED';sizes=[];usage=[];phase='operation'
-    next_search=None;search_keys=set();search_proposed=0;search_executed=0;search_approved=0;disclosed_ids=set();inspected_seeds=set();search_results=[];operation='show_evidence'
+    next_search=None;search_keys=set();search_proposed=0;search_executed=0;search_approved=0;disclosed_ids=set();inspected_seeds=set();search_results=[];operation='initial';operation_phase='startup';failure_diagnostic=None
     def remaining():return min(45,max(.001,deadline-time.monotonic()))
     def guard():
         policy.validate(grant,config['case_path'])
@@ -241,7 +268,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             if (s4 or discovery) and time.monotonic() >= model_deadline:
                 stop = 'RESOURCE_BUDGET_EXHAUSTED'
                 break
-            guard();state.steps+=1;phase='operation'
+            guard();state.steps+=1;phase='operation';operation_phase='authorization'
             previous=deltas[-1]['findings'] if deltas else {}
             operation='follow_up' if next_search else 'show_evidence'
             if next_search:
@@ -251,6 +278,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 eid=choose(pending,config.get('_stage_a_hints',{}),previous,grant.get('selection'),inspected_seeds)
                 args={'evidence_id':eid}
             policy.operation(grant,config['case_path'],operation,args)
+            operation_phase='authorization_persistence'
             transcript.append('authorized_operation',dict(tool=operation,arguments=args,grant_id=grant['id'],
                 based_on_delta=deltas[-1]['id'] if deltas else None))
             activity.event('TOOL_APPROVED',required=True,investigation_id=identity,tool_call_number=state.accepted+1,tool=operation,arguments_sha256=digest(args),approval='configured_policy')
@@ -258,10 +286,15 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             operation_seconds=min(remaining(),max(.001,model_deadline-time.monotonic())) if s4 or discovery else remaining()
             if operation=='follow_up':operation_seconds=min(5,operation_seconds)
             if operation=='follow_up':search_executed+=1
+            operation_phase='worker_retrieval'
             response=worker.call(operation,args,known_ids=grant['evidence_ids'],seconds=operation_seconds)
             guard()
             if response.get('evidence_state')!=view or response.get('database_changes')!=0:raise ValueError('READ_VIEW_INCONSISTENT')
-            contracts.validate_output(response['result'])
+            operation_phase='result_validation'
+            try:contracts.validate_output(response['result'])
+            except ValueError as exc:
+                from .failure_diagnostics import PacketFailure
+                raise PacketFailure('EVIDENCE_PACKET_VALIDATION_FAILED') from exc
             rows=response['result']['records']
             if operation=='show_evidence' and any(r['id'] not in grant['evidence_ids'] for r in rows):raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
             if (s4 or discovery) and operation=='show_evidence' and any(r['id'] != eid for r in rows):raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
@@ -269,9 +302,12 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             if operation=='follow_up':
                 follow.validate_result(grant,response['result'],follow.record_window(grant,args,state.records))
                 search_results.append(response['result']['plan'])
+            operation_phase='result_persistence'
             transcript.append('result',dict(operation=operation,response=response))
             activity.event('TOOL_COMPLETED',required=True,investigation_id=identity,tool_call_number=state.accepted,tool=operation)
+            operation_phase='state_ingest'
             state.ingest(response['result'],operation=operation)
+            operation_phase='seed_selection'
             if operation=='show_evidence':pending.remove(eid);inspected_seeds.add(eid)
             else:
                 for row in rows:pending.discard(row['id'])
@@ -281,16 +317,25 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 # No paid retry and no case-wide negative inference.
                 if operation=='follow_up':stop='FOLLOW_UP_EMPTY';break
                 continue
+            operation_phase='packet_preparation'
             current_ids=[r['id'] for r in rows]
             messages,exposure,size=packet(state,question,previous,current_ids[0],discovery,(current_ids+([eid] if operation=='follow_up' else [])) if discovery else (),
                 dict(searches_remaining=2-search_approved,completed=[{k:r[k] for k in ('start','end','family','complete','returned_ids') } for r in search_results]) if discovery else None);sizes.append(size)
             if discovery and len(disclosed_ids|{g['id'] for g in exposure['records']})>18:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
-            transcript.append('exposure',dict(content=exposure,prompt_bytes=size,prompt_sha256=digest(messages)))
-            state.disclose(exposure);guard()
+            operation_phase='exposure_persistence'
+            transcript.append('exposure',dict(content=exposure,prompt_bytes=size,prompt_sha256=digest(messages),
+                allocation={k:state.prompt_diagnostics[k] for k in ('disclosed_records','compact_observations','compact_interpretations',
+                    'omitted_candidate_fields','omitted_candidate_records','omitted_candidate_interpretations','prior_support_fields_omitted','optional_context_omitted')}))
+            operation_phase='disclosure_validation'
+            try:state.disclose(exposure)
+            except ValueError as exc:
+                from .failure_diagnostics import PacketFailure
+                raise PacketFailure('EVIDENCE_PACKET_VALIDATION_FAILED') from exc
+            guard()
             if (s4 or discovery) and time.monotonic() >= model_deadline:
                 stop = 'RESOURCE_BUDGET_EXHAUSTED'
                 break
-            status('model');phase='provider'
+            status('model');phase='provider';operation_phase='provider'
             # Use ordinary output allowance; no final synthesis request or hidden retry.
             if s4:
                 transcript.append('analysis_request',dict(allocation='analysis',ordinal=requests+1,
@@ -309,8 +354,10 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                     if old_timeout is None:del client.timeout
                     else:client.timeout=old_timeout
             from .completion_diagnostics import observed
+            operation_phase='analysis_persistence'
             transcript.append('analysis_response_diagnostic',dict(ordinal=requests,**observed(client,request_started)))
             guard();usage.append(deepcopy(getattr(client,'last_metadata',{}).get('usage') or None))
+            operation_phase='analysis_validation'
             try:
                 proposal=follow.parse(raw) if discovery else contracts.request(raw,[])
                 if discovery and proposal['action']=='tool':
@@ -331,6 +378,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             delta=dict(contract=DELTA,id=digest([identity,len(deltas),proposal]),evidence_state=view,
                 disclosure_sha256=digest(exposure),proposal=proposal,findings=findings,batch=len(deltas)+1,
                 counters=dict(ai_requests=requests,tool_calls=state.accepted),based_on=deltas[-1]['id'] if deltas else None)
+            operation_phase='analysis_persistence'
             transcript.append('validated_delta',delta)  # Durable before scheduling next batch.
             deltas.append(delta)
             if reducer is not None:
@@ -342,6 +390,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             if config.get('_stage_a_checkpoint'):
                 config['_stage_a_checkpoint'](dict(findings=merge_findings(deltas),state=state.summary(),
                     validated_batches=len(deltas),evidence_state=view,question=question,engine=engine))
+        operation_phase='finalization'
         if pending and stop=='AUTHORIZED_PLAN_EXHAUSTED':stop='RESOURCE_BUDGET_EXHAUSTED'
         if b2 and deltas and time.monotonic()<model_deadline:
             from . import packets, relationships
@@ -367,10 +416,12 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         elif b2:
             synthesis_result.update(status='skipped_budget' if deltas else 'skipped_no_packet',termination='NO_ADMISSIBLE_SYNTHESIS')
     except KeyboardInterrupt:stop='ANALYST_CANCELLED'
-    except (OSError,ValueError,LLMError) as exc:
-        reason=str(exc)
-        stop=reason if reason in ('AUTHORIZATION_EXPIRED','AUTHORIZATION_CASE_CHANGED','ADDITIONAL_SCOPE_REQUIRED','PROVIDER_SCOPE_CHANGED','RESOURCE_BUDGET_EXHAUSTED','READ_VIEW_INCONSISTENT') else ('PROVIDER_FAILURE' if phase=='provider' else 'OPERATION_FAILURE')
-        transcript.append('stopped',dict(reason=stop,error_type=type(exc).__name__))
+    except Exception as exc:
+        from .failure_diagnostics import classify,diagnostic
+        stop=classify(exc,operation_phase)
+        failure_diagnostic=diagnostic(stop,operation_phase,operation,state,len(deltas),requests)
+        error_type=type(exc).__name__ if type(exc).__name__ in ('ValueError','OSError','TypeError','KeyError','RuntimeError','WorkerError','PacketFailure','LLMError') else 'Exception'
+        transcript.append('stopped',dict(reason=stop,error_type=error_type,diagnostic=failure_diagnostic))
         activity.event('TOOL_REJECTED','failure',required=True,investigation_id=identity,tool=operation,reason=stop)
     finally:
         primary_stop=stop
@@ -399,6 +450,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             searches=search_results,unresolved_questions=findings['model_proposed_unknowns'])
         result['limitations'][1]='Temporal follow-up only: at most two searches, three records each; candidate, time and disclosure limits apply. No filename/path pivots. Omitted records were not assessed.'
         result['limitations'].append('Searches cover bounded neighborhoods, not the entire approved window; proximity does not establish causality or successful execution.')
+    if failure_diagnostic is not None:result['failure_diagnostic']=failure_diagnostic
     result['controller_diagnostic']={'observer':'controller','elapsed_seconds':round(time.monotonic()-controller_started,6),
         'termination':stop,'worker_close_returned':worker is not None and stop!='CLEANUP_LIMITATION',
         'parent_cleanup_confirmation':'unavailable_in_child_journal'}
@@ -467,12 +519,18 @@ def _replay(manifest, events, identity, *, _on_validated=None):
     state=State(Budget());deltas=[];exposure=None
     for event in events:
         d=event['data']
+        from .failure_diagnostics import validate as validate_diagnostic
+        if event['kind']=='stopped' and 'diagnostic' in d:validate_diagnostic(d['diagnostic'])
+        if event['kind']=='terminal' and 'failure_diagnostic' in d:validate_diagnostic(d['failure_diagnostic'])
         if event['kind']=='result':
             if d['response'].get('evidence_state')!=manifest['evidence_state'] or d['response'].get('database_changes')!=0:
                 raise ValueError('Invalid recorded read view')
             contracts.validate_output(d['response']['result'])
             state.ingest(d['response']['result'],operation=d['operation'])
         elif event['kind']=='exposure':
+            if 'allocation' in d:
+                from .failure_diagnostics import validate_allocation
+                validate_allocation(d['allocation'],d['content'])
             exposure=d['content'];state.disclose(exposure)
         elif event['kind']=='validated_delta':
             if d['contract']!=DELTA or d['evidence_state']!=manifest['evidence_state'] or d['disclosure_sha256']!=digest(exposure):raise ValueError('Invalid delta binding')

@@ -94,6 +94,8 @@ def source_dependency(row):
 
 def termination_label(result):
     code = result.get('termination')
+    from .failure_diagnostics import LABELS as FAILURE_LABELS
+    if code in FAILURE_LABELS:return FAILURE_LABELS[code]
     if result.get('engine') in ('incremental-stage-a-v1', 'incremental-s4-a-v1', 'incremental-s4-b2-v1'):
         labels = {
             'AUTHORIZED_PLAN_EXHAUSTED': 'All authorized assessment references were processed',

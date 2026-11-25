@@ -169,7 +169,7 @@ def validate(packet, state):
         raise ValueError('Malformed compact disclosure') from exc
 
 
-def prompt(state, question):
+def prompt(state, question, *, required_id=None, prior_fields=()):
     from .state import SYSTEM
     packet={'controller':{'objective':question,'temporal_scope':state.scope,'final_only':True,'tools':[],
         'step':state.steps,'calls_remaining':0,
@@ -185,32 +185,72 @@ def prompt(state, question):
     # Reserve enough room for explicit omissions; every addition is measured.
     def fits():return size()<=state.budget.prompt_bytes-180
     selected={}
+    def add(candidate, option, with_interpretations=True):
+        nonlocal count,derived
+        if count>=12:return False
+        _,_,pointer,origin,source,value=option
+        eid=candidate['id'];new=eid not in selected
+        group=selected.setdefault(eid,{'id':eid,'observations':[],'interpretations':[],'sources':{}})
+        if any(i['field']['pointer']==pointer for i in group['observations']):
+            return any(i['field']['pointer']==pointer and encoded(i['field']['value'])==encoded(value) for i in group['observations'])
+        if new:data['records'].append(group)
+        previous_sources=deepcopy(group['sources'])
+        group['sources'][origin]={'provenance':provenance(source),'truncated_fields':source.get('truncated_fields',[]),'coverage_notes':source.get('coverage_notes',[])}
+        group['observations'].append({'origin':origin,'field':descriptor(source,pointer,value)})
+        additions=candidate['derived'][:max(0,4-derived)] if new and with_interpretations else []
+        group['interpretations'].extend(additions)
+        if fits():count+=1;derived+=len(additions);return True
+        group['observations'].pop();group['sources']=previous_sources
+        if additions:del group['interpretations'][-len(additions):]
+        if new:data['records'].remove(group);selected.pop(eid)
+        return False
+    prior_represented=0
+    if required_id is not None:
+        from .failure_diagnostics import PacketFailure
+        current=next((g for g in groups if g['id']==required_id),None)
+        if current is None:raise PacketFailure('CURRENT_RECORD_NOT_DISCLOSED')
+        # Required original evidence precedes optional history and derived prose.
+        if not any(add(current,option,False) for option in current['options']):
+            raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
+        from .state import fields
+        for eid,pointer,value in prior_fields:
+            source=state.exposed.get(eid,{})
+            available=dict(fields(source))
+            if eid not in state.records or pointer not in available or not state.field_eligible(eid,pointer):
+                raise PacketFailure('EVIDENCE_PACKET_VALIDATION_FAILED')
+            from .projection import same
+            if not same(available[pointer],value):raise PacketFailure('EVIDENCE_PACKET_VALIDATION_FAILED')
+            candidate={'id':eid,'derived':[]}
+            if add(candidate,(0,0,pointer,'retained',source,available[pointer]),False):prior_represented+=1
     for round_index in range(12):
         for candidate in groups:
-            if count>=12 or round_index>=len(candidate['options']):continue
-            _,_,pointer,origin,source,value=candidate['options'][round_index]
-            eid=candidate['id']; new=eid not in selected
-            group=selected.setdefault(eid,{'id':eid,'observations':[],'interpretations':[],'sources':{}})
-            if new:data['records'].append(group)
-            previous_sources=deepcopy(group['sources'])
-            group['sources'][origin]={'provenance':provenance(source),'truncated_fields':source.get('truncated_fields',[]),'coverage_notes':source.get('coverage_notes',[])}
-            item={'origin':origin,'field':descriptor(source,pointer,value)}
-            group['observations'].append(item)
-            additions=candidate['derived'][:max(0,4-derived)] if new else []
-            group['interpretations'].extend(additions)
-            if fits():count+=1;derived+=len(additions)
-            else:
-                group['observations'].pop()
-                group['sources']=previous_sources
-                if new:data['records'].remove(group);selected.pop(eid)
-    omitted=sum(len(g['options']) for g in groups)-count
+            if round_index<len(candidate['options']):add(candidate,candidate['options'][round_index])
+    # Interpretations remain complete atomic objects. Never shorten premises or
+    # limitations to fit; the mandatory original field must survive their omission.
+    if required_id is not None:
+        for candidate in groups:
+            group=selected.get(candidate['id'])
+            if group is None:continue
+            for item in candidate['derived']:
+                if derived>=4 or any(i['id']==item['id'] for i in group['interpretations']):continue
+                group['interpretations'].append(item)
+                if fits():derived+=1
+                else:group['interpretations'].pop()
+    omitted=len({(g['id'],o[2]) for g in groups for o in g['options']} | {(e,p) for e,p,v in prior_fields})-count
     packet['controller']['omitted_candidate_fields']=omitted
-    packet['controller']['omitted_candidate_records']=len(groups)-len(selected)
+    packet['controller']['omitted_candidate_records']=len({g['id'] for g in groups}|{e for e,p,v in prior_fields})-len(selected)
     if omitted:state.limit('Compact final context omitted eligible candidate fields; answer coverage is incomplete, not evidence of absence.')
     _validate(data,state)
+    if required_id is not None:
+        packet['controller']['prior_support_fields_omitted']=len(prior_fields)-prior_represented
+        packet['controller']['omitted_candidate_interpretations']=sum(len(g['derived']) for g in groups)-derived
     if size()>state.budget.prompt_bytes:raise ValueError('Prompt exceeds byte budget')
     state.prompt_diagnostics={'prompt_bytes':size(),'evidence_projection_bytes':len(encoded(encode(data)).encode()),'optional_context_bytes_omitted':0,
         'disclosed_records':len(selected),'compact_observations':count,'compact_interpretations':derived,'omitted_candidate_fields':omitted}
+    if required_id is not None:
+        state.prompt_diagnostics.update(prior_support_fields_omitted=len(prior_fields)-prior_represented,
+            omitted_candidate_records=packet['controller']['omitted_candidate_records'],
+            omitted_candidate_interpretations=packet['controller']['omitted_candidate_interpretations'])
     state.last_compact=encode(data)
     state.selected.update(selected)
     return [{'role':'system','content':SYSTEM},{'role':'user','content':encoded(wire_packet())}],encode(data),size()

@@ -189,10 +189,10 @@ class State:
             names = [n for n in names if n in ('search_evidence', 'timeline', 'show_evidence')]
         return names
 
-    def prompt(self, question, names, rules, feedback=''):
+    def prompt(self, question, names, rules, feedback='', *, required_id=None, prior_fields=()):
         if self.compact_final and self.finalization_requested:
             from .disclosure import prompt
-            return prompt(self, question)
+            return prompt(self, question,required_id=required_id,prior_fields=prior_fields)
         # The JSON schema travels as a separately bounded grammar, not as chat text.
         completed = list(dict.fromkeys(entry['operation'] for entry in self.path if entry['operation'] != 'initial'))[-9:]
         system = SYSTEM

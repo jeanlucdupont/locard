@@ -297,7 +297,11 @@ def render(result, palette):
     lines += ['  '+palette('forensic_note','Source metadata is analyst-supplied; temporal proximity is not a verified host or causal relationship.')]
     for search in stats['searches']:
         lines.append('  '+text(search['family'])+': '+str(len(search['returned_ids']))+' returned; '+('bounded neighborhood completed' if search['complete'] else 'incomplete candidate/result coverage'))
-    failure=result['termination'] in ('OPERATION_FAILURE','PROVIDER_FAILURE','VALIDATION_FAILURE','READ_VIEW_INCONSISTENT','INTEGRITY_UNCONFIRMED','CLEANUP_LIMITATION')
+    if result.get('failure_diagnostic'):
+        from .failure_diagnostics import validate as validate_diagnostic
+        detail=result['failure_diagnostic'];validate_diagnostic(detail)
+        lines.append('  Phase: '+detail['phase']+'; operation: '+detail['operation']+'; code: '+detail['code'])
+    failure=result['termination'] in ('EVIDENCE_PACKET_VALIDATION_FAILED','WORKER_FAILURE','INTERNAL_FAILURE','AUDIT_OR_PERSISTENCE_FAILURE','OPERATION_FAILURE','PROVIDER_FAILURE','VALIDATION_FAILURE','READ_VIEW_INCONSISTENT','INTEGRITY_UNCONFIRMED','CLEANUP_LIMITATION')
     lines += ['  Termination: '+palette('error' if failure else 'warning',safe(result['termination'])),
               '  Next suggested action: review recorded scope and omitted evidence before authorizing further work.']
     return '\n'.join(lines)

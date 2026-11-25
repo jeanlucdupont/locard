@@ -338,7 +338,8 @@ def test_audit_and_failed_durable_authorization_prevent_dispatch(tmp_path,monkey
         return append(self,kind,data,**kwargs)
     monkeypatch.setattr(Transcript,'append',fail)
     result,client,calls,closed,_=run_mock(tmp_path)
-    assert result['termination']=='OPERATION_FAILURE' and 'follow_up' not in calls
+    assert result['termination']=='AUDIT_OR_PERSISTENCE_FAILURE' and 'follow_up' not in calls
+    assert result['failure_diagnostic']['operation']=='follow_up'
     assert result['validated_batches']==1 and closed and len(client.calls)==2
     assert all(kw['required'] is True for name,kw in events if name.startswith('TOOL_'))
     assert not any(name=='TOOL_APPROVED' and kw['tool']=='follow_up' for name,kw in events)
