@@ -212,13 +212,22 @@ def validate_journal(manifest, events):
     grant = manifest['authorization']; shape(grant)
     exposure = None; pending = None; searches = []; calls = 0; requests = 0; records = {}; active = None
     ready = False; outstanding = False; context_keys=set(); context_calls=0
+    from . import progress
+    modern=manifest.get('progress_profile')==progress.PROFILE
+    if manifest.get('progress_profile') not in (None,progress.PROFILE):raise ValueError('Unknown progress profile')
+    completed=[];seeds=set(grant['evidence_ids']);forced=None;duplicate_count=0;last_context=None;analysis_only=False;continued=False;disclosed=set();finding_ids=set();redundancy_terminal=False
     for event in events:
         kind, data = event['kind'], event['data']
         if kind == 'exposure':
             if outstanding or active is not None:raise ValueError('Invalid follow-up disclosure sequence')
             exposure = data['content'];ready = True
+            if modern:
+                if data.get('operation_ledger')!=progress.ledger(completed,exposure):raise ValueError('Invalid operation ledger')
+                analysis_only=requests>=5 or calls>=6 or continued
+                continued=False
+                if type(data.get('analysis_only')) is not bool or data['analysis_only']!=analysis_only:raise ValueError('Invalid final-analysis allocation')
         elif kind in ('follow_up_proposed','context_proposed'):
-            if not outstanding:raise ValueError('Unrequested follow-up proposal')
+            if not outstanding or analysis_only:raise ValueError('Unrequested follow-up proposal')
             outstanding = False
             if kind=='context_proposed':
                 from . import context_inspection as context
@@ -230,7 +239,22 @@ def validate_journal(manifest, events):
             if data['scope'] != expected or data['disclosure_sha256'] != digest(exposure):
                 raise ValueError('Invalid follow-up origin')
             pending = data['proposal']['arguments']
+            last_context=pending if kind=='context_proposed' else None
+        elif kind=='redundant_context':
+            if not modern or last_context is None or digest(last_context) not in context_keys:
+                raise ValueError('Forged redundant context decision')
+            expected=dict(reason='CONTEXT_DUPLICATE',arguments=last_context,next_seed=progress.continuation(seeds,requests,calls),
+                          model_attempt=requests,tool_calls=calls)
+            if data!=expected:raise ValueError('Invalid redundant context continuation')
+            duplicate_count+=1;forced=data['next_seed'];pending=None;last_context=None
+            redundancy_terminal=forced is None
         elif kind == 'authorized_operation':
+            if redundancy_terminal:raise ValueError('Operation after terminal redundant proposal')
+            if forced is not None:
+                if data['tool']!='show_evidence' or data['arguments']!={'evidence_id':forced}:raise ValueError('Invalid continuation seed')
+                forced=None;continued=True
+            elif modern and last_context is not None and digest(last_context) in context_keys:
+                raise ValueError('Missing redundant proposal decision')
             calls += 1
             if outstanding or active is not None or calls > 6 or data['grant_id'] != grant['id']: raise ValueError('Invalid follow-up allocation')
             if data['tool'] == 'follow_up':
@@ -263,7 +287,9 @@ def validate_journal(manifest, events):
             if active['tool']=='inspect_context':
                 from . import context_inspection as context
                 context.validate_result(grant,active['arguments'],result)
-                pending=None
+                pending=None;last_context=None
+                completed.append(result)
+            seeds.difference_update(r['id'] for r in result['records'])
             records.update((r['id'], r) for r in result['records'])
             if len(records)>18:raise ValueError('Invalid follow-up record allocation')
             active = None
@@ -272,18 +298,26 @@ def validate_journal(manifest, events):
             if not ready or outstanding or data != dict(ordinal=requests, grant_id=grant['id']) or requests > 6:
                 raise ValueError('Invalid follow-up model allocation')
             ready = False;outstanding = True
+            disclosed.update(r['id'] for r in exposure['records'])
         elif kind == 'validated_delta' or (kind == 'rejected' and data.get('stage')=='batch_validation'):
             if not outstanding:raise ValueError('Unrequested follow-up analysis decision')
             outstanding = False
+            if kind=='validated_delta':finding_ids.update(eid for row in data['findings']['observed']+data['findings']['interpretations'] for eid in row['evidence_ids'])
         elif kind == 'terminal':
             if data['metrics']['ai_requests'] != requests or data['state']['accepted_calls'] != calls:
                 raise ValueError('Invalid follow-up terminal accounting')
+            if modern:
+                expected_families=dict(families_retrieved=progress.families(records),families_disclosed=progress.families(disclosed),families_in_findings=progress.families(finding_ids))
+                if any(data['follow_up'].get(k)!=v for k,v in expected_families.items()):raise ValueError('Invalid evidence family accounting')
+            if modern and data['follow_up'].get('redundant_context_proposals')!=duplicate_count:raise ValueError('Invalid duplicate accounting')
+            if modern and data['follow_up'].get('context_completed')!=len(completed):raise ValueError('Invalid completion accounting')
             if 'context_inspections' in data.get('follow_up',{}) and data['follow_up']['context_inspections']!=context_calls:
                 raise ValueError('Invalid context accounting')
 
 
 def render(result, palette):
     from .presentation import safe, field_label, timestamp_text
+    from .progress import families
     def text(value):
         return safe(re.sub(r'(https?://[^\s?#]+)[?#][^\s]*', r'\1?[query omitted]', str(value)))
     stats = result['follow_up']
@@ -293,8 +327,13 @@ def render(result, palette):
         f"Evidence in accepted findings: {stats['records_examined']} records",
         f"Follow-up searches: {stats['executed']} executed / {stats['proposed']} proposed",
         f"Context inspections: {stats.get('context_inspections',0)}",
-        'Artifact families retrieved: '+', '.join(result['state'].get('inspected_artifact_families', [])),
+        'Artifact families retrieved: '+(', '.join(stats.get('families_retrieved',families(result['state'].get('retrieved_ids',[])))) or 'none'),
+        'Artifact families disclosed: '+((', '.join(stats['families_disclosed']) or 'none') if 'families_disclosed' in stats else 'not recorded separately'),
+        'Artifact families in accepted findings: '+(', '.join(stats.get('families_in_findings',families(e for row in result['findings']['observed']+result['findings']['interpretations'] for e in row['evidence_ids']))) or 'none'),
+        'Context inspections completed: '+str(stats.get('context_completed',stats.get('context_inspections',0)))+'; redundant proposals rejected: '+str(stats.get('redundant_context_proposals',0)),
+        'Context inspections not completed: '+str(stats.get('context_inspections',0)-stats.get('context_completed',stats.get('context_inspections',0))),
         '', palette('heading', 'Investigative observations')]
+    if stats.get('no_findings_reason'):lines.append('  '+palette('warning',text(stats['no_findings_reason'])))
     qualifications=[]
     for row in result['findings'].get('observed', []):
         label, is_time = field_label(row)

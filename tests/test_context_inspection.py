@@ -169,7 +169,8 @@ def test_context_and_temporal_share_six_operations(tmp_path):
     result=a.run(dict(case_path=str(path),semantic_enabled=False,_transaction_view=True,_stage_a=g),g['objective'],tmp_path/'runs',client=client)
     assert result['state']['accepted_calls']==6 and result['metrics']['ai_requests']==6
     assert result['follow_up']['context_inspections']==4
-    assert result['termination'] in ('RESOURCE_BUDGET_EXHAUSTED','CONTEXT_DUPLICATE')
+    # Attempt six is now analysis-only; a scripted tool response is rejected.
+    assert result['termination']=='VALIDATION_FAILURE'
     assert result['answer_assessment']['status']=='PARTIAL' and result['validated_batches']==1
     a.reconstruct(tmp_path/'runs',result['investigation_id'])
 
