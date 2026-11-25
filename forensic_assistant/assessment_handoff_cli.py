@@ -54,6 +54,9 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
             if follow_up:
                 print('  Follow-up: original disclosed timestamp -> authorized family; five-minute radius clamped to scope.',file=stream)
                 print('  At most 2 searches, 3 records/search, 6 search returns, 18 distinct disclosures; 1000 candidates and 5 seconds/search.',file=stream)
+                if grant.get('context_inspection'):
+                    print('  Context inspection: already disclosed EVTX only; event, actor, object or process. Repeated disclosure to OpenAI is authorized.',file=stream)
+                    print('  Context inspections share the 6 tool calls; no additional search, runtime or model allowance.',file=stream)
                 print('  Searches share 6 total tool calls and 6 model requests. No retries; exhaustion preserves PARTIAL findings.',file=stream)
             else:print('  Inspect only '+str(len(grant['evidence_ids']))+' listed assessment references; show_evidence only, no search.',file=stream)
             print('  Eligibility: any of the first 32 recorded timestamps in the window. Bounded full-record context, including other timestamps, is permitted.',file=stream)

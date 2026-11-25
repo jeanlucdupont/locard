@@ -60,7 +60,9 @@ def prepare(handoff, assessment, client, *, decompose=False, synthesize=False,fo
         grant['allocations']=deepcopy(policy.B2_ALLOCATION)
     if follow_up:
         from . import follow_up as follow
-        grant.update(contract=follow.CONTRACT,tools=['show_evidence','follow_up'],follow_up=deepcopy(follow.LIMITS))
+        from . import context_inspection as context
+        grant.update(contract=context.CONTRACT,tools=['show_evidence','follow_up','inspect_context'],
+                     follow_up=deepcopy(follow.LIMITS),context_inspection=deepcopy(context.LIMITS))
         if grant.get('selection'):grant['families']=grant['selection']['eligible_families']
     return grant,hints
 
@@ -132,6 +134,9 @@ def _packet_once(state,question,previous,current_id,follow=False,current_ids=(),
     if follow:
         from .follow_up import INSTRUCTION
         context['batch_instruction']=INSTRUCTION
+        if search_context and search_context.get('contextual'):
+            from .context_inspection import INSTRUCTION as CONTEXT_INSTRUCTION
+            context['batch_instruction']+=CONTEXT_INSTRUCTION
         context['follow_up_coverage']=deepcopy(search_context) if search_context else {'completed':[]}
         context['follow_up_coverage']['note']='Only the displayed neighborhoods were sampled. Empty and truncated results do not establish absence elsewhere.'
     if minimal:
@@ -164,7 +169,7 @@ def _packet_once(state,question,previous,current_id,follow=False,current_ids=(),
     finally:state.budget=original;state.records=records
     body=json.loads(messages[1]['content']);body['incremental']=context
     if follow:
-        body['controller'].update(final_only=False,tools=['follow_up'],calls_remaining=max(0,6-state.accepted))
+        body['controller'].update(final_only=False,tools=(['follow_up','inspect_context'] if search_context and search_context.get('contextual') else ['follow_up']),calls_remaining=max(0,6-state.accepted))
     messages[1]['content']=encoded(body)
     size=sum(len(m['content'].encode()) for m in (instruct(messages) if follow else messages))
     if size>5600:raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
@@ -188,7 +193,9 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     from . import synthesis_consumer as consumer
     from . import organization, explanation_live
     from . import follow_up as follow
-    discovery = grant['contract']==follow.CONTRACT
+    discovery = follow.supported(grant)
+    from . import context_inspection as context
+    contextual=grant['contract']==context.CONTRACT
     b2 = grant['contract'] == policy.B2_CONTRACT
     if config.get('_live_explanation',False) and not b2:
         raise ValueError('Live explanation requires the S4-B2 workflow')
@@ -225,7 +232,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             **({'explanation_profile':explanation_live.COMPACT_PROFILE} if config.get('_live_explanation',False) else {})} if b2 else {})),investigation_id=identity)
     organizer=None;explainer=None
     deltas=[];pending=set(grant['evidence_ids']);requests=0;view=None;worker=None;stop='AUTHORIZED_PLAN_EXHAUSTED';sizes=[];usage=[];phase='operation'
-    next_search=None;search_keys=set();search_proposed=0;search_executed=0;search_approved=0;disclosed_ids=set();inspected_seeds=set();search_results=[];operation='initial';operation_phase='startup';failure_diagnostic=None
+    next_search=None;search_keys=set();search_proposed=0;search_executed=0;search_approved=0;disclosed_ids=set();inspected_seeds=set();search_results=[];context_calls=0;next_context=None;context_keys=set();operation='initial';operation_phase='startup';failure_diagnostic=None
     def remaining():return min(45,max(.001,deadline-time.monotonic()))
     def guard():
         policy.validate(grant,config['case_path'])
@@ -264,14 +271,16 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             decision = decomposition_service.execute(client,question,grant,transcript,guard,available,
                 charge=charge_decomposition,decision_store=decision)
             status('operation')
-        while (pending or next_search) and requests<6 and state.accepted<6 and state.steps<8:
+        while (pending or next_search or next_context) and requests<6 and state.accepted<6 and state.steps<8:
             if (s4 or discovery) and time.monotonic() >= model_deadline:
                 stop = 'RESOURCE_BUDGET_EXHAUSTED'
                 break
             guard();state.steps+=1;phase='operation';operation_phase='authorization'
             previous=deltas[-1]['findings'] if deltas else {}
-            operation='follow_up' if next_search else 'show_evidence'
-            if next_search:
+            operation='inspect_context' if next_context else ('follow_up' if next_search else 'show_evidence')
+            if next_context:
+                args=next_context;eid=args['evidence_id'];next_context=None
+            elif next_search:
                 args=next_search;eid=args['evidence_id']
                 next_search=None
             else:
@@ -286,8 +295,9 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             operation_seconds=min(remaining(),max(.001,model_deadline-time.monotonic())) if s4 or discovery else remaining()
             if operation=='follow_up':operation_seconds=min(5,operation_seconds)
             if operation=='follow_up':search_executed+=1
+            if operation=='inspect_context':context_calls+=1
             operation_phase='worker_retrieval'
-            response=worker.call(operation,args,known_ids=grant['evidence_ids'],seconds=operation_seconds)
+            response=worker.call(operation,args,known_ids=sorted(disclosed_ids) if operation=='inspect_context' else grant['evidence_ids'],seconds=operation_seconds)
             guard()
             if response.get('evidence_state')!=view or response.get('database_changes')!=0:raise ValueError('READ_VIEW_INCONSISTENT')
             operation_phase='result_validation'
@@ -302,6 +312,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             if operation=='follow_up':
                 follow.validate_result(grant,response['result'],follow.record_window(grant,args,state.records))
                 search_results.append(response['result']['plan'])
+            if operation=='inspect_context':context.validate_result(grant,args,response['result'])
             operation_phase='result_persistence'
             transcript.append('result',dict(operation=operation,response=response))
             activity.event('TOOL_COMPLETED',required=True,investigation_id=identity,tool_call_number=state.accepted,tool=operation)
@@ -309,7 +320,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             state.ingest(response['result'],operation=operation)
             operation_phase='seed_selection'
             if operation=='show_evidence':pending.remove(eid);inspected_seeds.add(eid)
-            else:
+            elif operation=='follow_up':
                 for row in rows:pending.discard(row['id'])
             state.path.append({'operation':operation,'evidence_id':eid})
             if not rows:
@@ -320,7 +331,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             operation_phase='packet_preparation'
             current_ids=[r['id'] for r in rows]
             messages,exposure,size=packet(state,question,previous,current_ids[0],discovery,(current_ids+([eid] if operation=='follow_up' else [])) if discovery else (),
-                dict(searches_remaining=2-search_approved,completed=[{k:r[k] for k in ('start','end','family','complete','returned_ids') } for r in search_results]) if discovery else None);sizes.append(size)
+                dict(contextual=contextual,searches_remaining=2-search_approved,completed=[{k:r[k] for k in ('start','end','family','complete','returned_ids') } for r in search_results]) if discovery else None);sizes.append(size)
             if discovery and len(disclosed_ids|{g['id'] for g in exposure['records']})>18:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
             operation_phase='exposure_persistence'
             transcript.append('exposure',dict(content=exposure,prompt_bytes=size,prompt_sha256=digest(messages),
@@ -348,7 +359,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 client.timeout = max(.001,min(old_timeout or 120,model_deadline-time.monotonic()))
             request_started=time.monotonic()
             try:
-                with model_operation('investigation'),final_output(False):raw=client.complete(messages,follow.schema() if discovery else contracts.schema([]))
+                with model_operation('investigation'),final_output(False):raw=client.complete(messages,follow.schema(contextual) if discovery else contracts.schema([]))
             finally:
                 if s4 or discovery:
                     if old_timeout is None:del client.timeout
@@ -359,8 +370,16 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             guard();usage.append(deepcopy(getattr(client,'last_metadata',{}).get('usage') or None))
             operation_phase='analysis_validation'
             try:
-                proposal=follow.parse(raw) if discovery else contracts.request(raw,[])
+                proposal=follow.parse(raw,contextual) if discovery else contracts.request(raw,[])
                 if discovery and proposal['action']=='tool':
+                    if proposal['tool']=='inspect_context':
+                        scope=context.proposed(grant,proposal['arguments'],exposure)
+                        transcript.append('context_proposed',dict(proposal=proposal,scope=scope,disclosure_sha256=digest(exposure)))
+                        key=digest(scope)
+                        if key in context_keys:stop='CONTEXT_DUPLICATE';break
+                        if state.accepted>=6 or requests>=6:stop='RESOURCE_BUDGET_EXHAUSTED';break
+                        context_keys.add(key);next_context=proposal['arguments']
+                        continue
                     search_proposed+=1
                     scope=follow.proposed(grant,proposal['arguments'],exposure)
                     transcript.append('follow_up_proposed',dict(proposal=proposal,scope=scope,disclosure_sha256=digest(exposure)))
@@ -391,7 +410,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 config['_stage_a_checkpoint'](dict(findings=merge_findings(deltas),state=state.summary(),
                     validated_batches=len(deltas),evidence_state=view,question=question,engine=engine))
         operation_phase='finalization'
-        if pending and stop=='AUTHORIZED_PLAN_EXHAUSTED':stop='RESOURCE_BUDGET_EXHAUSTED'
+        if (pending or next_search or next_context) and stop=='AUTHORIZED_PLAN_EXHAUSTED':stop='RESOURCE_BUDGET_EXHAUSTED'
         if b2 and deltas and time.monotonic()<model_deadline:
             from . import packets, relationships
             factual=reducer.finish()
@@ -448,7 +467,8 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             records_examined=len({e for row in findings['observed']+findings['interpretations'] for e in row['evidence_ids']}),
             leads_resolved=0,lead_resolution='Not deterministically assessed; matching records do not resolve an investigative question.',
             searches=search_results,unresolved_questions=findings['model_proposed_unknowns'])
-        result['limitations'][1]='Temporal follow-up only: at most two searches, three records each; candidate, time and disclosure limits apply. No filename/path pivots. Omitted records were not assessed.'
+        result['follow_up']['context_inspections']=context_calls
+        result['limitations'][1]=('Bounded EVTX context inspection and temporal follow-up' if contextual else 'Temporal follow-up')+' only: at most two searches, three records each; candidate, time and disclosure limits apply. No filename/path pivots. Omitted records were not assessed.'
         result['limitations'].append('Searches cover bounded neighborhoods, not the entire approved window; proximity does not establish causality or successful execution.')
     if failure_diagnostic is not None:result['failure_diagnostic']=failure_diagnostic
     result['controller_diagnostic']={'observer':'controller','elapsed_seconds':round(time.monotonic()-controller_started,6),
@@ -514,7 +534,7 @@ def reconstruct(root,identity, *, _on_validated=None, _b2_checked=False):
 def _replay(manifest, events, identity, *, _on_validated=None):
     """Validate analysis from a caller-owned, chain-validated recorded input."""
     from . import follow_up
-    if manifest.get('authorization',{}).get('contract')==follow_up.CONTRACT:
+    if follow_up.supported(manifest.get('authorization',{})):
         follow_up.validate_journal(manifest,events)
     state=State(Budget());deltas=[];exposure=None
     for event in events:

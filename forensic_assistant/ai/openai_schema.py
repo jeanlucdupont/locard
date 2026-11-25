@@ -8,7 +8,7 @@ def investigation(schema):
     if type(schema) is not dict or set(schema) != {'oneOf'} or type(schema['oneOf']) is not list:
         return False
     from forensic_assistant.investigation_ai import contracts, follow_up
-    if schema == follow_up.schema():return True
+    if schema in (follow_up.schema(),follow_up.schema(True)):return True
     try:
         names=[v['properties']['tool']['enum'][0] for v in schema['oneOf'][:-1]]
         if len(names)!=len(set(names)) or any(n not in contracts.TOOLS for n in names):

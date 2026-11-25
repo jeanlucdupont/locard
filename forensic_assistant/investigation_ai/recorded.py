@@ -47,8 +47,8 @@ def open_history(root, identity):
     if manifest.get('engine') not in (autonomous.ENGINE, decomposition.ENGINE, consumer.ENGINE):
         raise ValueError('Not a supported incremental transcript')
     autonomous._replay(manifest, events, identity, _on_validated=consume)
-    from .follow_up import CONTRACT as FOLLOW_UP
-    decision = {'status':'not_attempted'} if manifest['authorization'].get('contract')==FOLLOW_UP else decomposition.validate_journal(manifest, events)
+    from .follow_up import supported
+    decision = {'status':'not_attempted'} if supported(manifest['authorization']) else decomposition.validate_journal(manifest, events)
     factual = facts.finish()
     ctx = b1.Context(retained, factual, s2._build(factual), manifest,
                      decision.get('mapping') if decision['status'] == 'accepted' else None, accepted)

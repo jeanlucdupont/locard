@@ -84,7 +84,7 @@ def candidates(state, question):
                     continue
                 # Select substantive values, not array bookkeeping or normalization metadata.
                 useful = (pointer.endswith('/value') or pointer.endswith('/utc') or pointer.startswith('/objects/') or
-                          pointer.endswith('/url') or pointer in ('/target_path','/current_path','/url','/referrer','/executable','/process_name','/command_line','/timestamp_utc','/filename','/event_id'))
+                          pointer.endswith('/url') or pointer in ('/target_path','/current_path','/url','/referrer','/executable','/process_name','/command_line','/timestamp_utc','/filename','/event_id','/provider','/channel'))
                 if not useful:
                     continue
                 if pointer.startswith('/original_event_data/') and not pointer.endswith('/value'):
@@ -94,6 +94,9 @@ def candidates(state, question):
                         1 if pointer.endswith('/url') else
                         2 if pointer.startswith('/objects/') and any(c in str(value) for c in ('/', '\\')) else
                         3 if pointer.endswith('/utc') or pointer=='/timestamp_utc' else 4)
+                if record.get('context_category'):
+                    # Current original context fields precede optional old projections.
+                    rank=0 if pointer.startswith('/original_event_data/') and origin=='current' else 1 if pointer in ('/provider','/channel','/event_id') else 2
                 options[pointer] = (-overlap, rank, pointer, origin, source, value)
         if not options:
             continue
@@ -212,6 +215,12 @@ def prompt(state, question, *, required_id=None, prior_fields=()):
         # Required original evidence precedes optional history and derived prose.
         if not any(add(current,option,False) for option in current['options']):
             raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
+        if state.records[required_id].get('context_category'):
+            # A small coherent context, not an isolated event identifier. Exact
+            # fields are admitted atomically with their names/ordinals/provenance.
+            for option in current['options']:
+                if count>=4:break
+                add(current,option,False)
         from .state import fields
         for eid,pointer,value in prior_fields:
             source=state.exposed.get(eid,{})

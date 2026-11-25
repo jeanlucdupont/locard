@@ -21,7 +21,7 @@ TEMPORAL = 'any retained timestamp in window; bounded full-record context permit
 
 def validate(grant, case):
     from . import follow_up
-    if grant.get('contract') == follow_up.CONTRACT:
+    if follow_up.supported(grant):
         follow_up.shape(grant)
         grant = {**grant, 'contract': CONTRACT, 'tools':['show_evidence']}
     if grant.get('contract') == B2_CONTRACT:
@@ -70,8 +70,12 @@ def validate_b2_shape(grant):
 def operation(grant, case, name, args):
     validate(grant,case)
     from . import follow_up
-    if grant.get('contract') == follow_up.CONTRACT and name == 'follow_up':
+    if follow_up.supported(grant) and name == 'follow_up':
         follow_up.arguments(grant,args)
+        return
+    if name=='inspect_context':
+        from .context_inspection import arguments
+        arguments(grant,args)
         return
     if name!='show_evidence' or set(args)!={'evidence_id'} or args['evidence_id'] not in grant['evidence_ids']:
         raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
@@ -92,5 +96,5 @@ def record_scope(db,grant,eid,*,start=None,end=None):
     # Same bounded timestamp eligibility as assessment handoff; no timezone inference.
     stamps=db.execute('SELECT timestamp_utc FROM evidence_timestamps WHERE evidence_id=? ORDER BY slot LIMIT 32',(eid,))
     low,high=time_ns(required_time(start or grant['start'])),time_ns(required_time(end or grant['end']))
-    from .follow_up import CONTRACT as FOLLOW_UP
-    if not any(r[0] and low<=time_ns(required_time(r[0])) and (time_ns(required_time(r[0]))<high if grant.get('contract')==FOLLOW_UP else time_ns(required_time(r[0]))<=high) for r in stamps):raise ValueError('ADDITIONAL_SCOPE_REQUIRED')
+    from .follow_up import supported
+    if not any(r[0] and low<=time_ns(required_time(r[0])) and (time_ns(required_time(r[0]))<high if supported(grant) else time_ns(required_time(r[0]))<=high) for r in stamps):raise ValueError('ADDITIONAL_SCOPE_REQUIRED')

@@ -31,9 +31,17 @@ INSTRUCTION = ('You may instead return action tool, tool follow_up, arguments ev
                'Return final to record observations for this batch; propose follow_up only when it can answer a concrete unresolved question.')
 
 
+def supported(grant):
+    from .context_inspection import CONTRACT as CONTEXT
+    return grant.get('contract') in (CONTRACT,CONTEXT)
+
+
 def shape(grant):
-    if (grant.get('contract') != CONTRACT or grant.get('follow_up') != LIMITS
-            or grant.get('tools') != ['show_evidence', 'follow_up']
+    from .context_inspection import CONTRACT as CONTEXT, LIMITS as CONTEXT_LIMITS
+    contextual=grant.get('contract')==CONTEXT
+    if contextual and grant.get('context_inspection')!=CONTEXT_LIMITS:raise ValueError('AUTHORIZATION_INVALID')
+    if (not supported(grant) or grant.get('follow_up') != LIMITS
+            or grant.get('tools') != (['show_evidence','follow_up','inspect_context'] if contextual else ['show_evidence','follow_up'])
             or not grant.get('families') or not set(grant['families']) <= set(FAMILIES)
             or grant.get('provider') != 'openai' or not grant.get('source_ids')
             or grant.get('limits') != dict(requests=6, steps=8, seconds=300, records=200,
@@ -41,16 +49,22 @@ def shape(grant):
         raise ValueError('AUTHORIZATION_INVALID')
 
 
-def schema():
+def schema(contextual=False):
     result = contracts.schema([])
     result['oneOf'].insert(0, deepcopy(TOOL))
+    if contextual:
+        from .context_inspection import TOOL as CONTEXT_TOOL
+        result['oneOf'].insert(0,deepcopy(CONTEXT_TOOL))
     return result
 
 
-def parse(raw):
+def parse(raw,contextual=False):
     value = contracts.loads(raw)
     if isinstance(value, dict) and value.get('action') == 'tool':
-        contracts.validate(value, TOOL)
+        if contextual and value.get('tool')=='inspect_context':
+            from .context_inspection import TOOL as CONTEXT_TOOL
+            contracts.validate(value,CONTEXT_TOOL)
+        else:contracts.validate(value, TOOL)
         return value
     return contracts.request(raw, [])
 
@@ -197,17 +211,22 @@ def validate_journal(manifest, events):
     """Validate recorded scope/dispatch and disclosure; never renew the grant."""
     grant = manifest['authorization']; shape(grant)
     exposure = None; pending = None; searches = []; calls = 0; requests = 0; records = {}; active = None
-    ready = False; outstanding = False
+    ready = False; outstanding = False; context_keys=set(); context_calls=0
     for event in events:
         kind, data = event['kind'], event['data']
         if kind == 'exposure':
             if outstanding or active is not None:raise ValueError('Invalid follow-up disclosure sequence')
             exposure = data['content'];ready = True
-        elif kind == 'follow_up_proposed':
+        elif kind in ('follow_up_proposed','context_proposed'):
             if not outstanding:raise ValueError('Unrequested follow-up proposal')
             outstanding = False
-            contracts.validate(data['proposal'], TOOL)
-            expected = proposed(grant, data['proposal']['arguments'], exposure)
+            if kind=='context_proposed':
+                from . import context_inspection as context
+                contracts.validate(data['proposal'],context.TOOL)
+                expected=context.proposed(grant,data['proposal']['arguments'],exposure)
+            else:
+                contracts.validate(data['proposal'], TOOL)
+                expected = proposed(grant, data['proposal']['arguments'], exposure)
             if data['scope'] != expected or data['disclosure_sha256'] != digest(exposure):
                 raise ValueError('Invalid follow-up origin')
             pending = data['proposal']['arguments']
@@ -220,6 +239,13 @@ def validate_journal(manifest, events):
                 key = digest(scope)
                 if key in searches or len(searches) >= 2: raise ValueError('Invalid follow-up allocation')
                 searches.append(key)
+            elif data['tool']=='inspect_context':
+                from . import context_inspection as context
+                if pending!=data['arguments']:raise ValueError('Unproposed context inspection')
+                context.proposed(grant,pending,exposure)
+                key=digest(pending)
+                if key in context_keys:raise ValueError('Duplicate context inspection')
+                context_keys.add(key);context_calls+=1
             elif data['tool'] != 'show_evidence' or data['arguments'].get('evidence_id') not in grant['evidence_ids']:
                 raise ValueError('Invalid seed authorization')
             active = data
@@ -234,6 +260,10 @@ def validate_journal(manifest, events):
             if active['tool'] == 'follow_up':
                 validate_result(grant, result, scope)
                 pending = None
+            if active['tool']=='inspect_context':
+                from . import context_inspection as context
+                context.validate_result(grant,active['arguments'],result)
+                pending=None
             records.update((r['id'], r) for r in result['records'])
             if len(records)>18:raise ValueError('Invalid follow-up record allocation')
             active = None
@@ -248,6 +278,8 @@ def validate_journal(manifest, events):
         elif kind == 'terminal':
             if data['metrics']['ai_requests'] != requests or data['state']['accepted_calls'] != calls:
                 raise ValueError('Invalid follow-up terminal accounting')
+            if 'context_inspections' in data.get('follow_up',{}) and data['follow_up']['context_inspections']!=context_calls:
+                raise ValueError('Invalid context accounting')
 
 
 def render(result, palette):
@@ -260,16 +292,20 @@ def render(result, palette):
         f"Evidence disclosed: {stats['records_disclosed']} records",
         f"Evidence in accepted findings: {stats['records_examined']} records",
         f"Follow-up searches: {stats['executed']} executed / {stats['proposed']} proposed",
+        f"Context inspections: {stats.get('context_inspections',0)}",
         'Artifact families retrieved: '+', '.join(result['state'].get('inspected_artifact_families', [])),
         '', palette('heading', 'Investigative observations')]
+    qualifications=[]
     for row in result['findings'].get('observed', []):
         label, is_time = field_label(row)
         value = text(row['reported_value'])
         lines.extend(['  '+label+': '+palette('value', timestamp_text(value) if is_time else safe(value)),
                       '    Evidence: '+safe(', '.join(row['evidence_ids']))])
-        if row.get('qualifier'):lines.append('    '+palette('forensic_note',text(row['qualifier'])))
+        if row.get('qualifier'):qualifications.append(text(row['qualifier']))
         if row.get('truncated_fields') or row.get('coverage_notes'):
-            lines.append('    '+palette('forensic_note','Bounded record projection; some fields are truncated or omitted.'))
+            qualifications.append('Bounded record projection; some fields are truncated or omitted.')
+    if qualifications:
+        lines+=['',palette('heading','Observation qualifications')]+['  '+palette('forensic_note',q) for q in dict.fromkeys(qualifications)]
     for title,key in [('Deterministic interpretations — derived','interpretations'),
                       ('Evidence-backed relationships','deterministically_correlated'),
                       ('Corroborated evidence','corroborated'),
@@ -290,7 +326,7 @@ def render(result, palette):
             lines.extend('    Alternative: '+text(v) for v in row['alternatives'])
             lines.append('    Evidence: '+text(', '.join(row['evidence_ids'])))
     lines += ['', palette('heading', 'Unresolved questions')]
-    lines += ['  '+text(q) for q in result['findings'].get('model_proposed_unknowns', [])]
+    lines += ['  '+text(q) for q in concise_questions(result['findings'].get('model_proposed_unknowns', []))]
     if not result['findings'].get('model_proposed_unknowns'):lines.append('  '+palette('unknown','No validated answer to the overall question; coverage remains partial.'))
     lines += ['', palette('heading', 'Coverage limitations')]
     lines += ['  '+palette('forensic_note', text(note)) for note in result['limitations']]
@@ -305,3 +341,13 @@ def render(result, palette):
     lines += ['  Termination: '+palette('error' if failure else 'warning',safe(result['termination'])),
               '  Next suggested action: review recorded scope and omitted evidence before authorizing further work.']
     return '\n'.join(lines)
+
+
+def concise_questions(questions):
+    """Presentation-only conservative near-duplicate grouping; history is intact."""
+    result=[];seen=[]
+    for q in questions:
+        tokens=set(re.findall(r"[\w]+",q.casefold()))-{'the','a','an','is','are','was','were','what','which','please','can','we'}
+        if tokens in seen:continue
+        seen.append(tokens);result.append(q)
+    return result

@@ -132,6 +132,10 @@ def serve():
                                 elif op == 'briefing_search' and config.get('_briefing_initial'):
                                     from forensic_assistant.briefing import execute_query
                                     result = execute_query(db, request['arguments'], cross=bool(config.get('_briefing_all')))
+                                elif op == 'inspect_context' and grant is not None:
+                                    from forensic_assistant.investigation_ai import context_inspection
+                                    if request['arguments']['evidence_id'] not in request['known_ids']:raise ValueError('CONTEXT_RECORD_NOT_DISCLOSED')
+                                    result=context_inspection.inspect(db,grant,request['arguments'],follow_records)
                                 elif op == 'follow_up' and grant is not None:
                                     from forensic_assistant.investigation_ai import follow_up
                                     from forensic_assistant.investigation_ai.transcript import digest
@@ -151,7 +155,8 @@ def serve():
                                         {**tool_config, 'known_ids': request['known_ids']},
                                         model
                                     )
-                            if grant is not None and grant.get('contract')=='investigation-temporal-follow-up-v1':
+                            from forensic_assistant.investigation_ai.follow_up import supported
+                            if grant is not None and supported(grant):
                                 for record in result.get('records',[]):
                                     follow_records[record['id']]=record
                                 if len(follow_records)>18:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')

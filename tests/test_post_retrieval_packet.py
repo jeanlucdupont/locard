@@ -134,7 +134,7 @@ def test_mandatory_evidence_cannot_fit_without_value_truncation():
     from forensic_assistant.investigation_ai.failure_diagnostics import PacketFailure
     s=State(Budget());s.compact_final=True;s.finalization_requested=True
     r=row('evtx',5)
-    for key in ('timestamps','event_id','original_event_data'):r.pop(key,None)
+    for key in ('timestamps','event_id','original_event_data','provider','channel'):r.pop(key,None)
     r['command_line']='sensitive-value '*1000
     s.ingest(envelope([r]));original=deepcopy(s.records)
     with pytest.raises(PacketFailure,match='PROMPT_BUDGET_EXHAUSTED'):
