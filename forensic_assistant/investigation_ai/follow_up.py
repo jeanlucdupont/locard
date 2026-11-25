@@ -144,7 +144,7 @@ def validate_result(grant, result, plan):
             raise ValueError('Follow-up eligibility timestamp not retained')
 
 
-def _search(db, grant, args, records, *, deadline=None):
+def _search(db, grant, args, records, *, deadline=None, trace=None):
     """Indexed bounded two-sided scan; authorize metadata before record content.
 
     Candidate entries are timestamp observations, not total matching records.
@@ -154,41 +154,55 @@ def _search(db, grant, args, records, *, deadline=None):
     from . import autonomous_policy as policy
     from .tools import envelope, compact
     from forensic_assistant.retrieval.evidence import get_evidence
-    plan = record_window(grant, args, records)
+    from .worker_diagnostics import Trace
+    trace = trace or Trace()
+    with trace.at('ANCHOR_RESOLUTION'):
+        plan = record_window(grant, args, records)
     anchor = plan['anchor']; candidates = []
     started = time.monotonic(); complete = True
     for before in (True, False):
         clause = 't.timestamp_utc < ?' if before else 't.timestamp_utc >= ?'
         order = 'DESC' if before else 'ASC'
-        rows = db.execute('SELECT t.timestamp_utc,t.evidence_id,t.slot FROM evidence_timestamps t INDEXED BY artifact_time '
-            'CROSS JOIN evidence_records e ON e.evidence_id=t.evidence_id '
-            'WHERE t.timestamp_utc>=? AND t.timestamp_utc<? AND '+clause+' AND e.source_type=? '
-            'ORDER BY t.timestamp_utc '+order+',t.evidence_id '+order+',t.slot '+order+' LIMIT 501',
-            (plan['start'], plan['end'], anchor, args['family'])).fetchall()
+        with trace.at('TIMESTAMP_QUERY'):
+            rows = db.execute('SELECT t.timestamp_utc,t.evidence_id,t.slot FROM evidence_timestamps t INDEXED BY artifact_time '
+                'CROSS JOIN evidence_records e ON e.evidence_id=t.evidence_id '
+                'WHERE t.timestamp_utc>=? AND t.timestamp_utc<? AND '+clause+' AND e.source_type=? '
+                'ORDER BY t.timestamp_utc '+order+',t.evidence_id '+order+',t.slot '+order+' LIMIT 501',
+                (plan['start'], plan['end'], anchor, args['family'])).fetchall()
         complete &= len(rows) <= 500
         candidates.extend(tuple(row) for row in rows[:500])
-    candidates.sort(key=lambda r: (abs(time_ns(required_time(r[0]))-time_ns(anchor)), r[0], r[1], r[2]))
+        trace.counts['candidates_fetched']=len(candidates)
+    with trace.at('CANDIDATE_ORDERING'):
+        candidates.sort(key=lambda r: (abs(time_ns(required_time(r[0]))-time_ns(anchor)), r[0], r[1], r[2]))
     chosen = []; seen = set(records); evaluated = 0
     for stamp, eid, slot in candidates:
         if time.monotonic() >= (deadline if deadline is not None else started+LIMITS['search_seconds']):
             complete = False; break
         evaluated += 1
+        trace.counts['candidates_examined']=evaluated
         if eid in seen: continue
         seen.add(eid)
         try:
-            policy.record_scope(db, grant, eid, start=plan['start'], end=plan['end'])
+            with trace.at('SOURCE_SCOPE_VALIDATION'):
+                policy.record_scope(db, grant, eid, start=plan['start'], end=plan['end'])
         except ValueError as exc:
             if str(exc) != 'ADDITIONAL_SCOPE_REQUIRED': raise
+            trace.counts['source_excluded']+=1
             continue
-        chosen.append(get_evidence(db, eid))
+        with trace.at('EVIDENCE_HYDRATION'):
+            chosen.append(get_evidence(db, eid))
         if len(chosen) == 3:
             complete &= evaluated == len(candidates)
             break
     # Build the envelope empty: its ordinary relationship-support expansion must
     # not fetch additional records outside this search's independently checked IDs.
-    result = envelope(db, 'follow_up', dict(records=[], truncated=not complete,
-        limits=['Temporal neighbors are not causal or execution evidence. Previously retrieved records are excluded.']), limit=3)
-    result['records'] = [compact(record) for record in chosen]
+    with trace.at('EVIDENCE_PROJECTION'):
+        result = envelope(db, 'follow_up', dict(records=[], truncated=not complete,
+            limits=['Temporal neighbors are not causal or execution evidence. Previously retrieved records are excluded.']), limit=3)
+        result['records'] = []
+        for record in chosen:
+            result['records'].append(compact(record))
+            trace.counts['records_projected']+=1
     result['returned_count'] = len(result['records'])
     result['relationships'] = []; result['detections'] = []
     result['truncated'] = not complete
@@ -196,18 +210,26 @@ def _search(db, grant, args, records, *, deadline=None):
         fetched_candidates=len(candidates), candidate_limit=1000, complete=complete,
         returned_ids=[r['id'] for r in result['records']], prior_records_excluded=True,
         limitation='Bounded temporal sample only; empty or incomplete results do not establish case-wide absence.')
-    validate_result(grant, result, plan)
+    with trace.at('SEARCH_RESULT_VALIDATION'):
+        validate_result(grant, result, plan)
     return result
 
 
-def search(db, grant, args, records, *, deadline=None):
+def search(db, grant, args, records, *, deadline=None, trace=None):
     # One absolute parent deadline; reserve 100ms inside it for failure delivery.
     # No asynchronous interrupt thread can race a subsequent read-view operation.
     end=min(time.monotonic()+LIMITS['search_seconds'],deadline if deadline is not None else float('inf'))
     query_end=end-.1 if deadline is not None else end
-    db.set_progress_handler(lambda: int(time.monotonic()>=query_end),1000)
-    try:return _search(db,grant,args,records,deadline=query_end)
-    finally:db.set_progress_handler(None,0)
+    from .worker_diagnostics import Trace
+    trace=trace or Trace()
+    with trace.at('PROGRESS_HANDLER_SETUP'):
+        db.set_progress_handler(lambda: int(time.monotonic()>=query_end),1000)
+    try:
+        with trace.at('SEARCH_EXECUTION'):
+            return _search(db,grant,args,records,deadline=query_end,trace=trace)
+    finally:
+        with trace.at('PROGRESS_HANDLER_RESTORATION'):
+            db.set_progress_handler(None,0)
 
 
 def validate_journal(manifest, events):
@@ -400,6 +422,9 @@ def render(result, palette):
         if detail.get('worker'):
             worker=detail['worker']
             lines.append('  Worker: '+worker['category']+'; phase: '+worker['phase']+'; deadline exceeded: '+str(worker['deadline_exceeded']))
+            if worker['contract']=='worker-failure-v2':
+                lines.append('  Location: '+worker['location']+'; exception: '+worker['exception_class'])
+                lines.append('  Search counts: '+', '.join(k+'='+str(v) for k,v in worker['counts'].items()))
     if result.get('packet_capacity'):
         d=result['packet_capacity']
         from .packet_capacity import validate as validate_capacity

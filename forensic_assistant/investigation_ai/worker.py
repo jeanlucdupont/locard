@@ -40,6 +40,8 @@ def serve():
             response = {}
             profile = None
             phase = 'worker_start'
+            from forensic_assistant.investigation_ai.worker_diagnostics import Trace
+            trace = Trace()
             try:
                 request = json.loads(line)
                 if config is None:
@@ -51,12 +53,13 @@ def serve():
                     if grant is not None and op!='check':
                         phase = 'authorization_validation'
                         from forensic_assistant.investigation_ai import autonomous_policy
-                        autonomous_policy.validate(grant,config['case_path'])
-                        if op!='initial':
-                            autonomous_policy.operation(grant,config['case_path'],op,request['arguments'])
-                            autonomous_calls+=1
-                            if (autonomous_calls-1)%6==0:batch_searches=0
-                            if autonomous_calls>grant['limits']['tool_calls']:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
+                        with trace.at('WORKER_AUTHORIZATION'):
+                            autonomous_policy.validate(grant,config['case_path'])
+                            if op!='initial':
+                                autonomous_policy.operation(grant,config['case_path'],op,request['arguments'])
+                                autonomous_calls+=1
+                                if (autonomous_calls-1)%6==0:batch_searches=0
+                                if autonomous_calls>grant['limits']['tool_calls']:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
                     if config.get('_briefing_initial') and op not in ('initial','briefing_search','check'):
                         raise ValueError('Operation outside approved briefing discovery surface')
                     def emit(value):
@@ -143,18 +146,21 @@ def serve():
                                 elif op == 'follow_up' and grant is not None:
                                     from forensic_assistant.investigation_ai import follow_up
                                     from forensic_assistant.investigation_ai.transcript import digest
-                                    plan=follow_up.record_window(grant,request['arguments'],follow_records)
-                                    key=digest(plan)
-                                    from forensic_assistant.investigation_ai.extended import enabled
-                                    if enabled(grant) and batch_searches>=2:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
-                                    if key in follow_searches or len(follow_searches)>=grant['follow_up']['searches']:
-                                        raise ValueError('FOLLOW_UP_BUDGET_OR_DUPLICATE')
-                                    follow_searches.add(key)
-                                    batch_searches+=1
+                                    with trace.at('ANCHOR_RESOLUTION'):
+                                        plan=follow_up.record_window(grant,request['arguments'],follow_records)
+                                    with trace.at('SEARCH_DEDUPLICATION'):
+                                        key=digest(plan)
+                                        from forensic_assistant.investigation_ai.extended import enabled
+                                        if enabled(grant) and batch_searches>=2:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
+                                        if key in follow_searches or len(follow_searches)>=grant['follow_up']['searches']:
+                                            raise ValueError('FOLLOW_UP_BUDGET_OR_DUPLICATE')
+                                        follow_searches.add(key)
+                                        batch_searches+=1
                                     with profile.phase('temporal_search'):
-                                        try:result=follow_up.search(db,grant,request['arguments'],follow_records,deadline=profile.deadline)
+                                        try:result=follow_up.search(db,grant,request['arguments'],follow_records,deadline=profile.deadline,trace=trace)
                                         finally:
-                                            if pinned:view.deadline(profile.deadline)
+                                            with trace.at('PROGRESS_HANDLER_RESTORATION'):
+                                                if pinned:view.deadline(profile.deadline)
                                 else:
                                     if grant is not None:
                                         autonomous_policy.dispatch(db,grant,config['case_path'],op,request['arguments'])
@@ -192,21 +198,30 @@ def serve():
             except Exception as exc:
                 from forensic_assistant.investigation_ai.worker_diagnostics import classify
                 exceeded=bool(profile and time.monotonic() >= profile.deadline-(.1 if profile.current=='temporal_search' else 0))
-                diagnostic=classify(exc,profile.current if profile else phase,exceeded)
+                diagnostic=classify(exc,profile.current if profile else phase,exceeded,trace)
                 safe_codes={'ADDITIONAL_SCOPE_REQUIRED','AUTHORIZATION_INVALID','AUTHORIZATION_EXPIRED','AUTHORIZATION_CASE_CHANGED','FOLLOW_UP_BUDGET_OR_DUPLICATE','FOLLOW_UP_ANCHOR_NOT_RETRIEVED','FOLLOW_UP_ANCHOR_OUTSIDE_WINDOW','RESOURCE_BUDGET_EXHAUSTED','CONTEXT_DUPLICATE'}
                 safe_error=str(exc) if type(exc) is ValueError and str(exc) in safe_codes else 'EVIDENCE_STATE_CHANGED' if str(exc).startswith('EVIDENCE_STATE_CHANGED') else diagnostic['category']
                 response = {
                     'error': safe_error,
                     'worker_diagnostic':diagnostic,
-                    'error_type': type(exc).__name__,
+                    'error_type': diagnostic['exception_class'],
                     'stage': profile.current if profile else phase,
                     'timed_out': exceeded,
                     **({'integrity': dict(integrity)} if view is not None else {}),
                     'elapsed_seconds': time.monotonic() - started
                 }
-            raw = json.dumps(response, ensure_ascii=True, separators=(',', ':')).encode()
+            try:
+                with trace.at('WORKER_RESPONSE_SERIALIZATION'):
+                    raw = json.dumps(response, ensure_ascii=True, separators=(',', ':')).encode()
+            except Exception as exc:
+                from forensic_assistant.investigation_ai.worker_diagnostics import classify
+                diagnostic=classify(exc,profile.current if profile else phase,False,trace)
+                raw=json.dumps(dict(error='WORKER_PROTOCOL_ERROR',worker_diagnostic={**diagnostic,'category':'WORKER_PROTOCOL_ERROR'})).encode()
             if len(raw) > MAX_MESSAGE:
-                raw = b'{"error":"Worker result exceeded byte budget","error_type":"ResourceLimit"}'
+                from forensic_assistant.investigation_ai.worker_diagnostics import classify
+                trace.location='WORKER_RESPONSE_SERIALIZATION'
+                diagnostic=classify(ValueError('Worker result exceeded byte budget'),profile.current if profile else phase,False,trace)
+                raw=json.dumps(dict(error='WORKER_PROTOCOL_ERROR',worker_diagnostic={**diagnostic,'category':'WORKER_PROTOCOL_ERROR'})).encode()
             sys.stdout.buffer.write(raw + b'\n')
             sys.stdout.buffer.flush()
     finally:

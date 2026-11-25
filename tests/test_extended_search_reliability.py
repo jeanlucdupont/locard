@@ -22,11 +22,16 @@ def scripted_child(connection, gate, request):
         def complete(self,messages,schema=None):
             self.calls+=1
             packet=json.loads(messages[1]['content'])['UNTRUSTED FORENSIC EVIDENCE']
-            if self.calls in (1,2,7):
-                target=request['config']['_test_seed'] if self.calls==7 else None
+            extra=request['config'].get('_test_extra_context',False)
+            third=9 if extra else 7
+            if extra and self.calls in (7,8):
+                eid=request['config']['_test_seed']
+                return json.dumps(dict(action='tool',tool='inspect_context',arguments=dict(evidence_id=eid,category='event' if self.calls==7 else 'actor'),reason='Inspect additional distinct context'))
+            if self.calls in (1,2,third):
+                target=request['config']['_test_seed'] if self.calls==third else None
                 candidates=[(r['id'],v[1],v[2]) for r in packet['records'] for v in r['observations'] if v[1] in ('/timestamps/0/utc','/timestamp_utc') and (target is None or r['id']==target)]
                 eid,field,_=max(candidates,key=lambda row:row[2])
-                return json.dumps(dict(action='tool',tool='follow_up',arguments=dict(evidence_id=eid,field=field,family='evtx'),reason='Inspect authorized temporal neighbors'))
+                return json.dumps(dict(action='tool',tool='follow_up',arguments=dict(evidence_id=eid,field=field,family=request['config'].get('_test_family','evtx') if self.calls==third else 'evtx'),reason='Inspect authorized temporal neighbors'))
             if self.calls in (3,4,5):
                 if self.context_id is None:self.context_id=packet['records'][0]['id']
                 return json.dumps(dict(action='tool',tool='inspect_context',arguments=dict(evidence_id=self.context_id,category=['actor','object','process'][self.calls-3]),reason='Inspect distinct original context'))

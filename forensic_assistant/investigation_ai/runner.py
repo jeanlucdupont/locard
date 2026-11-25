@@ -99,7 +99,7 @@ class ForensicWorker:
             return 0
 
     def _exchange(self, message, seconds):
-        from .worker_diagnostics import detail,validate as validate_worker
+        from .worker_diagnostics import detail,protocol_detail,validate as validate_worker
         if not self.process or self.process.poll() is not None:
             from .worker_diagnostics import detail
             raise WorkerError('Worker unavailable',diagnostic=detail('WORKER_UNAVAILABLE',self.stage))
@@ -126,10 +126,10 @@ class ForensicWorker:
                     if self.process.poll() is not None:
                         raise WorkerError('Worker terminated abnormally',diagnostic=detail('WORKER_UNAVAILABLE',self.stage))
                     continue
-                if not isinstance(result,dict):raise WorkerError('Malformed worker output',diagnostic=detail('WORKER_PROTOCOL_ERROR',self.stage))
+                if not isinstance(result,dict):raise WorkerError('Malformed worker output',diagnostic=protocol_detail(self.stage))
                 if 'startup_diagnostic' in result:
                     try:record(result['startup_diagnostic'])
-                    except (ValueError,TypeError):raise WorkerError('Malformed worker phase',diagnostic=detail('WORKER_PROTOCOL_ERROR',self.stage)) from None
+                    except (ValueError,TypeError):raise WorkerError('Malformed worker phase',diagnostic=protocol_detail(self.stage)) from None
                     self.stage = result['startup_diagnostic']['stage']
                     if self.status and result['startup_diagnostic']['event'] == 'start':
                         self.status(self.stage)
@@ -143,12 +143,12 @@ class ForensicWorker:
                     diagnostic=result.get('worker_diagnostic')
                     if diagnostic is not None:
                         try:validate_worker(diagnostic)
-                        except ValueError:raise WorkerError('Malformed worker diagnostic',diagnostic=detail('WORKER_PROTOCOL_ERROR',stage)) from None
+                        except ValueError:raise WorkerError('Malformed worker diagnostic',diagnostic=protocol_detail(stage)) from None
                     else:diagnostic=detail('WORKER_PROTOCOL_ERROR' if result['error'] in ('Malformed worker output','Worker output size violation','Worker result exceeded byte budget') else 'WORKER_INTERNAL_ERROR',stage,timeout)
                     raise WorkerError(result['error'], stage=stage, timed_out=timeout,
                                       integrity=result.get('integrity'),diagnostic=diagnostic)
                 if message.get('operation') and not isinstance(result.get('result'),dict):
-                    raise WorkerError('Malformed worker result',diagnostic=detail('WORKER_PROTOCOL_ERROR',self.stage))
+                    raise WorkerError('Malformed worker result',diagnostic=protocol_detail(self.stage))
                 return result
         except (BrokenPipeError, OSError) as exc:
             try:
