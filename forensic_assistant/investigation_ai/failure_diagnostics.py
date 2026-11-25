@@ -48,7 +48,7 @@ def validate(value):
     if (type(value) is not dict or set(value)!=set(COUNTS)|{'contract','code','phase','operation'}
             or value['contract']!='investigation-failure-v1' or value['code'] not in CODES
             or value['phase'] not in PHASES or value['operation'] not in ('initial','show_evidence','follow_up','inspect_context')
-            or any(type(value[k]) is not int or not 0<=value[k]<=5600 for k in COUNTS)):
+            or any(type(value[k]) is not int or not 0<=value[k]<=(24576 if k=='prompt_byte_limit' else 5600) for k in COUNTS)):
         raise ValueError('Invalid recorded investigation diagnostic')
 
 

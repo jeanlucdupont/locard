@@ -61,8 +61,9 @@ def prepare(handoff, assessment, client, *, decompose=False, synthesize=False,fo
     if follow_up:
         from . import follow_up as follow
         from . import context_inspection as context
-        grant.update(contract=context.CONTRACT,tools=['show_evidence','follow_up','inspect_context'],
+        grant.update(contract=context.CAPACITY_CONTRACT,tools=['show_evidence','follow_up','inspect_context'],
                      follow_up=deepcopy(follow.LIMITS),context_inspection=deepcopy(context.LIMITS))
+        grant['limits']['prompt_bytes']=context.INPUT_BYTES
         if grant.get('selection'):grant['families']=grant['selection']['eligible_families']
     return grant,hints
 
@@ -117,7 +118,7 @@ def merge_findings(deltas):
 def packet(state,question,previous,current_id,follow=False,current_ids=(),search_context=None,*,completed_context=None,final_analysis=False):
     from .failure_diagnostics import PacketFailure
     try:
-        result=_packet_once(state,question,previous,current_id,follow,current_ids,search_context,completed_context=completed_context,final_analysis=final_analysis)
+        result=_packet_once(state,question,previous,current_id,follow,current_ids,search_context,completed_context=completed_context,final_analysis=final_analysis,minimal=state.budget.prompt_ceiling==24576)
         if not state.prompt_diagnostics.get('prior_support_fields_omitted'):return result
     except PacketFailure as exc:
         if exc.code!='PROMPT_BUDGET_EXHAUSTED':raise
@@ -151,6 +152,7 @@ def _packet_once(state,question,previous,current_id,follow=False,current_ids=(),
     if completed_context is not None:
         from . import progress
         context['completed_context']=progress.ledger(completed_context)
+        if state.budget.prompt_ceiling==24576:context['completed_context']=progress.summary(context['completed_context'],state.accepted,(search_context or {}).get('searches_remaining',0),final_analysis)
         context['batch_instruction']+=progress.INSTRUCTION
     if final_analysis:
         context['batch_instruction']='Return final with grounded observations or explicit insufficient evidence. No tools are available. Do not invent findings.'
@@ -160,7 +162,15 @@ def _packet_once(state,question,previous,current_id,follow=False,current_ids=(),
         transport=len(instruct([{'role':'system','content':''}])[0]['content'].encode())+180
     overhead=len(encoded(context).encode())+80+transport
     original=state.budget;records=state.records
-    if overhead>=original.prompt_bytes:raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
+    state.packet_capacity=None
+    if overhead>=original.prompt_bytes:
+        from .state import SYSTEM
+        from . import packet_capacity
+        dummy=[{'role':'system','content':SYSTEM},{'role':'user','content':encoded({'controller':{'objective':question},'incremental':context,
+            'UNTRUSTED FORENSIC EVIDENCE':{'records':[]}})}]
+        n=sum(len(m['content'].encode()) for m in (instruct(dummy) if follow else dummy))
+        state.packet_capacity=packet_capacity.measure(dummy,follow,original.prompt_bytes,n,0,0,cause='overhead')
+        raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
     prior_ids=[r['evidence_ids'][0] for r in previous.get('observed',[])]+[i['evidence_ids'][0] for i in previous.get('interpretations',[])]
     prior_fields=[(r['evidence_ids'][0],r['field'],r['reported_value']) for r in previous.get('observed',[])]
     selected={current_id,*current_ids,*prior_ids}
@@ -170,24 +180,41 @@ def _packet_once(state,question,previous,current_id,follow=False,current_ids=(),
     state.budget=replace(original,prompt_bytes=original.prompt_bytes-overhead)
     try:
         try:messages,exposure,_=state.prompt(question,[],[],required_id=current_id,prior_fields=prior_fields)
-        except PacketFailure:raise
+        except PacketFailure:
+            if getattr(state,'minimum_messages',None):
+                from . import packet_capacity
+                minimum=deepcopy(state.minimum_messages)
+                minimal_body=json.loads(minimum[1]['content']);minimal_body['incremental']=context
+                minimum[1]['content']=encoded(minimal_body)
+                required=sum(len(m['content'].encode()) for m in (instruct(minimum) if follow else minimum))
+                state.packet_capacity=packet_capacity.measure(minimum,follow,original.prompt_bytes,required,1,0,cause='mandatory_evidence' if required>original.prompt_bytes else 'overhead')
+            raise
         except ValueError as exc:
             code='PROMPT_BUDGET_EXHAUSTED' if str(exc)=='Prompt exceeds byte budget' else 'EVIDENCE_PACKET_VALIDATION_FAILED'
             raise PacketFailure(code) from exc
     finally:state.budget=original;state.records=records
-    if completed_context is not None:context['completed_context']=progress.ledger(completed_context,exposure)
+    if completed_context is not None:
+        full_ledger=progress.ledger(completed_context,exposure)
+        context['completed_context']=progress.summary(full_ledger,state.accepted,(search_context or {}).get('searches_remaining',0),final_analysis) if original.prompt_ceiling==24576 else full_ledger
     body=json.loads(messages[1]['content']);body['incremental']=context
     if follow:
         body['controller'].update(final_only=False,tools=(['follow_up','inspect_context'] if search_context and search_context.get('contextual') else ['follow_up']),calls_remaining=max(0,6-state.accepted))
     if final_analysis:body['controller'].update(final_only=True,tools=[],calls_remaining=0)
     messages[1]['content']=encoded(body)
     size=sum(len(m['content'].encode()) for m in (instruct(messages) if follow else messages))
-    if size>5600:raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
+    if size>original.prompt_bytes:raise PacketFailure('PROMPT_BUDGET_EXHAUSTED')
     # Earlier supports must be explicitly re-disclosed, never trusted from summaries.
     if current_id not in {g['id'] for g in exposure['records']}:raise PacketFailure('CURRENT_RECORD_NOT_DISCLOSED')
     state.prompt_diagnostics['prompt_bytes']=size
     state.prompt_diagnostics['optional_context_omitted']=minimal
-    state.operation_ledger=context.get('completed_context')
+    state.operation_ledger=full_ledger if completed_context is not None else None
+    state.progress_summary=context.get('completed_context')
+    from . import packet_capacity
+    minimum=deepcopy(state.minimum_messages)
+    minimum_body=json.loads(minimum[1]['content']);minimum_body['incremental']=context
+    minimum[1]['content']=encoded(minimum_body)
+    required=sum(len(m['content'].encode()) for m in (instruct(minimum) if follow else minimum))
+    state.packet_capacity=packet_capacity.measure(messages,follow,original.prompt_bytes,required,1,state.prompt_diagnostics['omitted_candidate_fields'])
     return messages,exposure,size
 
 
@@ -206,7 +233,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     from . import follow_up as follow
     discovery = follow.supported(grant)
     from . import context_inspection as context
-    contextual=grant['contract']==context.CONTRACT
+    contextual=context.supported(grant)
     b2 = grant['contract'] == policy.B2_CONTRACT
     if config.get('_live_explanation',False) and not b2:
         raise ValueError('Live explanation requires the S4-B2 workflow')
@@ -225,8 +252,10 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         policy.validate(grant,config['case_path'])
     if dry_run or approval is not None or question!=grant['objective']:raise ValueError('Invalid Stage A invocation')
     if client is None or client.provider_name!=grant['provider'] or client.model_name!=grant['model']:raise ValueError('PROVIDER_SCOPE_CHANGED')
-    budget=budget or Budget()
-    if budget!=Budget():raise ValueError('Stage A uses the approved fixed limits')
+    from .state import recorded_budget
+    expected_budget=recorded_budget({'authorization':grant})
+    budget=budget or expected_budget
+    if budget!=expected_budget:raise ValueError('Stage A uses the approved fixed limits')
     if b2:budget=replace(budget,steps=10)
     deadline=min(config.get('_deadline',float('inf')),config.get('_stage_a_deadline',float('inf')),time.monotonic()+300)
     if b2:
@@ -350,7 +379,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
             if discovery and len(disclosed_ids|{g['id'] for g in exposure['records']})>18:raise ValueError('RESOURCE_BUDGET_EXHAUSTED')
             operation_phase='exposure_persistence'
             transcript.append('exposure',dict(content=exposure,prompt_bytes=size,prompt_sha256=digest(messages),
-                **({'operation_ledger':state.operation_ledger,'analysis_only':final_analysis} if contextual else {}),
+                **({'operation_ledger':state.operation_ledger,'analysis_only':final_analysis,**({'progress_summary':state.progress_summary,'packet_capacity':state.packet_capacity} if budget.prompt_ceiling==24576 else {})} if contextual else {}),
                 allocation={k:state.prompt_diagnostics[k] for k in ('disclosed_records','compact_observations','compact_interpretations',
                     'omitted_candidate_fields','omitted_candidate_records','omitted_candidate_interpretations','prior_support_fields_omitted','optional_context_omitted')}))
             operation_phase='disclosure_validation'
@@ -465,7 +494,8 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
         stop=classify(exc,operation_phase)
         failure_diagnostic=diagnostic(stop,operation_phase,operation,state,len(deltas),requests)
         error_type=type(exc).__name__ if type(exc).__name__ in ('ValueError','OSError','TypeError','KeyError','RuntimeError','WorkerError','PacketFailure','LLMError') else 'Exception'
-        transcript.append('stopped',dict(reason=stop,error_type=error_type,diagnostic=failure_diagnostic))
+        transcript.append('stopped',dict(reason=stop,error_type=error_type,diagnostic=failure_diagnostic,
+            **({'packet_capacity':state.packet_capacity} if operation_phase=='packet_preparation' and getattr(state,'packet_capacity',None) else {})))
         activity.event('TOOL_REJECTED','failure',required=True,investigation_id=identity,tool=operation,reason=stop)
     finally:
         primary_stop=stop
@@ -505,7 +535,9 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
                 'Coverage remains partial; termination: '+stop+'. See disclosure omissions and validation history.')
         result['limitations'][1]=('Bounded EVTX context inspection and temporal follow-up' if contextual else 'Temporal follow-up')+' only: at most two searches, three records each; candidate, time and disclosure limits apply. No filename/path pivots. Omitted records were not assessed.'
         result['limitations'].append('Searches cover bounded neighborhoods, not the entire approved window; proximity does not establish causality or successful execution.')
-    if failure_diagnostic is not None:result['failure_diagnostic']=failure_diagnostic
+    if failure_diagnostic is not None:
+        result['failure_diagnostic']=failure_diagnostic
+        if failure_diagnostic['phase']=='packet_preparation' and getattr(state,'packet_capacity',None):result['packet_capacity']=state.packet_capacity
     result['controller_diagnostic']={'observer':'controller','elapsed_seconds':round(time.monotonic()-controller_started,6),
         'termination':stop,'worker_close_returned':worker is not None and stop!='CLEANUP_LIMITATION',
         'parent_cleanup_confirmation':'unavailable_in_child_journal'}
@@ -571,7 +603,8 @@ def _replay(manifest, events, identity, *, _on_validated=None):
     from . import follow_up
     if follow_up.supported(manifest.get('authorization',{})):
         follow_up.validate_journal(manifest,events)
-    state=State(Budget());deltas=[];exposure=None
+    from .state import recorded_budget
+    state=State(recorded_budget(manifest));deltas=[];exposure=None
     for event in events:
         d=event['data']
         from .failure_diagnostics import validate as validate_diagnostic

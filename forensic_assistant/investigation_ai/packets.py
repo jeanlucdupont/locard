@@ -113,7 +113,13 @@ def _rehydrate(clause, ctx, meter):
     record = lineage = None
     for entry in sorted(clause['lineage'], key=encoded):
         meter.check()
-        if (entry.get('projection_contract') != disclosure.CONTRACT or entry.get('projection_encoding') != 'tuples-v1'
+        from .context_inspection import CAPACITY_CONTRACT as GRANT
+        allowed=(disclosure.CONTRACT,)
+        if grant.get('contract')==GRANT:
+            from .follow_up import shape
+            shape(grant)
+            allowed=(disclosure.CONTRACT,disclosure.CAPACITY_CONTRACT)
+        if (entry.get('projection_contract') not in allowed or entry.get('projection_encoding') != 'tuples-v1'
                 or entry.get('origin') not in ('current', 'retained')):
             raise ValueError('Unsupported original projection contract')
         if _lineage_key(entry) not in ctx.accepted:

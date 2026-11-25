@@ -72,7 +72,9 @@ def execute(case, identity, question=None, *, read, start=None, end=None, autono
                 print('  5600 prompt bytes and 1024 output tokens per request. No retries or allocation transfers.',file=stream)
                 print('  Proposed meaning remains unverified; scoped answers do not certify the original question answered.',file=stream)
             else:
-                print('  Limits: 6 AI requests, 6 lookups, 8 steps, 5 minutes; 5600 prompt bytes and 1024 output tokens per request.',file=stream)
+                print('  Limits: 6 AI requests, 6 lookups, 8 steps, 5 minutes; '+str(grant['limits']['prompt_bytes'])+' input-content bytes and 1024 output tokens per request.',file=stream)
+                if grant['limits']['prompt_bytes']>5600:
+                    print('  Up to 147456 input-content bytes over 6 OpenAI requests; larger disclosures may increase token charges.',file=stream)
             print('  View established after approval; expires after 5 minutes. No restart continuation or automatic scope expansion.',file=stream)
             if live_explanation:
                 print('  Local explanation persistence enabled; no additional model requests or evidence lookups.',file=stream)

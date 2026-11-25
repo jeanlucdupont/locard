@@ -37,7 +37,8 @@ def open_history(root, identity):
     manifest, events = _read(root, identity)
     anchor = _anchor(manifest, events)
     facts = s1._Reducer(recorded_view=s1.validate_evidence_state(manifest.get('evidence_state')))
-    retained = State(Budget())
+    from .state import recorded_budget
+    retained = State(recorded_budget(manifest))
     accepted = set()
     def consume(state, delta, exposure):
         nonlocal retained

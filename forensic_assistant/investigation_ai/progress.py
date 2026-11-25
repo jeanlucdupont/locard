@@ -48,3 +48,15 @@ def families(ids):
 def continuation(pending,requests,calls):
     # A new authorized seed lookup, never a repeat model request over the same batch.
     return min(pending) if pending and requests<6 and calls<6 else None
+
+
+def summary(ledger, calls, searches, final_only=False):
+    """Model-facing completion status; full ordinal accounting stays local."""
+    rows=[]
+    for eid,category,retrieved,disclosed,partial,slots,ordinals in ledger['rows']:
+        status='empty' if not retrieved else 'omitted' if not disclosed else 'partial' if disclosed<retrieved or partial else 'disclosed'
+        rows.append([eid,category,status])
+    return dict(contract='context-progress-summary-v1',completed=rows,repeat=False,
+                remaining_calls=0 if final_only else max(0,6-calls),
+                remaining_searches=0 if final_only else max(0,searches),
+                other_categories=[] if final_only else ['event','actor','object','process'])

@@ -213,8 +213,14 @@ def load(root, investigation_id):
             if event['sequence'] != i or event['previous'] != chain or digest(event) != stored:
                 raise ValueError('Transcript integrity check failed')
             if event['kind'] == 'exposure' and 'contract' in event['data'].get('content', {}):
-                from .disclosure import CONTRACT
-                if (event['data']['content']['contract'] != CONTRACT
+                from .disclosure import CONTRACT,CAPACITY_CONTRACT
+                from .context_inspection import CAPACITY_CONTRACT as GRANT
+                allowed=(CONTRACT,)
+                if manifest.get('authorization',{}).get('contract')==GRANT:
+                    from .follow_up import shape
+                    shape(manifest['authorization'])
+                    allowed=(CONTRACT,CAPACITY_CONTRACT)
+                if (event['data']['content']['contract'] not in allowed
                         or event['data']['content'].get('encoding') != 'tuples-v1'):
                     raise ValueError('Unsupported disclosure contract')
             chain = stored

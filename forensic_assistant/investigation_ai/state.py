@@ -1,6 +1,7 @@
 """Bounded state, actual model exposure, and controller-owned finding rendering."""
 from copy import deepcopy
 from dataclasses import dataclass, asdict
+from typing import ClassVar
 import json
 from .contracts import FINAL, TOOLS, validate
 
@@ -9,6 +10,7 @@ def encoded(value):
 
 @dataclass(frozen=True)
 class Budget:
+    prompt_ceiling: ClassVar[int] = 5600
     steps: int = 8
     calls: int = 6
     seconds: int = 300
@@ -26,12 +28,31 @@ class Budget:
             rejections=3,
             semantic=2,
             records=200,
-            prompt_bytes=5600,
+            prompt_bytes=self.prompt_ceiling,
             tool_seconds=45
         )
         for key, value in asdict(self).items():
             if type(value) is not int or not 1 <= value <= ceilings[key]:
                 raise ValueError('Invalid investigation budget: ' + key)
+
+@dataclass(frozen=True)
+class ContextBudget(Budget):
+    """Only selected after exact v2 grant validation; not a new CLI budget."""
+    prompt_ceiling: ClassVar[int] = 24576
+    prompt_bytes: int = 24576
+
+
+def recorded_budget(manifest):
+    from .context_inspection import CAPACITY_CONTRACT
+    from .follow_up import shape
+    grant=manifest.get('authorization',{})
+    if grant.get('contract')==CAPACITY_CONTRACT:
+        shape(grant)
+        if 'budgets' in manifest and manifest['budgets'].get('prompt_bytes')!=24576:
+            raise ValueError('Recorded budget does not match authorization')
+        return ContextBudget()
+    return Budget()
+
 
 def fields(value, prefix='', *, include_metadata=False):
     """Eligible scalar pointers; include_metadata is for visibility diagnostics only."""

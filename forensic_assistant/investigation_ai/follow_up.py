@@ -32,20 +32,20 @@ INSTRUCTION = ('You may instead return action tool, tool follow_up, arguments ev
 
 
 def supported(grant):
-    from .context_inspection import CONTRACT as CONTEXT
-    return grant.get('contract') in (CONTRACT,CONTEXT)
+    from .context_inspection import CONTRACT as CONTEXT, CAPACITY_CONTRACT
+    return grant.get('contract') in (CONTRACT,CONTEXT,CAPACITY_CONTRACT)
 
 
 def shape(grant):
-    from .context_inspection import CONTRACT as CONTEXT, LIMITS as CONTEXT_LIMITS
-    contextual=grant.get('contract')==CONTEXT
+    from .context_inspection import CONTRACT as CONTEXT, LIMITS as CONTEXT_LIMITS, CAPACITY_CONTRACT, INPUT_BYTES
+    contextual=grant.get('contract') in (CONTEXT,CAPACITY_CONTRACT)
     if contextual and grant.get('context_inspection')!=CONTEXT_LIMITS:raise ValueError('AUTHORIZATION_INVALID')
     if (not supported(grant) or grant.get('follow_up') != LIMITS
             or grant.get('tools') != (['show_evidence','follow_up','inspect_context'] if contextual else ['show_evidence','follow_up'])
             or not grant.get('families') or not set(grant['families']) <= set(FAMILIES)
             or grant.get('provider') != 'openai' or not grant.get('source_ids')
             or grant.get('limits') != dict(requests=6, steps=8, seconds=300, records=200,
-                prompt_bytes=5600, tool_calls=6, tool_seconds=45, output_tokens=1024)):
+                prompt_bytes=INPUT_BYTES if grant.get('contract')==CAPACITY_CONTRACT else 5600, tool_calls=6, tool_seconds=45, output_tokens=1024)):
         raise ValueError('AUTHORIZATION_INVALID')
 
 
@@ -220,12 +220,19 @@ def validate_journal(manifest, events):
         kind, data = event['kind'], event['data']
         if kind == 'exposure':
             if outstanding or active is not None:raise ValueError('Invalid follow-up disclosure sequence')
+            if type(data.get('prompt_bytes')) is not int or not 0<data['prompt_bytes']<=grant['limits']['prompt_bytes']:raise ValueError('Recorded prompt exceeds grant')
             exposure = data['content'];ready = True
             if modern:
                 if data.get('operation_ledger')!=progress.ledger(completed,exposure):raise ValueError('Invalid operation ledger')
                 analysis_only=requests>=5 or calls>=6 or continued
                 continued=False
                 if type(data.get('analysis_only')) is not bool or data['analysis_only']!=analysis_only:raise ValueError('Invalid final-analysis allocation')
+                from .context_inspection import CAPACITY_CONTRACT
+                if grant['contract']==CAPACITY_CONTRACT:
+                    from . import packet_capacity
+                    if data.get('progress_summary')!=progress.summary(data['operation_ledger'],calls,2-len(searches),analysis_only):raise ValueError('Invalid model progress summary')
+                    packet_capacity.validate(data.get('packet_capacity'),grant['limits']['prompt_bytes'])
+                    if data['packet_capacity']['actual_bytes']!=data['prompt_bytes'] or data['packet_capacity']['evidence_bytes']!=packet_capacity.size(exposure) or data['packet_capacity']['ledger_bytes']!=packet_capacity.size(data['progress_summary']):raise ValueError('Invalid packet capacity accounting')
         elif kind in ('follow_up_proposed','context_proposed'):
             if not outstanding or analysis_only:raise ValueError('Unrequested follow-up proposal')
             outstanding = False
@@ -303,7 +310,13 @@ def validate_journal(manifest, events):
             if not outstanding:raise ValueError('Unrequested follow-up analysis decision')
             outstanding = False
             if kind=='validated_delta':finding_ids.update(eid for row in data['findings']['observed']+data['findings']['interpretations'] for eid in row['evidence_ids'])
+        elif kind=='stopped' and 'packet_capacity' in data:
+            from .packet_capacity import validate as validate_capacity
+            validate_capacity(data['packet_capacity'],grant['limits']['prompt_bytes'])
         elif kind == 'terminal':
+            if 'packet_capacity' in data:
+                from .packet_capacity import validate as validate_capacity
+                validate_capacity(data['packet_capacity'],grant['limits']['prompt_bytes'])
             if data['metrics']['ai_requests'] != requests or data['state']['accepted_calls'] != calls:
                 raise ValueError('Invalid follow-up terminal accounting')
             if modern:
@@ -376,6 +389,11 @@ def render(result, palette):
         from .failure_diagnostics import validate as validate_diagnostic
         detail=result['failure_diagnostic'];validate_diagnostic(detail)
         lines.append('  Phase: '+detail['phase']+'; operation: '+detail['operation']+'; code: '+detail['code'])
+    if result.get('packet_capacity'):
+        d=result['packet_capacity']
+        from .packet_capacity import validate as validate_capacity
+        validate_capacity(d,d['ceiling'])
+        lines.append('  Disclosure capacity: '+d['cause'].replace('_',' ')+'; required packet '+str(d['required_bytes'])+' bytes / '+str(d['ceiling'])+' authorized. No grounded analysis was produced for this packet.')
     failure=result['termination'] in ('EVIDENCE_PACKET_VALIDATION_FAILED','WORKER_FAILURE','INTERNAL_FAILURE','AUDIT_OR_PERSISTENCE_FAILURE','OPERATION_FAILURE','PROVIDER_FAILURE','VALIDATION_FAILURE','READ_VIEW_INCONSISTENT','INTEGRITY_UNCONFIRMED','CLEANUP_LIMITATION')
     lines += ['  Termination: '+palette('error' if failure else 'warning',safe(result['termination'])),
               '  Next suggested action: review recorded scope and omitted evidence before authorizing further work.']

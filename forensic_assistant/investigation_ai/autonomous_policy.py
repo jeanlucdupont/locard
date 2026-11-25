@@ -23,7 +23,7 @@ def validate(grant, case):
     from . import follow_up
     if follow_up.supported(grant):
         follow_up.shape(grant)
-        grant = {**grant, 'contract': CONTRACT, 'tools':['show_evidence']}
+        grant = {**grant, 'contract': CONTRACT, 'tools':['show_evidence'], 'limits':{**grant['limits'],'prompt_bytes':5600}}
     if grant.get('contract') == B2_CONTRACT:
         validate_b2_shape(grant)
         grant = {**grant, 'contract': CONTRACT, 'limits': {**grant['limits'], 'requests':6, 'steps':8}}
