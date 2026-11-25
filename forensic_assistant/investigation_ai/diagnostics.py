@@ -9,7 +9,7 @@ PHASES = frozenset(('budget_validation','authorization_validation', 'handoff_val
                     'database_open', 'schema_validation', 'fingerprint',
                     'snapshot_creation', 'semantic_fingerprint', 'view_validation', 'read_transaction', 'initial_retrieval', 'inventory', 'source_hydration',
                     'initial_operation', 'exposure', 'pre_model', 'supervisor_start',
-                    'model_request', 'tool', 'validation', 'final_fingerprint', 'finalization'))
+                    'model_request', 'tool', 'temporal_search', 'validation', 'final_fingerprint', 'finalization'))
 
 
 def record(value):

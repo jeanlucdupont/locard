@@ -11,10 +11,11 @@ import time
 from .diagnostics import record, PHASES, LOG
 
 class WorkerError(ValueError):
-    def __init__(self, message, *, stage=None, timed_out=False, integrity=None):
+    def __init__(self, message, *, stage=None, timed_out=False, integrity=None, diagnostic=None):
         super().__init__(message)
         self.stage, self.timed_out = stage, timed_out
         self.integrity = integrity
+        self.diagnostic = diagnostic
 
 class ForensicWorker:
     worker_script = Path(__file__).with_name('worker.py')
@@ -23,7 +24,8 @@ class ForensicWorker:
         self.status = config.pop('_status', None)
         self.deadline = config.get('_deadline', float('inf'))
         if time.monotonic() >= self.deadline:
-            raise WorkerError('INVESTIGATION_TIMEOUT')
+            from .worker_diagnostics import detail
+            raise WorkerError('INVESTIGATION_TIMEOUT',timed_out=True,diagnostic=detail('PARENT_WORKER_TIMEOUT','worker_start',True))
         for key in ('index_root', 'model_path'):
             if config.get(key):
                 config[key] = str(Path(config[key]).resolve())
@@ -76,6 +78,9 @@ class ForensicWorker:
         try:
             ready = self._exchange({'config': {**config, 'case_path': str(self.case_path)}},
                                    max(0, self.deadline - time.monotonic()) if self.deadline != float('inf') else 10)
+            if type(ready.get('worker_pid')) is not int or ready['worker_pid']<=0:
+                from .worker_diagnostics import detail
+                raise WorkerError('Malformed worker readiness',diagnostic=detail('WORKER_PROTOCOL_ERROR','worker_start'))
             self.worker_pid = ready['worker_pid']
             from .lifecycle import WorkerJob
             self.job = WorkerJob(self.worker_pid)
@@ -94,30 +99,37 @@ class ForensicWorker:
             return 0
 
     def _exchange(self, message, seconds):
+        from .worker_diagnostics import detail,validate as validate_worker
         if not self.process or self.process.poll() is not None:
-            raise WorkerError('Worker unavailable')
+            from .worker_diagnostics import detail
+            raise WorkerError('Worker unavailable',diagnostic=detail('WORKER_UNAVAILABLE',self.stage))
+        deadline = min(self.deadline, time.monotonic() + seconds)
+        if message.get('operation')=='follow_up':
+            deadline=min(deadline,time.monotonic()+5)
+            message={**message,'_operation_deadline':deadline}
         raw = json.dumps(message, ensure_ascii=True).encode() + b'\n'
         if len(raw) > 512 * 1024:
-            raise WorkerError('Worker input size violation')
+            raise WorkerError('Worker input size violation',diagnostic=detail('WORKER_PROTOCOL_ERROR',self.stage))
         baseline = self._wal_size() if self._wal_baseline is None else self._wal_baseline
-        deadline = min(self.deadline, time.monotonic() + seconds)
         try:
             self.process.stdin.write(raw)
             self.process.stdin.flush()
             while True:
                 if time.monotonic() >= deadline:
                     LOG.debug('investigate-ai watchdog=operation stage=%s remaining=%.6fs', self.stage, max(0, self.deadline-time.monotonic()))
-                    raise WorkerError('TOOL_TIMEOUT', stage=self.stage, timed_out=True)
+                    raise WorkerError('TOOL_TIMEOUT', stage=self.stage, timed_out=True,diagnostic=detail('PARENT_WORKER_TIMEOUT',self.stage,True))
                 if self._wal_size() - baseline > 64 * 1024 * 1024:
-                    raise WorkerError('WAL_PRESSURE')
+                    raise WorkerError('WAL_PRESSURE',diagnostic=detail('DATABASE_READ_VIEW_FAILURE',self.stage))
                 try:
                     result = self.messages.get(timeout=min(.05, max(.001, deadline - time.monotonic())))
                 except queue.Empty:
                     if self.process.poll() is not None:
-                        raise WorkerError('Worker terminated abnormally')
+                        raise WorkerError('Worker terminated abnormally',diagnostic=detail('WORKER_UNAVAILABLE',self.stage))
                     continue
+                if not isinstance(result,dict):raise WorkerError('Malformed worker output',diagnostic=detail('WORKER_PROTOCOL_ERROR',self.stage))
                 if 'startup_diagnostic' in result:
-                    record(result['startup_diagnostic'])
+                    try:record(result['startup_diagnostic'])
+                    except (ValueError,TypeError):raise WorkerError('Malformed worker phase',diagnostic=detail('WORKER_PROTOCOL_ERROR',self.stage)) from None
                     self.stage = result['startup_diagnostic']['stage']
                     if self.status and result['startup_diagnostic']['event'] == 'start':
                         self.status(self.stage)
@@ -128,8 +140,15 @@ class ForensicWorker:
                     timeout = result.get('timed_out') is True
                     LOG.debug('investigate-ai worker failure stage=%s category=%s watchdog=operation remaining=%.6fs',
                               stage, 'timeout' if timeout else 'failure', max(0, deadline-time.monotonic()))
+                    diagnostic=result.get('worker_diagnostic')
+                    if diagnostic is not None:
+                        try:validate_worker(diagnostic)
+                        except ValueError:raise WorkerError('Malformed worker diagnostic',diagnostic=detail('WORKER_PROTOCOL_ERROR',stage)) from None
+                    else:diagnostic=detail('WORKER_PROTOCOL_ERROR' if result['error'] in ('Malformed worker output','Worker output size violation','Worker result exceeded byte budget') else 'WORKER_INTERNAL_ERROR',stage,timeout)
                     raise WorkerError(result['error'], stage=stage, timed_out=timeout,
-                                      integrity=result.get('integrity'))
+                                      integrity=result.get('integrity'),diagnostic=diagnostic)
+                if message.get('operation') and not isinstance(result.get('result'),dict):
+                    raise WorkerError('Malformed worker result',diagnostic=detail('WORKER_PROTOCOL_ERROR',self.stage))
                 return result
         except (BrokenPipeError, OSError) as exc:
             try:
@@ -137,7 +156,7 @@ class ForensicWorker:
             except RuntimeError as cleanup:
                 cleanup.primary = 'TOOL_FAILURE'
                 raise
-            raise WorkerError('Worker communication failed') from exc
+            raise WorkerError('Worker communication failed',diagnostic=detail('WORKER_UNAVAILABLE',self.stage)) from exc
         except WorkerError as exc:
             if str(exc) in ('TOOL_TIMEOUT', 'WAL_PRESSURE'):
                 try:

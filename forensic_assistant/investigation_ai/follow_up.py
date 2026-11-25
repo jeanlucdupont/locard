@@ -144,7 +144,7 @@ def validate_result(grant, result, plan):
             raise ValueError('Follow-up eligibility timestamp not retained')
 
 
-def _search(db, grant, args, records):
+def _search(db, grant, args, records, *, deadline=None):
     """Indexed bounded two-sided scan; authorize metadata before record content.
 
     Candidate entries are timestamp observations, not total matching records.
@@ -170,7 +170,7 @@ def _search(db, grant, args, records):
     candidates.sort(key=lambda r: (abs(time_ns(required_time(r[0]))-time_ns(anchor)), r[0], r[1], r[2]))
     chosen = []; seen = set(records); evaluated = 0
     for stamp, eid, slot in candidates:
-        if time.monotonic()-started >= LIMITS['search_seconds']:
+        if time.monotonic() >= (deadline if deadline is not None else started+LIMITS['search_seconds']):
             complete = False; break
         evaluated += 1
         if eid in seen: continue
@@ -200,12 +200,14 @@ def _search(db, grant, args, records):
     return result
 
 
-def search(db, grant, args, records):
-    import threading
-    timer=threading.Timer(LIMITS['search_seconds'],db.interrupt)
-    timer.daemon=True;timer.start()
-    try:return _search(db,grant,args,records)
-    finally:timer.cancel();timer.join()
+def search(db, grant, args, records, *, deadline=None):
+    # One absolute parent deadline; reserve 100ms inside it for failure delivery.
+    # No asynchronous interrupt thread can race a subsequent read-view operation.
+    end=min(time.monotonic()+LIMITS['search_seconds'],deadline if deadline is not None else float('inf'))
+    query_end=end-.1 if deadline is not None else end
+    db.set_progress_handler(lambda: int(time.monotonic()>=query_end),1000)
+    try:return _search(db,grant,args,records,deadline=query_end)
+    finally:db.set_progress_handler(None,0)
 
 
 def validate_journal(manifest, events):
@@ -395,6 +397,9 @@ def render(result, palette):
         from .failure_diagnostics import validate as validate_diagnostic
         detail=result['failure_diagnostic'];validate_diagnostic(detail)
         lines.append('  Phase: '+detail['phase']+'; operation: '+detail['operation']+'; code: '+detail['code'])
+        if detail.get('worker'):
+            worker=detail['worker']
+            lines.append('  Worker: '+worker['category']+'; phase: '+worker['phase']+'; deadline exceeded: '+str(worker['deadline_exceeded']))
     if result.get('packet_capacity'):
         d=result['packet_capacity']
         from .packet_capacity import validate as validate_capacity

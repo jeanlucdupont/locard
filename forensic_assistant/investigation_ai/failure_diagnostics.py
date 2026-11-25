@@ -36,16 +36,23 @@ def classify(exc, phase):
     return 'INTERNAL_FAILURE'
 
 
-def diagnostic(code, phase, operation, state, batches, attempts):
+def diagnostic(code, phase, operation, state, batches, attempts, *, worker=None):
     value = dict(contract='investigation-failure-v1', code=code, phase=phase,
         operation=operation, retrieved_records=len(state.records), accepted_batches=batches,
         model_attempts=attempts, tool_calls=state.accepted, prompt_byte_limit=state.budget.prompt_bytes)
+    if worker is not None:
+        from .worker_diagnostics import validate as validate_worker
+        validate_worker(worker)
+        value['worker']=worker
     validate(value)
     return value
 
 
 def validate(value):
-    if (type(value) is not dict or set(value)!=set(COUNTS)|{'contract','code','phase','operation'}
+    if isinstance(value,dict) and 'worker' in value:
+        from .worker_diagnostics import validate as validate_worker
+        validate_worker(value['worker'])
+    if (type(value) is not dict or set(value)-{'worker'}!=set(COUNTS)|{'contract','code','phase','operation'}
             or value['contract']!='investigation-failure-v1' or value['code'] not in CODES
             or value['phase'] not in PHASES or value['operation'] not in ('initial','show_evidence','follow_up','inspect_context')
             or any(type(value[k]) is not int or not 0<=value[k]<=(24576 if k=='prompt_byte_limit' else 5600) for k in COUNTS)):

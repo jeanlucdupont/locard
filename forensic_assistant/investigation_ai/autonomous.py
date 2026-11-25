@@ -10,7 +10,7 @@ import uuid
 from . import contracts, disclosure, autonomous_policy as policy
 from .state import State, Budget, encoded
 from .transcript import Transcript, digest, load, validate_evidence_state
-from .runner import ForensicWorker
+from .runner import ForensicWorker, WorkerError
 from .narrative import build
 
 ENGINE='incremental-stage-a-v1'
@@ -528,7 +528,7 @@ def run(config,question,root,*,budget=None,client=None,dry_run=False,approval=No
     except Exception as exc:
         from .failure_diagnostics import classify,diagnostic
         stop=classify(exc,operation_phase)
-        failure_diagnostic=diagnostic(stop,operation_phase,operation,state,len(deltas),requests)
+        failure_diagnostic=diagnostic(stop,operation_phase,operation,state,len(deltas),requests,worker=exc.diagnostic if isinstance(exc,WorkerError) else None)
         error_type=type(exc).__name__ if type(exc).__name__ in ('ValueError','OSError','TypeError','KeyError','RuntimeError','WorkerError','PacketFailure','LLMError') else 'Exception'
         transcript.append('stopped',dict(reason=stop,error_type=error_type,diagnostic=failure_diagnostic,
             **({'packet_capacity':state.packet_capacity} if operation_phase=='packet_preparation' and getattr(state,'packet_capacity',None) else {})))

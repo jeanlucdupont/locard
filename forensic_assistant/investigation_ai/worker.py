@@ -39,6 +39,7 @@ def serve():
             started = time.monotonic()
             response = {}
             profile = None
+            phase = 'worker_start'
             try:
                 request = json.loads(line)
                 if config is None:
@@ -48,6 +49,7 @@ def serve():
                     op = request['operation']
                     grant=config.get('_stage_a')
                     if grant is not None and op!='check':
+                        phase = 'authorization_validation'
                         from forensic_assistant.investigation_ai import autonomous_policy
                         autonomous_policy.validate(grant,config['case_path'])
                         if op!='initial':
@@ -60,7 +62,7 @@ def serve():
                     def emit(value):
                         protocol.write(json.dumps({'startup_diagnostic': value}).encode() + b'\n')
                         protocol.flush()
-                    profile = Profile(started + request['seconds'], emit, request.get('_deadline') or config.get('_deadline'))
+                    profile = Profile(min(started + request['seconds'],request.get('_operation_deadline',float('inf'))), emit, request.get('_deadline') or config.get('_deadline'))
                     with profile.phase('semantic_setup'):
                         # A pinned generation cannot change underneath the investigation.
                         if config.get('semantic_enabled'):
@@ -149,7 +151,10 @@ def serve():
                                         raise ValueError('FOLLOW_UP_BUDGET_OR_DUPLICATE')
                                     follow_searches.add(key)
                                     batch_searches+=1
-                                    result=follow_up.search(db,grant,request['arguments'],follow_records)
+                                    with profile.phase('temporal_search'):
+                                        try:result=follow_up.search(db,grant,request['arguments'],follow_records,deadline=profile.deadline)
+                                        finally:
+                                            if pinned:view.deadline(profile.deadline)
                                 else:
                                     if grant is not None:
                                         autonomous_policy.dispatch(db,grant,config['case_path'],op,request['arguments'])
@@ -185,11 +190,17 @@ def serve():
                         if not pinned:
                             db.close()
             except Exception as exc:
+                from forensic_assistant.investigation_ai.worker_diagnostics import classify
+                exceeded=bool(profile and time.monotonic() >= profile.deadline-(.1 if profile.current=='temporal_search' else 0))
+                diagnostic=classify(exc,profile.current if profile else phase,exceeded)
+                safe_codes={'ADDITIONAL_SCOPE_REQUIRED','AUTHORIZATION_INVALID','AUTHORIZATION_EXPIRED','AUTHORIZATION_CASE_CHANGED','FOLLOW_UP_BUDGET_OR_DUPLICATE','FOLLOW_UP_ANCHOR_NOT_RETRIEVED','FOLLOW_UP_ANCHOR_OUTSIDE_WINDOW','RESOURCE_BUDGET_EXHAUSTED','CONTEXT_DUPLICATE'}
+                safe_error=str(exc) if type(exc) is ValueError and str(exc) in safe_codes else 'EVIDENCE_STATE_CHANGED' if str(exc).startswith('EVIDENCE_STATE_CHANGED') else diagnostic['category']
                 response = {
-                    'error': str(exc)[:1000],
+                    'error': safe_error,
+                    'worker_diagnostic':diagnostic,
                     'error_type': type(exc).__name__,
-                    'stage': profile.current if profile else 'worker_start',
-                    'timed_out': bool(profile and time.monotonic() >= profile.deadline),
+                    'stage': profile.current if profile else phase,
+                    'timed_out': exceeded,
                     **({'integrity': dict(integrity)} if view is not None else {}),
                     'elapsed_seconds': time.monotonic() - started
                 }
