@@ -23,6 +23,8 @@ class Activity:
         self.event('completed' if kind is None else 'interrupted' if kind is KeyboardInterrupt else 'failed')
 
 def description(name,args):
+    if name=='discover_security_signals':return 'Discovering security signals within the approved scope'
+    if name=='activity_overview':return 'Summarizing '+args.get('kind','approved activity').replace('_',' ')
     family=args.get('artifact','approved')
     if name=='search_evidence':return f'Searching {family} evidence within the approved time window'
     if name in ('timeline','around'):return f'Retrieving {family} timestamp observations'

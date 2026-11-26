@@ -91,6 +91,20 @@ class Tools:
 
     def execute(self,name,args):
         arguments(name,args);check(self.scope,self.scope['case'])
+        if name in ('discover_security_signals','activity_overview'):
+            from forensic_assistant.detections.discovery import Discovery,OVERVIEWS
+            query=dict(args);sid=self.source(query);query.pop('source_id',None)
+            start=required_time(query.pop('start',self.scope['start']));end=required_time(query.pop('end',self.scope['end']))
+            if not self.scope['start']<=start<end<=self.scope['end']:raise ValueError('Discovery cannot expand approved time interval')
+            family='evtx' if name=='discover_security_signals' else OVERVIEWS[query['kind']]
+            if family not in self.scope['families']:raise ValueError('Artifact outside scope')
+            service=Discovery(self.db,sid,start,end,hydrate=lambda eid:self.original(eid,known=False,_scoped=True))
+            result=(service.signals if name=='discover_security_signals' else service.overview)(**query,byte_limit=min(12000,self.scope['limits']['result_bytes']))
+            for item in result['records']:
+                eid=item['evidence_id'];self.known.add(eid)
+                for f in item.get('original_fields',[]):
+                    if not f['truncated'] and not f['redacted']:self.disclosed.setdefault(eid,{})[f['field']]=f['value']
+            return result
         if name=='show_evidence':return self.page(self.original(args['evidence_id']),args.get('offset',0),args.get('limit',40))
         if name=='verify_observation':
             eid=args['evidence_id'];pointer=args['field'];record=self.original(eid)

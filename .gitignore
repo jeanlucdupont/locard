@@ -298,3 +298,5 @@ report-bundles/
 !/docs/LOCARD_6_176_CONVERSATIONAL_RELIABILITY_AND_RESOURCES.md
 !/scripts/profile_retrieval.py
 !/docs/LOCARD_6_177_RETRIEVAL_PERFORMANCE_AND_RESILIENCE.md
+!/scripts/discover_security_signals.py
+!/docs/LOCARD_6_178_SECURITY_SIGNAL_DISCOVERY.md
