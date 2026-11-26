@@ -256,7 +256,7 @@ def collect(shell, *, adding=False):
                 roots = [supplied]
             elif mode == '2':
                 while True:
-                    kind = read('Artifact type [mft,registry,prefetch,evtx,browser; Enter finishes]: ').casefold()
+                    kind = read('Artifact type [mft,registry,prefetch,evtx,browser,defender; Enter finishes]: ').casefold()
                     if not kind:
                         break
                     source = discovery.input_path(path('Evidence file or folder: '))
@@ -438,7 +438,7 @@ def execute(plan, session, palette, *, totals=None, basis="guided case setup", i
                     source = discovery.candidate_path(item)
                     args = SimpleNamespace(command='ingest-' + kind, path=source, source=source_id,
                                            hostname=None, user=None, volume_root=None,
-                                           parser_timeout=mft_timeout if kind == 'mft' else 300, record_size=None)
+                                           parser_timeout=mft_timeout if kind == 'mft' else 900 if kind == 'defender' else 300, record_size=None)
                     if kind == 'browser':
                         args.browser, args.profile = browser_options[item.path]
                     with closing(creation.open_existing(plan.target)) as db:

@@ -41,7 +41,7 @@ def scope(db, values):
 def search(query, *, object_basename, artifact, start, end, limit=10, object_after=None, source_scope=None):
     from .evidence import get_evidence
     from forensic_assistant.correlation.models import time_ns
-    if artifact not in ('mft','prefetch','registry','browser') or not 1<=limit<=10:
+    if artifact not in ('mft','prefetch','registry','browser','defender') or not 1<=limit<=10:
         raise ValueError('Invalid object discovery scope')
     if not isinstance(object_basename,str) or not 1<=len(object_basename.encode())<=256 or any(c in object_basename for c in '/\\\x00'):
         raise ValueError('Invalid object basename')

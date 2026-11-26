@@ -5,7 +5,7 @@ import time
 from forensic_assistant.investigation_ai import contracts as c
 from forensic_assistant.retrieval.queries import required_time
 
-FAMILIES=('browser','evtx','mft','prefetch','registry')
+FAMILIES=('browser','evtx','mft','prefetch','registry','defender')
 # None is an absent analyst budget, never an artificially large integer.
 BUDGETS=('active_seconds','requests','operations','disclosure_bytes','tokens','records')
 DEFAULTS=dict(active_seconds=None,provider_seconds=180,tool_seconds=None,requests=None,operations=None,
@@ -21,7 +21,8 @@ def validate_limits(resources):
 
 STR=c.string
 FILTERS={k:STR(512) for k in ('hostname','username','process','path','registry_key','registry_key_contains',
-    'value_name','value_name_contains','ip','url','url_contains','download_path','object_basename')}
+    'value_name','value_name_contains','ip','url','url_contains','download_path','object_basename',
+    'defender_text','defender_category','defender_action','defender_rule','defender_signature','defender_pid','defender_group')}
 FILTERS.update(artifact=c.enumeration(*FAMILIES),event_id=c.integer(0,65535),browser_kind=c.enumeration('visit','download'),
     evtx_text=STR(256),evtx_match=c.enumeration('exact','contains'),evtx_after=STR(1024),object_after=STR(2048),
     source_id=STR(160),start=STR(80),end=STR(80),limit=c.integer(1,20),offset=c.integer(0,10000))
@@ -34,11 +35,11 @@ SCHEMAS={
  'note':c.obj(dict(kind=c.enumeration('hypothesis','interpretation','open_question','next_lead'),text=STR(2000),status=c.enumeration('active','revised','rejected','unresolved')),('kind','text','status')),
 }
 DISCOVERY_SCOPE=dict(source_id=STR(160),start=STR(80),end=STR(80),limit=c.integer(1,10),offset=c.integer(0,2147483647))
-SCHEMAS['discover_security_signals']=c.obj({**DISCOVERY_SCOPE,'category':c.enumeration('all','recorded','observations','heuristics'),'candidate_limit':c.integer(1,1000)},())
-SCHEMAS['activity_overview']=c.obj({**DISCOVERY_SCOPE,'kind':c.enumeration('event_distribution','process_images','browser_downloads','prefetch_executables')},('kind',))
+SCHEMAS['discover_security_signals']=c.obj({**DISCOVERY_SCOPE,'category':c.enumeration('all','recorded','observations','heuristics'),'candidate_limit':c.integer(1,1000),'artifact':c.enumeration('evtx','defender')},())
+SCHEMAS['activity_overview']=c.obj({**DISCOVERY_SCOPE,'kind':c.enumeration('event_distribution','process_images','browser_downloads','prefetch_executables','defender_groups')},('kind',))
 DESCRIPTIONS={
- 'discover_security_signals':'Discover provider/channel-qualified recorded security signals and safe Locard single-record heuristics within approval. Default 5 compact leads, priority then time. Not first-page chronological sampling. Inspect coverage and next_offset; continue pages or narrow category. No match under incomplete coverage is not absence. Blocks do not prove execution; audit is not blocking; remediation actions do not prove containment. Deferred rules are not evaluated. Inspect original evidence and verify fields.',
- 'activity_overview':'Scoped population summaries: event_distribution (provider/channel/Event ID), process_images, browser_downloads, prefetch_executables. Default 5 groups/records with next_offset. Exact group counts count retained records, not executions; examples are representatives only. Rare/common does not imply malicious/benign. Fields may be truncated. Use when signals are absent or inconclusive; broader exploration remains permitted.',
+ 'discover_security_signals':'Discover provider/channel-qualified recorded security signals and safe Locard single-record heuristics within approval. Select artifact=defender for grouped local Support telemetry (category/candidate_limit omitted); default EVTX. Default 5 compact leads, priority then time. Not first-page chronological sampling. Inspect coverage and next_offset; continue pages or narrow category. No match under incomplete coverage is not absence. Blocks do not prove execution; audit is not blocking; remediation actions do not prove containment. Deferred rules are not evaluated. Inspect original evidence and verify fields.',
+ 'activity_overview':'Scoped population summaries: event_distribution (provider/channel/Event ID), process_images, browser_downloads, prefetch_executables and defender_groups (whole-population counts, exact member filter). Default 5 groups/records with next_offset. Exact group counts count retained records, not executions; examples are representatives only. Rare/common does not imply malicious/benign. Fields may be truncated. Use when signals are absent or inconclusive; broader exploration remains permitted.',
  'search_evidence':'Search approved original evidence. Choose artifact; optional time narrows approval. process/path retain existing normalized semantics. object_basename is exact basename candidate discovery (not identity); only artifact, time, source, limit <=10 and object_after may accompany it. EVTX text is explicit literal original EventData search; use evtx_after, not offset. Both require <=24h windows. URL substring is case-sensitive. Results are bounded, not absence proof.',
  'timeline':'Chronological original timestamp observations; distinguish filesystem, browser and execution timestamp meanings. Paginate with offset.',
  'show_evidence':'Inspect a previously returned original evidence ID through pages of scalar JSON pointers. Preserve source/timestamp context; truncated values cannot be verified. Advance offset to next_offset.',

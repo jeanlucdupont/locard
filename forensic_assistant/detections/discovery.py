@@ -41,7 +41,7 @@ HEURISTIC_EVENTS=((SECURITY,'Security',4688),
     ('Microsoft-Windows-PowerShell','Microsoft-Windows-PowerShell/Operational',4103),
     ('Microsoft-Windows-PowerShell','Microsoft-Windows-PowerShell/Operational',4104))
 DEFERRED=('LOCARD-AUTH-001','LOCARD-X-001','LOCARD-X-002','LOCARD-X-003','LOCARD-X-004')
-OVERVIEWS={'event_distribution':'evtx','process_images':'evtx','browser_downloads':'browser','prefetch_executables':'prefetch'}
+OVERVIEWS={'event_distribution':'evtx','process_images':'evtx','browser_downloads':'browser','prefetch_executables':'prefetch','defender_groups':'defender'}
 LIMITATIONS=['Discovery is not proof of compromise or absence of an incident.',
     'Coverage concerns retained authorized records, not completeness of endpoint logging or ingestion.',
     'Recorded alerts, ordinary observations and Locard heuristics have different meanings.',
@@ -184,6 +184,9 @@ class Discovery:
     def overview(self,*,kind,limit=5,offset=0,byte_limit=12000):
         if kind not in OVERVIEWS or not 1<=limit<=10 or type(offset) is not int or offset<0:raise ValueError('Invalid overview')
         if byte_limit<4096:raise ValueError('Discovery response capacity too small')
+        if kind=='defender_groups':
+            from forensic_assistant.artifacts.defender_query import groups
+            return groups(self.db,self.source,self.start,self.end,limit=limit,offset=offset,byte_limit=byte_limit,hydrate=self.hydrate)
         result=self.base_result();result.update(contract='activity-overview-v1',overview=kind)
         if kind=='browser_downloads':
             from forensic_assistant.conversational_ai.tools import exclusive_end

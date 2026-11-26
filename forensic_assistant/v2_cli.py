@@ -11,7 +11,7 @@ from forensic_assistant.retrieval.presentation import safe
 
 
 def configure(commands):
-    for name in ('ingest-mft', 'ingest-prefetch', 'ingest-registry', 'ingest-all', 'ingest-evtx', 'ingest-browser'):
+    for name in ('ingest-mft', 'ingest-prefetch', 'ingest-registry', 'ingest-all', 'ingest-evtx', 'ingest-browser', 'ingest-defender'):
         p = commands.add_parser(name, help=COMMANDS[name])
         p.add_argument('path', help='File or directory path')
         if name == 'ingest-browser':
@@ -21,7 +21,7 @@ def configure(commands):
         p.add_argument('--user', help='Analyst-supplied source username')
         p.add_argument('--volume-root', help='Original volume root asserted by the analyst')
         p.add_argument('--parser-timeout', type=int, default=None,
-                       help='Seconds without progress: MFT default 900, EVTX 300; other artifacts wall-clock default 300')
+                       help='Seconds without progress: MFT/Defender default 900, EVTX 300; other artifacts wall-clock default 300')
         if name in ('ingest-evtx', 'ingest-all'):
             p.add_argument('--evtx-hard-timeout', type=int, default=21600,
                            help='EVTX emergency absolute ceiling in seconds (default: 21600)')
@@ -34,8 +34,10 @@ def configure(commands):
         p.add_argument('--json', action='store_true', help='Output as JSON')
     for name in ('search', 'timeline'):
         p = commands.choices[name]
-        p.add_argument('--artifact', choices=['evtx', 'mft', 'prefetch', 'registry', 'browser'], help='Artifact family filter')
+        p.add_argument('--artifact', choices=['evtx', 'mft', 'prefetch', 'registry', 'browser', 'defender'], help='Artifact family filter')
         p.add_argument('--path', help='Path filter')
+    for field in ('text','category','action','rule','signature','pid','group'):
+        commands.choices['search'].add_argument('--defender-'+field,help='Defender original text substring' if field=='text' else 'Exact Defender recorded '+field)
     for field in ('url', 'title', 'download-path'):
         group = commands.choices['search'].add_mutually_exclusive_group()
         group.add_argument('--' + field, help='Exact browser field match')
@@ -127,7 +129,7 @@ def _ingest_sources(db, args, progress=None):
         for path, kind in files:
             timeout = getattr(args, 'parser_timeout', None)
             if timeout is None:
-                timeout = 900 if kind == 'mft' else 300
+                timeout = 900 if kind in ('mft','defender') else 300
             mft_limits = dict(mft_startup_timeout=getattr(args, 'mft_startup_timeout', 60),
                               mft_hard_timeout=getattr(args, 'mft_hard_timeout', 21600)) if kind == 'mft' else {}
             with activity.mutation('INGEST', source_id=source_id, batch_id=batch_id,
@@ -229,6 +231,7 @@ def dispatch(db, args, *, presentation=None):
         filters = {k: getattr(args, k, None) for k in ('artifact', 'path', 'process', 'hostname', 'ip', 'event_id')}
         filters.update(username=args.user, limit=args.limit, offset=args.offset, raw=args.raw)
         if command == 'search':
+            filters.update({key:getattr(args,key,None) for key in ('defender_text','defender_category','defender_action','defender_rule','defender_signature','defender_pid','defender_group')})
             filters.update({key: getattr(args, key, None) for key in ('url', 'url_contains', 'title', 'title_contains', 'download_path', 'download_path_contains', 'browser', 'profile', 'browser_kind')})
             filters.update(registry_key=getattr(args, 'key', None), registry_key_contains=getattr(args, 'key_contains', None))
             filters.update(value_name=getattr(args, 'value_name', None), value_name_contains=getattr(args, 'value_name_contains', None))
@@ -362,7 +365,7 @@ def render(result, *, methodology=True, palette=None):
         return render_timeline(result)
     lines = ['UTC | EVIDENCE ID | SOURCE | ARTIFACT TYPE | TIMESTAMP MEANING | OBJECT / OBSERVATION']
     for r in result['records']:
-        obj = next((o['original'] for o in r.get('objects', []) if o['role'] not in ('parent_image',)), None)
+        obj = next((o['original'] for o in r.get('objects', []) if o['role'] not in ('parent_image',) and not o['role'].startswith('defender_')), None)
         from forensic_assistant.retrieval.presentation import detail
         observation = detail(r) if r['source_type'] == 'evtx' else obj or r.get('observation')
         values = (

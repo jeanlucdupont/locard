@@ -20,7 +20,7 @@ PATHS = {
     'status': ('case', 'status'),
     **{name: ('evidence', name) for name in ('search', 'show', 'timeline', 'around', 'semantic', 'source')},
     'dump': ('evidence', 'export'),
-    **{'ingest-'+kind: ('evidence', 'ingest', kind) for kind in ('all', 'browser', 'evtx', 'mft', 'prefetch', 'registry')},
+    **{'ingest-'+kind: ('evidence', 'ingest', kind) for kind in ('all', 'browser', 'evtx', 'mft', 'prefetch', 'registry', 'defender')},
     **{name: ('analyze', name) for name in ('logons', 'session', 'process-tree', 'detections')},
     'investigate': ('analyze', 'correlate'),
     'briefing': ('investigation', 'briefing'),

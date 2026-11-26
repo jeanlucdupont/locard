@@ -24,7 +24,7 @@ def meaning(record,pointer):
     if pointer.startswith('/timestamps/'):
         try:stamp=record['timestamps'][int(pointer.split('/')[2])]
         except (KeyError,IndexError,ValueError):return None
-        if pointer.endswith(('/timestamp_utc','/original')):return str(stamp.get('meaning') or stamp.get('source') or 'Unknown timestamp meaning')
+        if (pointer.endswith(('/timestamp_utc','/original')) or record['source_type']=='defender' and pointer.endswith('/original_value')):return str(stamp.get('meaning') or stamp.get('source') or 'Unknown timestamp meaning')
     if pointer=='/timestamp_utc':return 'EVTX SystemTime' if record['source_type']=='evtx' else 'Record summary timestamp; inspect individual timestamp observations'
     return None
 
@@ -96,10 +96,13 @@ class Tools:
             query=dict(args);sid=self.source(query);query.pop('source_id',None)
             start=required_time(query.pop('start',self.scope['start']));end=required_time(query.pop('end',self.scope['end']))
             if not self.scope['start']<=start<end<=self.scope['end']:raise ValueError('Discovery cannot expand approved time interval')
-            family='evtx' if name=='discover_security_signals' else OVERVIEWS[query['kind']]
+            family=query.pop('artifact','evtx') if name=='discover_security_signals' else OVERVIEWS[query['kind']]
+            if family=='defender' and name=='discover_security_signals':
+                if query.get('category','all')!='all' or 'candidate_limit' in query:raise ValueError('Defender groups use whole scoped populations; use activity_overview or category-filtered search')
+                query.pop('category',None);query['kind']='defender_groups'
             if family not in self.scope['families']:raise ValueError('Artifact outside scope')
             service=Discovery(self.db,sid,start,end,hydrate=lambda eid:self.original(eid,known=False,_scoped=True))
-            result=(service.signals if name=='discover_security_signals' else service.overview)(**query,byte_limit=min(12000,self.scope['limits']['result_bytes']))
+            result=(service.signals if name=='discover_security_signals' and family=='evtx' else service.overview)(**query,byte_limit=min(12000,self.scope['limits']['result_bytes']))
             for item in result['records']:
                 eid=item['evidence_id'];self.known.add(eid)
                 for f in item.get('original_fields',[]):
@@ -108,6 +111,10 @@ class Tools:
         if name=='show_evidence':return self.page(self.original(args['evidence_id']),args.get('offset',0),args.get('limit',40))
         if name=='verify_observation':
             eid=args['evidence_id'];pointer=args['field'];record=self.original(eid)
+            if record['source_type']=='defender':
+                import re
+                if pointer!='/detail/text' and not re.fullmatch(r'/detail/fields/\d+/value|/timestamps/\d+/(?:original_value|timestamp_utc)',pointer):
+                    raise ValueError('Defender verification requires an original text/field or qualified timestamp; grouping and parser metadata are not observations')
             from forensic_assistant.investigation_ai.contracts import loads
             observed=loads(args['value_json'],max_bytes=4096)
             if pointer.startswith(('/context/','/source/','/source_locations/')) or pointer in ('/id','/evidence_id','/hostname','/username','/host_key','/source_type','/source_file','/file_sha256'):

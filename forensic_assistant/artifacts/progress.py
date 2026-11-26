@@ -287,14 +287,15 @@ def description(fields):
 def display(args):
     from forensic_assistant.ingest.observation import CURRENT as OBSERVER, Observation
     from forensic_assistant.terminal_activity import operation
-    if OBSERVER.get() is not None or args.command != 'ingest-mft':
+    if OBSERVER.get() is not None or args.command not in ('ingest-mft','ingest-defender'):
         yield
         return
     started = time.monotonic()
-    with operation('MFT: initializing...', args) as indicator:
+    label='Defender' if args.command=='ingest-defender' else 'MFT'
+    with operation(label+': initializing...', args) as indicator:
         def update(fields):
             text = description(fields)
             if text:
-                indicator.update(f'MFT {text} | {int(time.monotonic()-started)}s elapsed')
-        with Observation('MFT', on_update=update):
+                indicator.update(f'{label} {text} | {int(time.monotonic()-started)}s elapsed')
+        with Observation(label, on_update=update):
             yield

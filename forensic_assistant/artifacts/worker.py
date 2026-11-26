@@ -10,13 +10,13 @@ from forensic_assistant.database.db import connect, register_source, now
 from forensic_assistant.database.artifacts import dump
 from forensic_assistant.artifacts.storage import store
 
-PARSERS = {'mft': 'dissect.ntfs', 'prefetch': 'libscca-python', 'registry': 'libregf-python', 'browser': 'sqlite3'}
+PARSERS = {'mft': 'dissect.ntfs', 'prefetch': 'libscca-python', 'registry': 'libregf-python', 'browser': 'sqlite3', 'defender': 'locard.defender'}
 MAX_RECORD_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 5_000_000
 
 
 def run(kind, path, sha, stage_path, options, reader=None):
-    if kind != 'mft':
+    if kind not in ('mft','defender'):
         return _run(kind, path, sha, stage_path, options, reader)
     from .progress import reporting
     with reporting(stage_path) as progress:
@@ -39,7 +39,7 @@ def _run(kind, path, sha, stage_path, options, reader=None):
         from .browser_probe import check
         return check(path, Path(stage_path).parent)
     module = importlib.import_module('forensic_assistant.artifacts.' + kind)
-    version = sqlite3.sqlite_version if kind == 'browser' else importlib.metadata.version(PARSERS[kind])
+    version = module.VERSION if kind == 'defender' else sqlite3.sqlite_version if kind == 'browser' else importlib.metadata.version(PARSERS[kind])
     options = dict(options)
     options.pop('_supervision', None)
     source_path = options.pop('_source_path', path)
@@ -62,7 +62,7 @@ def _run(kind, path, sha, stage_path, options, reader=None):
                 (path, now(), 'running')
             ).lastrowid
         from .progress import advance, ProgressError
-        if kind == 'mft':
+        if kind in ('mft','defender'):
             advance(phase='parsing')
         stream = reader(path, sha, **options) if reader else module.parse(path, sha, **options)
         def error(message, locator):
@@ -85,6 +85,8 @@ def _run(kind, path, sha, stage_path, options, reader=None):
                 if len(dump(pack).encode()) > MAX_RECORD_BYTES:
                     raise ValueError('Parsed record exceeds size limit')
                 inserted += store(writer, pack, sha, source_path, PARSERS[kind], version)
+                if kind=='defender' and pack['detail']['parsing_status']=='partial':
+                    error('Partial Defender record retained; inspect original bytes and parsing limitations',json.loads(pack['record']['locator_json']))
                 if kind == 'mft':
                     # Count completed parser outcomes, including errors and
                     # duplicates, so error-heavy input cannot bypass commits.

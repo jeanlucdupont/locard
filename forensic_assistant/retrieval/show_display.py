@@ -6,6 +6,9 @@ from .search_display import timestamp
 
 
 def render(record, palette=None, *, registry_values=None):
+    if record['source_type'] == 'defender':
+        from .defender_display import render as render_defender
+        return render_defender(record,palette)
     if record['source_type'] == 'browser':
         from .browser_display import render as render_browser
         return render_browser(record, palette)

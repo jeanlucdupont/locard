@@ -15,9 +15,9 @@ def store(db, pack, sha, path, parser, version):
     for t in pack.get('timestamps', []):
         add_timestamp(db, eid, t)
     for o in pack.get('objects', []):
-        if o['role'] == 'browser_url':
+        if o['role'] == 'browser_url' or o['role'].startswith('defender_'):
             db.execute('INSERT INTO evidence_objects VALUES (?,?,?,?,?,?,?,?)',
-                       (eid, o['slot'], o['role'], o['original'], o['original'], None, 'url', '[]'))
+                       (eid, o['slot'], o['role'], o['original'], o['original'], None, 'url' if o['role']=='browser_url' else 'scalar', '[]'))
             continue
         add_object(db, eid, o['slot'], o['role'], o['original'])
     d = pack['detail']

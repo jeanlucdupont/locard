@@ -16,6 +16,7 @@ COMMANDS = MappingProxyType({
     'ingest-browser': 'Ingest Chrome or Edge browsing history and downloads',
     'ingest-evtx': 'Import Windows Event Logs (EVTX)',
     'ingest-mft': 'Import NTFS Master File Table (MFT) evidence',
+    'ingest-defender': 'Import Defender Support text logs',
     'ingest-prefetch': 'Import Windows Prefetch evidence',
     'ingest-registry': 'Import Windows Registry evidence',
     'investigate': 'Gather and correlate evidence around a specific evidence record',

@@ -36,7 +36,7 @@ TABLES = (
 
 def worker(kind, path, sha, stage, options, timeout):
     deadline = None
-    if kind == 'mft':
+    if kind in ('mft','defender'):
         configuration = options.get('_supervision', policy(inactivity=timeout))
         deadline = Deadline(configuration, Path(path).stat().st_size, clock=time.monotonic)
     failure = None
@@ -239,11 +239,11 @@ def ingest_artifact(
             raise ValueError('Browser ingestion requires an explicit source-associated ingestion batch')
     if kind not in PARSERS:
         raise ValueError('Unknown artifact type')
-    timeout = (900 if kind == 'mft' else 300) if timeout is None else timeout
-    supervision = policy(timeout, mft_startup_timeout, mft_hard_timeout) if kind == 'mft' else None
+    timeout = (900 if kind in ('mft','defender') else 300) if timeout is None else timeout
+    supervision = policy(timeout, mft_startup_timeout, mft_hard_timeout) if kind in ('mft','defender') else None
     if not 1 <= timeout <= 3600:
         raise ValueError('Parser timeout must be 1..3600 seconds')
-    if kind == 'browser':
+    if kind in ('browser','defender'):
         from .sqlite_recovery import regular
         regular(path)  # Reject redirects before resolve could erase their identity.
     path = str(Path(path).resolve())
@@ -253,7 +253,7 @@ def ingest_artifact(
     from .registry_logs import is_log, describe, CLASSIFIER
     companion = kind == 'registry' and is_log(path)
     parser = CLASSIFIER if companion else PARSERS[kind]
-    version = '1' if companion else sqlite3.sqlite_version if kind == 'browser' else importlib.metadata.version(parser)
+    version = '1' if companion or kind == 'defender' else sqlite3.sqlite_version if kind == 'browser' else importlib.metadata.version(parser)
     # Validate context before starting a run (no live environment expansion).
     if volume_root:
         import re
@@ -375,7 +375,7 @@ def ingest_artifact(
                     db.rollback()
                     db.execute('DETACH DATABASE artifact_stage')
                     attached = False
-                status = ('partial' if inserted or duplicates else 'failed') if errors and kind == 'browser' else 'partial' if errors else 'complete'
+                status = ('partial' if inserted or duplicates else 'failed') if errors and kind in ('browser','defender') else 'partial' if errors else 'complete'
                 if kind == 'browser' and options.get('extraction'):
                     status = 'partial' if inserted or duplicates or options['extraction'].get('empty_readable') else 'failed'
                     options['extraction']['counts'].update(retained=inserted, duplicates=duplicates)
@@ -396,11 +396,11 @@ def ingest_artifact(
                     db.execute('INSERT INTO artifact_errors VALUES (?,?)', (error_id[0], dump(exc.diagnostics)))
         raise
     except CleanupError:
-        if kind == 'mft' and run_id is not None:
+        if kind in ('mft','defender') and run_id is not None:
             db.rollback()
             with db:
-                report('MFT worker cleanup could not be confirmed; staged output rejected',
-                       locator=dict(artifact='mft', category='cleanup_failure', policy=supervision,
+                report(('Defender' if kind=='defender' else 'MFT')+' worker cleanup could not be confirmed; staged output rejected',
+                       locator=dict(artifact=kind, category='cleanup_failure', policy=supervision,
                                     cleanup='unconfirmed', staged_output='rejected'))
                 db.execute("UPDATE ingestion_runs SET finished_utc=?,status='failed',error_count=? WHERE id=?",
                            (now(), errors, run_id))
@@ -418,7 +418,9 @@ def ingest_artifact(
             inserted = duplicates = 0
         status = 'partial' if published[0] is not None else 'failed'
         with db:
-            report(f'{type(exc).__name__}: {exc}', locator=getattr(exc, 'diagnostics', None))
+            message=str(exc)
+            if kind=='defender' and isinstance(exc,WorkerFailure):message=message.replace('MFT worker','Defender worker',1);exc.diagnostics['artifact']='defender'
+            report(f'{type(exc).__name__}: {message}', locator=getattr(exc, 'diagnostics', None))
             db.execute(
                 'UPDATE ingestion_runs SET finished_utc=?,status=?,inserted_count=?,duplicate_count=?,error_count=? WHERE id=?',
                 (now(), status, inserted, duplicates, errors, run_id)
@@ -439,7 +441,7 @@ def ingest_artifact(
     )
 
 
-DISCOVERY_LABELS = {'evtx': 'EVTX', 'mft': 'MFT', 'prefetch': 'Prefetch', 'registry': 'Registry', 'browser': 'Browser'}
+DISCOVERY_LABELS = {'evtx': 'EVTX', 'mft': 'MFT', 'prefetch': 'Prefetch', 'registry': 'Registry', 'browser': 'Browser', 'defender': 'Defender'}
 
 
 def identify(path, *, include_browser=False):
@@ -461,6 +463,9 @@ def identify(path, *, include_browser=False):
         return 'mft'
     if head.startswith(b'MAM') or head[4:8] == b'SCCA':
         return 'prefetch'
+    from .defender import supported
+    text_candidate = Path(path).suffix.lower()=='.log' or any(marker in head for marker in (b'Engine:',b'ASR Notification:',b'BEGIN BM',b'Microsoft Defender'))
+    if text_candidate and supported(path):return 'defender'
     return None
 
 
@@ -477,6 +482,11 @@ def discover(path, kind=None, *, include_browser=False):
         from .registry_logs import is_log
         if kind == 'registry' and is_log(candidate):
             return 'registry'  # Existing filename-designated companion classifier; no replay.
+        if kind == 'defender' and candidate.name.lower().startswith(('mplog-','mpdetection-')) and candidate.suffix.lower()=='.log':
+            return 'defender'  # Parser validates contents and records malformed attempts.
+        if kind == 'defender':
+            from .defender import supported
+            if supported(candidate):return 'defender'
         if kind == 'evtx' and candidate.suffix.casefold() == '.evtx':
             return 'evtx'
         return identify(candidate, include_browser=include_browser)

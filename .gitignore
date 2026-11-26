@@ -300,3 +300,6 @@ report-bundles/
 !/docs/LOCARD_6_177_RETRIEVAL_PERFORMANCE_AND_RESILIENCE.md
 !/scripts/discover_security_signals.py
 !/docs/LOCARD_6_178_SECURITY_SIGNAL_DISCOVERY.md
+
+!/scripts/defender_artifacts.py
+!/docs/LOCARD_6_179_DEFENDER_ARTIFACTS.md

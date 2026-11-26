@@ -28,6 +28,10 @@ def render(result, palette=None, *, ids=False, width=None):
             lines.append('')
         if len({r['source_type'] for r in records}) > 1:
             lines.append(palette('heading', kind.upper()))
+        if kind == 'defender':
+            from .defender_display import search_group
+            lines += search_group(group,palette,ids,width)
+            continue
         if kind == 'browser':
             from .browser_display import search_group
             lines += search_group(group, palette, ids, width)

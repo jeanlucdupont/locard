@@ -141,6 +141,12 @@ def get_evidence(db, eid, raw=False):
             'SELECT * FROM registry_views WHERE evidence_id=? ORDER BY extractor',
             (eid,)
         )]
+    elif kind == 'defender':
+        detail = json.loads(record['original_json'])
+        if not raw:
+            for key in ('raw_base64','group_key','group_id'):detail.pop(key,None)
+        result['observation'] = 'Defender diagnostic observation, not complete endpoint telemetry or proof of maliciousness'
+        result['process_name'] = next((f['value'] for f in detail['fields'] if f['name'] in ('ImagePath','Process')),None)
     elif kind == 'browser':
         detail = json.loads(record['original_json'])
         result['observation'] = 'Browser-recorded activity; not proof of reading a page, file execution, or binary identity'
@@ -207,7 +213,8 @@ class EvidenceQueries:
         source_id=None,
         source_scope=None,
         url=None, url_contains=None, title=None, title_contains=None,
-        download_path=None, download_path_contains=None, browser=None, profile=None, browser_kind=None
+        download_path=None, download_path_contains=None, browser=None, profile=None, browser_kind=None,
+        defender_text=None, defender_category=None, defender_action=None, defender_rule=None, defender_signature=None, defender_pid=None, defender_group=None
     ):
         clauses = []
         params = []
@@ -245,6 +252,9 @@ class EvidenceQueries:
             clauses.append("e.source_type='registry' AND EXISTS (SELECT 1 FROM registry_keys k WHERE "
                            "(k.evidence_id=e.evidence_id OR k.evidence_id=(SELECT key_id FROM registry_values WHERE evidence_id=e.evidence_id)) AND " + comparison + ')')
             params.append(value if registry_key is not None else '%' + escape_like(value) + '%')
+        from forensic_assistant.artifacts.defender_query import filters as defender_filters
+        extra,values=defender_filters(artifact,defender_text,defender_category,defender_action,defender_rule,defender_signature,defender_pid,defender_group)
+        clauses.extend(extra);params.extend(values)
         schema4 = self.db.execute('PRAGMA user_version').fetchone()[0] in (4, 5)
         if source_id or (schema4 and source_scope is not None):
             from forensic_assistant.database.sources import record_membership, current, require4
@@ -254,7 +264,7 @@ class EvidenceQueries:
             key='evidence_id'
             if artifact=='browser' and self.db.execute('PRAGMA user_version').fetchone()[0]==5:
                 from forensic_assistant.database.browser import MEMBERSHIP
-            elif artifact in ('evtx','mft','prefetch','registry'):
+            elif artifact in ('evtx','mft','prefetch','registry','defender'):
                 from forensic_assistant.database.sources import MEMBERSHIP
                 key='file_sha256'
             else:MEMBERSHIP = record_membership(self.db)
@@ -298,7 +308,7 @@ class EvidenceQueries:
                 clauses.append(clause)
                 params.extend(values)
         if artifact:
-            if artifact not in ('evtx', 'mft', 'prefetch', 'registry', 'browser'):
+            if artifact not in ('evtx', 'mft', 'prefetch', 'registry', 'browser', 'defender'):
                 raise ValueError('Unknown artifact source')
             clauses.append('e.source_type=?')
             params.append(artifact)
@@ -443,7 +453,7 @@ class EvidenceQueries:
                 bounded = ' FROM ' + timestamp_table + ' t WHERE ' + ' AND '.join(timeclauses)
                 inherited = (' FROM ' + timestamp_table + ' t CROSS JOIN registry_values v '
                              'ON v.key_id=t.evidence_id WHERE ' + ' AND '.join(timeclauses))
-                if filters.get('artifact') in ('browser','evtx','mft','prefetch'):
+                if filters.get('artifact') in ('browser','evtx','mft','prefetch','defender'):
                     clauses.append('EXISTS (SELECT 1 FROM evidence_timestamps t WHERE t.evidence_id=e.evidence_id AND '+' AND '.join(timeclauses)+')')
                     params += tp
                 elif filters.get('evidence_id') is not None:

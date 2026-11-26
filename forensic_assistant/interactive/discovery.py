@@ -10,7 +10,7 @@ from forensic_assistant.artifacts.ingest import discover
 from forensic_assistant.artifacts.registry_logs import is_log
 from forensic_assistant.reporting.transcripts import safe_path
 
-CATEGORIES = ('mft', 'registry', 'prefetch', 'evtx', 'browser')
+CATEGORIES = ('mft', 'registry', 'prefetch', 'evtx', 'browser', 'defender')
 IMAGE_SUFFIXES = {'.e01', '.raw', '.dd', '.img', '.vhd', '.vhdx'}
 IMAGE_MESSAGE = ('Locard does not currently mount disk images directly. '
                  'Mount or extract the Windows filesystem, then point the wizard at the mounted/extracted root.')
@@ -206,6 +206,10 @@ def scan(root):
         for path in inventory.children(root / directory, kind):
             if path.suffix.casefold() == suffix:
                 inventory.add(path, kind)
+    for path in inventory.children(root / 'ProgramData/Microsoft/Windows Defender/Support', 'Defender paths'):
+        if path.name.lower().startswith(('mplog-','mpdetection-')) and path.suffix.lower()=='.log':
+            inventory.add(path,'defender')
+        elif path.is_file():inventory.unsupported.append(path)
     inventory.profiles_scanned = True
     for user in inventory.children(root / 'Users'):
         if not user.is_dir():
@@ -236,7 +240,7 @@ def scan(root):
 def manual(path, kind):
     """Bounded folder enumeration with existing single-file discovery semantics."""
     if kind not in CATEGORIES:
-        raise ValueError('Choose mft,registry,prefetch,evtx,browser')
+        raise ValueError('Choose mft,registry,prefetch,evtx,browser,defender')
     root = input_path(path)
     inventory = Inventory()
     pending = [(root, 0)]

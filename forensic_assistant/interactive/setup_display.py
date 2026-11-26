@@ -156,7 +156,7 @@ def human_limitation(message, kind=None, count=1):
                 'Recent uncommitted Registry changes may be missing.')
     if message == 'Source signature does not match requested artifact type':
         formats = {'registry': 'Registry hives', 'prefetch': 'Prefetch files', 'mft': 'MFT files',
-                   'evtx': 'Windows event logs', 'browser': 'supported browser History files'}
+                   'evtx': 'Windows event logs', 'browser': 'supported browser History files', 'defender': 'Defender Support logs'}
         if kind in formats:
             if count == 1:
                 return f'1 file was skipped because it was not a valid {formats[kind][:-1]}.'
