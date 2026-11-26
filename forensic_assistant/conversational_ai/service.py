@@ -3,7 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 import json,time
 from .contracts import catalog,arguments,check
-from .provider import validate
+from .provider import validate,assistant_message
 from forensic_assistant.investigation_ai.runner import ForensicWorker,WorkerError
 from forensic_assistant.investigation_ai.transcript import Transcript,load
 from forensic_assistant.session_recording import require,record
@@ -105,17 +105,19 @@ class Session:
                 self.event('provider_attempt',dict(messages=messages,history_blocks_omitted=omitted,usage=self.usage()))
                 self.emit(dict(kind='activity',text='Consulting configured AI...'))
                 response=validate(self.provider.converse(messages,catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=self.scope['limits']['output_tokens']))
-                response=json.loads(redact(encoded(response)))
+                sanitized=json.loads(redact(encoded(response)))
+                if 'continuation' in response and sanitized.get('continuation')!=response['continuation']:
+                    raise ValueError('PROVIDER_CONTINUATION_REDACTED')
+                response=sanitized
                 self.event('provider_response',response)
                 if 'total_tokens' in response['usage']:self.used['tokens']+=response['usage']['total_tokens']
                 else:self.used['unknown_usage']+=1
-                assistant=dict(role='assistant',content=redact(response['text']))
+                assistant=assistant_message(response)
                 if response['text']:
                     answers.append(assistant['content']);self.emit(dict(kind='interpretation',text=assistant['content']))
                 calls=response['tool_calls']
                 if not calls:
                     self.turns.append([assistant]);break
-                assistant['tool_calls']=[dict(id=c['id'],type='function',function=dict(name=c['name'],arguments=encoded(c['arguments']))) for c in calls]
                 block=[assistant]
                 for call in calls:
                     self.admit('operations');self.used['operations']+=1
@@ -156,7 +158,7 @@ class Session:
         except KeyboardInterrupt:
             self.cancelled=True;self.close('CANCELLED');raise
         except BaseException as exc:
-            safe={'RESOURCE_LIMIT','DISCLOSURE_LIMIT','NOTEBOOK_CAPACITY','CONTEXT_CAPACITY','REPEATED_TOOL_FAILURE','PROVIDER_CHANGED','AUTHORIZATION_EXPIRED','CASE_IDENTITY_CHANGED'}
+            safe={'RESOURCE_LIMIT','DISCLOSURE_LIMIT','NOTEBOOK_CAPACITY','CONTEXT_CAPACITY','REPEATED_TOOL_FAILURE','PROVIDER_CHANGED','AUTHORIZATION_EXPIRED','CASE_IDENTITY_CHANGED','PROVIDER_CONTINUATION_REDACTED'}
             reason=str(exc) if type(exc) is ValueError and str(exc) in safe else 'PROVIDER_OR_WORKER_FAILURE'
             from forensic_assistant.ai.provider_diagnostics import ProviderFailure
             diagnostic=dict(reason=reason,exception=type(exc).__name__ if type(exc).__name__ in ('ValueError','WorkerError','ProviderFailure') else 'Other')

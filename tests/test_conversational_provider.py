@@ -138,7 +138,8 @@ def test_interactive_shell_continues_after_conversation_failure(tmp_path,configu
     reader=Input(str(path),command,'settings version','quit')
     assert Shell(State(None),reader).run()==0
     text=capsys.readouterr().out
-    assert 'Cleanup confirmed' in text and '6.174' in text and 'Traceback' not in text
+    from forensic_assistant import __version__
+    assert 'Cleanup confirmed' in text and __version__ in text and 'Traceback' not in text
 
 @pytest.mark.parametrize('kind',['duplicate','missing_id','content_type'])
 def test_invalid_native_envelope(configured,kind):

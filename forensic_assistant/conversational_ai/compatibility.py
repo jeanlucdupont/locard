@@ -1,6 +1,7 @@
 """Explicitly approved synthetic native-tool diagnostic; no case inputs."""
 import json
 from .contracts import catalog
+from .provider import assistant_message
 from forensic_assistant.ai.provider_diagnostics import ProviderFailure
 
 STAGES=('connection','native_tools','arguments','round_trip','catalog','final_response')
@@ -23,7 +24,7 @@ def run(config,*,authorized=False,client=None):
         value['native_tools']='ready';phase='arguments';call=first['tool_calls'][0]
         if call['name']!='synthetic_echo' or call['arguments']!={'token':'locard-test'}:raise ValueError('Synthetic arguments differ')
         value['arguments']='ready';phase='round_trip'
-        messages += [{'role':'assistant','content':first['text'] or None,'tool_calls':[{'id':call['id'],'type':'function','function':{'name':call['name'],'arguments':json.dumps(call['arguments'])}}]},
+        messages += [assistant_message(first),
                      {'role':'tool','tool_call_id':call['id'],'content':'{"token":"locard-test"}'}]
         final=client.converse(messages,[TOOL],timeout=30,output_tokens=512,tool_choice='none')
         if final['tool_calls'] or 'locard-test' not in final['text'] or len(final['text'].strip())<=len('locard-test'):raise ValueError('Synthetic final response failed')

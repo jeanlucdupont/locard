@@ -5,7 +5,7 @@ from forensic_assistant.investigation_ai.contracts import loads
 
 
 def validate(value):
-    if type(value) is not dict or set(value)!={'text','tool_calls','finish_reason','usage','cost'}:raise ValueError('Invalid conversational response')
+    if type(value) is not dict or set(value)-{'continuation'}!={'text','tool_calls','finish_reason','usage','cost'}:raise ValueError('Invalid conversational response')
     if type(value['text']) is not str or len(value['text'].encode())>32768 or type(value['tool_calls']) is not list or len(value['tool_calls'])>4:raise ValueError('Conversational response size')
     if value['finish_reason'] not in ('stop','tool_calls'):raise ValueError('Incomplete conversational response')
     ids=set()
@@ -15,7 +15,33 @@ def validate(value):
     if bool(ids)!=(value['finish_reason']=='tool_calls'):raise ValueError('Tool completion status mismatch')
     if type(value['usage']) is not dict or set(value['usage'])-{'prompt_tokens','completion_tokens','total_tokens'} or any(type(v) is not int or not 0<=v<=10000000 for v in value['usage'].values()):raise ValueError('Invalid provider usage')
     if value['cost'] is not None:raise ValueError('Unverified monetary accounting')
+    if 'continuation' in value:
+        restore(assistant_message(value))
     return value
+
+
+def assistant_message(value):
+    """Provider-neutral history: opaque continuation is never evidence."""
+    message=dict(role='assistant',content=value['text'])
+    if value['tool_calls']:
+        message['tool_calls']=[dict(id=c['id'],type='function',function=dict(name=c['name'],arguments=json.dumps(c['arguments'],ensure_ascii=True,separators=(',',':')))) for c in value['tool_calls']]
+    if 'continuation' in value:message['provider_continuation']=value['continuation']
+    return message
+
+
+def restore(message):
+    """Bind retained transport history to the visible assistant/tool exchange."""
+    if 'provider_continuation' not in message:return message
+    state=message['provider_continuation']
+    if type(state) is not dict or set(state)!={'format','payload'} or state['format']!='litellm-openai-history-v1':raise ValueError('Unsupported provider continuation')
+    if type(state['payload']) is not str:raise ValueError('Invalid provider continuation')
+    raw=loads(state['payload'],max_bytes=32768)
+    if type(raw) is not dict or raw.get('role')!='assistant' or set(raw)-{'role','content','tool_calls','reasoning_items','provider_specific_fields','phase'}:raise ValueError('Invalid assistant continuation')
+    if (raw.get('content') or '')!=(message.get('content') or ''):raise ValueError('Continuation content changed')
+    def calls(items):
+        return [(c['id'],c['type'],c['function']['name'],loads(c['function']['arguments'],max_bytes=16384)) for c in (items or [])]
+    if calls(raw.get('tool_calls'))!=calls(message.get('tool_calls')):raise ValueError('Continuation tool binding changed')
+    return raw
 
 
 def generate(request,sdk):
@@ -28,7 +54,7 @@ def generate(request,sdk):
         credential=key('openai')
         location='transport'
         result=sdk.completion(model='openai/'+request['model'],custom_llm_provider='openai',api_key=credential,
-            messages=request['messages'],tools=request['conversation']['tools'],
+            messages=[restore(m) for m in request['messages']],tools=request['conversation']['tools'],
             tool_choice=request['conversation'].get('tool_choice','auto'),
             stream=False,max_completion_tokens=request['conversation']['output_tokens'],
             timeout=request['timeout'],num_retries=0,drop_params=False)
@@ -48,8 +74,16 @@ def generate(request,sdk):
             except (ValueError,TypeError):raise ProviderFailure('response_parse','response_parse',metadata=metadata) from None
             calls.append(dict(id=call.id,name=call.function.name,arguments=arguments))
         location='validation'
-        return validate(dict(text=message.content if message.content is not None else '',tool_calls=calls,finish_reason=finish,
-            usage={k:getattr(usage,k) for k in ('prompt_tokens','completion_tokens','total_tokens') if type(getattr(usage,k,None)) is int},cost=None))
+        value=dict(text=message.content if message.content is not None else '',tool_calls=calls,finish_reason=finish,
+            usage={k:getattr(usage,k) for k in ('prompt_tokens','completion_tokens','total_tokens') if type(getattr(usage,k,None)) is int},cost=None)
+        # Preserve exact argument serialization and reasoning/phase/order fields:
+        # LiteLLM's replay checksum binds these, not just parsed tool arguments.
+        if getattr(message,'provider_specific_fields',None) or getattr(message,'reasoning_items',None) or getattr(message,'phase',None):
+            raw=message.model_dump()
+            raw={k:v for k,v in raw.items() if k in ('role','content','tool_calls','reasoning_items','provider_specific_fields','phase')}
+            raw['role']='assistant'
+            value['continuation']=dict(format='litellm-openai-history-v1',payload=json.dumps(raw,ensure_ascii=True,allow_nan=False,separators=(',',':')))
+        return validate(value)
     except ProviderFailure:raise
     except Exception as exc:
         category=classify(exc) if location=='transport' else 'missing_credential' if location=='configuration' else 'conversation_envelope'
