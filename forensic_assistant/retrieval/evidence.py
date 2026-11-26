@@ -5,7 +5,7 @@ import ntpath
 from forensic_assistant.artifacts.context import effective_context
 from forensic_assistant.artifacts.paths import normalize_path
 from forensic_assistant.correlation.models import get_event
-from forensic_assistant.retrieval.queries import QueryResult, Queries, required_time, escape_like
+from forensic_assistant.retrieval.queries import QueryResult, BoundedQueryResult, Queries, required_time, escape_like
 
 
 def get_evidence(db, eid, raw=False):
@@ -178,9 +178,10 @@ def same_host_window(anchor, stamp, seconds, *, direction='around'):
 
 
 class EvidenceQueries:
-    def __init__(self, db, *, hydrate=None):
+    def __init__(self, db, *, hydrate=None, profile=None):
         self.db = db
         self.hydrate = hydrate
+        self.profile = profile
 
     def _where(
         self,
@@ -247,18 +248,27 @@ class EvidenceQueries:
         schema4 = self.db.execute('PRAGMA user_version').fetchone()[0] in (4, 5)
         if source_id or (schema4 and source_scope is not None):
             from forensic_assistant.database.sources import record_membership, current, require4
-            MEMBERSHIP = record_membership(self.db)
+            # Use the same canonical membership relation at its natural key.
+            # Expanding file membership to every record is unnecessary for a
+            # known non-browser family; browsers must retain occurrence scope.
+            key='evidence_id'
+            if artifact=='browser' and self.db.execute('PRAGMA user_version').fetchone()[0]==5:
+                from forensic_assistant.database.browser import MEMBERSHIP
+            elif artifact in ('evtx','mft','prefetch','registry'):
+                from forensic_assistant.database.sources import MEMBERSHIP
+                key='file_sha256'
+            else:MEMBERSHIP = record_membership(self.db)
             require4(self.db)
             if source_id:
                 current(self.db, source_id)
-                clauses.append('e.evidence_id IN (SELECT evidence_id FROM (' + MEMBERSHIP + ') WHERE source_id=?)')
+                clauses.append('e.'+key+' IN (SELECT '+key+' FROM (' + MEMBERSHIP + ') WHERE source_id=?)')
                 params.append(source_id)
             if source_scope is not None:
                 if source_scope:
-                    clauses.append('(SELECT count(*) FROM (' + MEMBERSHIP + ') WHERE evidence_id=e.evidence_id)=1 AND e.evidence_id IN (SELECT evidence_id FROM (' + MEMBERSHIP + ') WHERE source_id=?)')
+                    clauses.append('(SELECT count(*) FROM (' + MEMBERSHIP + ') WHERE '+key+'=e.'+key+')=1 AND e.'+key+' IN (SELECT '+key+' FROM (' + MEMBERSHIP + ') WHERE source_id=?)')
                     params.append(source_scope)
                 else:
-                    clauses.append('NOT EXISTS (SELECT 1 FROM (' + MEMBERSHIP + ') WHERE evidence_id=e.evidence_id)')
+                    clauses.append('NOT EXISTS (SELECT 1 FROM (' + MEMBERSHIP + ') WHERE '+key+'=e.'+key+')')
         if schema4:
             # Parameterized SQL calls a read-only resolver shared with hydration.
             # Bounded to this query registration; never retain source revisions
@@ -370,8 +380,10 @@ class EvidenceQueries:
         timeline=False,
         raw=False,
         require_complete=False,
+        exact_count=True,
         **filters
     ):
+        if require_complete and not exact_count:raise ValueError('Complete display requires exact counting')
         if filters.get('object_basename') is not None:
             if timeline or nearest_to or exclude_time or require_complete or offset or raw:
                 raise ValueError('Object discovery requires bounded explicit search')
@@ -431,7 +443,10 @@ class EvidenceQueries:
                 bounded = ' FROM ' + timestamp_table + ' t WHERE ' + ' AND '.join(timeclauses)
                 inherited = (' FROM ' + timestamp_table + ' t CROSS JOIN registry_values v '
                              'ON v.key_id=t.evidence_id WHERE ' + ' AND '.join(timeclauses))
-                if filters.get('evidence_id') is not None:
+                if filters.get('artifact') in ('browser','evtx','mft','prefetch'):
+                    clauses.append('EXISTS (SELECT 1 FROM evidence_timestamps t WHERE t.evidence_id=e.evidence_id AND '+' AND '.join(timeclauses)+')')
+                    params += tp
+                elif filters.get('evidence_id') is not None:
                     # Exact-ID authorization/rehydration must not materialize the
                     # entire case time window for each individual inspection.
                     condition=' AND '.join(timeclauses)
@@ -448,7 +463,15 @@ class EvidenceQueries:
             order_time = "(SELECT min(timestamp_utc) FROM evidence_timestamps WHERE evidence_id=e.evidence_id AND slot<>'UserAssist.LastExecution')"
             order = order_time + ' IS NULL,' + order_time + ',e.evidence_id'
         where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
-        total = self.db.execute(prefix + 'SELECT count(*) FROM ' + source + where, params).fetchone()[0]
+        import time
+        def execute(phase,sql,values):
+            started=time.monotonic()
+            rows=self.db.execute(sql,values).fetchall()
+            if self.profile is not None:
+                self.profile.append(dict(phase=phase,seconds=time.monotonic()-started,
+                    plan=[tuple(r) for r in self.db.execute('EXPLAIN QUERY PLAN '+sql,values)]))
+            return rows
+        total = execute('exact_count',prefix+'SELECT count(*) FROM '+source+where,params)[0][0] if exact_count else None
         if require_complete and (offset or total > limit):
             raise ValueError('Too many timeline observations for text display (10,000 safety bound). '
                              'Narrow the time range, add filters, or use JSON/raw observation pagination')
@@ -464,10 +487,13 @@ class EvidenceQueries:
             )
             order = 'locard_distance(t.timestamp_utc,?),' + order
             order_params = [nearest_to]
-        rows = self.db.execute(
+        rows = execute('page_selection',
             prefix + 'SELECT ' + fields + ' FROM ' + source + where + ' ORDER BY ' + order + ' LIMIT ? OFFSET ?',
-            [*params, *order_params, limit, offset]
-        ).fetchall()
+            [*params, *order_params, limit if exact_count else limit+1, offset]
+        )
+        has_more=len(rows)>limit
+        rows=rows[:limit]
+        hydration_started=time.monotonic()
         records = []
         text_evidence = {}
         for row in rows:
@@ -492,7 +518,8 @@ class EvidenceQueries:
                     timeline_id=e['id'] + ':Timestamp:' + row['slot']
                 )
             records.append(e)
-        return QueryResult(records, total, limit, offset)
+        if self.profile is not None:self.profile.append(dict(phase='hydration',seconds=time.monotonic()-hydration_started))
+        return QueryResult(records,total,limit,offset) if exact_count else BoundedQueryResult(records,limit,offset,has_more)
 
     def complete_timeline(self, *, around=None, minutes=5, **filters):
         """Bounded complete text window; count and hydration share a read snapshot.

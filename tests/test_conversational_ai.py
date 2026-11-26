@@ -218,7 +218,7 @@ def test_stops_retain_notebook_and_cleanup(tmp_path,failure,monkeypatch):
             return original(kind,data,terminal)
         monkeypatch.setattr(session.journal,'append',broken)
     with pytest.raises(BaseException):session.submit('Investigate safely')
-    if failure in ('provider','limit'):
+    if failure in ('provider','limit','cancel'):
         assert not session.closed and session.paused
         session.close('ANALYST_EXIT')
     assert session.closed and session.worker.process.poll() is not None
@@ -285,7 +285,11 @@ def test_forensic_timeout_terminates_real_worker(tmp_path):
     class Hanging(ChatWorker):worker_script=shim
     session=Session(scope,provider,lambda g:True,worker_factory=Hanging)
     from forensic_assistant.investigation_ai.runner import WorkerError
-    with pytest.raises(WorkerError):session.submit('Synthetic timeout')
+    from forensic_assistant.conversational_ai.service import Paused
+    with pytest.raises(Paused):session.submit('Synthetic timeout')
+    assert session.suspended and not session.closed
+    assert session.used['failed_operations']==1
+    session.close('ANALYST_EXIT')
     assert session.worker.process.poll() is not None and len(provider.calls)==1
     data=notebook(str(path)+'.conversations',session.journal.id)
     assert data['events'][-1]['data']['cleanup_confirmed']

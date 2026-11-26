@@ -8,6 +8,7 @@ from forensic_assistant.terminal import safe_span_text
 
 def configure(commands):
     p=commands.add_parser('conversation-chat',help='Converse with an evidence-using AI investigator')
+    p.add_argument('--progress-seconds',type=int,default=30,help='Elapsed activity reporting interval; not an execution deadline')
     p.add_argument('--source',action='append',help='Approved source ID; repeat for multiple sources')
     p.add_argument('--start',help='Inclusive approved UTC/offset timestamp')
     p.add_argument('--end',help='Exclusive approved UTC/offset timestamp')
@@ -18,7 +19,7 @@ def configure(commands):
     for option,key in [('max-tokens','tokens'),('max-records','records'),('max-disclosure-bytes','disclosure_bytes'),
                        ('provider-seconds','provider_seconds'),('tool-seconds','tool_seconds'),
                        ('request-bytes','request_bytes'),('result-bytes','result_bytes'),('output-tokens','output_tokens')]:
-        p.add_argument('--'+option,type=int,default=DEFAULTS[key],help='Optional budget' if key in ('tokens','records','disclosure_bytes') else 'Per-operation technical safeguard')
+        p.add_argument('--'+option,type=int,default=DEFAULTS[key],help='Optional budget' if key in ('tokens','records','disclosure_bytes') else 'Optional forensic operation deadline; default waiting without deadline' if key=='tool_seconds' else 'Per-operation technical safeguard')
 
 
 def _run(args,read=None,write=None,provider=None):
@@ -45,13 +46,24 @@ def _run(args,read=None,write=None,provider=None):
     def emit(event):
         if event['kind']=='interpretation':write('AI interpretation — unverified\n'+safe_span_text(event['text']))
         elif event['kind']=='activity':write(safe_span_text(event['text']))
+        elif event['kind']=='progress':
+            state=event['status'];elapsed=event['elapsed_seconds'];operation=safe_span_text(event['operation'])
+            if state=='started':write(operation+'...')
+            else:
+                write(operation+': '+state+f' ({elapsed:.1f} seconds).')
+                if state in ('slow','waiting'):write('Computational progress unavailable. Continue waiting or press Ctrl+C to interrupt.')
+        elif event['kind']=='tool_failure':write('Operation unsuccessful: '+safe_span_text(event['code'])+'. No evidence result accepted.')
         elif event['kind']=='verified_observation':
             value=event['value'];write('Verified original-field observation\n'+safe_span_text(json.dumps(value,ensure_ascii=False)))
-        elif event['kind']=='paused':write('Investigation paused: '+safe_span_text(event['reason'])+'. Completed work retained; redirect, /status or /exit. No automatic retry.')
+        elif event['kind']=='paused':
+            write('Investigation paused: '+safe_span_text(event['reason'])+'. Completed work retained. No automatic retry.')
+            if event['reason']=='READ_VIEW_UNAVAILABLE':write('The original read view is unavailable. No further evidence or AI requests will run. Use /status or /exit, then authorize a fresh session.')
+            else:write('Redirect the investigation, /status or /exit.')
         elif event['kind']=='completed':
             write('Session outcome: '+safe_span_text(event['reason'])+('. Cleanup confirmed.' if event['cleanup_confirmed'] else '. CLEANUP_LIMITATION: process cleanup could not be confirmed.'))
-    session=Session(scope,provider,approve,emit=emit)
-    write('Controls: /status, /summary, /exit; Ctrl+C cancels active work and closes this session. Natural language changes priorities.')
+    if getattr(args,'progress_seconds',30)<=0:raise ValueError('Progress interval must be positive')
+    session=Session(scope,provider,approve,emit=emit,progress_interval=getattr(args,'progress_seconds',30))
+    write('Controls: /status, /summary, /exit; Ctrl+C interrupts active work; completed work is retained. Natural language changes priorities.')
     write('Notebook session: '+session.journal.id)
     try:
         while True:
@@ -108,7 +120,7 @@ def authorization_text(value):
            'Investigation duration (active seconds): '+budget('active_seconds'),'AI requests: '+budget('requests'),
            'Forensic operations: '+budget('operations'),'Tokens: '+budget('tokens'),'Distinct records: '+budget('records'),
            'Financial budget: Not configured; cost unavailable.',
-           'Individual operation timeouts and technical safeguards apply. Ten-minute active turns pause for direction.',
+           'Forensic operation deadline: '+('none (wait or interrupt)' if limits['tool_seconds'] is None else str(limits['tool_seconds'])+' seconds')+'. Technical safeguards remain active. Ten-minute active turns pause for direction.',
            'Record eligibility follows the approved window; labeled out-of-window record context may also be disclosed.',
            'Ctrl+C cancels active work. Redirection is available at the next analyst prompt.']
     return safe_span_text('\n'.join(lines))

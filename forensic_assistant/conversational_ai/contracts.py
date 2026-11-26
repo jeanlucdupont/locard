@@ -8,14 +8,14 @@ from forensic_assistant.retrieval.queries import required_time
 FAMILIES=('browser','evtx','mft','prefetch','registry')
 # None is an absent analyst budget, never an artificially large integer.
 BUDGETS=('active_seconds','requests','operations','disclosure_bytes','tokens','records')
-DEFAULTS=dict(active_seconds=None,provider_seconds=180,tool_seconds=60,requests=None,operations=None,
+DEFAULTS=dict(active_seconds=None,provider_seconds=180,tool_seconds=None,requests=None,operations=None,
               request_bytes=256*1024,result_bytes=128*1024,disclosure_bytes=None,tokens=None,output_tokens=8192,records=None)
 TECHNICAL_MAX=dict(provider_seconds=600,tool_seconds=600,request_bytes=512*1024,result_bytes=256*1024,output_tokens=32768)
 
 def validate_limits(resources):
     if type(resources) is not dict or set(resources)!=set(DEFAULTS):raise ValueError('INVALID_LIMITS')
     for k,v in resources.items():
-        if k in BUDGETS and v is None:continue
+        if (k in BUDGETS or k=='tool_seconds') and v is None:continue
         if type(v) is not int or v<1 or (k in TECHNICAL_MAX and v>TECHNICAL_MAX[k]):raise ValueError('INVALID_LIMITS')
     return resources
 
@@ -68,6 +68,6 @@ def authorize(case,sources,start,end,families,provider,model,limits=None):
 def check(scope,case):
     path=Path(case).resolve(strict=True);info=path.stat()
     if scope.get('contract') not in ('conversational-authorization-v1','conversational-authorization-v2') or str(path)!=scope['case'] or [info.st_dev,info.st_ino]!=scope['identity']:raise ValueError('CASE_IDENTITY_CHANGED')
-    if scope.get('contract')=='conversational-authorization-v1' and (type(scope['expires']) not in (int,float) or any(scope['limits'].get(k) is None for k in BUDGETS)):raise ValueError('INVALID_LEGACY_AUTHORIZATION')
+    if scope.get('contract')=='conversational-authorization-v1' and (type(scope['expires']) not in (int,float) or scope['limits'].get('tool_seconds') is None or any(scope['limits'].get(k) is None for k in BUDGETS)):raise ValueError('INVALID_LEGACY_AUTHORIZATION')
     validate_limits(scope['limits'])
     if scope['expires'] is not None and time.time()>=scope['expires']:raise ValueError('AUTHORIZATION_EXPIRED')

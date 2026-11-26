@@ -19,6 +19,23 @@ class QueryResult:
         return {**asdict(self), "truncated": self.truncated}
 
 
+@dataclass
+class BoundedQueryResult:
+    """A page and one lookahead; no inferred or estimated exact total."""
+    records: list[dict]
+    limit: int
+    offset: int
+    has_more: bool
+    total: None = None
+
+    @property
+    def truncated(self):return self.offset>0 or self.has_more
+
+    def as_dict(self):
+        return {**asdict(self),'total_exact':False,'truncated':self.truncated,
+                'next_offset':self.offset+len(self.records) if self.has_more else None}
+
+
 def escape_like(value):
     return value.replace("!", "!!").replace("%", "!%").replace("_", "!_")
 

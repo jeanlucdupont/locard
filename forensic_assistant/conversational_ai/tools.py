@@ -1,5 +1,5 @@
 """Scoped adapters over Locard retrieval; no model-generated SQL or dispatch."""
-import json
+import json,time
 from datetime import datetime,timedelta
 from .contracts import arguments,check
 from forensic_assistant.retrieval.evidence import EvidenceQueries,get_evidence,same_host_window
@@ -30,8 +30,8 @@ def meaning(record,pointer):
 
 
 class Tools:
-    def __init__(self,db,scope):
-        self.db,self.scope=db,scope
+    def __init__(self,db,scope,*,profile=None):
+        self.db,self.scope=db,scope;self.profile=profile
         self.known=set();self.disclosed={}
 
     def source(self,args):
@@ -43,15 +43,17 @@ class Tools:
     def eligible(self,eid,source=None,start=None,end=None):
         # Identity-only hydration: source and inherited/derived time predicates run
         # in the existing retrieval service before original content is fetched.
+        row=self.db.execute('SELECT source_type FROM evidence_records WHERE evidence_id=?',(eid,)).fetchone()
+        if not row or row[0] not in self.scope['families']:return False
         for sid in ([source] if source else self.scope['source_ids']):
             result=EvidenceQueries(self.db,hydrate=lambda value:{'id':value}).search(
-                evidence_id=eid,source_scope=sid,start=start or self.scope['start'],end=end or exclusive_end(self.scope['end']),limit=1)
+                evidence_id=eid,artifact=row[0],exact_count=False,source_scope=sid,start=start or self.scope['start'],end=end or exclusive_end(self.scope['end']),limit=1)
             if result.records:return True
         return False
 
-    def original(self,eid,*,known=True):
+    def original(self,eid,*,known=True,_scoped=False):
         if known and eid not in self.known:raise ValueError('Evidence identity not previously retrieved')
-        if not self.eligible(eid):raise ValueError('Evidence outside approved source/time scope')
+        if not _scoped and not self.eligible(eid):raise ValueError('Evidence outside approved source/time scope')
         record=get_evidence(self.db,eid)
         if record['source_type'] not in self.scope['families']:raise ValueError('Artifact outside scope')
         sources=record.get('context',{}).get('source_ids',[])
@@ -124,11 +126,12 @@ class Tools:
             query['limit']=min(query.get('limit',10),10)
         else:query.setdefault('limit',10)
         def hydrate(eid):
-            if not self.eligible(eid,sid,start,end):
-                if 'object_basename' in query:return None
-                raise ValueError('Candidate outside approved scope')
-            return self.original(eid,known=False)
-        result=EvidenceQueries(self.db,hydrate=hydrate).search(start=start,end=end,source_scope=sid,timeline=timeline,**query).as_dict()
+            if 'object_basename' in query and not self.eligible(eid,sid,start,end):return None
+            # Only the trusted scoped SQL selector supplies IDs to this callback.
+            # Exact standalone inspection still performs eligibility verification.
+            return self.original(eid,known=False,_scoped=True)
+        result=EvidenceQueries(self.db,hydrate=hydrate,profile=self.profile).search(start=start,end=end,source_scope=sid,timeline=timeline,exact_count=False,**query).as_dict()
+        projection_started=time.monotonic()
         pages=[]
         for record in result.pop('records'):
             page=self.page(record,0,12)
@@ -136,8 +139,9 @@ class Tools:
             page['timestamps']=record.get('timestamps',[])[:8]
             page['timestamps_truncated']=len(record.get('timestamps',[]))>8
             pages.append(page)
+        if self.profile is not None:self.profile.append(dict(phase='projection',seconds=time.monotonic()-projection_started))
         result['records']=pages
         result['scope']=dict(source_id=sid,start=start,end_inclusive=end,artifact=query['artifact'])
-        result['next_offset']=query.get('offset',0)+len(pages) if result.get('truncated') and not ('content_search' in result or 'object_search' in result) else None
+        result['next_offset']=query.get('offset',0)+len(pages) if result.get('has_more',result.get('truncated')) and not ('content_search' in result or 'object_search' in result) else None
         result['limitations']=['Bounded search; omitted or out-of-scope evidence was not assessed.','Timestamp meanings differ across artifacts; no absence or causal conclusion follows from this result.']
         return result

@@ -1,10 +1,9 @@
 """Conversation service: local history, explicit authority, bounded tools and audit."""
 from copy import deepcopy
-from pathlib import Path
 import json,time
 from .contracts import catalog,arguments,check
 from .provider import validate,assistant_message,restore,ValidationError
-from forensic_assistant.investigation_ai.runner import ForensicWorker,WorkerError
+from forensic_assistant.investigation_ai.runner import WorkerError
 from forensic_assistant.investigation_ai.transcript import Transcript,load
 from forensic_assistant.session_recording import require,record
 from forensic_assistant.ai.backend import redact
@@ -15,17 +14,18 @@ SYSTEM='''You are a collaborative Windows forensic investigator. Understand the 
 def encoded(value):return json.dumps(value,ensure_ascii=True,separators=(',',':'),allow_nan=False)
 
 
-class ChatWorker(ForensicWorker):
-    worker_script=Path(__file__).with_name('worker.py')
+from .supervision import ChatWorker
+from .activity import Activity, description
 
 
 class Paused(ValueError):
-    """Recoverable boundary; no automatic retry and no loss of the pinned view."""
+    """Preserved notebook boundary; a lost read view remains explicitly suspended."""
 
 class Session:
-    def __init__(self,scope,provider,approve,*,root=None,emit=None,worker_factory=ChatWorker):
+    def __init__(self,scope,provider,approve,*,root=None,emit=None,worker_factory=ChatWorker,progress_interval=30):
         self._scope=encoded(scope);self.provider=provider;self.emit=emit or (lambda event:None)
-        self.worker=None;self.journal=None;self.closed=False;self.cancelled=False
+        self.worker=None;self.journal=None;self.closed=False;self.cancelled=False;self.suspended=False
+        self.progress_interval=progress_interval
         self.turns=[];self.notes=[];self.observations=[];self.known=set();self.disclosed=set();self.tool_payloads={};self.paused=None;self.compacted=0
         self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,input_tokens=0,output_tokens=0,unknown_input_usage=0,unknown_output_usage=0,uncertain_requests=0,note_operations=0,successful_forensic_operations=0,successful_operations=0,failed_operations=0,request_bytes=0,evidence_bytes=0,active_seconds=0.0)
         self.started=None;self.created=time.monotonic()
@@ -38,11 +38,11 @@ class Session:
             self.journal=Transcript(root or scope['case']+'.conversations',dict(engine='conversational-v1',storage_profile='conversation-long-v1',authorization=deepcopy(scope)),private=True)
             self.journal.append('authorization',scope)
             self.worker=worker_factory(dict(case_path=scope['case'],scope=deepcopy(scope),_transaction_view=True,
-                _deadline=time.monotonic()+min(self.remaining(),scope['limits']['tool_seconds'])))
+                _deadline=time.monotonic()+min(self.remaining(),60)))
             # Active-work budgets exclude analyst idle time. Each call receives a
-            # fresh bounded operation deadline; the read view itself stays pinned.
+            # fresh optional operation deadline; the read view itself stays pinned.
             self.worker.deadline=float('inf')
-            view=self.worker.call('chat_init',seconds=min(self.remaining(),scope['limits']['tool_seconds']))
+            view=self.worker.call('chat_init',seconds=min(self.remaining(),60))
             self.view=view['evidence_state'];self.journal.append('read_view',self.view)
         except BaseException:
             self.close('STARTUP_FAILED');raise
@@ -122,6 +122,8 @@ class Session:
 
     def submit(self,text):
         if self.closed:raise ValueError('Session closed; start a newly authorized session')
+        if self.suspended:
+            self.pause('READ_VIEW_UNAVAILABLE');raise Paused('READ_VIEW_UNAVAILABLE')
         if not isinstance(text,str) or not text.strip() or len(text.encode())>8192:raise ValueError('Analyst message must be 1..8192 bytes')
         self.started=time.monotonic();failures=0;answers=[];repeats={};self.paused=None
         turn_start=self.started;warned=False
@@ -152,8 +154,8 @@ class Session:
                         evidence_size,ids=self.tool_payloads[(m['tool_call_id'],m['content'])]
                         self.used['evidence_bytes']+=evidence_size;self.disclosed.update(ids)
                 self.event('provider_attempt',dict(messages=messages,history_blocks_omitted=omitted,usage=self.usage()))
-                self.emit(dict(kind='activity',text='Consulting configured AI...'))
-                response=validate(self.provider.converse(messages,catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=output_tokens))
+                with Activity(self.emit,'Waiting for the AI investigator',interval=self.progress_interval):
+                    response=validate(self.provider.converse(messages,catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=output_tokens))
                 sanitized=json.loads(redact(encoded(response)))
                 if 'continuation' in response and sanitized.get('continuation')!=response['continuation']:
                     raise ValueError('PROVIDER_CONTINUATION_REDACTED')
@@ -187,7 +189,7 @@ class Session:
                             continue
                         if call['name'] in ('show_evidence','around','verify_observation') and call['arguments']['evidence_id'] not in self.known:raise ValueError('Unknown evidence reference')
                         self.event('tool_attempt',call)
-                        self.emit(dict(kind='activity',text='Running '+call['name']+'...'))
+
                         if call['name']=='note':
                             value=dict(unverified=True,**call['arguments'])
                             new_information=value not in self.notes
@@ -200,7 +202,11 @@ class Session:
                                 if remaining<=0:
                                     pause_reason='RECORD_BUDGET';raise ValueError('Record budget exhausted')
                                 effective_args['limit']=min(effective_args.get('limit',10),remaining)
-                            response_tool=self.worker.call(call['name'],effective_args,seconds=min(self.remaining(),self.scope['limits']['tool_seconds']))
+                            seconds=self.scope['limits']['tool_seconds']
+                            remaining=self.remaining()
+                            if remaining!=float('inf'):seconds=min(remaining,seconds) if seconds is not None else remaining
+                            with Activity(self.emit,description(call['name'],effective_args),interval=self.progress_interval):
+                                response_tool=self.worker.call(call['name'],effective_args,seconds=seconds)
                             if response_tool['evidence_state']!=self.view:raise RuntimeError('READ_VIEW_CHANGED')
                             value=response_tool['result']
                             incoming={r['evidence_id'] for r in value.get('records',[])}
@@ -220,11 +226,23 @@ class Session:
                         failures=0;self.used['successful_operations']+=1
                         self.used['note_operations' if call['name']=='note' else 'successful_forensic_operations']+=1
                     except (ValueError,TypeError,KeyError) as exc:
-                        if isinstance(exc,WorkerError) and (exc.timed_out or self.worker.process.poll() is not None):raise
-                        value=dict(error='TOOL_REJECTED',limitation='Invalid, out-of-scope, oversized or unavailable operation. Narrow the query or choose a different authorized approach; no result was accepted.')
-                        self.event('tool_failure',dict(tool=call['name'] if call['name'] in ('search_evidence','show_evidence','timeline','around','verify_observation','note') else 'unknown',exception=type(exc).__name__ if type(exc).__name__ in ('WorkerError','ValueError','TypeError','KeyError') else 'Other'))
-                        failures+=1;self.used['failed_operations']+=1
-                        if failures>=3:pause_reason='REPEATED_TOOL_FAILURE'
+                        self.used['failed_operations']+=1;failures+=1
+                        code=getattr(exc,'code','TOOL_REJECTED')
+                        diagnostic=dict(tool=call['name'] if call['name'] in ('search_evidence','show_evidence','timeline','around','verify_observation','note') else 'unknown',
+                                        code=code,stage=getattr(exc,'stage','argument_validation'),
+                                        timed_out=getattr(exc,'timed_out',False),integrity=getattr(exc,'integrity',None),
+                                        worker_diagnostic=getattr(exc,'diagnostic',None))
+                        if isinstance(exc,WorkerError):
+                            healthy=getattr(exc,'recoverable',False) and getattr(exc,'view',None)==self.view
+                            if not healthy:
+                                self.suspended=True;pause_reason='READ_VIEW_UNAVAILABLE'
+                                diagnostic['cleanup_confirmed']=getattr(exc,'cleanup',None)
+                            if code=='ANALYST_CANCELLED':pause_reason='ANALYST_CANCELLED' if healthy else 'READ_VIEW_UNAVAILABLE'
+                        self.event('tool_failure',diagnostic)
+                        record('diagnostic',dict(component='conversation',**diagnostic),required=True)
+                        self.emit(dict(kind='tool_failure',**diagnostic))
+                        value=dict(error=code,limitation='No result accepted; this is not evidence absence. Narrow the query or choose another authorized approach.',read_view_available=not self.suspended)
+                        if failures>=3 and not pause_reason:pause_reason='REPEATED_TOOL_FAILURE'
                     content=encoded(value)
                     if call['name']!='note' and 'error' not in value:
                         ids={r['evidence_id'] for r in value.get('records',[])}
@@ -238,7 +256,9 @@ class Session:
         except Paused as exc:
             self.pause(str(exc));raise
         except KeyboardInterrupt:
-            self.cancelled=True;self.close('CANCELLED');raise
+            self.used['uncertain_requests']+=1;self.account_usage({})
+            self.pause('ANALYST_CANCELLED',provider_outcome='unknown; no automatic retry')
+            raise Paused('ANALYST_CANCELLED') from None
         except BaseException as exc:
             from forensic_assistant.ai.provider_diagnostics import ProviderFailure
             if isinstance(exc,(ProviderFailure,ValidationError)):
@@ -260,9 +280,9 @@ class Session:
         finally:self.charge()
 
     def cancel(self):
-        # Synchronous CLI Ctrl+C interrupts active subprocess waits. Other clients
-        # can request a stop at the next boundary; no asynchronous claim is made.
-        self.cancelled=True
+        # Signal the active forensic operation. Provider interruption remains
+        # synchronous and uses the backend subprocess cleanup boundary.
+        if self.worker and hasattr(self.worker,'cancel'):self.worker.cancel()
 
     def close(self,reason='COMPLETED'):
         if self.closed:return

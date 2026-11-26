@@ -69,8 +69,8 @@ def test_default_absent_budgets_and_authorization(tmp_path):
     text=authorization_text(scope)
     assert 'No session limit' in text and 'No cumulative disclosure budget' in text
     assert 'identity' not in text and 'issued' not in text
-    assert scope['limits']['tool_seconds']==60 and scope['limits']['provider_seconds']==180
-    for invalid in ({'requests':0},{'tool_seconds':None},{'output_tokens':32769}):
+    assert scope['limits']['tool_seconds'] is None and scope['limits']['provider_seconds']==180
+    for invalid in ({'requests':0},{'tool_seconds':0},{'output_tokens':32769}):
         with pytest.raises(ValueError):authorize(path,scope['source_ids'],scope['start'],scope['end'],scope['families'],'openai','scripted',invalid)
 
 def test_extended_session_real_operations(tmp_path):
