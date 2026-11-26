@@ -68,7 +68,7 @@ def test_real_worker_publication_duplicate_and_retrieval(tmp_path):
 
 
 def test_groups_entire_population_and_ambiguous_time(tmp_path):
- db,sid,scope,p,result=case(tmp_path,ASR*101+ASR.replace('BLOCK','AUDIT')+LOW+LOW.replace('nested','different')+ASR.replace('.123Z','.123'))
+ db,sid,scope,p,result=case(tmp_path,ASR*101+ASR.replace('BLOCK','AUDIT')+LOW+LOW.replace('nested','different')+ASR.replace(STAMP,'No assignable timestamp'))
  try:
   tools=Tools(db,scope);answer=tools.execute('activity_overview',dict(kind='defender_groups',limit=10))
   assert sorted(x['count'] for x in answer['records'])==[1,1,1,101]
@@ -171,7 +171,7 @@ def test_time_precision_invalid_filetime_and_exclusive_end(tmp_path):
  assert timestamp('2026-99-01T00:00:00','x','x')['normalization_status']=='invalid'
  assert timestamp('2026-01-01T00:00:00.123456789Z','x','x')['timestamp_utc'].endswith('.123456789Z')
  p=log(tmp_path,'BEGIN BM telemetry\nProcessCreationTime: 134116992000000000\nCreationTime: invalid\nEND BM telemetry\n')
- r=parsed(p)[0];assert r['timestamps'][0]['encoding']=='FILETIME' and r['timestamps'][1]['normalization_status']=='invalid'
+ r=parsed(p)[0];assert r['timestamps'][0]['encoding']=='FILETIME' and r['timestamps'][1]['normalization_status']=='unsupported_format'
  db,sid,scope,p,_=case(tmp_path,ASR.replace('2026-01-01T12:00:00.123Z','2026-01-02T00:00:00Z'),runner=local_worker)
  try:assert not Tools(db,scope).execute('activity_overview',{'kind':'defender_groups'})['records']
  finally:db.close()
@@ -209,7 +209,7 @@ def test_provider_free_diagnostic_and_renamed_unicode_input(tmp_path):
 
 
 def test_discovery_members_path_and_incomplete_time_coverage(tmp_path):
- db,sid,scope,p,_=case(tmp_path,ASR+ASR.replace('.123Z','.123'),runner=local_worker)
+ db,sid,scope,p,_=case(tmp_path,ASR+ASR.replace(STAMP,'No assignable timestamp'),runner=local_worker)
  try:
   tools=Tools(db,scope);groups=tools.execute('discover_security_signals',{'artifact':'defender'})
   assert not groups['coverage']['complete'] and groups['coverage']['timed_population_complete']

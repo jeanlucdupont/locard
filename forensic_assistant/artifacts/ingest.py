@@ -228,7 +228,8 @@ def ingest_artifact(
     browser_product=None,
     profile=None,
     acquisition=None,
-    source_label=None
+    source_label=None,
+    defender_time_policy="format-utc"
 ):
     if kind == 'browser':
         from forensic_assistant.database.browser import require5
@@ -260,6 +261,10 @@ def ingest_artifact(
         if not re.fullmatch(r'[A-Za-z]:\\?', volume_root):
             raise ValueError('Volume root must be an explicit drive letter such as C:')
     options = {'record_size': record_size} if kind == 'mft' else {}
+    if kind=='defender':
+        from .defender import validate_policy,VERSION
+        options.update(defender_time_policy=validate_policy(defender_time_policy),_source_path=path)
+        version=VERSION
     if supervision is not None:
         options['_supervision'] = supervision
     if source_label is not None:

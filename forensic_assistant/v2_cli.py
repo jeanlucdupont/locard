@@ -17,6 +17,8 @@ def configure(commands):
         if name == 'ingest-browser':
             p.add_argument('--browser', required=True, choices=['chrome', 'edge'], help='Browser product; never inferred')
             p.add_argument('--profile', required=True, help='Browser profile, not the Windows username')
+        if name=='ingest-defender':
+            p.add_argument('--defender-time-policy',default='format-utc',help='format-utc, unknown, UTC or explicit +/-HH:MM offset; never the workstation timezone')
         p.add_argument('--hostname', help='Analyst-supplied source hostname')
         p.add_argument('--user', help='Analyst-supplied source username')
         p.add_argument('--volume-root', help='Original volume root asserted by the analyst')
@@ -148,6 +150,7 @@ def _ingest_sources(db, args, progress=None):
                         kind,
                         timeout=timeout,
                         **mft_limits,
+                        **({'defender_time_policy':getattr(args,'defender_time_policy','format-utc')} if kind=='defender' else {}),
                         record_size=args.record_size,
                         batch_id=batch_id,
                         **({'browser_product': args.browser, 'profile': args.profile} if kind == 'browser' else {})

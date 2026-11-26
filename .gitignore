@@ -303,3 +303,5 @@ report-bundles/
 
 !/scripts/defender_artifacts.py
 !/docs/LOCARD_6_179_DEFENDER_ARTIFACTS.md
+!/scripts/defender_maintenance.py
+!/docs/LOCARD_6_180_DEFENDER_ACCEPTANCE_CORRECTIONS.md

@@ -9,6 +9,9 @@ def render(record,palette=None):
            'Original location: '+str(loc), 'Parsing: '+d['parsing_status']]
     for t in record['timestamps']:
         lines.append(t['meaning']+': '+str(t['original_value'])+' | '+str(t['timestamp_utc'])+' | '+t['normalization_status'])
+    for t in d.get('timestamp_interpretations',[]):
+        lines.append('Time interpretation ['+t['slot']+']: '+t['interpretation_basis']+' | format: '+t['original_format']+' | parser: '+t['parser_version'])
+        lines.extend('Time uncertainty: '+v for v in t['uncertainty'])
     for f in d['fields']:lines.append(f['name']+': '+f['value'])
     lines.extend(['Original text:',d['text']])
     lines.extend('Limitation: '+w for w in d['limitations'])

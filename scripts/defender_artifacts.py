@@ -13,11 +13,11 @@ from forensic_assistant.ingest.evtx import digest
 from forensic_assistant.terminal import safe_span_text
 
 
-def inspect(path,*,inventory=False,ordinal=None,contains=None,limit=3):
+def inspect(path,*,inventory=False,ordinal=None,contains=None,limit=3,time_policy='format-utc'):
     regular(path);sha=digest(path);result=dict(path=str(path),bytes=path.stat().st_size,sha256=sha,supported=supported(path))
     if inventory or not result['supported']:return result
     categories=Counter();statuses=Counter();times=Counter();examples=[];count=0
-    for pack in parse(path,sha):
+    for pack in parse(path,sha,defender_time_policy=time_policy):
         detail=pack['detail'];loc=json.loads(pack['record']['locator_json'])
         categories[detail['category']]+=1;statuses[detail['parsing_status']]+=1
         for stamp in pack['timestamps']:times[stamp['normalization_status']]+=1
@@ -34,6 +34,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('path');parser.add_argument('--inventory',action='store_true')
     parser.add_argument('--ordinal',type=int);parser.add_argument('--contains');parser.add_argument('--limit',type=int,default=3)
+    parser.add_argument('--time-policy',default='format-utc')
     parser.add_argument('--json',action='store_true');args=parser.parse_args()
     if not 0<=args.limit<=20:parser.error('limit must be 0..20')
     from forensic_assistant.investigation_ai.storage import local_path
@@ -43,7 +44,7 @@ def main():
         for path in paths:
             if path.is_dir():continue
             begin=time.monotonic()
-            try:result=inspect(path,inventory=args.inventory,ordinal=args.ordinal,contains=args.contains,limit=args.limit)
+            try:result=inspect(path,inventory=args.inventory,ordinal=args.ordinal,contains=args.contains,limit=args.limit,time_policy=args.time_policy)
             except (ValueError,OSError) as exc:result=dict(path=str(path),error=type(exc).__name__+': '+str(exc))
             failed=failed or 'error' in result or result.get('source_unchanged') is False
             result['elapsed_seconds']=round(time.monotonic()-begin,3)

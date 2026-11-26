@@ -144,7 +144,7 @@ def get_evidence(db, eid, raw=False):
     elif kind == 'defender':
         detail = json.loads(record['original_json'])
         if not raw:
-            for key in ('raw_base64','group_key','group_id'):detail.pop(key,None)
+            for key in ('raw_base64','group_key','group_id','normalization_history'):detail.pop(key,None)
         result['observation'] = 'Defender diagnostic observation, not complete endpoint telemetry or proof of maliciousness'
         result['process_name'] = next((f['value'] for f in detail['fields'] if f['name'] in ('ImagePath','Process')),None)
     elif kind == 'browser':

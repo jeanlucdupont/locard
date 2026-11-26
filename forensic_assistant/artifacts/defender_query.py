@@ -25,6 +25,21 @@ PRIORITY={'detection':0,'asr_notification':0,'remediation':1,'injection_monitori
           'signature_observation':2,'file_scan':3,'configuration':3,'signature_throttling':3}
 
 
+FIELD_PRIORITY={
+ 'behavior_telemetry':('ImagePath','ProcessID','ProcessCreationTime','CreationTime','SessionID','Operations','Taint Parents','Taint Info'),
+ 'lowfi':('ImagePath','CommandLine','command'),
+ 'asr_notification':('Process','Target','Action','Rule','Reason','Persisted'),
+ 'injection_monitoring':('ImagePath','ProcessID','MonitoringReason'),
+ 'remediation':('Resource','Target','ImagePath','Action','Outcome','Status'),
+ 'file_scan':('Path','Process','Status','ScanObservation','Reason')}
+
+
+def summary_fields(category,entries):
+    names=FIELD_PRIORITY.get(category,())
+    order=sorted(range(len(entries)),key=lambda i:(names.index(entries[i]['name']) if entries[i]['name'] in names else len(names),i))
+    return [field('/detail/fields/'+str(i)+'/value',entries[i]['value'],entries[i]['name']) for i in order[:8]]
+
+
 def groups(db,source,start,end,*,limit=5,offset=0,category=None,hydrate=None,byte_limit=12000):
     if not 1<=limit<=10 or type(offset) is not int or offset<0 or byte_limit<4096:raise ValueError('Invalid grouped discovery bounds')
     start,end=required_time(start),required_time(end)
@@ -45,7 +60,7 @@ def groups(db,source,start,end,*,limit=5,offset=0,category=None,hydrate=None,byt
     hydrate=hydrate or (lambda eid:get_evidence(db,eid))
     for row in rows[:limit]:
         record=hydrate(row['example']);detail=record['detail'];entries=detail['fields']
-        originals=[field('/detail/fields/'+str(i)+'/value',f['value'],f['name']) for i,f in enumerate(entries[:8])]
+        originals=summary_fields(row['artifact_type'],entries)
         item=dict(evidence_id=record['id'],artifact='defender',source_ids=[source],representative=True,
                   group_id=hashlib.sha256(row['grouping'].encode()).hexdigest(),category=row['artifact_type'],count=row['n'],
                   first_time=row['first_time'],last_time=row['last_time'],timestamp_meaning='In-window recorded timestamp observations; inspect individual meanings',
