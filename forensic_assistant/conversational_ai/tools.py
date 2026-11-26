@@ -33,6 +33,8 @@ class Tools:
     def __init__(self,db,scope,*,profile=None):
         self.db,self.scope=db,scope;self.profile=profile
         self.known=set();self.disclosed={}
+        self.cancel_check=lambda:None
+        self.progress=lambda value:None
 
     def source(self,args):
         sid=args.get('source_id')
@@ -91,6 +93,21 @@ class Tools:
 
     def execute(self,name,args):
         arguments(name,args);check(self.scope,self.scope['case'])
+        if name=='discover_execution_behaviors':
+            from forensic_assistant.detections.execution import discover
+            query=dict(args);sid=self.source(query);query.pop('source_id',None)
+            start=required_time(query.pop('start',self.scope['start']));end=required_time(query.pop('end',self.scope['end']))
+            if not self.scope['start']<=start<end<=self.scope['end']:raise ValueError('Discovery cannot expand approval')
+            family=query.pop('artifact',None)
+            if family is not None and family not in self.scope['families']:raise ValueError('Artifact outside approval')
+            result=discover(self.db,sid,start,end,families=[family] if family else self.scope['families'],
+                hydrate=lambda eid:self.original(eid,known=False,_scoped=True),byte_limit=min(12000,self.scope['limits']['result_bytes']),
+                check=self.cancel_check,progress=self.progress,**query)
+            for item in result['records']:
+                eid=item['evidence_id'];self.known.add(eid)
+                for f in item['original_fields']:
+                    if not f['truncated'] and not f['redacted']:self.disclosed.setdefault(eid,{})[f['field']]=f['value']
+            return result
         if name in ('discover_security_signals','activity_overview'):
             from forensic_assistant.detections.discovery import Discovery,OVERVIEWS
             query=dict(args);sid=self.source(query);query.pop('source_id',None)

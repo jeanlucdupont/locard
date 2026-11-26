@@ -66,6 +66,13 @@ def serve():
                             adapter.known=set(adapter.known)
                             adapter.disclosed={k:dict(v) for k,v in adapter.disclosed.items()}
                             if adapter.profile is not None:adapter.profile.clear()
+                            def check_processing():
+                                if interrupted():raise sqlite3.OperationalError('interrupted')
+                            def progress_processing(value):
+                                check_processing()
+                                raw_progress=json.dumps(dict(operation_id=identity,progress=value)).encode()+b'\n'
+                                sys.stdout.buffer.write(raw_progress);sys.stdout.buffer.flush()
+                            adapter.cancel_check=check_processing;adapter.progress=progress_processing
                             stage='query'
                             value=adapter.execute(request['operation'],request['arguments'])
                         if interrupted():raise sqlite3.OperationalError('interrupted')

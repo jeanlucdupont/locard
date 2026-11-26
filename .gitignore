@@ -305,3 +305,6 @@ report-bundles/
 !/docs/LOCARD_6_179_DEFENDER_ARTIFACTS.md
 !/scripts/defender_maintenance.py
 !/docs/LOCARD_6_180_DEFENDER_ACCEPTANCE_CORRECTIONS.md
+!/scripts/discover_execution_behaviors.py
+!/scripts/db_keyword_search.py
+!/docs/LOCARD_6_181_BEHAVIORAL_DISCOVERY.md

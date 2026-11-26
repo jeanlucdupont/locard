@@ -23,6 +23,7 @@ class ChatWorker(ForensicWorker):
 
     def __init__(self,config):
         self.cancel_event=threading.Event()
+        self.progress=lambda value:None
         super().__init__(config)
 
     def cancel(self):
@@ -63,6 +64,15 @@ class ChatWorker(ForensicWorker):
                         if self.process.poll() is not None:lost('WORKER_TERMINATED')
                         continue
                     if not isinstance(result,dict) or result.get('operation_id')!=identity:lost('WORKER_PROTOCOL')
+                    if 'progress' in result:
+                        value=result['progress']
+                        if (set(result)!={'operation_id','progress'} or not isinstance(value,dict) or
+                            set(value)!={'processed','groups','phase','elapsed_seconds'} or
+                            any(type(value[k]) is not int or value[k]<0 for k in ('processed','groups')) or
+                            value['phase'] not in ('analyzing','completed') or type(value['elapsed_seconds']) not in (int,float) or not 0<=value['elapsed_seconds']<1e9):lost('WORKER_PROTOCOL')
+                        self.progress(dict(kind='progress',operation='Execution discovery',status=value['phase'],
+                            elapsed_seconds=value['elapsed_seconds'],computational_progress=f"{value['processed']} records; {value['groups']} groups",**{k:value[k] for k in ('processed','groups')}))
+                        continue  # Never extend the operation deadline.
                     if 'error' in result:
                         code=result['error']
                         if code not in CODES:lost('WORKER_PROTOCOL')
