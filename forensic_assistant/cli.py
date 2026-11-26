@@ -170,6 +170,8 @@ def build_parser(*, interactive=False):
     semantic_cli.configure(commands, ask_parser, interactive=interactive)
     from forensic_assistant.investigation_ai import cli as investigation_cli
     investigation_cli.configure(commands)
+    from forensic_assistant.conversational_ai.cli import configure as configure_chat
+    configure_chat(commands)
     from forensic_assistant.reporting import cli as report_cli
     report_cli.configure(commands, interactive=interactive)
     from forensic_assistant import source_cli
@@ -353,6 +355,9 @@ def _dispatch_command_body(args, *, existing_only=False):
 
 
 def _dispatch(args, output, *, existing_only=False):
+    if args.command == 'conversation-chat':
+        from forensic_assistant.conversational_ai.cli import run as run_chat
+        return run_chat(args)
     from forensic_assistant import activity
     def emit(value):
         activity.result_count(value)

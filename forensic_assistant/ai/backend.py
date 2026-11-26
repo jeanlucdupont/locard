@@ -249,6 +249,19 @@ class ModelBackend:
                 record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
             raise ProviderFailure('provider_failure') from None
 
+    def converse(self, messages, tools, *, timeout=None, output_tokens=2048):
+        """Native tool calling; legacy structured completion is unchanged."""
+        from forensic_assistant.conversational_ai.provider import validate
+        if self.provider_name != 'openai' or self.endpoint:
+            raise ValueError('Conversational provider unsupported; no cloud fallback')
+        if len(json.dumps({'messages':messages,'tools':tools},ensure_ascii=True).encode())>128*1024:
+            raise ValueError('Conversational request byte limit')
+        self.prepare(STATUS.get())
+        result=self._cloud_request(messages,None,timeout=timeout,
+            conversation=dict(tools=tools,output_tokens=output_tokens))
+        self.last_metadata={'usage':result['usage'],'cost':None}
+        return validate(result)
+
     def complete_d2(self, messages, body_sha256):
         """Called only inside D2's fresh-grant supervisor; no readiness requests."""
         from forensic_assistant.investigation_ai.d2_wire import schema_for
@@ -256,7 +269,7 @@ class ModelBackend:
             raise ValueError('D2_PROVIDER_SCOPE')
         return self._cloud_request(messages, schema_for(messages), timeout=self.timeout, d2_body_sha256=body_sha256)
 
-    def _cloud_request(self, messages, schema, *, timeout=None, handshake=False, d2_body_sha256=None):
+    def _cloud_request(self, messages, schema, *, timeout=None, handshake=False, d2_body_sha256=None, conversation=None):
         from forensic_assistant.session_recording import require, record
         require()
         record('provider_dispatch_boundary', dict(provider=self.provider_name, model=self.model_name,
@@ -274,6 +287,8 @@ class ModelBackend:
         from .output_budget import FINAL_ONLY
         request = dict(final_only=FINAL_ONLY.get(), provider=self.provider_name, model=self.model_name, messages=messages,
                        schema=schema, timeout=timeout, handshake=handshake, raw_diagnostics=raw_diagnostics.enabled)
+        if conversation is not None:
+            request.update(conversation=conversation,raw_diagnostics=False,final_only=False)
         if d2_body_sha256 is not None:
             request.update(d2_body_sha256=d2_body_sha256, raw_diagnostics=False, final_only=False)
         process = subprocess.Popen([sys.executable, '-B', '-m', 'forensic_assistant.ai.cloud_worker'],
@@ -299,6 +314,9 @@ class ModelBackend:
                 raise ProviderFailure(result['error'],
                                       result['stage'] if type(result['stage']) is str and result['stage'] in STAGES else 'provider_request',
                                       metadata=result.get('metadata'))
+            if conversation is not None:
+                from forensic_assistant.conversational_ai.provider import validate
+                return validate(result)
             allowed = ({'text', 'usage'}, {'text', 'usage', 'gemini_response', 'gemini_usage', 'max_output_tokens'}) if self.provider_name == 'gemini' else ({'text', 'usage'},)
             if self.provider_name == 'openai':
                 allowed += ({'text', 'usage', 'finish_reason'},)

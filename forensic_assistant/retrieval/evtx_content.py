@@ -151,7 +151,7 @@ def _search(query, *, evtx_text, evtx_match='contains', evtx_after=None, start=N
                                     mode=evtx_match, excerpt=value[begin:begin+320], value_offset=begin,
                                     truncated=begin > 0 or len(value) > begin+320 or len(item['name']) > 80))
             if matches:
-                record = get_evidence(db, row['id'])
+                record = query.hydrate(row['id']) if query.hydrate is not None else get_evidence(db, row['id'])
                 record['content_matches'] = matches[:4]
                 record['content_matches_truncated'] = len(matches) > 4
                 records.append(record)

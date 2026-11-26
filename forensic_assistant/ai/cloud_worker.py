@@ -37,6 +37,9 @@ def request_kwargs(request):
 
 
 def generate(request, sdk):
+    if 'conversation' in request:
+        from forensic_assistant.conversational_ai.provider import generate as conversational
+        return conversational(request,sdk)
     kwargs = request_kwargs(request)
     if 'd2_body_sha256' in request:
         from .d2_transport import guarded_client

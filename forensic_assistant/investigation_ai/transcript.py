@@ -55,7 +55,7 @@ def implementation():
     return {'application_version': __version__, 'code_sha256': h.hexdigest(), 'policy_version': 'v4-3', 'schema': 3}
 
 class Transcript:
-    def __init__(self, root, metadata, *, investigation_id=None):
+    def __init__(self, root, metadata, *, investigation_id=None, private=False):
         self.guard = None
         self.stream = None
         root = local_path(root)
@@ -66,7 +66,11 @@ class Transcript:
             raise ValueError('Invalid investigation ID')
         self.path = root / self.id
         try:
-            self.path.mkdir(mode=0o700)
+            if private:
+                from .snapshot import _private_mkdir
+                _private_mkdir(self.path)
+            else:
+                self.path.mkdir(mode=0o700)
             self.child_guard = DirectoryGuard(self.path)
             self.stream = (self.path / 'events.jsonl').open('xb')
         except BaseException:

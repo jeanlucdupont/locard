@@ -16,6 +16,7 @@ FAMILIES = {
     'settings': 'Set terminal preferences and view the version',
 }
 PATHS = {
+    'conversation-chat': ('investigation', 'chat'),
     'status': ('case', 'status'),
     **{name: ('evidence', name) for name in ('search', 'show', 'timeline', 'around', 'semantic', 'source')},
     'dump': ('evidence', 'export'),

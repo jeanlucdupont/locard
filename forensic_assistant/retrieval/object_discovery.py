@@ -38,7 +38,7 @@ def scope(db, values):
     return hashlib.sha256(json.dumps([identity,values],sort_keys=True).encode()).hexdigest()
 
 
-def search(query, *, object_basename, artifact, start, end, limit=10, object_after=None):
+def search(query, *, object_basename, artifact, start, end, limit=10, object_after=None, source_scope=None):
     from .evidence import get_evidence
     from forensic_assistant.correlation.models import time_ns
     if artifact not in ('mft','prefetch','registry','browser') or not 1<=limit<=10:
@@ -49,7 +49,7 @@ def search(query, *, object_basename, artifact, start, end, limit=10, object_aft
     if not 0<=time_ns(end)-time_ns(start)<=86400*10**9:
         raise ValueError('Object discovery requires at most 24 hours')
     db=query.db
-    identity=scope(db,[object_basename,artifact,start,end])
+    identity=scope(db,[object_basename,artifact,start,end]+([source_scope] if source_scope is not None else []))
     after=''
     if object_after is not None:
         try:
@@ -62,11 +62,16 @@ def search(query, *, object_basename, artifact, start, end, limit=10, object_aft
     # The existing (basename,evidence_id) index supplies ordered unique IDs.
     sql=('SELECT DISTINCT evidence_id FROM evidence_objects WHERE basename=? AND evidence_id>? '
          'ORDER BY evidence_id LIMIT ?')
+    source_params=[]
+    if source_scope is not None:
+        clauses,source_params=query._where(artifact=artifact,source_scope=source_scope)
+        sql=('SELECT DISTINCT o.evidence_id FROM evidence_objects o JOIN evidence_records e ON e.evidence_id=o.evidence_id '
+             'WHERE o.basename=? AND o.evidence_id>? AND '+' AND '.join(clauses)+' ORDER BY o.evidence_id LIMIT ?')
     records=[];examined=0;last=after;complete=False;notes=[]
     deadline=time.monotonic()+SECONDS
     timer=threading.Timer(SECONDS,db.interrupt);timer.daemon=True;timer.start()
     try:
-        candidates=db.execute(sql,(object_basename.lower(),after,CANDIDATES+1)).fetchall()
+        candidates=db.execute(sql,[object_basename.lower(),after,*source_params,CANDIDATES+1]).fetchall()
         for row in candidates[:CANDIDATES]:
             if time.monotonic()>=deadline:break
             eid=row[0]
@@ -74,7 +79,11 @@ def search(query, *, object_basename, artifact, start, end, limit=10, object_aft
             if family and family[0]==artifact:
                 # Resolve only this candidate through the established hydration layer,
                 # including inherited Registry and UserAssist timestamp semantics.
-                record=get_evidence(db,eid)
+                record=query.hydrate(eid) if query.hydrate is not None else get_evidence(db,eid)
+                if record is None:
+                    examined+=1;last=eid
+                    if 'Candidates excluded by authorized scope' not in notes:notes.append('Candidates excluded by authorized scope')
+                    continue
                 if any(t.get('timestamp_utc') and start<=required_time(t['timestamp_utc'])<=end for t in record['timestamps']):
                     objects=db.execute('SELECT slot,role,original FROM evidence_objects WHERE evidence_id=? AND basename=? ORDER BY slot LIMIT 9',
                                        (eid,object_basename.lower())).fetchall()

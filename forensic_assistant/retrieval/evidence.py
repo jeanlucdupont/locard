@@ -186,6 +186,7 @@ class EvidenceQueries:
         self,
         *,
         artifact=None,
+        evidence_id=None,
         evidence_kind=None,
         path=None,
         registry_key=None,
@@ -209,6 +210,9 @@ class EvidenceQueries:
     ):
         clauses = []
         params = []
+        if evidence_id is not None:
+            clauses.append('e.evidence_id=?')
+            params.append(evidence_id)
         from forensic_assistant.retrieval.browser_query import filters as browser_filters
         extra, values = browser_filters(artifact, url, url_contains, title, title_contains, download_path, download_path_contains, browser, profile, browser_kind)
         clauses.extend(extra)
@@ -427,9 +431,18 @@ class EvidenceQueries:
                 bounded = ' FROM ' + timestamp_table + ' t WHERE ' + ' AND '.join(timeclauses)
                 inherited = (' FROM ' + timestamp_table + ' t CROSS JOIN registry_values v '
                              'ON v.key_id=t.evidence_id WHERE ' + ' AND '.join(timeclauses))
-                source = ('(SELECT t.evidence_id' + bounded + ' UNION SELECT v.evidence_id' + inherited +
-                          ') selected CROSS JOIN evidence_records e ON e.evidence_id=selected.evidence_id')
-                params = [*tp, *tp, *params]
+                if filters.get('evidence_id') is not None:
+                    # Exact-ID authorization/rehydration must not materialize the
+                    # entire case time window for each individual inspection.
+                    condition=' AND '.join(timeclauses)
+                    clauses.append('(EXISTS (SELECT 1 FROM '+timestamp_table+' t WHERE t.evidence_id=e.evidence_id AND '+condition+') OR '
+                                   'EXISTS (SELECT 1 FROM registry_values v JOIN '+timestamp_table+' t ON t.evidence_id=v.key_id '
+                                   'WHERE v.evidence_id=e.evidence_id AND '+condition+'))')
+                    params += [*tp,*tp]
+                else:
+                    source = ('(SELECT t.evidence_id' + bounded + ' UNION SELECT v.evidence_id' + inherited +
+                              ') selected CROSS JOIN evidence_records e ON e.evidence_id=selected.evidence_id')
+                    params = [*tp, *tp, *params]
             # Preserve search order across old cases and new ingestion; the added
             # internal slot must not silently become a new default ranking signal.
             order_time = "(SELECT min(timestamp_utc) FROM evidence_timestamps WHERE evidence_id=e.evidence_id AND slot<>'UserAssist.LastExecution')"
