@@ -7,6 +7,10 @@ from forensic_assistant.conversational_ai.provider import ScriptedProvider
 from forensic_assistant.conversational_ai.service import Session,notebook
 from test_context_inspection import case
 
+@pytest.fixture(autouse=True)
+def private_diagnostics(tmp_path,monkeypatch):
+    monkeypatch.setenv('LOCALAPPDATA',str(tmp_path))
+
 
 def reply(text='',calls=()):
     return dict(text=text,tool_calls=list(calls),finish_reason='tool_calls' if calls else 'stop',usage={'total_tokens':30},cost=None)
@@ -346,6 +350,7 @@ def test_backend_converse_preserves_provider_without_local_start(monkeypatch):
     from forensic_assistant.ai import backend as b,settings
     config=settings.defaults();config.update(provider='openai',model='synthetic',cloud_acknowledged=True)
     client=b.ModelBackend(config=config)
+    monkeypatch.setattr(settings,'key',lambda provider:'synthetic')
     monkeypatch.setattr(client,'prepare',lambda *a:client)
     monkeypatch.setattr(b.runtime,'acquire',lambda *a:pytest.fail('Local runtime must not start'))
     captured=[]

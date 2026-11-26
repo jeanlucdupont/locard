@@ -8,6 +8,9 @@ from . import settings, diagnostics
 from forensic_assistant.llm.client import LLMError
 
 REASONS = {
+    'conversation_envelope': 'Invalid native conversational tool-call envelope',
+    'conversation_finish': 'Unsupported conversational completion reason',
+    'conversation_adapter': 'Internal conversational adapter failure',
     'provider_refusal': 'Provider explicitly refused the request',
     'response_envelope_failed': 'Provider response envelope failed validation before JSON parsing',
     'output_truncated': 'Model output was truncated before a complete structured response was produced',
@@ -116,6 +119,9 @@ def safe_metadata(value):
     """Revalidate at worker IPC, storage and human-rendering boundaries."""
     if type(value) is not dict: return {}
     result = {}
+    from forensic_assistant.conversational_ai.diagnostics import safe
+    conversation = safe(value.get('conversation'))
+    if conversation: result['conversation'] = conversation
     from .anthropic_strategy import safe as safe_strategy
     strategy=safe_strategy(value.get('anthropic_strategy'))
     if strategy:result['anthropic_strategy']=strategy
@@ -251,7 +257,7 @@ def record(provider, model, stage, category, elapsed=0, *, operation="request", 
     value = dict(utc=time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()),
                  provider=settings.PROVIDERS[provider][0], model=model, stage=stage,
                  category=category, reason=REASONS[category], retries=0,
-                 operation=operation if operation in ("handshake", "investigation", "advisory") else "request",
+                 operation=operation if operation in ("handshake", "investigation", "advisory", "conversation") else "request",
                  status="success" if category in ("ready", "response_validated") else "failure",
                  elapsed_seconds=round(max(0, min(float(elapsed), 3600)), 3))
     value.update(safe_metadata(metadata))
@@ -262,9 +268,10 @@ def record(provider, model, stage, category, elapsed=0, *, operation="request", 
                           if type(usage.get(key)) is int and 0 <= usage[key] <= 10000000}
     try:
         diagnostics.append('provider.log', json.dumps(value, ensure_ascii=True) + '\n')
+        return True
     except (OSError, ValueError):
         # Diagnostic failure must not change forensic/audit decisions.
-        pass
+        return False
 
 
 def validation(client, stage):
@@ -289,7 +296,7 @@ def render(text):
         if type(model) is not str or len(model) > 200: model = '[unavailable]'
         rows.append(stamp + ' — ' + provider)
         rows.append('  Model: ' + safe_text(redact(model)))
-        rows.append('  Operation: ' + (value['operation'] if value.get('operation') in ('handshake', 'investigation', 'advisory') else 'request'))
+        rows.append('  Operation: ' + (value['operation'] if value.get('operation') in ('handshake', 'investigation', 'advisory', 'conversation') else 'request'))
         rows.append('  Status: ' + ('success' if category in ('ready', 'response_validated') else 'failure'))
         elapsed = value.get('elapsed_seconds')
         if type(elapsed) in (int, float) and math.isfinite(elapsed) and 0 <= elapsed <= 3600:
@@ -298,7 +305,10 @@ def render(text):
         labels = {'anthropic_feature':'Provider feature', 'anthropic_error_category':'Provider error category', 'anthropic_error_code':'Provider error code', 'anthropic_provider_detail':'Provider detail', 'anthropic_request_field':'Request field', 'max_output_tokens':'Max output tokens', 'rejected_parameter':'Rejected parameter', 'http_status':'HTTP status', 'provider_code':'Provider code', 'provider_type':'Provider type',
                   'timeout_limit_seconds':'Timeout limit (seconds)', 'schema_rule':'Schema rule', 'exception_class':'Exception class', 'retry_after_present':'Retry-after present', 'retry_after_seconds':'Retry-after seconds'}
         for key, item in safe_metadata(value).items():
-            if key == 'anthropic_strategy':
+            if key == 'conversation':
+                rows.append('  Conversation:')
+                for field, state in item.items(): rows.append('    '+field+': '+str(state))
+            elif key == 'anthropic_strategy':
                 rows.append('  Anthropic strategy:')
                 for field,state in item.items():rows.append('    '+field+': '+str(state))
             elif key == 'gemini_usage':

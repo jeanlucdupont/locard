@@ -135,6 +135,7 @@ def complete(kwargs, sdk, *, d2=False):
 def main():
     # Parent owns bounded wall-clock termination. No provider exception is serialized.
     output = sys.stdout
+    request = {}; worker_stage='sdk_import'
     try:
         request = json.loads(sys.stdin.buffer.read(1024 * 1024 + 1))
         with open(os.devnull, 'w') as sink:
@@ -151,12 +152,18 @@ def main():
             litellm.callbacks = []
             litellm.success_callback = []
             litellm.failure_callback = []
+            worker_stage='dispatch'
             result = generate(request, litellm)
         output.write(json.dumps(result))
     except BaseException as exc:
         # Never include str(exc), response bodies, headers or request metadata.
         category = classify(exc)
-        output.write(json.dumps({**({'raw_diagnostic': exc.raw_diagnostic} if hasattr(exc, 'raw_diagnostic') else {}), 'error': category, 'metadata': error_metadata(exc),
+        metadata=error_metadata(exc)
+        if type(request) is dict and 'conversation' in request and 'conversation' not in metadata:
+            from forensic_assistant.conversational_ai.diagnostics import detail
+            metadata['conversation']=detail(worker_stage,exc)
+            if category=='unknown_provider_error':category='conversation_adapter'
+        output.write(json.dumps({**({'raw_diagnostic': exc.raw_diagnostic} if hasattr(exc, 'raw_diagnostic') else {}), 'error': category, 'metadata': metadata,
                                  'stage': exc.stage if isinstance(exc, ProviderFailure) else 'timeout' if category == 'timeout' else 'provider_request'}))
     finally:
         output.flush()

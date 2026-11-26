@@ -304,6 +304,7 @@ def _dispatch_command_body(args, *, existing_only=False):
         try:
             value = ai_cli.dispatch(args)
             print(json.dumps(value, ensure_ascii=True, indent=2) if getattr(args, 'json', False) else ai_cli.render(value, args))
+            if value.get('diagnostic_level')=='conversation' and value.get('overall')!='ready':return 2
             return 0
         except (ValueError, OSError) as exc:
             from forensic_assistant.terminal import message

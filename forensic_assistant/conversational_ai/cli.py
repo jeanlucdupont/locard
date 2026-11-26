@@ -17,7 +17,7 @@ def configure(commands):
     p.add_argument('--max-operations',type=int,default=DEFAULTS['operations'],help='Session forensic/notebook tool ceiling')
 
 
-def run(args,read=None,write=None,provider=None):
+def _run(args,read=None,write=None,provider=None):
     read=read or input;write=write or print
     if not sys.stdin.isatty() and read is input:raise ValueError('Conversational investigation requires an interactive terminal')
     provider=provider or ModelBackend()
@@ -59,3 +59,26 @@ def run(args,read=None,write=None,provider=None):
     finally:session.close()
     write('Conversation ended. Notebook: '+safe_span_text(str(session.journal.path)))
     return 0
+
+
+def run(args,read=None,write=None,provider=None):
+    from forensic_assistant.ai.provider_diagnostics import ProviderFailure
+    from forensic_assistant.investigation_ai.runner import WorkerError
+    from forensic_assistant.investigation_ai.lifecycle import CleanupError
+    write=write or print
+    try:return _run(args,read=read,write=write,provider=provider)
+    except (ProviderFailure,WorkerError,CleanupError,ValueError,OSError) as exc:
+        if isinstance(exc,ProviderFailure):message=str(exc)
+        elif isinstance(exc,CleanupError):message='CLEANUP_LIMITATION: worker cleanup could not be confirmed.'
+        else:message='Conversation stopped: '+type(exc).__name__+'. Review the retained notebook/session audit; no automatic retry.'
+        write(safe_span_text(message))
+        return 2
+    except Exception as exc:
+        from forensic_assistant.ai.provider_diagnostics import record
+        from .diagnostics import detail
+        if provider is not None:
+            record(provider.provider_name,provider.model_name,'response_parse','conversation_adapter',operation='conversation',metadata={'conversation':detail('cli',exc)})
+        else:
+            from forensic_assistant.session_recording import record as audit
+            audit('diagnostic',dict(component='conversation',category='internal_adapter_error',location='cli',exception_class=detail('cli',exc)['exception_class']),required=True)
+        raise

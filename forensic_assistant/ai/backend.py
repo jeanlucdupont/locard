@@ -249,18 +249,49 @@ class ModelBackend:
                 record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
             raise ProviderFailure('provider_failure') from None
 
-    def converse(self, messages, tools, *, timeout=None, output_tokens=2048):
-        """Native tool calling; legacy structured completion is unchanged."""
+    def converse(self, messages, tools, *, timeout=None, output_tokens=2048, tool_choice='auto'):
+        """Native tools with the same sanitized diagnostic boundary as completions."""
         from forensic_assistant.conversational_ai.provider import validate
-        if self.provider_name != 'openai' or self.endpoint:
-            raise ValueError('Conversational provider unsupported; no cloud fallback')
-        if len(json.dumps({'messages':messages,'tools':tools},ensure_ascii=True).encode())>128*1024:
-            raise ValueError('Conversational request byte limit')
-        self.prepare(STATUS.get())
-        result=self._cloud_request(messages,None,timeout=timeout,
-            conversation=dict(tools=tools,output_tokens=output_tokens))
-        self.last_metadata={'usage':result['usage'],'cost':None}
-        return validate(result)
+        from forensic_assistant.conversational_ai.diagnostics import shape,detail
+        from .provider_diagnostics import ProviderFailure,record,error_metadata,classify
+        started=time.monotonic();location='configuration'
+        timeout=self.timeout if timeout is None else timeout
+        metadata={'conversation':shape(tools,output_tokens,timeout)}
+        try:
+            if self.provider_name != 'openai' or self.endpoint:
+                raise ValueError('Conversational provider unsupported; no cloud fallback')
+            if tool_choice not in ('auto','required','none'):raise ValueError('Invalid tool choice')
+            if len(json.dumps({'messages':messages,'tools':tools},ensure_ascii=True).encode())>128*1024:
+                raise ValueError('Conversational request byte limit')
+            # Native tool compatibility is independent of the legacy structured
+            # response readiness cache. Authentication is still checked locally.
+            try: settings.key(self.provider_name)
+            except ValueError: raise ProviderFailure('missing_credential','configuration') from None
+            location='dispatch'
+            result=self._cloud_request(messages,None,timeout=timeout,
+                conversation=dict(tools=tools,output_tokens=output_tokens,tool_choice=tool_choice))
+            location='validation';validate(result)
+            metadata['conversation'].update(detail(location,finish=result['finish_reason']))
+            metadata['conversation'].update(result['usage'])
+            record(self.provider_name,self.model_name,'response_parse','response_validated',time.monotonic()-started,
+                   operation='conversation',metadata=metadata,usage=result['usage'])
+            self.last_metadata={'usage':result['usage'],'cost':None}
+            return result
+        except Exception as exc:
+            # Audit failures retain their own fail-closed control flow.
+            from forensic_assistant.activity import AuditError
+            if isinstance(exc,AuditError):raise
+            category=exc.category if isinstance(exc,ProviderFailure) else 'conversation_adapter'
+            stage=exc.stage if isinstance(exc,ProviderFailure) else 'configuration' if location=='configuration' else 'response_parse'
+            extra=error_metadata(exc)
+            metadata.update({k:v for k,v in extra.items() if k!='conversation'})
+            metadata['conversation'].update(extra.get('conversation') or detail(location,exc))
+            logged=record(self.provider_name,self.model_name,stage,category,time.monotonic()-started,operation='conversation',metadata=metadata)
+            failure=ProviderFailure(category,stage,metadata=metadata)
+            if not logged:
+                from .provider_diagnostics import REASONS
+                failure.args=(REASONS[failure.category]+'. Provider diagnostic log could not be persisted.',)
+            raise failure from None
 
     def complete_d2(self, messages, body_sha256):
         """Called only inside D2's fresh-grant supervisor; no readiness requests."""

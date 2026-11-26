@@ -19,23 +19,43 @@ def validate(value):
 
 
 def generate(request,sdk):
-    if request['provider']!='openai':raise ValueError('Unsupported conversational provider')
     from forensic_assistant.ai.settings import key
-    result=sdk.completion(model='openai/'+request['model'],custom_llm_provider='openai',api_key=key('openai'),
-        messages=request['messages'],tools=request['conversation']['tools'],tool_choice='auto',
-        stream=False,max_completion_tokens=request['conversation']['output_tokens'],
-        timeout=request['timeout'],num_retries=0,drop_params=False)
+    from forensic_assistant.ai.provider_diagnostics import classify,error_metadata
+    from .diagnostics import detail
+    location='configuration';finish=None
     try:
-        choice=result.choices[0];message=choice.message
-        if getattr(message,'refusal',None):raise ProviderFailure('refusal','provider_generation')
+        if request['provider']!='openai':raise ValueError('Unsupported conversational provider')
+        credential=key('openai')
+        location='transport'
+        result=sdk.completion(model='openai/'+request['model'],custom_llm_provider='openai',api_key=credential,
+            messages=request['messages'],tools=request['conversation']['tools'],
+            tool_choice=request['conversation'].get('tool_choice','auto'),
+            stream=False,max_completion_tokens=request['conversation']['output_tokens'],
+            timeout=request['timeout'],num_retries=0,drop_params=False)
+        location='extraction'
+        choice=result.choices[0];message=choice.message;finish=choice.finish_reason
+        metadata={'conversation':detail(location,finish=finish)}
+        usage=getattr(result,'usage',None)
+        metadata['conversation'].update({k:getattr(usage,k) for k in ('prompt_tokens','completion_tokens','total_tokens') if type(getattr(usage,k,None)) is int and 0<=getattr(usage,k)<=10000000})
+        if getattr(message,'refusal',None):raise ProviderFailure('provider_refusal','provider_generation',metadata=metadata)
+        if finish=='length':raise ProviderFailure('output_truncated','provider_generation',metadata=metadata)
+        if finish=='content_filter':raise ProviderFailure('provider_refusal','provider_generation',metadata=metadata)
+        if finish not in ('stop','tool_calls'):raise ProviderFailure('conversation_finish','provider_generation',metadata=metadata)
         calls=[]
         for call in (getattr(message,'tool_calls',None) or []):
             if getattr(call,'type',None)!='function':raise ValueError('Invalid tool type')
-            calls.append(dict(id=call.id,name=call.function.name,arguments=loads(call.function.arguments,max_bytes=16384)))
-        usage=getattr(result,'usage',None)
-        return validate(dict(text=message.content or '',tool_calls=calls,finish_reason=choice.finish_reason,
+            try:arguments=loads(call.function.arguments,max_bytes=16384)
+            except (ValueError,TypeError):raise ProviderFailure('response_parse','response_parse',metadata=metadata) from None
+            calls.append(dict(id=call.id,name=call.function.name,arguments=arguments))
+        location='validation'
+        return validate(dict(text=message.content if message.content is not None else '',tool_calls=calls,finish_reason=finish,
             usage={k:getattr(usage,k) for k in ('prompt_tokens','completion_tokens','total_tokens') if type(getattr(usage,k,None)) is int},cost=None))
-    except (ValueError,TypeError,AttributeError,IndexError):raise ProviderFailure('response_parse','response_parse') from None
+    except ProviderFailure:raise
+    except Exception as exc:
+        category=classify(exc) if location=='transport' else 'missing_credential' if location=='configuration' else 'conversation_envelope'
+        if location=='transport' and category=='unknown_provider_error' and type(exc) in (ValueError,TypeError,AttributeError,KeyError,RuntimeError):category='conversation_adapter'
+        raise ProviderFailure(category,'timeout' if category=='timeout' else 'provider_request' if location=='transport' else 'configuration' if location=='configuration' else 'response_parse',
+            metadata={**error_metadata(exc),'conversation':detail(location,exc,finish)}) from None
 
 
 class ScriptedProvider:

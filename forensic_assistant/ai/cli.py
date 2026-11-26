@@ -22,6 +22,7 @@ def configure(commands):
         if name == 'check':
             levels = child.add_mutually_exclusive_group()
             levels.add_argument('--connectivity', action='store_true', help='Non-generative authentication/reachability check')
+            levels.add_argument('--conversation', action='store_true', help='Authorized synthetic native tool-call round trip and catalog check')
             levels.add_argument('--full', action='store_true', help='Potentially billable synthetic compatibility diagnostic')
             child.add_argument('--authorize-diagnostic', action='store_true', help='Authorize synthetic model requests for this diagnostic only')
         if name == 'logs': child.add_argument('--raw', action='store_true', help='Enable session capture and display buffered cloud output; may contain case data')
@@ -101,7 +102,7 @@ def dispatch(args):
     try:
         config = settings.load()
     except (ValueError, OSError):
-        if operation == 'check' and not getattr(args, 'full', False) and not getattr(args, 'connectivity', False):
+        if operation == 'check' and not getattr(args, 'full', False) and not getattr(args, 'connectivity', False) and not getattr(args, 'conversation', False):
             from . import readiness
             return readiness.check(None)
         raise
@@ -113,6 +114,13 @@ def dispatch(args):
             return {'status': 'unchanged', **status(config)}
     if operation == 'check':
         from . import readiness
+        if getattr(args, 'conversation', False):
+            from forensic_assistant.conversational_ai.compatibility import run
+            authorized=getattr(args,'authorize_diagnostic',False) is True
+            read=getattr(args,'_confirm',None)
+            if not authorized and not args.json and callable(read):
+                authorized=read('Send up to three potentially billable synthetic conversational requests? No case data is sent. [y/N]: ').strip().lower() in ('y','yes')
+            return run(config,authorized=authorized)
         if getattr(args, 'full', False):
             authorized = getattr(args, 'authorize_diagnostic', False) is True
             read = getattr(args, '_confirm', None)
@@ -120,7 +128,7 @@ def dispatch(args):
                 authorized = read('Send potentially billable synthetic AI diagnostic requests? No case evidence is sent. [y/N]: ').strip().lower() in ('y', 'yes')
             return readiness.full_diagnostic(config, authorized=authorized, force=True)
         if getattr(args, 'authorize_diagnostic', False):
-            raise ValueError('--authorize-diagnostic requires --full')
+            raise ValueError('--authorize-diagnostic requires --full or --conversation')
         if getattr(args, 'connectivity', False):
             from .connectivity import check
             return check(config)
@@ -280,6 +288,9 @@ def render(value, args=None, *, startup=False):
                 text = 'not checked' if raw in ('not_checked','not_verified') else str(raw)
                 lines.append(field('  '+label, text, palette, role=states.get(raw, 'unknown')))
         return aligned_lines(lines)
+    if value.get('diagnostic_level')=='conversation':
+        from forensic_assistant.conversational_ai.compatibility import render as render_conversation
+        return render_conversation(value)
     if 'logs' in value:
         return '\n'.join(safe_text(line) for line in value['logs'].splitlines())
     labels = {'diagnostic_level':'Diagnostic', 'provider':'Provider', 'integration':'Integration', 'configuration':'Configuration', 'model':'Model', 'model_path':'Model path', 'executable':'Executable', 'mode':'Evidence handling', 'runtime':'Runtime',
