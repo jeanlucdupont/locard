@@ -249,7 +249,7 @@ class ModelBackend:
                 record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
             raise ProviderFailure('provider_failure') from None
 
-    def converse(self, messages, tools, *, timeout=None, output_tokens=2048, tool_choice='auto'):
+    def converse(self, messages, tools, *, timeout=None, output_tokens=8192, tool_choice='auto'):
         """Native tools with the same sanitized diagnostic boundary as completions."""
         from forensic_assistant.conversational_ai.provider import validate
         from forensic_assistant.conversational_ai.diagnostics import shape,detail
@@ -261,7 +261,7 @@ class ModelBackend:
             if self.provider_name != 'openai' or self.endpoint:
                 raise ValueError('Conversational provider unsupported; no cloud fallback')
             if tool_choice not in ('auto','required','none'):raise ValueError('Invalid tool choice')
-            if len(json.dumps({'messages':messages,'tools':tools},ensure_ascii=True).encode())>128*1024:
+            if len(json.dumps({'messages':messages,'tools':tools},ensure_ascii=True).encode())>544*1024:
                 raise ValueError('Conversational request byte limit')
             # Native tool compatibility is independent of the legacy structured
             # response readiness cache. Authentication is still checked locally.
@@ -358,7 +358,10 @@ class ModelBackend:
             return result
         except subprocess.TimeoutExpired:
             raise ProviderFailure('timeout', 'timeout') from None
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError) as exc:
+            if conversation is not None:
+                from forensic_assistant.conversational_ai.diagnostics import detail
+                raise ProviderFailure('conversation_envelope','response_parse',metadata={'conversation':detail('validation',exc)}) from None
             raise ProviderFailure('response_parse', 'response_parse') from None
         finally:
             if job: job.close()

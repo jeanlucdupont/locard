@@ -32,7 +32,7 @@ def serve():
                         if request['operation']=='check':value={'checked':True}
                         else:
                             calls+=1
-                            if calls>scope['limits']['operations']:raise ValueError('Operation limit reached')
+                            if scope['limits']['operations'] is not None and calls>scope['limits']['operations']:raise ValueError('Operation limit reached')
                             value=adapter.execute(request['operation'],request['arguments'])
                         view.check_identity()
                         result=dict(result=value,evidence_state=view.state)

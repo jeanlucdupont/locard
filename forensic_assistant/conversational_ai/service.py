@@ -3,7 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 import json,time
 from .contracts import catalog,arguments,check
-from .provider import validate,assistant_message
+from .provider import validate,assistant_message,restore,ValidationError
 from forensic_assistant.investigation_ai.runner import ForensicWorker,WorkerError
 from forensic_assistant.investigation_ai.transcript import Transcript,load
 from forensic_assistant.session_recording import require,record
@@ -19,20 +19,23 @@ class ChatWorker(ForensicWorker):
     worker_script=Path(__file__).with_name('worker.py')
 
 
+class Paused(ValueError):
+    """Recoverable boundary; no automatic retry and no loss of the pinned view."""
+
 class Session:
     def __init__(self,scope,provider,approve,*,root=None,emit=None,worker_factory=ChatWorker):
         self._scope=encoded(scope);self.provider=provider;self.emit=emit or (lambda event:None)
         self.worker=None;self.journal=None;self.closed=False;self.cancelled=False
-        self.turns=[];self.notes=[];self.observations=[];self.known=set()
-        self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,active_seconds=0.0)
-        self.started=None
+        self.turns=[];self.notes=[];self.observations=[];self.known=set();self.disclosed=set();self.tool_payloads={};self.paused=None;self.compacted=0
+        self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,input_tokens=0,output_tokens=0,unknown_input_usage=0,unknown_output_usage=0,uncertain_requests=0,note_operations=0,successful_forensic_operations=0,successful_operations=0,failed_operations=0,request_bytes=0,evidence_bytes=0,active_seconds=0.0)
+        self.started=None;self.created=time.monotonic()
         if provider.provider_name!=scope['provider'] or provider.model_name!=scope['model']:raise ValueError('Provider/model mismatch')
         check(scope,scope['case'])
         if approve(deepcopy(scope)) is not True:raise ValueError('Investigation not approved')
         require()
         self.started=time.monotonic()
         try:
-            self.journal=Transcript(root or scope['case']+'.conversations',dict(engine='conversational-v1',authorization=deepcopy(scope)),private=True)
+            self.journal=Transcript(root or scope['case']+'.conversations',dict(engine='conversational-v1',storage_profile='conversation-long-v1',authorization=deepcopy(scope)),private=True)
             self.journal.append('authorization',scope)
             self.worker=worker_factory(dict(case_path=scope['case'],scope=deepcopy(scope),_transaction_view=True,
                 _deadline=time.monotonic()+min(self.remaining(),scope['limits']['tool_seconds'])))
@@ -50,10 +53,14 @@ class Session:
 
     def remaining(self):
         elapsed=time.monotonic()-self.started if self.started is not None else 0
-        return max(0,self.scope['limits']['active_seconds']-self.used['active_seconds']-elapsed-5)
+        limit=self.scope['limits']['active_seconds']
+        return float('inf') if limit is None else max(0,limit-self.used['active_seconds']-elapsed-5)
 
     def usage(self):
-        return {**self.used,'active_seconds':self.used['active_seconds']+(time.monotonic()-self.started if self.started is not None else 0)}
+        active=self.used['active_seconds']+(time.monotonic()-self.started if self.started is not None else 0)
+        return {**self.used,'active_seconds':active,'idle_seconds':max(0,time.monotonic()-self.created-active),
+                'records_retrieved':len(self.known),'records_disclosed':len(self.disclosed),'estimated_cost':None,
+                'optional_budgets':{k:self.scope['limits'][k] for k in ('active_seconds','requests','operations','tokens','records','disclosure_bytes')},'paused':self.paused}
 
     def charge(self):
         if self.started is not None:self.used['active_seconds']+=time.monotonic()-self.started;self.started=None
@@ -67,12 +74,30 @@ class Session:
         if self.closed or self.cancelled:raise ValueError('SESSION_CLOSED')
         check(self.scope,self.scope['case'])
         if (self.provider.provider_name,self.provider.model_name)!=(self.scope['provider'],self.scope['model']):raise ValueError('PROVIDER_CHANGED')
-        if self.remaining()<=0 or self.used[resource]>=self.scope['limits'][resource] or self.used['tokens']>=self.scope['limits']['tokens']:raise ValueError('RESOURCE_LIMIT')
-        # Reserve room for attempt, bounded result/response, decision and terminal.
-        if self.journal.size>3*1024*1024 or self.journal.count>=230:raise ValueError('NOTEBOOK_CAPACITY')
+        limits=self.scope['limits']
+        if self.remaining()<=0 or (limits[resource] is not None and self.used[resource]>=limits[resource]) or (limits['tokens'] is not None and (self.used['tokens']>=limits['tokens'] or self.used['unknown_usage'])):raise Paused('RESOURCE_LIMIT')
+        # Technical disk/memory bound, not a short-session investigation budget.
+        from forensic_assistant.investigation_ai.transcript import CONVERSATION_BYTES,CONVERSATION_EVENTS
+        if self.journal.size>CONVERSATION_BYTES-2*1024*1024 or self.journal.count>=CONVERSATION_EVENTS-260:raise Paused('NOTEBOOK_CAPACITY')
+
+    def status(self):return deepcopy(self.usage())
+
+    def account_usage(self,usage):
+        for field,target,unknown in [('total_tokens','tokens','unknown_usage'),('prompt_tokens','input_tokens','unknown_input_usage'),('completion_tokens','output_tokens','unknown_output_usage')]:
+            if type(usage.get(field)) is int and usage[field]>=0:self.used[target]+=usage[field]
+            else:self.used[unknown]+=1
+
+    def pause(self,reason,**details):
+        self.paused=reason
+        try:self.event('paused',dict(reason=reason,usage=self.usage(),**details))
+        except BaseException:
+            self.close('PAUSE_AUDIT_FAILED');raise
+        self.emit(dict(kind='paused',reason=reason))
 
     def messages(self):
         scope=self.scope
+        from .resources import request_capacity
+        capacity,_,_=request_capacity(scope['model'],scope['limits'])
         system=dict(role='system',content=SYSTEM+'\nAuthorized scope: '+encoded({k:scope[k] for k in ('source_ids','families','start','end','temporal_policy')}))
         # Omit whole historical exchange blocks, never orphan native tool IDs.
         context=dict(notes=self.notes[-3:],verified_references=[{k:o[k] for k in ('evidence_id','field')} for o in self.observations[-6:]],
@@ -82,82 +107,145 @@ class Session:
         first=self.turns[0] if self.turns else []
         for block in reversed(self.turns[1:]):
             candidate=[*prefix,*first,*block,*[m for b in selected for m in b]]
-            if len(encoded({'messages':candidate,'tools':catalog()}).encode())>scope['limits']['request_bytes']:break
+            if len(encoded({'messages':candidate,'tools':catalog()}).encode())>capacity:break
             selected.insert(0,block)
         messages=[*prefix,*first,*[m for b in selected for m in b]]
-        if len(self.turns)>1 and (not selected or selected[-1]!=self.turns[-1]):raise ValueError('CONTEXT_CAPACITY')
-        if len(encoded({'messages':messages,'tools':catalog()}).encode())>scope['limits']['request_bytes']:raise ValueError('CONTEXT_CAPACITY')
-        return messages,len(self.turns)-len(selected)-bool(first)
+        if len(self.turns)>1 and (not selected or selected[-1]!=self.turns[-1]):raise Paused('CONTEXT_CAPACITY')
+        if len(encoded({'messages':messages,'tools':catalog()}).encode())>capacity:raise Paused('CONTEXT_CAPACITY')
+        omitted=len(self.turns)-len(selected)-bool(first)
+        self.compacted+=omitted
+        self.turns=([first] if first else [])+selected
+        # Durable notebook retains omitted exchanges and evidence identities.
+        retained={(m.get('tool_call_id'),m.get('content')) for m in messages if m.get('role')=='tool'}
+        self.tool_payloads={k:v for k,v in self.tool_payloads.items() if k in retained}
+        return messages,self.compacted
 
     def submit(self,text):
         if self.closed:raise ValueError('Session closed; start a newly authorized session')
         if not isinstance(text,str) or not text.strip() or len(text.encode())>8192:raise ValueError('Analyst message must be 1..8192 bytes')
-        self.started=time.monotonic();failures=0;answers=[]
+        self.started=time.monotonic();failures=0;answers=[];repeats={};self.paused=None
+        turn_start=self.started;warned=False
         try:
             message=dict(role='user',content=redact(text));self.event('analyst_message',message)
             self.turns.append([message])
             while True:
-                self.admit('requests');messages,omitted=self.messages()
-                size=len(encoded(messages).encode())
-                if self.used['disclosure_bytes']+size>self.scope['limits']['disclosure_bytes']:raise ValueError('DISCLOSURE_LIMIT')
+                self.admit('requests')
+                # Infrequent soft checkpoint; explicit next analyst turn resumes.
+                active=time.monotonic()-turn_start
+                if active>=600:raise Paused('ACTIVE_TURN_CHECKPOINT')
+                if active>=300 and not warned:
+                    self.emit(dict(kind='activity',text='Investigation is still active; Ctrl+C cancels. A ten-minute turn checkpoint will pause for analyst direction.'));warned=True
+                messages,omitted=self.messages()
+                wire_messages=[restore(m) for m in messages]
+                size=len(encoded(wire_messages).encode())
+                limits=self.scope['limits']
+                if limits['disclosure_bytes'] is not None and self.used['disclosure_bytes']+size>limits['disclosure_bytes']:raise Paused('DISCLOSURE_LIMIT')
+                from .resources import request_capacity
+                _,output_tokens,_=request_capacity(self.scope['model'],limits)
+                request_size=len(encoded(dict(messages=wire_messages,tools=catalog())).encode())
+                if limits['tokens'] is not None and self.used['tokens']+request_size+output_tokens>limits['tokens']:raise Paused('TOKEN_RESERVATION')
                 # Charge and persist BEFORE entry: exposure may occur even if no reply.
                 self.used['requests']+=1;self.used['disclosure_bytes']+=size
+                self.used['request_bytes']+=request_size
+                for m in messages:
+                    if m.get('role')=='tool' and (m.get('tool_call_id'),m.get('content')) in self.tool_payloads:
+                        evidence_size,ids=self.tool_payloads[(m['tool_call_id'],m['content'])]
+                        self.used['evidence_bytes']+=evidence_size;self.disclosed.update(ids)
                 self.event('provider_attempt',dict(messages=messages,history_blocks_omitted=omitted,usage=self.usage()))
                 self.emit(dict(kind='activity',text='Consulting configured AI...'))
-                response=validate(self.provider.converse(messages,catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=self.scope['limits']['output_tokens']))
+                response=validate(self.provider.converse(messages,catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=output_tokens))
                 sanitized=json.loads(redact(encoded(response)))
                 if 'continuation' in response and sanitized.get('continuation')!=response['continuation']:
                     raise ValueError('PROVIDER_CONTINUATION_REDACTED')
                 response=sanitized
                 self.event('provider_response',response)
-                if 'total_tokens' in response['usage']:self.used['tokens']+=response['usage']['total_tokens']
-                else:self.used['unknown_usage']+=1
+                self.account_usage(response['usage'])
                 assistant=assistant_message(response)
                 if response['text']:
                     answers.append(assistant['content']);self.emit(dict(kind='interpretation',text=assistant['content']))
                 calls=response['tool_calls']
                 if not calls:
                     self.turns.append([assistant]);break
-                block=[assistant]
+                block=[assistant];pause_reason=None
                 for call in calls:
-                    self.admit('operations');self.used['operations']+=1
+                    try:
+                        if pause_reason:raise Paused(pause_reason)
+                        if time.monotonic()-turn_start>=600:raise Paused('ACTIVE_TURN_CHECKPOINT')
+                        self.admit('operations')
+                    except Paused as exc:
+                        pause_reason=str(exc)
+                        block.append(dict(role='tool',tool_call_id=call['id'],content=encoded(dict(error='OPERATION_NOT_EXECUTED',reason=pause_reason))))
+                        continue
+                    self.used['operations']+=1
                     try:
                         arguments(call['name'],call['arguments'])
+                        signature=json.dumps(dict(name=call['name'],arguments=call['arguments']),sort_keys=True,separators=(',',':'))
+                        new_information=False
+                        if repeats.get(signature,0)>=2:
+                            pause_reason='REPEATED_UNPRODUCTIVE_REQUEST'
+                            block.append(dict(role='tool',tool_call_id=call['id'],content=encoded(dict(error='OPERATION_NOT_EXECUTED',reason=pause_reason))))
+                            continue
                         if call['name'] in ('show_evidence','around','verify_observation') and call['arguments']['evidence_id'] not in self.known:raise ValueError('Unknown evidence reference')
                         self.event('tool_attempt',call)
                         self.emit(dict(kind='activity',text='Running '+call['name']+'...'))
                         if call['name']=='note':
                             value=dict(unverified=True,**call['arguments'])
-                            if len(self.notes)>=200:raise ValueError('Note limit')
+                            new_information=value not in self.notes
                             self.event('note',value);self.notes.append(value)
                         else:
-                            response_tool=self.worker.call(call['name'],call['arguments'],seconds=min(self.remaining(),self.scope['limits']['tool_seconds']))
-                            if response_tool['evidence_state']!=self.view:raise ValueError('READ_VIEW_CHANGED')
+                            effective_args=deepcopy(call['arguments'])
+                            record_budget=self.scope['limits']['records']
+                            if record_budget is not None and call['name'] in ('search_evidence','timeline','around'):
+                                remaining=record_budget-len(self.known)
+                                if remaining<=0:
+                                    pause_reason='RECORD_BUDGET';raise ValueError('Record budget exhausted')
+                                effective_args['limit']=min(effective_args.get('limit',10),remaining)
+                            response_tool=self.worker.call(call['name'],effective_args,seconds=min(self.remaining(),self.scope['limits']['tool_seconds']))
+                            if response_tool['evidence_state']!=self.view:raise RuntimeError('READ_VIEW_CHANGED')
                             value=response_tool['result']
                             incoming={r['evidence_id'] for r in value.get('records',[])}
-                            if len(self.known|incoming)>self.scope['limits']['records']:raise ValueError('Record ceiling reached; narrow the search')
-                            self.event('tool_result',dict(name=call['name'],arguments=call['arguments'],result=value))
+                            new_information=bool(incoming-self.known)
+                            if self.scope['limits']['records'] is not None and len(self.known|incoming)>self.scope['limits']['records']:
+                                pause_reason='RECORD_BUDGET';raise ValueError('Record ceiling reached; narrow the search')
+                            self.event('tool_result',dict(name=call['name'],arguments=call['arguments'],effective_arguments=effective_args,result=value))
                             self.known.update(r['evidence_id'] for r in value.get('records',[]))
                             if 'records' in value:
                                 self.emit(dict(kind='activity',text=str(len(value['records']))+' records returned; coverage '+('incomplete' if value.get('truncated') else 'limited to the requested scope')+'.'))
                             if value.get('verified'):
-                                if len(self.observations)>=100:raise ValueError('Observation limit')
+                                new_information=new_information or value not in self.observations
                                 self.event('verified_observation',value);self.observations.append(value)
                                 self.emit(dict(kind='verified_observation',value=value))
-                        failures=0
+                        if new_information:repeats.clear()
+                        repeats[signature]=repeats.get(signature,0)+1
+                        failures=0;self.used['successful_operations']+=1
+                        self.used['note_operations' if call['name']=='note' else 'successful_forensic_operations']+=1
                     except (ValueError,TypeError,KeyError) as exc:
                         if isinstance(exc,WorkerError) and (exc.timed_out or self.worker.process.poll() is not None):raise
                         value=dict(error='TOOL_REJECTED',limitation='Invalid, out-of-scope, oversized or unavailable operation. Narrow the query or choose a different authorized approach; no result was accepted.')
                         self.event('tool_failure',dict(tool=call['name'] if call['name'] in ('search_evidence','show_evidence','timeline','around','verify_observation','note') else 'unknown',exception=type(exc).__name__ if type(exc).__name__ in ('WorkerError','ValueError','TypeError','KeyError') else 'Other'))
-                        failures+=1
-                    block.append(dict(role='tool',tool_call_id=call['id'],content=encoded(value)))
+                        failures+=1;self.used['failed_operations']+=1
+                        if failures>=3:pause_reason='REPEATED_TOOL_FAILURE'
+                    content=encoded(value)
+                    if call['name']!='note' and 'error' not in value:
+                        ids={r['evidence_id'] for r in value.get('records',[])}
+                        if value.get('evidence_id'):ids.add(value['evidence_id'])
+                        self.tool_payloads[(call['id'],content)]=(len(content.encode()),ids)
+                    block.append(dict(role='tool',tool_call_id=call['id'],content=content))
                 self.turns.append(block)
-                if failures>=3:raise ValueError('REPEATED_TOOL_FAILURE')
+                if pause_reason:raise Paused(pause_reason)
             self.event('turn_complete',dict(usage=self.usage(),verified_observations=len(self.observations)))
             return dict(interpretation=answers,verified_observations=deepcopy(self.observations),notes=deepcopy(self.notes),usage=self.usage())
+        except Paused as exc:
+            self.pause(str(exc));raise
         except KeyboardInterrupt:
             self.cancelled=True;self.close('CANCELLED');raise
         except BaseException as exc:
+            from forensic_assistant.ai.provider_diagnostics import ProviderFailure
+            if isinstance(exc,(ProviderFailure,ValidationError)):
+                self.used['uncertain_requests']+=1
+                self.account_usage(getattr(exc,'metadata',{}).get('conversation',{}))
+                self.pause('PROVIDER_FAILURE',category=getattr(exc,'category','conversation_envelope'),stage=getattr(exc,'stage','response_parse'),failed_rule=getattr(exc,'code',None))
+                raise Paused(self.paused) from exc
             safe={'RESOURCE_LIMIT','DISCLOSURE_LIMIT','NOTEBOOK_CAPACITY','CONTEXT_CAPACITY','REPEATED_TOOL_FAILURE','PROVIDER_CHANGED','AUTHORIZATION_EXPIRED','CASE_IDENTITY_CHANGED','PROVIDER_CONTINUATION_REDACTED'}
             reason=str(exc) if type(exc) is ValueError and str(exc) in safe else 'PROVIDER_OR_WORKER_FAILURE'
             from forensic_assistant.ai.provider_diagnostics import ProviderFailure

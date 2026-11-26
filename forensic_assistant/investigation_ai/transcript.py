@@ -11,6 +11,8 @@ from .state import encoded
 from .storage import DirectoryGuard, local_path
 
 MAX_BYTES = 4 * 1024 * 1024
+CONVERSATION_BYTES = 256 * 1024 * 1024
+CONVERSATION_EVENTS = 100000
 ID = re.compile(r'[a-f0-9]{32}\Z')
 
 class JournalPublicationError(BaseException):
@@ -139,7 +141,9 @@ class Transcript:
         event = {'sequence': self.count, 'kind': kind, 'data': data, 'previous': self.chain}
         event['hash'] = digest(event)
         raw = (encoded(event) + '\n').encode()
-        cap = MAX_BYTES if terminal else MAX_BYTES - 512 * 1024
+        maximum = CONVERSATION_BYTES if self.manifest.get('storage_profile')=='conversation-long-v1' and self.manifest.get('engine')=='conversational-v1' else MAX_BYTES
+        cap = maximum if terminal else maximum - 512 * 1024
+        if maximum==CONVERSATION_BYTES and self.count>=CONVERSATION_EVENTS-(0 if terminal else 1):raise ValueError('TRANSCRIPT_BUDGET_EXHAUSTED')
         if len(raw) > 600 * 1024 or self.size + len(raw) > cap:
             self.publication.update(status='admission_rejected',stage='before_io')
             raise ValueError('TRANSCRIPT_BUDGET_EXHAUSTED')
@@ -202,8 +206,9 @@ def load(root, investigation_id):
         return raw
     try:
         manifest = json.loads(read('manifest.json', 64 * 1024))
-        lines = read('events.jsonl', MAX_BYTES).splitlines()
-        if len(lines) > 256:
+        extended=manifest.get('storage_profile')=='conversation-long-v1' and manifest.get('engine')=='conversational-v1'
+        lines = read('events.jsonl', CONVERSATION_BYTES if extended else MAX_BYTES).splitlines()
+        if len(lines) > (CONVERSATION_EVENTS if extended else 256):
             raise ValueError('Too many transcript events')
         events = []
         chain = '0' * 64

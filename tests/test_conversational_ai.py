@@ -126,6 +126,7 @@ def test_cross_artifact_scripted_investigation(tmp_path):
             assert db.execute('SELECT count(*) FROM evidence_records WHERE source_type=?',(kind,)).fetchone()[0]>0,json.dumps(result)
     state=dict(phase='inspect',eid=None,basename=None)
     def step(messages):
+        if state['phase']=='done':return reply('Analyst redirection accepted; associations remain provisional.')
         value=last(messages)
         if state['phase']=='inspect':
             if state['eid'] is None:state['eid']=value['records'][0]['evidence_id'];return reply(calls=[call('show_evidence',dict(evidence_id=state['eid'],limit=40))])
@@ -134,7 +135,7 @@ def test_cross_artifact_scripted_investigation(tmp_path):
                 assert value['next_offset'] is not None
                 return reply(calls=[call('show_evidence',dict(evidence_id=state['eid'],offset=value['next_offset'],limit=40))])
             state['basename']=ntpath.basename(field['value']);state['phase']='mft'
-            return reply(calls=[call('search_evidence',dict(artifact='mft',object_basename=state['basename'],start='2020-01-01T00:00:00Z',end='2020-01-02T00:00:00Z'))])
+            return reply(calls=[call('verify_observation',dict(evidence_id=state['eid'],field=field['field'],value_json=json.dumps(field['value']))),call('search_evidence',dict(artifact='mft',object_basename=state['basename'],start='2020-01-01T00:00:00Z',end='2020-01-02T00:00:00Z'))])
         if state['phase']=='mft':
             assert value['records'];state['phase']='prefetch'
             return reply(calls=[call('search_evidence',dict(artifact='prefetch',process=state['basename']))])
@@ -143,10 +144,13 @@ def test_cross_artifact_scripted_investigation(tmp_path):
             return reply(calls=[call('search_evidence',dict(artifact='registry',registry_key_contains='Run'))])
         assert value['records'];state['phase']='done'
         return reply('Browser, filesystem, Prefetch and Registry candidates were retrieved. These associations alone do not establish a causal attack chain.')
-    provider=ScriptedProvider([reply(calls=[call('search_evidence',dict(artifact='browser',browser_kind='download'))])]+[step]*12)
+    provider=ScriptedProvider([reply(calls=[dict(id='initial-registry',name='search_evidence',arguments=dict(artifact='registry',registry_key_contains='Run')),dict(id='initial-browser',name='search_evidence',arguments=dict(artifact='browser',browser_kind='download'))])]+[step]*12)
     scope=authorize(path,[sid],'2019-01-01T00:00:00Z','2021-01-01T00:00:00Z',list(FAMILIES),'openai','scripted')
     before=path.read_bytes();session=Session(scope,provider,lambda g:True)
-    session.submit('Investigate downloads and related activity; do not assume compromise.');session.close()
+    session.submit('Investigate downloads and related activity; do not assume compromise.')
+    assert session.submit('Reconsider whether the activity is benign')['interpretation']
+    assert session.observations
+    session.close()
     assert state['phase']=='done' and path.read_bytes()==before
     recorded=notebook(str(path)+'.conversations',session.journal.id)
     families={r['artifact'] for e in recorded['events'] if e['kind']=='tool_result' for r in e['data']['result'].get('records',[])}
@@ -214,6 +218,9 @@ def test_stops_retain_notebook_and_cleanup(tmp_path,failure,monkeypatch):
             return original(kind,data,terminal)
         monkeypatch.setattr(session.journal,'append',broken)
     with pytest.raises(BaseException):session.submit('Investigate safely')
+    if failure in ('provider','limit'):
+        assert not session.closed and session.paused
+        session.close('ANALYST_EXIT')
     assert session.closed and session.worker.process.poll() is not None
     if failure=='audit':assert not provider.calls
     saved=notebook(str(path)+'.conversations',session.journal.id)
@@ -230,7 +237,7 @@ def test_unknown_provider_no_fallback_and_immutable_scope(tmp_path):
 
 
 def test_context_compaction_keeps_complete_tool_blocks_and_canonical_history(tmp_path):
-    path,provider,scope=setup(tmp_path,[reply('A'*12000)]*8)
+    path,provider,scope=setup(tmp_path,[reply('A'*12000)]*8,dict(request_bytes=40000))
     session=Session(scope,provider,lambda g:True)
     for _ in range(6):session.submit('Continue evaluating hypotheses, not established facts.')
     session.close();saved=notebook(str(path)+'.conversations',session.journal.id)

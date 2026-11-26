@@ -28,7 +28,7 @@ def request():
 
 @pytest.mark.parametrize('kind,expected',[
     ('parameter','unsupported_parameter'),('schema','unsupported_schema'),('timeout','timeout'),
-    ('length','output_truncated'),('finish','conversation_finish'),('envelope','response_parse_failed'),('internal','conversation_adapter')])
+    ('length','output_truncated'),('finish','conversation_finish'),('envelope','conversation_envelope'),('internal','conversation_adapter')])
 def test_safe_failure_categories(configured,kind,expected):
     class BadRequestError(Exception):
         status_code=400
@@ -75,10 +75,12 @@ def test_synthetic_roundtrip_uses_production_backend(configured,monkeypatch):
             assert kwargs['num_retries']==0 and kwargs['drop_params'] is False
             if len(seen)==1:
                 assert kwargs['tool_choice']=='required'
-                return response(None,[native_call()],'tool_calls')
+                return response('Synthetic tool plan',[N(id='c'+str(i),type='function',function=N(name='synthetic_echo',arguments='{"token":"locard-test"}')) for i in range(6)],'tool_calls')
             if len(seen)==2:
+                assert {m['tool_call_id'] for m in kwargs['messages'] if m['role']=='tool'}=={'c'+str(i) for i in range(6)}
+                return response(None,[native_call()],'tool_calls')
+            if len(seen)==3:
                 assert kwargs['messages'][-1]['tool_call_id']=='synthetic-call'
-                assert kwargs['messages'][-2]['tool_calls'][0]['id']=='synthetic-call'
                 return response('The returned token is locard-test.')
             assert kwargs['tools']==catalog()
             return response('Catalog accepted.')
@@ -89,7 +91,7 @@ def test_synthetic_roundtrip_uses_production_backend(configured,monkeypatch):
     with pytest.raises(ValueError):compatibility.run(config,client=client)
     assert not seen
     result=compatibility.run(config,authorized=True,client=client)
-    assert result['overall']=='ready' and len(seen)==3 and len(logs)==3
+    assert result['overall']=='ready' and len(seen)==4 and len(logs)==4
     assert all(result[k]=='ready' for k in compatibility.STAGES)
     assert 'PRIVATE_EVIDENCE' not in json.dumps(seen)
 
@@ -107,8 +109,8 @@ def test_cli_failure_preserves_notebook_and_returns_status(tmp_path,configured):
     def fail(messages):raise diag.ProviderFailure('timeout','timeout')
     path,client,scope=setup(tmp_path,[fail])
     args=build_parser().parse_args(['--db',str(path),'investigation','chat','--source',scope['source_ids'][0],'--start',scope['start'],'--end',scope['end']])
-    answers=iter(['Synthetic investigation','y']);output=[]
-    assert run(args,read=lambda _:next(answers),write=output.append,provider=client)==2
+    answers=iter(['Synthetic investigation','y','/exit']);output=[]
+    assert run(args,read=lambda _:next(answers),write=output.append,provider=client)==0
     manifests=list(path.parent.glob('case.db.conversations/*/manifest.json'))
     assert len(manifests)==1
     from forensic_assistant.conversational_ai.service import notebook
@@ -131,7 +133,7 @@ def test_interactive_shell_continues_after_conversation_failure(tmp_path,configu
     from forensic_assistant.interactive.state import State
     from forensic_assistant.conversational_ai import cli
     def fail(messages):raise diag.ProviderFailure('timeout','timeout')
-    path,client,scope=setup(tmp_path,[fail]);answers=iter(['Synthetic investigation','y'])
+    path,client,scope=setup(tmp_path,[fail]);answers=iter(['Synthetic investigation','y','/exit'])
     original=cli.run
     monkeypatch.setattr(cli,'run',lambda args:original(args,read=lambda _:next(answers),provider=client))
     command='investigation chat --source '+scope['source_ids'][0]+' --start '+scope['start']+' --end '+scope['end']

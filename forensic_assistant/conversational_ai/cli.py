@@ -1,7 +1,7 @@
 """Terminal adapter only; application service is UI independent."""
 import json,sys
 from .contracts import authorize,FAMILIES,DEFAULTS
-from .service import Session
+from .service import Session,Paused
 from forensic_assistant.ai.backend import ModelBackend
 from forensic_assistant.terminal import safe_span_text
 
@@ -14,7 +14,11 @@ def configure(commands):
     p.add_argument('--artifact',action='append',choices=FAMILIES,help='Approved family; default all supported families')
     p.add_argument('--max-seconds',type=int,default=DEFAULTS['active_seconds'],help='Active investigation seconds; excludes analyst idle time')
     p.add_argument('--max-requests',type=int,default=DEFAULTS['requests'],help='Session provider-request ceiling')
-    p.add_argument('--max-operations',type=int,default=DEFAULTS['operations'],help='Session forensic/notebook tool ceiling')
+    p.add_argument('--max-operations',type=int,default=None,help='Optional session forensic/notebook operation budget')
+    for option,key in [('max-tokens','tokens'),('max-records','records'),('max-disclosure-bytes','disclosure_bytes'),
+                       ('provider-seconds','provider_seconds'),('tool-seconds','tool_seconds'),
+                       ('request-bytes','request_bytes'),('result-bytes','result_bytes'),('output-tokens','output_tokens')]:
+        p.add_argument('--'+option,type=int,default=DEFAULTS[key],help='Optional budget' if key in ('tokens','records','disclosure_bytes') else 'Per-operation technical safeguard')
 
 
 def _run(args,read=None,write=None,provider=None):
@@ -29,9 +33,12 @@ def _run(args,read=None,write=None,provider=None):
     end=args.end or read('Approved end (exclusive UTC/offset ISO timestamp): ').strip()
     question=read('What are you investigating?\nAnalyst> ').strip()
     scope=authorize(args.db,sources,start,end,args.artifact or list(FAMILIES),provider.provider_name,provider.model_name,
-                    dict(active_seconds=args.max_seconds,requests=args.max_requests,operations=args.max_operations))
+                    dict(active_seconds=args.max_seconds,requests=args.max_requests,operations=args.max_operations,
+                         tokens=args.max_tokens,records=args.max_records,disclosure_bytes=args.max_disclosure_bytes,
+                         provider_seconds=args.provider_seconds,tool_seconds=args.tool_seconds,request_bytes=args.request_bytes,
+                         result_bytes=args.result_bytes,output_tokens=args.output_tokens))
     def approve(value):
-        write('Proposed investigation scope\n'+safe_span_text(json.dumps(value,ensure_ascii=False,indent=2)))
+        write(authorization_text(value))
         write('Read-only tools: search_evidence, show_evidence, timeline, around, verify_observation, note.')
         write('Sensitive local notebook: '+safe_span_text(value['case']+'.conversations'))
         return read('Approve this investigation and external disclosure? [y/N] ').strip().lower() in ('y','yes')
@@ -40,16 +47,20 @@ def _run(args,read=None,write=None,provider=None):
         elif event['kind']=='activity':write(safe_span_text(event['text']))
         elif event['kind']=='verified_observation':
             value=event['value'];write('Verified original-field observation\n'+safe_span_text(json.dumps(value,ensure_ascii=False)))
+        elif event['kind']=='paused':write('Investigation paused: '+safe_span_text(event['reason'])+'. Completed work retained; redirect, /status or /exit. No automatic retry.')
         elif event['kind']=='completed':
             write('Session outcome: '+safe_span_text(event['reason'])+('. Cleanup confirmed.' if event['cleanup_confirmed'] else '. CLEANUP_LIMITATION: process cleanup could not be confirmed.'))
     session=Session(scope,provider,approve,emit=emit)
-    write('Controls: /summary, /exit; Ctrl+C cancels active work and closes this session. Natural language changes priorities.')
+    write('Controls: /status, /summary, /exit; Ctrl+C cancels active work and closes this session. Natural language changes priorities.')
     write('Notebook session: '+session.journal.id)
     try:
         while True:
             if question in ('/exit','/cancel'):break
             if question=='/summary':question='Give an interim assessment distinguishing verified observations, interpretations, hypotheses, unknowns and coverage limitations.'
-            if question:session.submit(question)
+            if question=='/status':write(status_text(session.status()))
+            elif question:
+                try:session.submit(question)
+                except Paused:pass
             question=read('Analyst> ').strip()
     except (KeyboardInterrupt,EOFError):
         session.close('CANCELLED');write('Interrupted. Completed notebook history retained. Start a fresh authorized session to continue.')
@@ -82,3 +93,33 @@ def run(args,read=None,write=None,provider=None):
             from forensic_assistant.session_recording import record as audit
             audit('diagnostic',dict(component='conversation',category='internal_adapter_error',location='cli',exception_class=detail('cli',exc)['exception_class']),required=True)
         raise
+
+
+def authorization_text(value):
+    from pathlib import Path
+    limits=value['limits']
+    def budget(k):return 'No session limit' if limits[k] is None else str(limits[k])
+    lines=['Proposed investigation', 'Case: '+Path(value['case']).parent.name,
+           'Sources: '+', '.join(value['source_ids']), 'Time: '+value['start']+' through '+value['end']+' (end exclusive)',
+           'Evidence: '+', '.join(value['families']), 'Access: Read-only',
+           'AI provider: '+value['provider'], 'Model: '+value['model'],
+           'Relevant scoped evidence and analyst context may be transmitted to the approved provider, including repeated history.',
+           'No cumulative disclosure budget selected.' if limits['disclosure_bytes'] is None else 'Cumulative disclosure budget: '+str(limits['disclosure_bytes'])+' bytes of message content.',
+           'Investigation duration (active seconds): '+budget('active_seconds'),'AI requests: '+budget('requests'),
+           'Forensic operations: '+budget('operations'),'Tokens: '+budget('tokens'),'Distinct records: '+budget('records'),
+           'Financial budget: Not configured; cost unavailable.',
+           'Individual operation timeouts and technical safeguards apply. Ten-minute active turns pause for direction.',
+           'Record eligibility follows the approved window; labeled out-of-window record context may also be disclosed.',
+           'Ctrl+C cancels active work. Redirection is available at the next analyst prompt.']
+    return safe_span_text('\n'.join(lines))
+
+
+def status_text(value):
+    return safe_span_text('Investigation activity\n'+'\n'.join('  '+label+': '+str(value.get(key,'unavailable')) for label,key in (
+        ('Active seconds','active_seconds'),('Analyst idle seconds','idle_seconds'),('AI requests','requests'),
+        ('Successful tools (including notes)','successful_operations'),('Successful forensic operations','successful_forensic_operations'),('Failed operations','failed_operations'),
+        ('Evidence retrieved','records_retrieved'),('Evidence disclosed','records_disclosed'),
+        ('Reported input tokens','input_tokens'),('Reported output tokens','output_tokens'),('Reported total tokens','tokens'),
+        ('Requests with unknown total usage','unknown_usage'),('Unknown input usage','unknown_input_usage'),('Unknown output usage','unknown_output_usage'),('Uncertain provider outcomes','uncertain_requests'),('Repeated evidence-result bytes','evidence_bytes'),
+        ('External message-content bytes','disclosure_bytes'),('Serialized request-content bytes','request_bytes'),('Optional budgets','optional_budgets')))+
+        '\n  Estimated API cost: unavailable (not zero; no billing cap)')

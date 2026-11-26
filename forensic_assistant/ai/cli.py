@@ -119,7 +119,7 @@ def dispatch(args):
             authorized=getattr(args,'authorize_diagnostic',False) is True
             read=getattr(args,'_confirm',None)
             if not authorized and not args.json and callable(read):
-                authorized=read('Send up to three potentially billable synthetic conversational requests? No case data is sent. [y/N]: ').strip().lower() in ('y','yes')
+                authorized=read('Send up to four potentially billable synthetic conversational requests? No case data is sent. [y/N]: ').strip().lower() in ('y','yes')
             return run(config,authorized=authorized)
         if getattr(args, 'full', False):
             authorized = getattr(args, 'authorize_diagnostic', False) is True

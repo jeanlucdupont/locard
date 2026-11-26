@@ -6,8 +6,19 @@ from forensic_assistant.investigation_ai import contracts as c
 from forensic_assistant.retrieval.queries import required_time
 
 FAMILIES=('browser','evtx','mft','prefetch','registry')
-DEFAULTS=dict(active_seconds=900,provider_seconds=60,tool_seconds=15,requests=30,operations=60,
-              request_bytes=65536,result_bytes=32768,disclosure_bytes=2097152,tokens=200000,output_tokens=2048,records=300)
+# None is an absent analyst budget, never an artificially large integer.
+BUDGETS=('active_seconds','requests','operations','disclosure_bytes','tokens','records')
+DEFAULTS=dict(active_seconds=None,provider_seconds=180,tool_seconds=60,requests=None,operations=None,
+              request_bytes=256*1024,result_bytes=128*1024,disclosure_bytes=None,tokens=None,output_tokens=8192,records=None)
+TECHNICAL_MAX=dict(provider_seconds=600,tool_seconds=600,request_bytes=512*1024,result_bytes=256*1024,output_tokens=32768)
+
+def validate_limits(resources):
+    if type(resources) is not dict or set(resources)!=set(DEFAULTS):raise ValueError('INVALID_LIMITS')
+    for k,v in resources.items():
+        if k in BUDGETS and v is None:continue
+        if type(v) is not int or v<1 or (k in TECHNICAL_MAX and v>TECHNICAL_MAX[k]):raise ValueError('INVALID_LIMITS')
+    return resources
+
 STR=c.string
 FILTERS={k:STR(512) for k in ('hostname','username','process','path','registry_key','registry_key_contains',
     'value_name','value_name_contains','ip','url','url_contains','download_path','object_basename')}
@@ -47,14 +58,16 @@ def authorize(case,sources,start,end,families,provider,model,limits=None):
     start,end=required_time(start),required_time(end)
     if start>=end:raise ValueError('INVALID_TIME_SCOPE')
     resources={**DEFAULTS,**(limits or {})}
-    if set(resources)!=set(DEFAULTS) or any(type(resources[k]) is not int or not 1<=resources[k]<=v for k,v in DEFAULTS.items()):raise ValueError('INVALID_LIMITS')
-    return dict(contract='conversational-authorization-v1',case=str(path),identity=[info.st_dev,info.st_ino],
+    validate_limits(resources)
+    return dict(contract='conversational-authorization-v2',case=str(path),identity=[info.st_dev,info.st_ino],
         source_ids=list(sources),families=list(families),start=start,end=end,provider=provider,model=model,
-        issued=time.time(),expires=time.time()+86400,limits=resources,
+        issued=time.time(),expires=None,limits=resources,
         temporal_policy='Record eligibility in [start,end); bounded full-record context including labeled out-of-window timestamps is authorized.',
         disclosure='Analyst context and bounded original evidence may be sent to the configured OpenAI model.')
 
 def check(scope,case):
     path=Path(case).resolve(strict=True);info=path.stat()
-    if scope.get('contract')!='conversational-authorization-v1' or str(path)!=scope['case'] or [info.st_dev,info.st_ino]!=scope['identity']:raise ValueError('CASE_IDENTITY_CHANGED')
-    if time.time()>=scope['expires']:raise ValueError('AUTHORIZATION_EXPIRED')
+    if scope.get('contract') not in ('conversational-authorization-v1','conversational-authorization-v2') or str(path)!=scope['case'] or [info.st_dev,info.st_ino]!=scope['identity']:raise ValueError('CASE_IDENTITY_CHANGED')
+    if scope.get('contract')=='conversational-authorization-v1' and (type(scope['expires']) not in (int,float) or any(scope['limits'].get(k) is None for k in BUDGETS)):raise ValueError('INVALID_LEGACY_AUTHORIZATION')
+    validate_limits(scope['limits'])
+    if scope['expires'] is not None and time.time()>=scope['expires']:raise ValueError('AUTHORIZATION_EXPIRED')

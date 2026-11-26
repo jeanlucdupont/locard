@@ -64,7 +64,7 @@ def test_service_retains_bounded_unverified_continuation(tmp_path):
     assert not result['verified_observations']
     saved=notebook(str(path)+'.conversations',session.journal.id)
     attempts=[e['data'] for e in saved['events'] if e['kind']=='provider_attempt']
-    expected=sum(len(json.dumps(e['messages'],ensure_ascii=True,separators=(',',':')).encode()) for e in attempts)
+    expected=sum(len(json.dumps([restore(m) for m in e['messages']],ensure_ascii=True,separators=(',',':')).encode()) for e in attempts)
     assert result['usage']['disclosure_bytes']==expected
     assert 'opaque-sensitive-state' in json.dumps(saved) # private history only, not a fact
 
