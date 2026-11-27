@@ -17,14 +17,10 @@ def reply(text='',name=None,args=None):
 def last(messages):return json.loads(next(m['content'] for m in reversed(messages) if m['role']=='tool'))
 
 
-def diagnostic(directory,capacity=32000,checkpoint_seconds=.01):
+def synthetic_case(directory):
     from forensic_assistant.database.db import connect,register_source,insert_events
     from forensic_assistant.database import sources
     from forensic_assistant.ingest.normalize import normalize,SECURITY
-    from forensic_assistant.conversational_ai.contracts import authorize,FAMILIES
-    from forensic_assistant.conversational_ai.provider import ScriptedProvider
-    from forensic_assistant.conversational_ai.service import Session,notebook,encoded
-    from forensic_assistant.conversational_ai.workspace import reconstruct
     root=Path(directory);root.mkdir(parents=True,exist_ok=True)
     os.environ['LOCALAPPDATA']=str(root)
     path=root/'case.db';db=connect(path);sid=sources.create(db,hostname='synthetic-workstation')
@@ -33,7 +29,15 @@ def diagnostic(directory,capacity=32000,checkpoint_seconds=.01):
         xml=f'<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><Provider Name="{SECURITY}"/><EventID>4688</EventID><Channel>Security</Channel><TimeCreated SystemTime="2020-01-01T12:00:00Z"/></System><EventData><Data Name="NewProcessName">reviewer.exe</Data><Data Name="CommandLine">reviewer.exe document{i}.txt</Data></EventData></Event>'
         insert_events(db,[normalize(xml,'a'*64,'synthetic.evtx',i)])
     db.commit();db.close();before=hashlib.sha256(path.read_bytes()).hexdigest()
-    scope=authorize(path,[sid],'2020-01-01T00:00:00Z','2020-01-02T00:00:00Z',list(FAMILIES),'openai','scripted',{'request_bytes':capacity})
+    return path,sid,before
+
+
+def diagnostic(directory,capacity=32000,checkpoint_seconds=.01,provider_factory=None):
+    from forensic_assistant.conversational_ai.contracts import authorize,FAMILIES
+    from forensic_assistant.conversational_ai.provider import ScriptedProvider
+    from forensic_assistant.conversational_ai.service import Session,notebook,encoded
+    from forensic_assistant.conversational_ai.workspace import reconstruct
+    root=Path(directory);path,sid,before=synthetic_case(root)
     seen={};checks={}
     def inspect(messages):
         row=last(messages)['records'][0];seen['eid']=row['evidence_id']
@@ -60,7 +64,10 @@ def diagnostic(directory,capacity=32000,checkpoint_seconds=.01):
     def finish(messages):
         actions=last(messages)['items'];checks['incomplete_search_recovered']=any(x['status']=='partial' and json.loads(x['coverage']).get('next_offset') is not None for x in actions)
         return reply('The original command and its field-equality verification were recovered. The earlier search had additional pages. Activity remains provisional; ordinary use is an alternative, and causality is unresolved.')
-    steps.extend([recover,recover_original,coverage,finish]);provider=ScriptedProvider(steps)
+    steps.extend([recover,recover_original,coverage,finish]);provider=provider_factory(steps) if provider_factory else ScriptedProvider(steps)
+    local=provider.conversation_binding() if provider.provider_name=='local' else None
+    scope=authorize(path,[sid],'2020-01-01T00:00:00Z','2020-01-02T00:00:00Z',list(FAMILIES),provider.provider_name,provider.model_name,
+        {'request_bytes':capacity,**({'output_tokens':2048} if local else {})},local=local)
     import tracemalloc
     tracemalloc.start()
     start=time.monotonic();session=Session(scope,provider,lambda _:True,checkpoint_seconds=checkpoint_seconds)

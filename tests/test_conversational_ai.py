@@ -232,7 +232,8 @@ def test_unknown_provider_no_fallback_and_immutable_scope(tmp_path):
     path,provider,scope=setup(tmp_path,[])
     provider.provider_name='local'
     with pytest.raises(ValueError,match='mismatch'):Session(scope,provider,lambda g:True)
-    with pytest.raises(ValueError,match='unsupported'):authorize(path,scope['source_ids'],scope['start'],scope['end'],['evtx'],'local','qwen')
+    with pytest.raises(ValueError,match='unsupported'):authorize(path,scope['source_ids'],scope['start'],scope['end'],['evtx'],'anthropic','synthetic')
+    with pytest.raises(ValueError,match='Invalid local configuration'):authorize(path,scope['source_ids'],scope['start'],scope['end'],['evtx'],'local','qwen')
     assert not provider.calls
 
 

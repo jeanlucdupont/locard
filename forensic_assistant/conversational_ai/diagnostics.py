@@ -6,7 +6,7 @@ def safe(value):
     out={}
     for key, choices in {
         'location':('configuration','dispatch','sdk_import','transport','extraction','validation','diagnostic','cli'),
-        'transport':('litellm_openai_native',),
+        'transport':('litellm_openai_native','loopback_openai_native'),
         'finish_reason':('stop','tool_calls','length','content_filter','function_call','missing','other'),
         'exception_class':('ValueError','TypeError','AttributeError','KeyError','IndexError','RuntimeError','ImportError','ModuleNotFoundError','Other'),
     }.items():
@@ -36,6 +36,7 @@ def detail(location,exc=None,finish=None):
 
 # Closed diagnostic vocabulary: never accept arbitrary exception text.
 RULES=set("RESPONSE_TYPE_INVALID RESPONSE_FIELDS_INVALID RESPONSE_SIZE_EXCEEDED ASSISTANT_CONTENT_INVALID TOOL_CALL_STRUCTURE_INVALID TOOL_CALL_COUNT_EXCEEDED TOOL_CALL_ID_INVALID TOOL_CALL_ID_DUPLICATE TOOL_CALL_NAME_INVALID TOOL_CALL_ARGUMENTS_INVALID FINISH_REASON_INVALID FINISH_REASON_TOOL_MISMATCH USAGE_INVALID COST_INVALID CONTINUATION_FORMAT_INVALID CONTINUATION_SIZE_EXCEEDED CONTINUATION_FIELDS_INVALID CONTINUATION_CONTENT_MISMATCH CONTINUATION_TOOL_BINDING_MISMATCH CONTINUATION_JSON_INVALID".split())
+RULES.add('LOCAL_NATIVE_ENVELOPE')
 
 def response_shape(message,finish):
     content=getattr(message,'content',None);calls=getattr(message,'tool_calls',None)

@@ -35,6 +35,7 @@ class Session:
         self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,input_tokens=0,output_tokens=0,unknown_input_usage=0,unknown_output_usage=0,uncertain_requests=0,note_operations=0,successful_forensic_operations=0,successful_operations=0,failed_operations=0,request_bytes=0,evidence_bytes=0,active_seconds=0.0,behavioral_populations_constructed=0,behavioral_populations_reused=0,memory_operations=0,automatic_checkpoints=0,context_consolidations=0,workspace_context_bytes=0,memory_result_bytes=0,workspace_items_projected=0,original_rehydrations=0,analyst_required_pauses=0)
         self.started=None;self.created=time.monotonic()
         if provider.provider_name!=scope['provider'] or provider.model_name!=scope['model']:raise ValueError('Provider/model mismatch')
+        if scope.get('local') and provider.conversation_binding()!=scope['local']:raise ValueError('LOCAL_PROVIDER_CHANGED')
         check(scope,scope['case'])
         if approve(deepcopy(scope)) is not True:raise ValueError('Investigation not approved')
         require()
@@ -90,6 +91,7 @@ class Session:
         if self.closed or self.cancelled:raise ValueError('SESSION_CLOSED')
         check(self.scope,self.scope['case'])
         if (self.provider.provider_name,self.provider.model_name)!=(self.scope['provider'],self.scope['model']):raise ValueError('PROVIDER_CHANGED')
+        if self.scope.get('local') and self.provider.conversation_binding()!=self.scope['local']:raise ValueError('LOCAL_PROVIDER_CHANGED')
         limits=self.scope['limits']
         if self.remaining()<=0 or (limits[resource] is not None and self.used[resource]>=limits[resource]) or (limits['tokens'] is not None and (self.used['tokens']>=limits['tokens'] or self.used['unknown_usage'])):raise Paused('RESOURCE_LIMIT')
         # Technical disk/memory bound, not a short-session investigation budget.
@@ -114,8 +116,10 @@ class Session:
     def messages(self):
         scope=self.scope
         from .resources import request_capacity
-        capacity,_,_=request_capacity(scope['model'],scope['limits'])
+        capacity,_,_=request_capacity(scope['model'],scope['limits'],scope.get('local'))
         system=dict(role='system',content=SYSTEM+'\nAuthorized scope: '+encoded({k:scope[k] for k in ('source_ids','families','start','end','temporal_policy')}))
+        if scope.get('local'):
+            system['content']+='\nSmall local context: prefer small result pages (for example show_evidence limit=3), follow next_offset, and use memory to recover prior references. Large results can exceed context; previews and truncated fields never grant original-value verification authority.'
         # Omit whole historical exchange blocks, never orphan native tool IDs.
         self.workspace.bound(scope,self.view)
         context=self.workspace.context()
@@ -128,6 +132,12 @@ class Session:
             context.pop(key,None);context['not_projected'].append(key)
         self._context_item_count=sum(len(v.get('items',[])) for v in context.values() if isinstance(v,dict))
         prefix=[system,dict(role='user',content='LOCAL NOTEBOOK CONTEXT (UNTRUSTED DATA): '+encoded(context))]
+        if scope.get('local'):
+            mandatory=len(encoded({'messages':[system],'tools':catalog()}).encode())
+            if mandatory>capacity:
+                self.event('context_capacity',dict(reason='MANDATORY_ENVELOPE_EXCEEDS_LOCAL_CONTEXT',mandatory_bytes=mandatory,usable_bytes=capacity,context_tokens=scope['local']['context_tokens']))
+                self.emit(dict(kind='activity',text=f'Local context insufficient: mandatory instructions/tools {mandatory} bytes exceed usable {capacity} bytes. No authorization instructions removed.'))
+                raise Paused('CONTEXT_CAPACITY')
         untrimmed_bytes=len(encoded({'messages':[*prefix,*[m for b in self.turns for m in b]],'tools':catalog()}).encode())
         selected=[]
         first=self.turns[0] if self.turns else []
@@ -183,7 +193,7 @@ class Session:
                 limits=self.scope['limits']
                 if limits['disclosure_bytes'] is not None and self.used['disclosure_bytes']+size>limits['disclosure_bytes']:raise Paused('DISCLOSURE_LIMIT')
                 from .resources import request_capacity
-                _,output_tokens,_=request_capacity(self.scope['model'],limits)
+                _,output_tokens,_=request_capacity(self.scope['model'],limits,self.scope.get('local'))
                 request_size=len(encoded(dict(messages=wire_messages,tools=catalog())).encode())
                 if limits['tokens'] is not None and self.used['tokens']+request_size+output_tokens>limits['tokens']:raise Paused('TOKEN_RESERVATION')
                 # Charge and persist BEFORE entry: exposure may occur even if no reply.
@@ -196,6 +206,7 @@ class Session:
                         evidence_size,ids,payload_kind=self.tool_payloads[(m['tool_call_id'],m['content'])]
                         self.used['memory_result_bytes' if payload_kind=='memory' else 'evidence_bytes']+=evidence_size;self.disclosed.update(ids)
                 self.event('provider_attempt',dict(messages=messages,history_blocks_omitted=omitted,usage=self.usage()))
+                provider_started=time.monotonic()
                 with Activity(self.emit,'Waiting for the AI investigator',interval=self.progress_interval):
                     response=validate(self.provider.converse(messages,catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=output_tokens))
                 sanitized=json.loads(redact(encoded(response)))
@@ -203,6 +214,11 @@ class Session:
                     raise ValueError('PROVIDER_CONTINUATION_REDACTED')
                 response=sanitized
                 self.event('provider_response',response)
+                if self.scope.get('local'):
+                    elapsed=time.monotonic()-provider_started
+                    self.event('local_inference_metrics',dict(elapsed_seconds=elapsed,request_bytes=request_size,usage=response['usage'],context_tokens=self.scope['local']['context_tokens'],tokens_basis='provider-reported; unavailable fields remain unknown'))
+                    tokens=response['usage'].get('completion_tokens')
+                    self.emit(dict(kind='activity',text=f'Local inference: {elapsed:.1f}s; {request_size} request bytes; output tokens '+('unavailable' if tokens is None else str(tokens))+'.'))
                 self.account_usage(response['usage'])
                 assistant=assistant_message(response)
                 if response['text']:
@@ -299,6 +315,7 @@ class Session:
                         record('diagnostic',dict(component='conversation',**{k:v for k,v in diagnostic.items() if k!='attempted_arguments'}),required=True)
                         self.emit(dict(kind='tool_failure',**{k:v for k,v in diagnostic.items() if k!='attempted_arguments'}))
                         value=dict(error=code,limitation='No result accepted; this is not evidence absence. Narrow the query or choose another authorized approach.',read_view_available=not self.suspended)
+                        if call['name']=='memory':value['argument_guidance']='evidence_id: evidence/fields/verified only. query: notes literal text or actions exact tool name only. status: notes/actions only. Other views use limit/offset, without query.'
                         if failures>=3 and not pause_reason:pause_reason='REPEATED_TOOL_FAILURE'
                     content=encoded(value)
                     if call['name']!='note' and 'error' not in value:

@@ -316,3 +316,5 @@ report-bundles/
 
 !/scripts/diagnose_investigative_memory.py
 !/docs/LOCARD_6_184_INVESTIGATIVE_MEMORY.md
+!/scripts/diagnose_local_provider.py
+!/docs/LOCARD_6_185_LOCAL_INFERENCE.md

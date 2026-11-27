@@ -8,6 +8,11 @@ from forensic_assistant.terminal import safe_span_text
 
 def configure(commands):
     p=commands.add_parser('conversation-chat',help='Converse with an evidence-using AI investigator')
+    p.add_argument('--local-endpoint',help='Explicit loopback llama.cpp HTTP endpoint; no cloud fallback')
+    p.add_argument('--local-model',help='Exact server model identifier/alias')
+    p.add_argument('--local-context',type=int,default=32768,help='Server context tokens; must match server allocation')
+    p.add_argument('--local-temperature',type=float,default=0.2,help='Local sampling temperature 0..2')
+    p.add_argument('--local-parallel-tools',action='store_true',help='Permit multiple native calls; execution remains sequential')
     p.add_argument('--checkpoint-seconds',type=int,default=600,help='Durable checkpoint interval; continues within approval by default')
     p.add_argument('--pause-at-checkpoint',action='store_true',help='Require analyst continuation at periodic checkpoints')
     p.add_argument('--progress-seconds',type=int,default=30,help='Elapsed activity reporting interval; not an execution deadline')
@@ -27,8 +32,16 @@ def configure(commands):
 def _run(args,read=None,write=None,provider=None):
     read=read or input;write=write or print
     if not sys.stdin.isatty() and read is input:raise ValueError('Conversational investigation requires an interactive terminal')
+    if not getattr(args,'local_endpoint',None) and (getattr(args,'local_model',None) or getattr(args,'local_parallel_tools',False) or getattr(args,'local_context',32768)!=32768 or getattr(args,'local_temperature',0.2)!=0.2):
+        write('Local options require --local-endpoint. No provider request was made.');return 2
+    if provider is None and getattr(args,'local_endpoint',None):
+        try:provider=ModelBackend.local_conversation(args.local_endpoint,args.local_model,args.local_context,args.local_temperature,args.local_parallel_tools)
+        except ValueError:
+            write('Invalid local configuration: use an HTTP loopback endpoint, explicit model identifier, context 4096..131072 and temperature 0..2. Remote/LAN endpoints are not supported; no provider request was made.');return 2
     provider=provider or ModelBackend()
-    if provider.provider_name!='openai':raise ValueError('Conversational provider unsupported; select OpenAI explicitly. No automatic cloud fallback.')
+    if provider.provider_name=='local' and not hasattr(provider,'_conversation_local'):
+        write('Local conversation requires --local-endpoint and --local-model for an already running tool-capable llama.cpp server. No model is started or downloaded.');return 2
+    if provider.provider_name not in ('openai','local'):raise ValueError('Conversational provider unsupported; no automatic fallback.')
     write('Locard Conversational Investigator')
     write('Provider: '+safe_span_text(provider.provider_name)+' | Model: '+safe_span_text(provider.model_name))
     sources=args.source or [read('Approved source ID: ').strip()]
@@ -39,12 +52,13 @@ def _run(args,read=None,write=None,provider=None):
                     dict(active_seconds=args.max_seconds,requests=args.max_requests,operations=args.max_operations,
                          tokens=args.max_tokens,records=args.max_records,disclosure_bytes=args.max_disclosure_bytes,
                          provider_seconds=args.provider_seconds,tool_seconds=args.tool_seconds,request_bytes=args.request_bytes,
-                         result_bytes=args.result_bytes,output_tokens=args.output_tokens))
+                         result_bytes=args.result_bytes,output_tokens=args.output_tokens),
+                    local=provider.conversation_binding() if provider.provider_name=='local' else None)
     def approve(value):
         write(authorization_text(value))
         write('Read-only tools: '+', '.join(t['function']['name'] for t in catalog())+'.')
         write('Sensitive local notebook: '+safe_span_text(value['case']+'.conversations'))
-        return read('Approve this investigation and external disclosure? [y/N] ').strip().lower() in ('y','yes')
+        return read(('Approve this investigation and loopback model disclosure? [y/N] ' if value.get('local') else 'Approve this investigation and external disclosure? [y/N] ')).strip().lower() in ('y','yes')
     def emit(event):
         if event['kind']=='interpretation':write('AI interpretation — unverified\n'+safe_span_text(event['text']))
         elif event['kind']=='activity':write(safe_span_text(event['text']))
@@ -126,6 +140,13 @@ def authorization_text(value):
            'Forensic operation deadline: '+('none (wait or interrupt)' if limits['tool_seconds'] is None else str(limits['tool_seconds'])+' seconds')+'. Technical safeguards remain active. Periodic checkpoints continue within approval unless pause-at-checkpoint was selected.',
            'Record eligibility follows the approved window; labeled out-of-window record context may also be disclosed.',
            'Ctrl+C cancels active work. Redirection is available at the next analyst prompt.']
+    if value.get('local'):
+        from .resources import request_capacity
+        capacity,output,basis=request_capacity(value['model'],limits,value['local'])
+        lines.extend(['Local endpoint: '+value['local']['endpoint']+' (loopback only; no proxy, redirects or cloud fallback)',
+            'Configured context: '+str(value['local']['context_tokens'])+' tokens; output reserve: '+str(output),
+            'Usable serialized request ceiling: '+str(capacity)+' bytes; '+basis,
+            'Local server is analyst-owned; disconnecting Locard cannot confirm server-side generation cancellation.'])
     return safe_span_text('\n'.join(lines))
 
 

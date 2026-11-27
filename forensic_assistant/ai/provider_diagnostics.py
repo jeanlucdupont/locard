@@ -8,6 +8,8 @@ from . import settings, diagnostics
 from forensic_assistant.llm.client import LLMError
 
 REASONS = {
+    'local_tool_protocol': 'Local model/server does not provide the required native tool protocol; check the tool-capable model and chat template',
+    'local_context_exhausted': 'Local model context exhausted; inspect configured capacity, template overhead and output reservation',
     'conversation_envelope': 'Invalid native conversational tool-call envelope',
     'conversation_finish': 'Unsupported conversational completion reason',
     'conversation_adapter': 'Internal conversational adapter failure',

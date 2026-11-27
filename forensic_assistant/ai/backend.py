@@ -249,6 +249,20 @@ class ModelBackend:
                 record(self.provider_name, self.model_name, 'provider_request', 'provider_failure', time.monotonic()-started)
             raise ProviderFailure('provider_failure') from None
 
+    @classmethod
+    def local_conversation(cls,endpoint,model,context=32768,temperature=0.2,parallel=False):
+        from forensic_assistant.conversational_ai.local import configuration
+        value=configuration(endpoint,model,context,temperature,parallel)
+        result=cls(endpoint=value['endpoint'],config=settings.defaults())
+        result.model_name=model;result._conversation_local=value
+        return result
+
+    def conversation_binding(self):
+        from forensic_assistant.conversational_ai.local import checked
+        value=checked(self._conversation_local)
+        if self.endpoint!=value['endpoint'] or self.model_name!=value['model'] or self.provider_name!='local':raise ValueError('LOCAL_PROVIDER_CHANGED')
+        return dict(value)
+
     def converse(self, messages, tools, *, timeout=None, output_tokens=8192, tool_choice='auto'):
         """Native tools with the same sanitized diagnostic boundary as completions."""
         from forensic_assistant.conversational_ai.provider import validate
@@ -258,6 +272,17 @@ class ModelBackend:
         timeout=self.timeout if timeout is None else timeout
         metadata={'conversation':shape(tools,output_tokens,timeout)}
         try:
+            if self.provider_name=='local':
+                from forensic_assistant.conversational_ai.local import dispatch
+                metadata['conversation']['transport']='loopback_openai_native'
+                binding=self.conversation_binding()
+                location='dispatch'
+                result=dispatch(binding,messages,tools,timeout,output_tokens,tool_choice)
+                validate(result)
+                record('local',self.model_name,'response_parse','response_validated',time.monotonic()-started,
+                       operation='conversation',metadata=metadata,usage=result['usage'])
+                self.last_metadata={'usage':result['usage'],'cost':None,'elapsed_seconds':time.monotonic()-started}
+                return result
             if self.provider_name != 'openai' or self.endpoint:
                 raise ValueError('Conversational provider unsupported; no cloud fallback')
             if tool_choice not in ('auto','required','none'):raise ValueError('Invalid tool choice')
