@@ -101,7 +101,8 @@ def serve():
                     try:view.check_identity();healthy=True
                     except (ValueError,OSError):pass
                 healthy=healthy and code not in ('AUTHORIZATION_FAILURE','EVIDENCE_INTEGRITY','RESOURCE_PROTECTION')
-                raw=json.dumps(dict(error=code,operation_id=identity,stage=stage,
+                from forensic_assistant.conversational_ai.operation_diagnostics import failure_detail
+                raw=json.dumps(dict(error=code,validation_detail=failure_detail(exc),operation_id=identity,stage=stage,
                                     recoverable=healthy,evidence_state=view.state if healthy else None)).encode()
             finally:
                 if view:view.db.set_progress_handler(None,0)

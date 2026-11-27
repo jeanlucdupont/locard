@@ -2,6 +2,7 @@
 from copy import deepcopy
 import json,time
 from .contracts import catalog,arguments,check
+from .operation_diagnostics import failure_detail
 from .provider import validate,assistant_message,restore,ValidationError
 from forensic_assistant.investigation_ai.runner import WorkerError
 from forensic_assistant.investigation_ai.transcript import Transcript,load
@@ -34,6 +35,7 @@ class Session:
         self.turns=[];self.notes=[];self.observations=[];self.known=set();self.disclosed=set();self.tool_payloads={};self.paused=None;self.compacted=0
         self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,input_tokens=0,output_tokens=0,unknown_input_usage=0,unknown_output_usage=0,uncertain_requests=0,note_operations=0,successful_forensic_operations=0,successful_operations=0,failed_operations=0,request_bytes=0,evidence_bytes=0,active_seconds=0.0,behavioral_populations_constructed=0,behavioral_populations_reused=0,memory_operations=0,automatic_checkpoints=0,context_consolidations=0,workspace_context_bytes=0,memory_result_bytes=0,workspace_items_projected=0,original_rehydrations=0,analyst_required_pauses=0)
         self.used.update(auxiliary_requests=0,auxiliary_bytes=0,measurement_seconds=0.0,context_consolidation_attempts=0)
+        self.persistence_seconds=0.0;self.worker_seconds=0.0;self.inference_seconds=0.0
         self.started=None;self.created=time.monotonic()
         if provider.provider_name!=scope['provider'] or provider.model_name!=scope['model']:raise ValueError('Provider/model mismatch')
         if scope.get('local') and provider.conversation_binding()!=scope['local']:raise ValueError('LOCAL_PROVIDER_CHANGED')
@@ -94,7 +96,10 @@ class Session:
         event['hash']=digest(event)
         self.journal.append(kind,data)
         if self.workspace is not None and not self.workspace_failed:
-            try:self.workspace.apply(event)
+            try:
+                persistence_started=time.monotonic()
+                self.workspace.apply(event)
+                self.persistence_seconds+=time.monotonic()-persistence_started
             except BaseException:
                 self.workspace_failed=True
                 raise RuntimeError('WORKSPACE_PROJECTION_FAILED') from None
@@ -281,8 +286,15 @@ class Session:
                         self.used['memory_result_bytes' if payload_kind=='memory' else 'evidence_bytes']+=evidence_size;self.disclosed.update(ids)
                 self.event('provider_attempt',dict(messages=messages,history_blocks_omitted=omitted,usage=self.usage()))
                 provider_started=time.monotonic()
-                with Activity(self.emit,'Waiting for the AI investigator',interval=self.progress_interval):
-                    response=validate(self.provider.converse(messages,self.catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=output_tokens))
+                try:
+                    with Activity(self.emit,'Waiting for the AI investigator',interval=self.progress_interval):
+                        response=validate(self.provider.converse(messages,self.catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=output_tokens))
+                finally:
+                    request_elapsed=time.monotonic()-provider_started
+                    self.inference_seconds+=request_elapsed
+                    self.event('provider_timing',dict(request_sequence=self.used['requests'],elapsed_seconds=request_elapsed,
+                        limitation='Includes transport and response validation; not pure generation duration'))
+                inference_elapsed=time.monotonic()-provider_started
                 sanitized=json.loads(redact(encoded(response)))
                 if 'continuation' in response and sanitized.get('continuation')!=response['continuation']:
                     raise ValueError('PROVIDER_CONTINUATION_REDACTED')
@@ -291,7 +303,7 @@ class Session:
                 if self.scope.get('local'):
                     parity=self.context_meter.observe(self.last_capacity,response['usage'])
                     self.event('local_context_parity',parity)
-                    elapsed=time.monotonic()-provider_started
+                    elapsed=inference_elapsed
                     self.event('local_inference_metrics',dict(elapsed_seconds=elapsed,request_bytes=request_size,usage=response['usage'],context_tokens=self.scope['local']['context_tokens'],tokens_basis='provider-reported; unavailable fields remain unknown'))
                     tokens=response['usage'].get('completion_tokens')
                     self.emit(dict(kind='activity',text=f'Local inference: {elapsed:.1f}s; {request_size} request bytes; output tokens '+('unavailable' if tokens is None else str(tokens))+'.'))
@@ -314,8 +326,10 @@ class Session:
                         continue
                     self.used['operations']+=1
                     operation_id=None;operation_started=time.monotonic()
+                    canonical=False;worker_dispatched=False;worker_reached=False;diagnostic=None;operation_stage='argument_validation'
                     try:
                         arguments(call['name'],call['arguments'])
+                        canonical=True;operation_stage='scope_validation'
                         signature=json.dumps(dict(name=call['name'],arguments=call['arguments']),sort_keys=True,separators=(',',':'))
                         new_information=False
                         prior=self.workspace.previous_action(call['name'],call['arguments'])
@@ -324,6 +338,7 @@ class Session:
                         operation_id='A'+str(self.journal.count)
                         self.event('tool_attempt',dict(call,operation_id=operation_id))
 
+                        operation_stage='workspace' if call['name'] in ('note','memory') else 'worker_execution'
                         if call['name']=='note':
                             self.workspace.validate_note(call['arguments'])
                             value=dict(unverified=True,note_id='N'+str(self.journal.count),**call['arguments'])
@@ -331,7 +346,9 @@ class Session:
                             self.event('note',value);self.notes.append(value)
                             self.event('tool_result',dict(operation_id=operation_id,name='note',arguments=call['arguments'],result=value,duration_seconds=time.monotonic()-operation_started))
                         elif call['name']=='memory':
+                            worker_dispatched=True;worker_reached=None
                             checked=self.worker.call('check',seconds=min(5,self.remaining()))
+                            worker_reached=True
                             if checked['evidence_state']!=self.view:raise RuntimeError('READ_VIEW_CHANGED')
                             self.workspace.bound(self.scope,self.view)
                             value=self.workspace.query(**call['arguments'],byte_limit=self.scope['limits']['result_bytes'])
@@ -349,7 +366,12 @@ class Session:
                             remaining=self.remaining()
                             if remaining!=float('inf'):seconds=min(remaining,seconds) if seconds is not None else remaining
                             with Activity(self.emit,description(call['name'],effective_args),interval=self.progress_interval):
-                                response_tool=self.worker.call(call['name'],effective_args,seconds=seconds)
+                                worker_dispatched=True;worker_reached=None
+                                worker_started=time.monotonic()
+                                try:
+                                    response_tool=self.worker.call(call['name'],effective_args,seconds=seconds)
+                                    worker_reached=True
+                                finally:self.worker_seconds+=time.monotonic()-worker_started
                             if response_tool['evidence_state']!=self.view:raise RuntimeError('READ_VIEW_CHANGED')
                             value=response_tool['result']
                             if call['name']=='show_evidence':self.used['original_rehydrations']+=1
@@ -378,10 +400,11 @@ class Session:
                         self.used['failed_operations']+=1;failures+=1
                         code=getattr(exc,'code','TOOL_REJECTED')
                         diagnostic=dict(operation_id=operation_id,attempted_arguments=call['arguments'],duration_seconds=time.monotonic()-operation_started,tool=call['name'] if call['name'] in ('search_evidence','show_evidence','timeline','around','verify_observation','note','memory','discover_security_signals','activity_overview','discover_execution_behaviors') else 'unknown',
-                                        code=code,stage=getattr(exc,'stage','argument_validation'),
+                                        code=code,stage=getattr(exc,'stage',operation_stage),validation_detail=failure_detail(exc),
                                         timed_out=getattr(exc,'timed_out',False),integrity=getattr(exc,'integrity',None),
                                         worker_diagnostic=getattr(exc,'diagnostic',None))
                         if isinstance(exc,WorkerError):
+                            if getattr(exc,'view',None)==self.view:worker_reached=True
                             healthy=getattr(exc,'recoverable',False) and getattr(exc,'view',None)==self.view
                             if not healthy:
                                 self.suspended=True;pause_reason='READ_VIEW_UNAVAILABLE'
@@ -393,6 +416,13 @@ class Session:
                         value=dict(error=code,limitation='No result accepted; this is not evidence absence. Narrow the query or choose another authorized approach.',read_view_available=not self.suspended)
                         if call['name']=='memory':value['argument_guidance']='evidence_id: evidence/fields/verified only. query: notes literal text or actions exact tool name only. status: notes/actions only. Other views use limit/offset, without query.'
                         if failures>=3 and not pause_reason:pause_reason='REPEATED_TOOL_FAILURE'
+                    self.event('operation_diagnostic',dict(provider_request_sequence=self.used['requests'],tool_call_id=call['id'],
+                        operation_id=operation_id,tool=call['name'],arguments=call['arguments'],canonical_validation='passed' if canonical else 'failed',
+                        execution_outcome='failed' if diagnostic is not None else 'succeeded',error=diagnostic,
+                        worker_dispatched=worker_dispatched,worker_reached=worker_reached,elapsed_seconds=time.monotonic()-operation_started,
+                        returned_evidence_ids=sorted({r['evidence_id'] for r in [*value.get('records',[]),*value.get('omitted_candidates',[])]}|set(value.get('workspace_evidence_ids',[]))|({value['evidence_id']} if value.get('evidence_id') else set())),
+                        coverage={k:value[k] for k in ('truncated','next_offset','coverage','limitations','scope') if k in value},
+                        feedback=value if diagnostic is not None else None))
                     content=encoded(value)
                     if call['name']!='note' and 'error' not in value:
                         ids={r['evidence_id'] for r in [*value.get('records',[]),*value.get('omitted_candidates',[])]}

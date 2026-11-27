@@ -12,9 +12,10 @@ CODES = frozenset(('ANALYST_CANCELLED','OPERATION_DEADLINE','DATABASE_QUERY_ERRO
     'EVIDENCE_INTEGRITY','RESULT_PROJECTION','RESOURCE_PROTECTION','TOOL_REJECTED'))
 
 class ConversationWorkerError(WorkerError):
-    def __init__(self, code, *, view=None, recoverable=False, stage='operation', cleanup=None):
+    def __init__(self, code, *, view=None, recoverable=False, stage='operation', cleanup=None, detail=None):
         super().__init__(code,stage=stage,timed_out=code=='OPERATION_DEADLINE',
                          integrity=view is not None,diagnostic={'code':code,'stage':stage})
+        self.validation_detail=detail or {}
         self.code=code;self.view=view;self.recoverable=recoverable;self.cleanup=cleanup
 
 class ChatWorker(ForensicWorker):
@@ -83,7 +84,7 @@ class ChatWorker(ForensicWorker):
                         if not healthy:lost(code)
                         stage=result.get('stage','operation')
                         if stage not in ('operation','authorization','read_view','integrity','query','projection'):lost('WORKER_PROTOCOL')
-                        raise ConversationWorkerError(cancelled or code,view=view,recoverable=True,stage=stage)
+                        raise ConversationWorkerError(cancelled or code,view=view,recoverable=True,stage=stage,detail=result.get('validation_detail'))
                     if not isinstance(result.get('result'),dict):lost('WORKER_PROTOCOL')
                     if cancelled:
                         # A completed-result race cannot prove that undelivered

@@ -165,16 +165,23 @@ def tokenization_probe(client,timeout=180,output_tokens=512):
     histories=[messages,messages+[dict(role='assistant',content=None,tool_calls=[dict(id='synthetic-memory-1',type='function',function=dict(name='memory',arguments='{"kind":"state"}'))]),
         dict(role='tool',tool_call_id='synthetic-memory-1',content='{"synthetic":true,"items":[],"coverage":"incomplete"}'),dict(role='user',content='Acknowledge the synthetic incomplete memory result briefly.')]]
     for candidate in histories:
-        measured=meter.measure(candidate,tools,output_tokens,256*1024,min(timeout,30),lambda path,body:aux.append(dict(route=path,bytes=0 if body is None else len(json.dumps(body).encode()))))
+        measured=meter.measure(candidate,tools,output_tokens,256*1024,min(timeout,30),lambda path,body:aux.append(dict(route=path,bytes=0 if body is None else len(json.dumps(body).encode()))),choice='none')
         row={'measurement':measured};rows.append(row)
         if measured['input_tokens'] is None or not measured['fits']:break
         started=time.monotonic()
         try:
-            response=client.converse(candidate,tools,timeout=timeout,output_tokens=output_tokens)
-            for call in response['tool_calls']:arguments(call['name'],call['arguments'])
-            row.update(parity=meter.observe(measured,response['usage']),usage=response['usage'],inference_seconds=time.monotonic()-started)
+            response=client.converse(candidate,tools,timeout=timeout,output_tokens=output_tokens,tool_choice='none')
+            row.update(parity=meter.observe(measured,response['usage']),usage=response['usage'],inference_seconds=time.monotonic()-started,native_response='valid')
+            row['canonical_arguments']='valid' if response['tool_calls'] else 'not_applicable'
+            try:
+                for call in response['tool_calls']:arguments(call['name'],call['arguments'])
+            except ValueError as exc:
+                from forensic_assistant.conversational_ai.operation_diagnostics import failure_detail
+                row['canonical_arguments']='invalid';row['argument_diagnostic']=failure_detail(exc)
+            row['unexpected_tool_calls']=bool(response['tool_calls'])
         except Exception as exc:
             row.update(error=getattr(exc,'category','invalid_arguments'),stage=getattr(exc,'stage','response_validation'),diagnostic=getattr(exc,'metadata',{}));break
+    client._context_meter=None
     return dict(mode='tokenization',endpoint=client.conversation_binding()['endpoint'],model=client.model_name,
         rows=rows,auxiliary=aux,checks={'initial_and_tool_parity':len(rows)==2 and all(r.get('parity',{}).get('difference')==0 for r in rows)},
         limitation='Two explicit harmless inference attempts at most. Mock token counts are fixtures. Parity is observed for these requests, not proof for every template or future server configuration.')
@@ -186,7 +193,7 @@ def successful(result):
         (not result.get('observations') or all(result['observations'].get(k,False) for k in ('original_inspection','verification','memory_retrieval','final_response'))))
 
 
-def synthetic_investigation(directory,client,timeout=180,output_tokens=2048):
+def synthetic_investigation(directory,client,timeout=180,output_tokens=2048,request_budget=12):
     """Real model, disposable evidence only. Explicit diagnostic request budget."""
     import hashlib
     from scripts.diagnose_investigative_memory import synthetic_case
@@ -195,7 +202,7 @@ def synthetic_investigation(directory,client,timeout=180,output_tokens=2048):
     from forensic_assistant.conversational_ai.workspace import reconstruct
     path,sid,before=synthetic_case(directory)
     scope=authorize(path,[sid],'2020-01-01T00:00:00Z','2020-01-02T00:00:00Z',FAMILIES,'local',client.model_name,
-        {'requests':12,'provider_seconds':timeout,'output_tokens':output_tokens},local=client.conversation_binding())
+        {'requests':request_budget,'provider_seconds':timeout,'output_tokens':output_tokens},local=client.conversation_binding())
     session=Session(scope,client,lambda _:True,checkpoint_seconds=.01)
     reason='COMPLETED';answer={};failure={}
     try:
@@ -205,13 +212,39 @@ def synthetic_investigation(directory,client,timeout=180,output_tokens=2048):
         failure=dict(category=getattr(cause,'category',None),stage=getattr(cause,'stage',None),diagnostic=getattr(cause,'metadata',{}))
     finally:session.close(reason)
     rebuilt=reconstruct(session.journal.path,Path(directory)/'reconstructed')
-    return dict(provider='Actual configured local model; disposable synthetic case',diagnostic_request_ceiling=12,
+    from forensic_assistant.conversational_ai.operation_diagnostics import operation_trace
+    trace=operation_trace(session.journal.path)
+    if reason=='REPEATED_TOOL_FAILURE':
+        failure=dict(category='repeated_tool_failure',stage='tool_operations',diagnostic=trace['repeated_failure'])
+    return dict(provider='Configured local provider on synthetic evidence',diagnostic_request_ceiling=request_budget,
+        journal=str(session.journal.path),operation_trace=trace['operations'],provider_diagnostics=trace['provider_diagnostics'],
+        timing=dict(workspace_persistence_seconds=session.persistence_seconds,forensic_worker_seconds=session.worker_seconds,
+            inference_seconds=session.inference_seconds,measurement_seconds=session.used['measurement_seconds'],
+            other_active_seconds=max(0,session.used['active_seconds']-session.inference_seconds-session.worker_seconds-session.used['measurement_seconds']-session.persistence_seconds)),
+        timing_limitation='Operation durations include validation and bookkeeping; inference includes transport, not pure generation. No generation throughput inferred.',
         outcome=reason,failure=failure,capacity=session.last_capacity,endpoint=client.conversation_binding()['endpoint'],model=client.model_name,usage=session.used,workspace=rebuilt,interpretation=answer.get('interpretation'),
         checks=dict(case_unchanged=hashlib.sha256(path.read_bytes()).hexdigest()==before,worker_closed=session.worker.process.poll() is not None),
         observations=dict(original_inspection=session.used['original_rehydrations']>0,verification=rebuilt['counts']['verifications']>0,
             memory_retrieval=session.used['memory_operations']>0,context_consolidation=session.used['context_consolidations']>0,
             automatic_checkpoint=session.used['automatic_checkpoints']>0,final_response=bool(answer.get('interpretation'))),
         limitation='Diagnostic scope/request ceiling only, not a production quota. Inspect missing capabilities before real-case acceptance.')
+
+
+def retained(directory, run):
+    """Fresh private synthetic output only. Never adopt an existing directory."""
+    from forensic_assistant.investigation_ai.storage import DirectoryGuard,local_path
+    from forensic_assistant.investigation_ai.snapshot import _private_mkdir
+    path=local_path(Path(directory).absolute())
+    with DirectoryGuard(path.parent):
+        _private_mkdir(path)
+        with DirectoryGuard(path):
+            (path/'SYNTHETIC_ONLY.txt').write_text('Synthetic diagnostic artifacts, not original forensic evidence. May contain model output. Review before sharing.\n',encoding='utf-8')
+            try:result=run(path)
+            except Exception as exc:
+                result=dict(error=getattr(exc,'category','diagnostic_failed'),stage=getattr(exc,'stage','diagnostic'),no_fallback=True,diagnostic=getattr(exc,'metadata',{}))
+            for name,value in (('diagnostic.json',result),('operation-trace.json',result.get('operation_trace',[])),('provider-diagnostics.json',result.get('provider_diagnostics',[]))):
+                with (path/name).open('x',encoding='utf-8') as stream:json.dump(value,stream,indent=2)
+            return result
 
 
 def main():
@@ -222,7 +255,11 @@ def main():
     p.add_argument('--tokenization',action='store_true',help='Harmless template/tokenizer diagnostic with two explicit inference parity requests')
     p.add_argument('--full-catalog',action='store_true',help='Production tool grammar; no evidence access or tool execution')
     p.add_argument('--synthetic-investigation',action='store_true',help='Use the real local model on a disposable synthetic case (12-request diagnostic budget)')
+    p.add_argument('--output-dir',help='Fresh private retained synthetic output directory; never overwritten')
+    p.add_argument('--diagnostic-requests',type=int,default=12,help='Synthetic investigation request budget only (default 12)')
     args=p.parse_args()
+    if args.diagnostic_requests<1:p.error('Diagnostic request budget must be positive')
+    if args.output_dir and (not args.synthetic_investigation or args.mock or args.tokenization or args.full_catalog):p.error('--output-dir requires --synthetic-investigation')
     if not args.mock and not (args.endpoint and args.model):p.error('Use --mock or --endpoint and --model')
     try:
         if args.mock:
@@ -233,7 +270,10 @@ def main():
             if args.tokenization:result=tokenization_probe(client,args.timeout,args.output_tokens)
             elif args.full_catalog:result=full_catalog(client,args.timeout,args.output_tokens)
             elif args.synthetic_investigation:
-                with tempfile.TemporaryDirectory(prefix='locard-local-synthetic-') as tmp:result=synthetic_investigation(tmp,client,args.timeout,args.output_tokens)
+                run=lambda tmp:synthetic_investigation(tmp,client,args.timeout,args.output_tokens,args.diagnostic_requests)
+                if args.output_dir:result=retained(args.output_dir,run)
+                else:
+                    with tempfile.TemporaryDirectory(prefix='locard-local-synthetic-') as tmp:result=run(tmp)
             else:result=probe(client,args.timeout,args.output_tokens)
     except Exception as exc:
         result={'error':getattr(exc,'category','diagnostic_failed'),'stage':getattr(exc,'stage','configuration'),'no_fallback':True,'diagnostic':getattr(exc,'metadata',{})}
