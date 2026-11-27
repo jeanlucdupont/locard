@@ -16,18 +16,23 @@ def encoded(value):return json.dumps(value,ensure_ascii=True,separators=(',',':'
 
 from .supervision import ChatWorker
 from .activity import Activity, description
+from .workspace import Workspace
+from forensic_assistant.investigation_ai.transcript import digest
 
 
 class Paused(ValueError):
     """Preserved notebook boundary; a lost read view remains explicitly suspended."""
 
 class Session:
-    def __init__(self,scope,provider,approve,*,root=None,emit=None,worker_factory=ChatWorker,progress_interval=30):
+    def __init__(self,scope,provider,approve,*,root=None,emit=None,worker_factory=ChatWorker,progress_interval=30,checkpoint_seconds=600,pause_at_checkpoint=False):
         self._scope=encoded(scope);self.provider=provider;self.emit=emit or (lambda event:None)
+        self.workspace=None;self.workspace_failed=False
+        if not isinstance(checkpoint_seconds,(int,float)) or not 0<checkpoint_seconds<86401:raise ValueError("Invalid checkpoint interval")
+        self.checkpoint_seconds=checkpoint_seconds;self.pause_at_checkpoint=pause_at_checkpoint;self.next_checkpoint=checkpoint_seconds
         self.worker=None;self.journal=None;self.closed=False;self.cancelled=False;self.suspended=False
         self.progress_interval=progress_interval
         self.turns=[];self.notes=[];self.observations=[];self.known=set();self.disclosed=set();self.tool_payloads={};self.paused=None;self.compacted=0
-        self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,input_tokens=0,output_tokens=0,unknown_input_usage=0,unknown_output_usage=0,uncertain_requests=0,note_operations=0,successful_forensic_operations=0,successful_operations=0,failed_operations=0,request_bytes=0,evidence_bytes=0,active_seconds=0.0,behavioral_populations_constructed=0,behavioral_populations_reused=0)
+        self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,input_tokens=0,output_tokens=0,unknown_input_usage=0,unknown_output_usage=0,uncertain_requests=0,note_operations=0,successful_forensic_operations=0,successful_operations=0,failed_operations=0,request_bytes=0,evidence_bytes=0,active_seconds=0.0,behavioral_populations_constructed=0,behavioral_populations_reused=0,memory_operations=0,automatic_checkpoints=0,context_consolidations=0,workspace_context_bytes=0,memory_result_bytes=0,workspace_items_projected=0,original_rehydrations=0,analyst_required_pauses=0)
         self.started=None;self.created=time.monotonic()
         if provider.provider_name!=scope['provider'] or provider.model_name!=scope['model']:raise ValueError('Provider/model mismatch')
         check(scope,scope['case'])
@@ -36,7 +41,9 @@ class Session:
         self.started=time.monotonic()
         try:
             self.journal=Transcript(root or scope['case']+'.conversations',dict(engine='conversational-v1',storage_profile='conversation-long-v1',authorization=deepcopy(scope)),private=True)
-            self.journal.append('authorization',scope)
+            self.workspace=Workspace(self.journal.path/'workspace.db',self.journal.id)
+            self.event('authorization',scope)
+            self.event('continuation_policy',dict(checkpoint_seconds=checkpoint_seconds,pause_at_checkpoint=pause_at_checkpoint))
             self.worker=worker_factory(dict(case_path=scope['case'],scope=deepcopy(scope),_transaction_view=True,
                 _deadline=time.monotonic()+min(self.remaining(),60)))
             # Active-work budgets exclude analyst idle time. Each call receives a
@@ -44,7 +51,7 @@ class Session:
             self.worker.deadline=float('inf')
             self.worker.progress=self.emit
             view=self.worker.call('chat_init',seconds=min(self.remaining(),60))
-            self.view=view['evidence_state'];self.journal.append('read_view',self.view)
+            self.view=view['evidence_state'];self.event('read_view',self.view)
         except BaseException:
             self.close('STARTUP_FAILED');raise
         finally:self.charge()
@@ -69,7 +76,15 @@ class Session:
     def event(self,kind,data):
         require()
         # Configured credential values never enter the durable notebook.
-        self.journal.append(kind,json.loads(redact(encoded(data))))
+        data=json.loads(redact(encoded(data)))
+        event=dict(sequence=self.journal.count,kind=kind,data=data,previous=self.journal.chain)
+        event['hash']=digest(event)
+        self.journal.append(kind,data)
+        if self.workspace is not None and not self.workspace_failed:
+            try:self.workspace.apply(event)
+            except BaseException:
+                self.workspace_failed=True
+                raise RuntimeError('WORKSPACE_PROJECTION_FAILED') from None
 
     def admit(self,resource):
         if self.closed or self.cancelled:raise ValueError('SESSION_CLOSED')
@@ -89,6 +104,7 @@ class Session:
             else:self.used[unknown]+=1
 
     def pause(self,reason,**details):
+        self.used['analyst_required_pauses']+=1
         self.paused=reason
         try:self.event('paused',dict(reason=reason,usage=self.usage(),**details))
         except BaseException:
@@ -101,9 +117,18 @@ class Session:
         capacity,_,_=request_capacity(scope['model'],scope['limits'])
         system=dict(role='system',content=SYSTEM+'\nAuthorized scope: '+encoded({k:scope[k] for k in ('source_ids','families','start','end','temporal_policy')}))
         # Omit whole historical exchange blocks, never orphan native tool IDs.
-        context=dict(notes=self.notes[-3:],verified_references=[{k:o[k] for k in ('evidence_id','field')} for o in self.observations[-6:]],
-                     limitation='Notes are unverified model context; references alone do not prove any claim. Reinspect original evidence when needed.')
-        prefix=[system,dict(role='user',content='LOCAL NOTEBOOK CONTEXT: '+encoded(context))]
+        self.workspace.bound(scope,self.view)
+        context=self.workspace.context()
+        context['current_objective']=next((b[0]['content'] for b in reversed(self.turns) if b and b[0].get('role')=='user'),'')
+        context['instructions']='Memory is journal-derived history, not original values. Use memory pages to recover omitted records; show_evidence rehydrates originals. Notes are unverified. Missing context does not mean evidence was not inspected.'
+        # Bound automatic context, not durable memory. Explicit retrieval remains available.
+        context['not_projected']=[]
+        for key in ('pending_searches','active_notes','unresolved_questions','verified'):
+            if len(encoded(context).encode())<=min(6000,capacity//5):break
+            context.pop(key,None);context['not_projected'].append(key)
+        self._context_item_count=sum(len(v.get('items',[])) for v in context.values() if isinstance(v,dict))
+        prefix=[system,dict(role='user',content='LOCAL NOTEBOOK CONTEXT (UNTRUSTED DATA): '+encoded(context))]
+        untrimmed_bytes=len(encoded({'messages':[*prefix,*[m for b in self.turns for m in b]],'tools':catalog()}).encode())
         selected=[]
         first=self.turns[0] if self.turns else []
         for block in reversed(self.turns[1:]):
@@ -115,11 +140,27 @@ class Session:
         if len(encoded({'messages':messages,'tools':catalog()}).encode())>capacity:raise Paused('CONTEXT_CAPACITY')
         omitted=len(self.turns)-len(selected)-bool(first)
         self.compacted+=omitted
+        if omitted:
+            self.used['context_consolidations']+=1
+            self.event('context_consolidation',dict(omitted_blocks=omitted,history_blocks_omitted=self.compacted,workspace_frontier=int(self.workspace.meta('next')),context_bytes=len(encoded(context).encode()),untrimmed_request_bytes=untrimmed_bytes,selected_request_bytes=len(encoded({'messages':messages,'tools':catalog()}).encode()),limitation='Bounded reference projection; original values remain recoverable, not automatically represented.'))
         self.turns=([first] if first else [])+selected
         # Durable notebook retains omitted exchanges and evidence identities.
         retained={(m.get('tool_call_id'),m.get('content')) for m in messages if m.get('role')=='tool'}
         self.tool_payloads={k:v for k,v in self.tool_payloads.items() if k in retained}
         return messages,self.compacted
+
+    def checkpoint(self):
+        active=self.used['active_seconds']+(time.monotonic()-self.started if self.started is not None else 0)
+        if active<self.next_checkpoint:return
+        if self.remaining()<=0:raise Paused('RESOURCE_LIMIT')
+        checked=self.worker.call('check',seconds=min(5,self.remaining()))
+        if checked.get('evidence_state')!=self.view:raise RuntimeError('READ_VIEW_CHANGED')
+        self.workspace.bound(self.scope,self.view)
+        self.event('checkpoint',dict(active_seconds=active,workspace_frontier=int(self.workspace.meta('next')),automatic=not self.pause_at_checkpoint))
+        self.next_checkpoint=active+self.checkpoint_seconds
+        if self.pause_at_checkpoint:raise Paused('ACTIVE_TURN_CHECKPOINT')
+        self.used['automatic_checkpoints']+=1
+        self.emit(dict(kind='activity',text='Investigation checkpoint saved; continuing within approval. Ctrl+C interrupts.'))
 
     def submit(self,text):
         if self.closed:raise ValueError('Session closed; start a newly authorized session')
@@ -133,11 +174,9 @@ class Session:
             self.turns.append([message])
             while True:
                 self.admit('requests')
-                # Infrequent soft checkpoint; explicit next analyst turn resumes.
-                active=time.monotonic()-turn_start
-                if active>=600:raise Paused('ACTIVE_TURN_CHECKPOINT')
-                if active>=300 and not warned:
-                    self.emit(dict(kind='activity',text='Investigation is still active; Ctrl+C cancels. A ten-minute turn checkpoint will pause for analyst direction.'));warned=True
+                self.checkpoint()
+                if time.monotonic()-turn_start>=300 and not warned:
+                    self.emit(dict(kind='activity',text='Investigation is still active; Ctrl+C interrupts. Periodic checkpoints preserve work within the approved continuation policy.'));warned=True
                 messages,omitted=self.messages()
                 wire_messages=[restore(m) for m in messages]
                 size=len(encoded(wire_messages).encode())
@@ -150,10 +189,12 @@ class Session:
                 # Charge and persist BEFORE entry: exposure may occur even if no reply.
                 self.used['requests']+=1;self.used['disclosure_bytes']+=size
                 self.used['request_bytes']+=request_size
+                self.used['workspace_items_projected']+=self._context_item_count
+                self.used['workspace_context_bytes']+=sum(len(m.get('content','').encode()) for m in messages if m.get('role')=='user' and m.get('content','').startswith('LOCAL NOTEBOOK CONTEXT'))
                 for m in messages:
                     if m.get('role')=='tool' and (m.get('tool_call_id'),m.get('content')) in self.tool_payloads:
-                        evidence_size,ids=self.tool_payloads[(m['tool_call_id'],m['content'])]
-                        self.used['evidence_bytes']+=evidence_size;self.disclosed.update(ids)
+                        evidence_size,ids,payload_kind=self.tool_payloads[(m['tool_call_id'],m['content'])]
+                        self.used['memory_result_bytes' if payload_kind=='memory' else 'evidence_bytes']+=evidence_size;self.disclosed.update(ids)
                 self.event('provider_attempt',dict(messages=messages,history_blocks_omitted=omitted,usage=self.usage()))
                 with Activity(self.emit,'Waiting for the AI investigator',interval=self.progress_interval):
                     response=validate(self.provider.converse(messages,catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=output_tokens))
@@ -173,28 +214,37 @@ class Session:
                 for call in calls:
                     try:
                         if pause_reason:raise Paused(pause_reason)
-                        if time.monotonic()-turn_start>=600:raise Paused('ACTIVE_TURN_CHECKPOINT')
+                        self.checkpoint()
                         self.admit('operations')
                     except Paused as exc:
                         pause_reason=str(exc)
                         block.append(dict(role='tool',tool_call_id=call['id'],content=encoded(dict(error='OPERATION_NOT_EXECUTED',reason=pause_reason))))
                         continue
                     self.used['operations']+=1
+                    operation_id=None;operation_started=time.monotonic()
                     try:
                         arguments(call['name'],call['arguments'])
                         signature=json.dumps(dict(name=call['name'],arguments=call['arguments']),sort_keys=True,separators=(',',':'))
                         new_information=False
-                        if repeats.get(signature,0)>=2:
-                            pause_reason='REPEATED_UNPRODUCTIVE_REQUEST'
-                            block.append(dict(role='tool',tool_call_id=call['id'],content=encoded(dict(error='OPERATION_NOT_EXECUTED',reason=pause_reason))))
-                            continue
+                        prior=self.workspace.previous_action(call['name'],call['arguments'])
+                        if prior:self.event('operation_repeat',dict(previous=prior,tool=call['name'],limitation='Exact prior arguments; repeat is allowed. Use memory actions to inspect coverage.'))
                         if call['name'] in ('show_evidence','around','verify_observation') and call['arguments']['evidence_id'] not in self.known:raise ValueError('Unknown evidence reference')
-                        self.event('tool_attempt',call)
+                        operation_id='A'+str(self.journal.count)
+                        self.event('tool_attempt',dict(call,operation_id=operation_id))
 
                         if call['name']=='note':
-                            value=dict(unverified=True,**call['arguments'])
+                            self.workspace.validate_note(call['arguments'])
+                            value=dict(unverified=True,note_id='N'+str(self.journal.count),**call['arguments'])
                             new_information=value not in self.notes
                             self.event('note',value);self.notes.append(value)
+                            self.event('tool_result',dict(operation_id=operation_id,name='note',arguments=call['arguments'],result=value,duration_seconds=time.monotonic()-operation_started))
+                        elif call['name']=='memory':
+                            checked=self.worker.call('check',seconds=min(5,self.remaining()))
+                            if checked['evidence_state']!=self.view:raise RuntimeError('READ_VIEW_CHANGED')
+                            self.workspace.bound(self.scope,self.view)
+                            value=self.workspace.query(**call['arguments'],byte_limit=self.scope['limits']['result_bytes'])
+                            if not set(value.get('workspace_evidence_ids',[]))<=self.known:raise ValueError('Unknown workspace evidence reference')
+                            self.event('tool_result',dict(operation_id=operation_id,name='memory',arguments=call['arguments'],result=value,duration_seconds=time.monotonic()-operation_started))
                         else:
                             effective_args=deepcopy(call['arguments'])
                             record_budget=self.scope['limits']['records']
@@ -210,6 +260,7 @@ class Session:
                                 response_tool=self.worker.call(call['name'],effective_args,seconds=seconds)
                             if response_tool['evidence_state']!=self.view:raise RuntimeError('READ_VIEW_CHANGED')
                             value=response_tool['result']
+                            if call['name']=='show_evidence':self.used['original_rehydrations']+=1
                             if response_tool.get('computation'):
                                 computation=response_tool['computation']
                                 self.event('behavioral_computation',computation)
@@ -218,7 +269,7 @@ class Session:
                             new_information=bool(incoming-self.known)
                             if self.scope['limits']['records'] is not None and len(self.known|incoming)>self.scope['limits']['records']:
                                 pause_reason='RECORD_BUDGET';raise ValueError('Record ceiling reached; narrow the search')
-                            self.event('tool_result',dict(name=call['name'],arguments=call['arguments'],effective_arguments=effective_args,result=value))
+                            self.event('tool_result',dict(operation_id=operation_id,name=call['name'],arguments=call['arguments'],effective_arguments=effective_args,result=value,duration_seconds=time.monotonic()-operation_started,population_id=response_tool.get('computation',{}).get('population_id')))
                             self.known.update(r['evidence_id'] for r in [*value.get('records',[]),*value.get('omitted_candidates',[])])
                             if 'records' in value:
                                 self.emit(dict(kind='activity',text=str(len(value['records']))+' records returned; coverage '+('incomplete' if value.get('truncated') else 'limited to the requested scope')+'.'))
@@ -226,14 +277,15 @@ class Session:
                                 new_information=new_information or value not in self.observations
                                 self.event('verified_observation',value);self.observations.append(value)
                                 self.emit(dict(kind='verified_observation',value=value))
-                        if new_information:repeats.clear()
-                        repeats[signature]=repeats.get(signature,0)+1
+                        nonadvancing=value.get('next_offset') is not None and value.get('next_offset')==call['arguments'].get('offset',0)
+                        repeats[signature]=repeats.get(signature,0)+1 if nonadvancing else 0
+                        if repeats[signature]>=2:pause_reason='NONADVANCING_CONTINUATION'
                         failures=0;self.used['successful_operations']+=1
-                        self.used['note_operations' if call['name']=='note' else 'successful_forensic_operations']+=1
+                        self.used['note_operations' if call['name']=='note' else 'memory_operations' if call['name']=='memory' else 'successful_forensic_operations']+=1
                     except (ValueError,TypeError,KeyError) as exc:
                         self.used['failed_operations']+=1;failures+=1
                         code=getattr(exc,'code','TOOL_REJECTED')
-                        diagnostic=dict(tool=call['name'] if call['name'] in ('search_evidence','show_evidence','timeline','around','verify_observation','note','discover_security_signals','activity_overview','discover_execution_behaviors') else 'unknown',
+                        diagnostic=dict(operation_id=operation_id,attempted_arguments=call['arguments'],duration_seconds=time.monotonic()-operation_started,tool=call['name'] if call['name'] in ('search_evidence','show_evidence','timeline','around','verify_observation','note','memory','discover_security_signals','activity_overview','discover_execution_behaviors') else 'unknown',
                                         code=code,stage=getattr(exc,'stage','argument_validation'),
                                         timed_out=getattr(exc,'timed_out',False),integrity=getattr(exc,'integrity',None),
                                         worker_diagnostic=getattr(exc,'diagnostic',None))
@@ -244,15 +296,16 @@ class Session:
                                 diagnostic['cleanup_confirmed']=getattr(exc,'cleanup',None)
                             if code=='ANALYST_CANCELLED':pause_reason='ANALYST_CANCELLED' if healthy else 'READ_VIEW_UNAVAILABLE'
                         self.event('tool_failure',diagnostic)
-                        record('diagnostic',dict(component='conversation',**diagnostic),required=True)
-                        self.emit(dict(kind='tool_failure',**diagnostic))
+                        record('diagnostic',dict(component='conversation',**{k:v for k,v in diagnostic.items() if k!='attempted_arguments'}),required=True)
+                        self.emit(dict(kind='tool_failure',**{k:v for k,v in diagnostic.items() if k!='attempted_arguments'}))
                         value=dict(error=code,limitation='No result accepted; this is not evidence absence. Narrow the query or choose another authorized approach.',read_view_available=not self.suspended)
                         if failures>=3 and not pause_reason:pause_reason='REPEATED_TOOL_FAILURE'
                     content=encoded(value)
                     if call['name']!='note' and 'error' not in value:
                         ids={r['evidence_id'] for r in [*value.get('records',[]),*value.get('omitted_candidates',[])]}
+                        ids.update(value.get('workspace_evidence_ids',[]))
                         if value.get('evidence_id'):ids.add(value['evidence_id'])
-                        self.tool_payloads[(call['id'],content)]=(len(content.encode()),ids)
+                        self.tool_payloads[(call['id'],content)]=(len(content.encode()),ids,call['name'])
                     block.append(dict(role='tool',tool_call_id=call['id'],content=content))
                 self.turns.append(block)
                 if pause_reason:raise Paused(pause_reason)
@@ -300,10 +353,17 @@ class Session:
         try:
             if self.worker:self.worker.close()
         except (OSError,RuntimeError):cleanup=False
-        if self.journal and self.journal.publication['status']!='uncertain':
-            self.journal.finish(dict(termination=reason if cleanup else 'CLEANUP_LIMITATION',cleanup_confirmed=cleanup,read_view_confirmed=integrity,
-                usage=self.used,verified_observations=len(self.observations),notes=len(self.notes),
-                limitation='Model prose remains unverified; field-value checks are not semantic proof.'))
+        try:
+            if self.journal and self.journal.publication['status']!='uncertain':
+                terminal=dict(termination=reason if cleanup else 'CLEANUP_LIMITATION',cleanup_confirmed=cleanup,read_view_confirmed=integrity,
+                    usage=self.used,verified_observations=len(self.observations),notes=len(self.notes),
+                    limitation='Model prose remains unverified; field-value checks are not semantic proof.')
+                event=dict(sequence=self.journal.count,kind='terminal',data=terminal,previous=self.journal.chain)
+                event['hash']=digest(event)
+                self.journal.finish(terminal)
+                if self.workspace and not self.workspace_failed:self.workspace.apply(event)
+        finally:
+            if self.workspace:self.workspace.close()
         self.emit(dict(kind='completed',reason=reason,cleanup_confirmed=cleanup))
 
 

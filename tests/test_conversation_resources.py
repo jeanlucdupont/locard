@@ -111,12 +111,13 @@ def test_optional_budgets_pause_without_destroying_context(tmp_path,limits,reaso
         assert len(client.calls)<=1
     finally:session.close()
 
-def test_repeated_requests_pause_and_analyst_redirects(tmp_path):
-    steps=[reply(calls=calls(1))]*3+[reply('A different investigative direction is needed.')]
+def test_repeated_successes_continue_and_analyst_redirects(tmp_path):
+    steps=[reply(calls=calls(1))]*3+[reply('Repeated inspection complete.'),reply('A different investigative direction is needed.')]
     path,client,scope=setup(tmp_path,steps);session=Session(scope,client,lambda _:True)
     try:
-        with pytest.raises(Paused,match='REPEATED_UNPRODUCTIVE'):session.submit('Investigate')
-        assert not session.closed and session.used['successful_operations']==2
+        assert session.submit('Investigate')['interpretation']
+        assert not session.closed and session.used['successful_operations']==3
+        assert session.workspace.meta('latest_repeat') is not None
         assert session.submit('Consider a different hypothesis')['interpretation']
     finally:session.close()
 
@@ -137,6 +138,8 @@ def test_duration_and_soft_checkpoint(tmp_path,monkeypatch):
         session.used['active_seconds']=3601
         session.submit('Continue beyond fifteen minutes')
         assert session.used['active_seconds']>3600
+        assert session.used['automatic_checkpoints']==1
+        session.pause_at_checkpoint=True
         clock=[10000.0];monkeypatch.setattr(service.time,'monotonic',lambda:clock[0])
         def slow(_):clock[0]+=601;return reply(calls=calls(1))
         session.provider.steps=iter([slow,reply('Continue by analyst direction')])

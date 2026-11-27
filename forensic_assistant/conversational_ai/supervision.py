@@ -31,7 +31,6 @@ class ChatWorker(ForensicWorker):
 
     def _exchange(self,message,seconds):
         if 'config' in message:return super()._exchange(message,seconds)
-        self.cancel_event.clear()
         identity=uuid.uuid4().hex
         message={**message,'operation_id':identity}
         deadline=min(self.deadline,time.monotonic()+seconds if seconds is not None else float('inf'))
@@ -55,6 +54,9 @@ class ChatWorker(ForensicWorker):
                     now=time.monotonic()
                     if cancelled is None and (self.cancel_event.is_set() or now>=deadline):
                         cancelled='ANALYST_CANCELLED' if self.cancel_event.is_set() else 'OPERATION_DEADLINE'
+                        # Consume only a signal being handled. A cancellation
+                        # between exchanges must remain pending for the next call.
+                        self.cancel_event.clear()
                         send(dict(operation='cancel',operation_id=identity))
                         stop_at=now+self.cancellation_grace
                     if stop_at is not None and now>=stop_at:lost(cancelled)

@@ -8,6 +8,8 @@ from forensic_assistant.terminal import safe_span_text
 
 def configure(commands):
     p=commands.add_parser('conversation-chat',help='Converse with an evidence-using AI investigator')
+    p.add_argument('--checkpoint-seconds',type=int,default=600,help='Durable checkpoint interval; continues within approval by default')
+    p.add_argument('--pause-at-checkpoint',action='store_true',help='Require analyst continuation at periodic checkpoints')
     p.add_argument('--progress-seconds',type=int,default=30,help='Elapsed activity reporting interval; not an execution deadline')
     p.add_argument('--source',action='append',help='Approved source ID; repeat for multiple sources')
     p.add_argument('--start',help='Inclusive approved UTC/offset timestamp')
@@ -62,7 +64,8 @@ def _run(args,read=None,write=None,provider=None):
         elif event['kind']=='completed':
             write('Session outcome: '+safe_span_text(event['reason'])+('. Cleanup confirmed.' if event['cleanup_confirmed'] else '. CLEANUP_LIMITATION: process cleanup could not be confirmed.'))
     if getattr(args,'progress_seconds',30)<=0:raise ValueError('Progress interval must be positive')
-    session=Session(scope,provider,approve,emit=emit,progress_interval=getattr(args,'progress_seconds',30))
+    write('Checkpoint policy: '+('pause for analyst' if getattr(args,'pause_at_checkpoint',False) else 'automatic continuation')+' every '+str(getattr(args,'checkpoint_seconds',600))+' active seconds.')
+    session=Session(scope,provider,approve,emit=emit,progress_interval=getattr(args,'progress_seconds',30),checkpoint_seconds=getattr(args,'checkpoint_seconds',600),pause_at_checkpoint=getattr(args,'pause_at_checkpoint',False))
     write('Controls: /status, /summary, /exit; Ctrl+C interrupts active work; completed work is retained. Natural language changes priorities.')
     write('Notebook session: '+session.journal.id)
     try:
@@ -120,7 +123,7 @@ def authorization_text(value):
            'Investigation duration (active seconds): '+budget('active_seconds'),'AI requests: '+budget('requests'),
            'Forensic operations: '+budget('operations'),'Tokens: '+budget('tokens'),'Distinct records: '+budget('records'),
            'Financial budget: Not configured; cost unavailable.',
-           'Forensic operation deadline: '+('none (wait or interrupt)' if limits['tool_seconds'] is None else str(limits['tool_seconds'])+' seconds')+'. Technical safeguards remain active. Ten-minute active turns pause for direction.',
+           'Forensic operation deadline: '+('none (wait or interrupt)' if limits['tool_seconds'] is None else str(limits['tool_seconds'])+' seconds')+'. Technical safeguards remain active. Periodic checkpoints continue within approval unless pause-at-checkpoint was selected.',
            'Record eligibility follows the approved window; labeled out-of-window record context may also be disclosed.',
            'Ctrl+C cancels active work. Redirection is available at the next analyst prompt.']
     return safe_span_text('\n'.join(lines))
@@ -130,8 +133,9 @@ def status_text(value):
     return safe_span_text('Investigation activity\n'+'\n'.join('  '+label+': '+str(value.get(key,'unavailable')) for label,key in (
         ('Active seconds','active_seconds'),('Analyst idle seconds','idle_seconds'),('AI requests','requests'),
         ('Successful tools (including notes)','successful_operations'),('Successful forensic operations','successful_forensic_operations'),('Failed operations','failed_operations'),
+        ('Workspace retrievals','memory_operations'),('Original inspection pages','original_rehydrations'),('Automatic checkpoints','automatic_checkpoints'),('Context consolidations','context_consolidations'),('Workspace items projected','workspace_items_projected'),
         ('Evidence retrieved','records_retrieved'),('Evidence disclosed','records_disclosed'),
         ('Reported input tokens','input_tokens'),('Reported output tokens','output_tokens'),('Reported total tokens','tokens'),
-        ('Requests with unknown total usage','unknown_usage'),('Unknown input usage','unknown_input_usage'),('Unknown output usage','unknown_output_usage'),('Uncertain provider outcomes','uncertain_requests'),('Repeated evidence-result bytes','evidence_bytes'),
+        ('Requests with unknown total usage','unknown_usage'),('Unknown input usage','unknown_input_usage'),('Unknown output usage','unknown_output_usage'),('Uncertain provider outcomes','uncertain_requests'),('Repeated evidence-result bytes','evidence_bytes'),('Repeated memory-result bytes','memory_result_bytes'),
         ('External message-content bytes','disclosure_bytes'),('Serialized request-content bytes','request_bytes'),('Optional budgets','optional_budgets')))+
         '\n  Estimated API cost: unavailable (not zero; no billing cap)')

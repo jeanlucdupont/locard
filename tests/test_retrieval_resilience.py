@@ -98,11 +98,16 @@ def test_no_hidden_sixty_second_deadline(tmp_path):
         worker.call('chat_init',seconds=5)
         assert worker.call('search_evidence',{'artifact':'evtx'},seconds=None)['result']['records']
 
-def test_cancel_pending_calls_preserves_notebook(tmp_path):
+def test_cancel_pending_calls_preserves_notebook(tmp_path,monkeypatch):
     path,provider,scope=setup(tmp_path,[reply(calls=[dict(id=str(i),name='search_evidence',arguments={'artifact':'evtx','offset':i}) for i in range(3)]),reply('Retained context.')])
     worker_type=shim(tmp_path,"original=worker.Tools.execute\ndef execute(self,name,args):\n if args.get('offset')==1:\n  self.db.execute('WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n) SELECT sum(x) FROM n').fetchone()\n return original(self,name,args)\nworker.Tools.execute=execute")
     session=Session(scope,provider,lambda _:True,worker_factory=worker_type)
-    timer=threading.Timer(.3,session.cancel);timer.start()
+    timer=threading.Timer(.3,session.cancel)
+    original_call=session.worker.call
+    def call_when_ready(name,args=None,**kwargs):
+        if name=='search_evidence' and args.get('offset')==1:timer.start()
+        return original_call(name,args,**kwargs)
+    monkeypatch.setattr(session.worker,'call',call_when_ready)
     try:
         with pytest.raises(Paused):session.submit('Inspect')
         assert not session.suspended and not session.closed
@@ -111,7 +116,18 @@ def test_cancel_pending_calls_preserves_notebook(tmp_path):
         assert json.loads(tools[1]['content'])['error']=='ANALYST_CANCELLED'
         assert json.loads(tools[2]['content'])['error']=='OPERATION_NOT_EXECUTED'
         session.submit('Summarize retained context')
-    finally:timer.join();session.close()
+    finally:
+        if timer.ident is not None:timer.join()
+        session.close()
+
+
+def test_cancellation_between_calls_is_not_discarded(tmp_path):
+    path,_,scope=setup(tmp_path,[])
+    with ChatWorker(dict(case_path=str(path),scope=scope,_transaction_view=True)) as worker:
+        worker.call('chat_init',seconds=5)
+        worker.cancel()
+        with pytest.raises(ConversationWorkerError,match='ANALYST_CANCELLED'):
+            worker.call('search_evidence',{'artifact':'evtx'},seconds=5)
 
 def test_query_error_sanitized_and_projection_rolls_back(tmp_path):
     path,_,scope=setup(tmp_path,[])

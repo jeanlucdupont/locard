@@ -313,3 +313,6 @@ report-bundles/
 !/docs/LOCARD_6_182_RETRIEVAL_PERFORMANCE.md
 
 !/docs/LOCARD_6_183_POPULATION_REUSE.md
+
+!/scripts/diagnose_investigative_memory.py
+!/docs/LOCARD_6_184_INVESTIGATIVE_MEMORY.md
