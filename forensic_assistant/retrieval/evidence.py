@@ -249,9 +249,11 @@ class EvidenceQueries:
             if registry_key_contains is not None and not value:
                 raise ValueError('Registry key substring must not be empty')
             comparison = 'k.key_path = ? COLLATE NOCASE' if registry_key is not None else "k.key_path LIKE ? ESCAPE '!' COLLATE NOCASE"
-            clauses.append("e.source_type='registry' AND EXISTS (SELECT 1 FROM registry_keys k WHERE "
-                           "(k.evidence_id=e.evidence_id OR k.evidence_id=(SELECT key_id FROM registry_values WHERE evidence_id=e.evidence_id)) AND " + comparison + ')')
-            params.append(value if registry_key is not None else '%' + escape_like(value) + '%')
+            # Select matching keys once using registry_path, then their indexed values.
+            # Preserve both key and value identities and the established NOCASE semantics.
+            clauses.append("e.source_type='registry' AND e.evidence_id IN (SELECT k.evidence_id FROM registry_keys k WHERE " + comparison +
+                           " UNION SELECT v.evidence_id FROM registry_keys k JOIN registry_values v ON v.key_id=k.evidence_id WHERE " + comparison + ')')
+            params.extend([value if registry_key is not None else '%' + escape_like(value) + '%'] * 2)
         from forensic_assistant.artifacts.defender_query import filters as defender_filters
         extra,values=defender_filters(artifact,defender_text,defender_category,defender_action,defender_rule,defender_signature,defender_pid,defender_group)
         clauses.extend(extra);params.extend(values)
@@ -349,6 +351,14 @@ class EvidenceQueries:
                 # A Prefetch candidate path must identify its represented executable.
                 role += " AND (e.source_type<>'prefetch' OR (o.role='executable_path_candidate' AND o.basename IN (SELECT i.basename FROM evidence_objects i WHERE i.evidence_id=e.evidence_id AND i.role='executable_name')))"
             if ntpath.dirname(value):
+                # A volume root is a validated drive letter. This indexed superset
+                # narrows object candidates; the original context predicate below
+                # still decides exact eligibility, including conflicts/uncertainty.
+                normalized=p['normalized']
+                candidates=[normalized]
+                if len(normalized)>2 and normalized[1]==':':candidates.append(normalized[2:])
+                clauses.append('e.evidence_id IN (SELECT evidence_id FROM evidence_objects WHERE normalized IN ('+','.join('?' for _ in candidates)+'))')
+                params.extend(candidates)
                 volume = "lower(locard_context(CASE WHEN e.source_type='browser' THEN e.evidence_id ELSE e.file_sha256 END,e.hostname,e.username,'volume_root'))||o.normalized=?" if schema4 else "EXISTS (SELECT 1 FROM source_contexts c WHERE c.file_sha256=e.file_sha256 AND lower(c.volume_root)||o.normalized=? AND NOT EXISTS (SELECT 1 FROM source_contexts x WHERE x.file_sha256=e.file_sha256 AND x.volume_root<>c.volume_root))"
                 clauses.append("EXISTS (SELECT 1 FROM evidence_objects o WHERE o.evidence_id=e.evidence_id AND (o.normalized=? OR (o.path_kind='volume_relative' AND " + volume + "))" + role + ')')
                 params.extend([p['normalized']] * 2)
@@ -416,12 +426,18 @@ class EvidenceQueries:
             raise ValueError('Start must not follow end')
         if timeline and filters.get('hostname'):
             filters['strict_host'] = True
+        import time
+        scope_started=time.monotonic()
         clauses, params = self._where(**filters)
-        prefix = ''
+        if self.profile is not None:self.profile.append(dict(phase='scope_query_construction',seconds=time.monotonic()-scope_started))
+        prefix = '';prefix_params=[]
         timestamp_table = 'evidence_timestamps'
         if (timeline or start or end or exclude_time) and filters.get('artifact') in (None, 'registry'):
             from forensic_assistant.artifacts.userassist import timeline_cte
-            prefix = timeline_cte(self.db)
+            selective=not timeline and any(filters.get(k) is not None for k in ('evidence_id','registry_key','registry_key_contains','value_name','value_name_contains'))
+            candidate_sql=('SELECT e.evidence_id FROM evidence_records e WHERE '+' AND '.join(clauses)) if selective else None
+            prefix = timeline_cte(self.db,candidate_sql=candidate_sql)
+            if selective:prefix_params=list(params)
             timestamp_table = 'locard_times'
         timeclauses = []
         tp = []
@@ -438,7 +454,7 @@ class EvidenceQueries:
             # Drive derived windows from their bounded timestamps before resolving
             # host/source context; otherwise SQLite can hydrate an entire hive first.
             source = (timestamp_table + ' t CROSS JOIN evidence_records e ON e.evidence_id=t.evidence_id'
-                      if prefix else 'evidence_timestamps t JOIN evidence_records e USING(evidence_id)')
+                      if prefix else 'evidence_timestamps t CROSS JOIN evidence_records e USING(evidence_id)')
             clauses += ['t.timestamp_utc IS NOT NULL', *timeclauses]
             params += tp
             fields = 'e.evidence_id,t.slot,t.timestamp_utc'
@@ -453,10 +469,13 @@ class EvidenceQueries:
                 bounded = ' FROM ' + timestamp_table + ' t WHERE ' + ' AND '.join(timeclauses)
                 inherited = (' FROM ' + timestamp_table + ' t CROSS JOIN registry_values v '
                              'ON v.key_id=t.evidence_id WHERE ' + ' AND '.join(timeclauses))
-                if filters.get('artifact') in ('browser','evtx','mft','prefetch','defender'):
+                if filters.get('artifact')=='mft' and filters.get('evidence_id') is None:
+                    clauses.append('e.evidence_id IN (SELECT t.evidence_id'+bounded+')')
+                    params += tp
+                elif filters.get('artifact') in ('browser','evtx','prefetch','defender','mft'):
                     clauses.append('EXISTS (SELECT 1 FROM evidence_timestamps t WHERE t.evidence_id=e.evidence_id AND '+' AND '.join(timeclauses)+')')
                     params += tp
-                elif filters.get('evidence_id') is not None:
+                elif any(filters.get(k) is not None for k in ('evidence_id','registry_key','registry_key_contains','value_name','value_name_contains')):
                     # Exact-ID authorization/rehydration must not materialize the
                     # entire case time window for each individual inspection.
                     condition=' AND '.join(timeclauses)
@@ -479,9 +498,9 @@ class EvidenceQueries:
             rows=self.db.execute(sql,values).fetchall()
             if self.profile is not None:
                 self.profile.append(dict(phase=phase,seconds=time.monotonic()-started,
-                    plan=[tuple(r) for r in self.db.execute('EXPLAIN QUERY PLAN '+sql,values)]))
+                    sql=sql,plan=[tuple(r) for r in self.db.execute('EXPLAIN QUERY PLAN '+sql,values)]))
             return rows
-        total = execute('exact_count',prefix+'SELECT count(*) FROM '+source+where,params)[0][0] if exact_count else None
+        total = execute('exact_count',prefix+'SELECT count(*) FROM '+source+where,[*prefix_params,*params])[0][0] if exact_count else None
         if require_complete and (offset or total > limit):
             raise ValueError('Too many timeline observations for text display (10,000 safety bound). '
                              'Narrow the time range, add filters, or use JSON/raw observation pagination')
@@ -499,7 +518,7 @@ class EvidenceQueries:
             order_params = [nearest_to]
         rows = execute('page_selection',
             prefix + 'SELECT ' + fields + ' FROM ' + source + where + ' ORDER BY ' + order + ' LIMIT ? OFFSET ?',
-            [*params, *order_params, limit if exact_count else limit+1, offset]
+            [*prefix_params,*params, *order_params, limit if exact_count else limit+1, offset]
         )
         has_more=len(rows)>limit
         rows=rows[:limit]
@@ -510,8 +529,12 @@ class EvidenceQueries:
             if self.hydrate is not None:
                 # An invocation-owned loader may retain canonical evidence across
                 # correlation, temporal selection and final assembly.
-                e = dict(self.hydrate(row['evidence_id']))
-            elif require_complete:
+                eid=row['evidence_id']
+                if timeline and self.db.in_transaction:
+                    if eid not in text_evidence:text_evidence[eid]=self.hydrate(eid)
+                    e=dict(text_evidence[eid])
+                else:e = dict(self.hydrate(eid))
+            elif require_complete or (timeline and self.db.in_transaction):
                 # Text windows may include many slots from one MFT record.
                 # Hydrate once and share unchanged detail/timestamp structures.
                 eid = row['evidence_id']

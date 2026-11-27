@@ -1,5 +1,6 @@
 """Scoped adapters over Locard retrieval; no model-generated SQL or dispatch."""
 import json,time
+from forensic_assistant.retrieval.performance import measured
 from datetime import datetime,timedelta
 from .contracts import arguments,check
 from forensic_assistant.retrieval.evidence import EvidenceQueries,get_evidence,same_host_window
@@ -36,27 +37,32 @@ class Tools:
         self.cancel_check=lambda:None
         self.progress=lambda value:None
 
+    @measured('scope_resolution')
     def source(self,args):
         sid=args.get('source_id')
         if sid is None and len(self.scope['source_ids'])==1:sid=self.scope['source_ids'][0]
         if sid not in self.scope['source_ids']:raise ValueError('Choose an approved source_id')
         return sid
 
+    @measured('identity_source_time_eligibility')
     def eligible(self,eid,source=None,start=None,end=None):
         # Identity-only hydration: source and inherited/derived time predicates run
         # in the existing retrieval service before original content is fetched.
         row=self.db.execute('SELECT source_type FROM evidence_records WHERE evidence_id=?',(eid,)).fetchone()
         if not row or row[0] not in self.scope['families']:return False
         for sid in ([source] if source else self.scope['source_ids']):
-            result=EvidenceQueries(self.db,hydrate=lambda value:{'id':value}).search(
+            result=EvidenceQueries(self.db,hydrate=lambda value:{'id':value},profile=self.profile).search(
                 evidence_id=eid,artifact=row[0],exact_count=False,source_scope=sid,start=start or self.scope['start'],end=end or exclusive_end(self.scope['end']),limit=1)
             if result.records:return True
         return False
 
+    @measured('original_construction')
     def original(self,eid,*,known=True,_scoped=False):
         if known and eid not in self.known:raise ValueError('Evidence identity not previously retrieved')
         if not _scoped and not self.eligible(eid):raise ValueError('Evidence outside approved source/time scope')
+        started=time.monotonic()
         record=get_evidence(self.db,eid)
+        if self.profile is not None:self.profile.append(dict(phase='retained_record_hydration',seconds=time.monotonic()-started))
         if record['source_type'] not in self.scope['families']:raise ValueError('Artifact outside scope')
         sources=record.get('context',{}).get('source_ids',[])
         if len(sources)!=1 or sources[0] not in self.scope['source_ids']:raise ValueError('Ambiguous source attribution')
@@ -67,6 +73,7 @@ class Tools:
             if not self.eligible(support):raise ValueError('Supporting context outside approved scope')
         return record
 
+    @measured('field_extraction')
     def page(self,record,offset=0,limit=20):
         from forensic_assistant.ai.backend import redact
         values=[];more=False;examined=0;field_cap=False
@@ -91,6 +98,7 @@ class Tools:
                         'Source metadata may be analyst supplied; it is not independently verified.',
                         'Field equality and temporal proximity do not establish causality or execution.'])
 
+    @measured('operation_total')
     def execute(self,name,args):
         arguments(name,args);check(self.scope,self.scope['case'])
         if name=='discover_execution_behaviors':

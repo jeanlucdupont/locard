@@ -126,14 +126,9 @@ def test_query_error_sanitized_and_projection_rolls_back(tmp_path):
 
 @pytest.mark.parametrize('version',[3,5])
 def test_registry_userassist_semantics_with_current_command(tmp_path,monkeypatch,version):
-    # The older suite fixture still spells the removed top-level ingest command.
-    # Adapt only its setup in this new test; retain its semantic assertions.
+    # Reuse the canonical fixture and retain its semantic assertions.
     import test_userassist as original
     from types import SimpleNamespace
-    from forensic_assistant.cli import build_parser
-    class Parser:
-        def parse_args(self,argv):return build_parser().parse_args(['evidence','ingest','registry',*argv[1:]])
-    monkeypatch.setattr(original,'build_parser',lambda:Parser())
     fixture=original.case.__wrapped__(tmp_path,SimpleNamespace(param=version))
     original.test_ingestion_identity_raw_bytes_source_and_search(fixture)
     original.test_legacy_projection_readonly_timeline_slots_and_filters(fixture)

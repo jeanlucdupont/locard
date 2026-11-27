@@ -1,6 +1,6 @@
 """Terminal adapter only; application service is UI independent."""
 import json,sys
-from .contracts import authorize,FAMILIES,DEFAULTS
+from .contracts import authorize,FAMILIES,DEFAULTS,catalog
 from .service import Session,Paused
 from forensic_assistant.ai.backend import ModelBackend
 from forensic_assistant.terminal import safe_span_text
@@ -40,7 +40,7 @@ def _run(args,read=None,write=None,provider=None):
                          result_bytes=args.result_bytes,output_tokens=args.output_tokens))
     def approve(value):
         write(authorization_text(value))
-        write('Read-only tools: search_evidence, show_evidence, timeline, around, verify_observation, note, discover_security_signals, activity_overview.')
+        write('Read-only tools: '+', '.join(t['function']['name'] for t in catalog())+'.')
         write('Sensitive local notebook: '+safe_span_text(value['case']+'.conversations'))
         return read('Approve this investigation and external disclosure? [y/N] ').strip().lower() in ('y','yes')
     def emit(event):

@@ -171,7 +171,7 @@ def test_cli_and_show_offset_preserve_existing_json(db):
     from forensic_assistant.cli import build_parser
     from forensic_assistant.v2_cli import dispatch
     eid=add(db,data=[('f'+str(i), 'baje.ps1' if i==20 else str(i)) for i in range(25)])
-    args=build_parser().parse_args(['search','--artifact','evtx','--evtx-text','baje.ps1','--start',SCOPE['start'],'--end',SCOPE['end'],'--ids'])
+    args=build_parser().parse_args(['evidence','search','--artifact','evtx','--evtx-text','baje.ps1','--start',SCOPE['start'],'--end',SCOPE['end'],'--ids'])
     result,code=dispatch(db,args)
     assert code==0 and result['records'][0]['id']==eid
     plain=get_evidence(db,eid)

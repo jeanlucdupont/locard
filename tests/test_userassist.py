@@ -99,7 +99,7 @@ def case(tmp_path, request):
         with db:
             sid = sources.create(db, name='Synthetic UserAssist', hostname='lab', username='analyst')
             other = sources.create(db, name='Other source', hostname='lab')
-        args = build_parser().parse_args(['ingest-registry', str(hive), '--source', sid])
+        args = build_parser().parse_args(['evidence', 'ingest', 'registry', str(hive), '--source', sid])
         result, code = v2_cli.dispatch(db, args)
         assert code == 0, result
         eid = db.execute('SELECT evidence_id FROM registry_values WHERE value_name=?', (RAW_NAME,)).fetchone()[0]
@@ -181,15 +181,15 @@ def test_show_search_timeline_around_cli_and_color(case, capsys):
         assert 'KEY TIME (UTC)' in text  # Internal time does not replace LastWrite.
         assert 'coreupdater.exe' in search_text(result, width=80)
         assert terminal.SGR.sub('', search_text(result, terminal.Palette(True), width=220)) == text
-    assert main(['--db', str(path), 'search', '--artifact', 'registry', '--source', sid,
+    assert main(['--db', str(path), 'evidence', 'search', '--artifact', 'registry', '--source', sid,
                  '--value-name-contains', 'coreupdater', '--ids']) == 0
     assert eid in capsys.readouterr().out
-    assert main(['--db', str(path), 'around', eid, '--text']) != 0
+    assert main(['--db', str(path), 'evidence', 'around', eid, '--text']) != 0
     capsys.readouterr()
-    assert main(['--db', str(path), 'around', eid, '--timestamp-slot', ua.SLOT, '--text']) == 0
+    assert main(['--db', str(path), 'evidence', 'around', eid, '--timestamp-slot', ua.SLOT, '--text']) == 0
     text = capsys.readouterr().out
     assert f'Anchor: UserAssist value [{ua.SLOT}]' in text and '<- anchor' in text
-    assert main(['--db', str(path), 'show', eid, '--raw']) == 0
+    assert main(['--db', str(path), 'evidence', 'show', eid, '--raw']) == 0
     result = json.loads(capsys.readouterr().out)
     assert base64.b64decode(result['detail']['raw_data']['data']) == raw
 

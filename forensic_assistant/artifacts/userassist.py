@@ -66,7 +66,7 @@ def load(db, evidence_id):
     return interpret(row['key_path'], row['value_name'], row['value_type'], row['data'], version, size=row['size'])
 
 
-def timeline_cte(db, *, include_persisted=True):
+def timeline_cte(db, *, include_persisted=True, candidate_sql=None):
     """Read-only fallback for old cases; persisted slots are never duplicated.
 
     Only recognized UserAssist values gain inherited key context in the timeline.
@@ -81,7 +81,7 @@ def timeline_cte(db, *, include_persisted=True):
         SELECT v.evidence_id,v.key_id,locard_userassist_time(v.evidence_id) AS timestamp_utc
         FROM registry_values v JOIN registry_keys k ON k.evidence_id=v.key_id
         WHERE k.key_path LIKE 'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\UserAssist\%\Count'
-    ), locard_times AS (
+    ), locard_times AS NOT MATERIALIZED (
         SELECT evidence_id,slot,timestamp_utc FROM evidence_timestamps
         UNION ALL
         SELECT u.evidence_id,'UserAssist.LastExecution',u.timestamp_utc FROM locard_ua u
@@ -93,7 +93,17 @@ def timeline_cte(db, *, include_persisted=True):
         WHERE u.timestamp_utc IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM evidence_timestamps own WHERE own.evidence_id=u.evidence_id AND own.slot=t.slot)
     ) '''
-    return sql if include_persisted else sql.replace('FROM evidence_timestamps\n        UNION ALL', 'FROM evidence_timestamps WHERE 0\n        UNION ALL', 1)
+    if not include_persisted:
+        sql=sql.replace('FROM evidence_timestamps\n        UNION ALL', 'FROM evidence_timestamps WHERE 0\n        UNION ALL', 1)
+    if candidate_sql is not None:
+        # Trusted retrieval SQL, never model text. Restrict every union branch
+        # explicitly: SQLite does not push correlated identity predicates through
+        # this compound CTE even when NOT MATERIALIZED is requested.
+        sql = sql.replace('WITH locard_ua AS (', 'WITH locard_candidates AS MATERIALIZED (' + candidate_sql +
+            '), locard_target AS (SELECT evidence_id FROM locard_candidates UNION SELECT v.key_id FROM registry_values v JOIN locard_candidates c ON c.evidence_id=v.evidence_id), locard_ua AS (')
+        sql = sql.replace("WHERE k.key_path LIKE 'SOFTWARE", "WHERE v.evidence_id IN (SELECT evidence_id FROM locard_target) AND k.key_path LIKE 'SOFTWARE")
+        sql = sql.replace('FROM evidence_timestamps\n        UNION ALL', 'FROM evidence_timestamps WHERE evidence_id IN (SELECT evidence_id FROM locard_target)\n        UNION ALL')
+    return sql
 
 
 def timeline_count(db):
