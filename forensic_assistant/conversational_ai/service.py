@@ -26,13 +26,14 @@ class Paused(ValueError):
 class Session:
     def __init__(self,scope,provider,approve,*,root=None,emit=None,worker_factory=ChatWorker,progress_interval=30,checkpoint_seconds=600,pause_at_checkpoint=False):
         self._scope=encoded(scope);self.provider=provider;self.emit=emit or (lambda event:None)
-        self.workspace=None;self.workspace_failed=False
+        self.workspace=None;self.workspace_failed=False;self.context_meter=None;self.last_capacity=None
         if not isinstance(checkpoint_seconds,(int,float)) or not 0<checkpoint_seconds<86401:raise ValueError("Invalid checkpoint interval")
         self.checkpoint_seconds=checkpoint_seconds;self.pause_at_checkpoint=pause_at_checkpoint;self.next_checkpoint=checkpoint_seconds
         self.worker=None;self.journal=None;self.closed=False;self.cancelled=False;self.suspended=False
         self.progress_interval=progress_interval
         self.turns=[];self.notes=[];self.observations=[];self.known=set();self.disclosed=set();self.tool_payloads={};self.paused=None;self.compacted=0
         self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,input_tokens=0,output_tokens=0,unknown_input_usage=0,unknown_output_usage=0,uncertain_requests=0,note_operations=0,successful_forensic_operations=0,successful_operations=0,failed_operations=0,request_bytes=0,evidence_bytes=0,active_seconds=0.0,behavioral_populations_constructed=0,behavioral_populations_reused=0,memory_operations=0,automatic_checkpoints=0,context_consolidations=0,workspace_context_bytes=0,memory_result_bytes=0,workspace_items_projected=0,original_rehydrations=0,analyst_required_pauses=0)
+        self.used.update(auxiliary_requests=0,auxiliary_bytes=0,measurement_seconds=0.0,context_consolidation_attempts=0)
         self.started=None;self.created=time.monotonic()
         if provider.provider_name!=scope['provider'] or provider.model_name!=scope['model']:raise ValueError('Provider/model mismatch')
         if scope.get('local') and provider.conversation_binding()!=scope['local']:raise ValueError('LOCAL_PROVIDER_CHANGED')
@@ -44,6 +45,10 @@ class Session:
             self.journal=Transcript(root or scope['case']+'.conversations',dict(engine='conversational-v1',storage_profile='conversation-long-v1',authorization=deepcopy(scope)),private=True)
             self.workspace=Workspace(self.journal.path/'workspace.db',self.journal.id)
             self.event('authorization',scope)
+            if scope.get('local'):
+                from .local_context import ContextMeter
+                self.context_meter=ContextMeter(scope['local'],self.journal.id)
+                self.provider._context_meter=self.context_meter
             self.event('continuation_policy',dict(checkpoint_seconds=checkpoint_seconds,pause_at_checkpoint=pause_at_checkpoint))
             self.worker=worker_factory(dict(case_path=scope['case'],scope=deepcopy(scope),_transaction_view=True,
                 _deadline=time.monotonic()+min(self.remaining(),60)))
@@ -138,13 +143,8 @@ class Session:
             if len(encoded(context).encode())<=min(6000,capacity//5):break
             context.pop(key,None);context['not_projected'].append(key)
         self._context_item_count=sum(len(v.get('items',[])) for v in context.values() if isinstance(v,dict))
+        if scope.get('local'):return self.local_messages(system,context)
         prefix=[system,dict(role='user',content='LOCAL NOTEBOOK CONTEXT (UNTRUSTED DATA): '+encoded(context))]
-        if scope.get('local'):
-            mandatory=len(encoded({'messages':[system],'tools':self.catalog()}).encode())
-            if mandatory>capacity:
-                self.event('context_capacity',dict(reason='MANDATORY_ENVELOPE_EXCEEDS_LOCAL_CONTEXT',mandatory_bytes=mandatory,usable_bytes=capacity,context_tokens=scope['local']['context_tokens']))
-                self.emit(dict(kind='activity',text=f'Local context insufficient: mandatory instructions/tools {mandatory} bytes exceed usable {capacity} bytes. No authorization instructions removed.'))
-                raise Paused('CONTEXT_CAPACITY')
         untrimmed_bytes=len(encoded({'messages':[*prefix,*[m for b in self.turns for m in b]],'tools':self.catalog()}).encode())
         selected=[]
         first=self.turns[0] if self.turns else []
@@ -162,6 +162,72 @@ class Session:
             self.event('context_consolidation',dict(omitted_blocks=omitted,history_blocks_omitted=self.compacted,workspace_frontier=int(self.workspace.meta('next')),context_bytes=len(encoded(context).encode()),untrimmed_request_bytes=untrimmed_bytes,selected_request_bytes=len(encoded({'messages':messages,'tools':self.catalog()}).encode()),limitation='Bounded reference projection; original values remain recoverable, not automatically represented.'))
         self.turns=([first] if first else [])+selected
         # Durable notebook retains omitted exchanges and evidence identities.
+        retained={(m.get('tool_call_id'),m.get('content')) for m in messages if m.get('role')=='tool'}
+        self.tool_payloads={k:v for k,v in self.tool_payloads.items() if k in retained}
+        return messages,self.compacted
+
+    def auxiliary_admit(self,path,body):
+        self.admit('requests')
+        size=0 if body is None else len(encoded(body).encode())
+        limit=self.scope['limits']['disclosure_bytes']
+        if limit is not None and self.used['disclosure_bytes']+size>limit:raise Paused('DISCLOSURE_LIMIT')
+        self.used['auxiliary_requests']+=1;self.used['auxiliary_bytes']+=size;self.used['disclosure_bytes']+=size
+        self.event('local_auxiliary_attempt',dict(route=path,bytes=size,body_digest=digest(body),
+            binding_digest=digest(self.scope['local']),authority='No verification or inference disclosure authority; exposure may occur.'))
+
+    def local_messages(self,system,context):
+        from .local import body_for,encoded as wire_encoded
+        limits=self.scope['limits'];output=min(limits['output_tokens'],self.scope['local']['context_tokens'])
+        first=self.turns[0] if self.turns else [];blocks=self.turns[1:]
+        tools=self.catalog();binding=self.scope['local'];attempts=0
+        def candidate(selected):return [system,dict(role='user',content='LOCAL NOTEBOOK CONTEXT (UNTRUSTED DATA): '+encoded(context)),*first,*[m for b in selected for m in b]]
+        def assess(selected):
+            nonlocal attempts
+            self.admit('requests');attempts+=1
+            messages=candidate(selected)
+            result=self.context_meter.measure(messages,tools,output,limits['request_bytes'],min(self.remaining(),limits['provider_seconds']),self.auxiliary_admit)
+            result.update(mandatory_bytes=len(wire_encoded(body_for(binding,[system,*first],tools,output))),
+                tool_catalog_bytes=len(wire_encoded(tools)),workspace_bytes=len(encoded(context).encode()),
+                latest_exchange_bytes=len(encoded(blocks[-1]).encode()) if blocks else 0,
+                history_retained=len(selected),history_omitted=len(blocks)-len(selected),consolidation_attempts=attempts-1)
+            self.used['measurement_seconds']+=result['measurement_seconds'];self.last_capacity=result
+            self.event('context_candidate',result)
+            return messages,result
+        selected=blocks;messages,result=assess(selected)
+        if not result['fits']:
+            self.used['context_consolidation_attempts']+=1
+            # First reduce optional projections, never the objective or authorization.
+            removed=[]
+            for key in ('active_notes','unresolved_questions','pending_searches','verified'):
+                if key in context:context.pop(key);removed.append(key)
+            context['not_projected']+=removed
+            if removed:messages,result=assess(selected)
+        if not result['fits'] and len(blocks)>1:
+            # Whole exchanges only. Binary suffix selection bounds tokenizer overhead.
+            low=1;high=len(blocks)-1;best=None
+            while low<=high:
+                n=(low+high)//2;trial=blocks[-n:];m,r=assess(trial)
+                if r['fits']:best=(trial,m,r);low=n+1
+                else:high=n-1
+            if best:selected,messages,result=best
+        if not result['fits']:
+            mandatory=self.context_meter.measure([system,*first],tools,output,limits['request_bytes'],min(self.remaining(),limits['provider_seconds']),self.auxiliary_admit)
+            self.used['measurement_seconds']+=mandatory['measurement_seconds']
+            reason='mandatory_envelope' if not mandatory['fits'] else 'latest_required_exchange' if blocks else 'workspace_projection'
+            self.last_capacity={**result,'blocking_component':reason,'mandatory_measurement':mandatory}
+            self.event('context_capacity',self.last_capacity)
+            self.emit(dict(kind='activity',text='Local context capacity: '+reason+' ('+result['reason']+'). Retrieved results remain in the journal; they were not newly disclosed to inference. Redirect with a request to use memory actions/evidence and smaller show_evidence pages; no result was silently examined or verified.'))
+            raise Paused('CONTEXT_CAPACITY')
+        # Reuse only this exact measured candidate, in this session and planning pass.
+        self.context_meter.last=dict(result);self.last_capacity=result
+        omitted=len(blocks)-len(selected);self.compacted+=omitted
+        if omitted or attempts>1:
+            self.used['context_consolidations']+=1
+            self.event('context_consolidation',dict(omitted_blocks=omitted,history_blocks_omitted=self.compacted,
+                selected_request_bytes=result['request_bytes'],attempts=attempts,method=result['method'],
+                limitation='Whole exchanges/projections omitted, not original workspace records. Recover bounded pages; omission is not inspection.'))
+        self._context_item_count=sum(len(v.get('items',[])) for v in context.values() if isinstance(v,dict))
+        self.turns=([first] if first else [])+selected
         retained={(m.get('tool_call_id'),m.get('content')) for m in messages if m.get('role')=='tool'}
         self.tool_payloads={k:v for k,v in self.tool_payloads.items() if k in retained}
         return messages,self.compacted
@@ -202,8 +268,9 @@ class Session:
                 from .resources import request_capacity
                 _,output_tokens,_=request_capacity(self.scope['model'],limits,self.scope.get('local'))
                 request_size=len(encoded(dict(messages=wire_messages,tools=self.catalog())).encode())
-                if limits['tokens'] is not None and self.used['tokens']+request_size+output_tokens>limits['tokens']:raise Paused('TOKEN_RESERVATION')
+                if limits['tokens'] is not None and self.used['tokens']+(self.last_capacity['input_tokens'] if self.last_capacity and self.last_capacity['method']=='template_tokenizer' else request_size)+output_tokens>limits['tokens']:raise Paused('TOKEN_RESERVATION')
                 # Charge and persist BEFORE entry: exposure may occur even if no reply.
+                if self.scope.get('local'):request_size=self.last_capacity['request_bytes']
                 self.used['requests']+=1;self.used['disclosure_bytes']+=size
                 self.used['request_bytes']+=request_size
                 self.used['workspace_items_projected']+=self._context_item_count
@@ -222,6 +289,8 @@ class Session:
                 response=sanitized
                 self.event('provider_response',response)
                 if self.scope.get('local'):
+                    parity=self.context_meter.observe(self.last_capacity,response['usage'])
+                    self.event('local_context_parity',parity)
                     elapsed=time.monotonic()-provider_started
                     self.event('local_inference_metrics',dict(elapsed_seconds=elapsed,request_bytes=request_size,usage=response['usage'],context_tokens=self.scope['local']['context_tokens'],tokens_basis='provider-reported; unavailable fields remain unknown'))
                     tokens=response['usage'].get('completion_tokens')
@@ -369,6 +438,7 @@ class Session:
     def close(self,reason='COMPLETED'):
         if self.closed:return
         self.closed=True;self.charge();cleanup=True;integrity=False
+        if getattr(self.provider,'_context_meter',None) is self.context_meter:self.provider._context_meter=None
         if self.worker and not self.cancelled:
             try:
                 checked=self.worker.call('check',seconds=1)

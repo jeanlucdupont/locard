@@ -145,14 +145,15 @@ def authorization_text(value):
         capacity,output,basis=request_capacity(value['model'],limits,value['local'])
         lines.extend(['Local endpoint: '+value['local']['endpoint']+' (loopback only; no proxy, redirects or cloud fallback)',
             'Configured context: '+str(value['local']['context_tokens'])+' tokens; output reserve: '+str(output),
-            'Usable serialized request ceiling: '+str(capacity)+' bytes; '+basis,
+            'Independent serialized request ceiling: '+str(capacity)+' bytes; '+basis,
+            'Auxiliary template/tokenizer requests may repeat approved local evidence; charged separately, with no verification authority.',
             'Local server is analyst-owned; disconnecting Locard cannot confirm server-side generation cancellation.'])
     return safe_span_text('\n'.join(lines))
 
 
 def status_text(value):
     return safe_span_text('Investigation activity\n'+'\n'.join('  '+label+': '+str(value.get(key,'unavailable')) for label,key in (
-        ('Active seconds','active_seconds'),('Analyst idle seconds','idle_seconds'),('AI requests','requests'),
+        ('Active seconds','active_seconds'),('Auxiliary context requests','auxiliary_requests'),('Auxiliary disclosure bytes','auxiliary_bytes'),('Context measurement seconds','measurement_seconds'),('Analyst idle seconds','idle_seconds'),('AI requests','requests'),
         ('Successful tools (including notes)','successful_operations'),('Successful forensic operations','successful_forensic_operations'),('Failed operations','failed_operations'),
         ('Workspace retrievals','memory_operations'),('Original inspection pages','original_rehydrations'),('Automatic checkpoints','automatic_checkpoints'),('Context consolidations','context_consolidations'),('Workspace items projected','workspace_items_projected'),
         ('Evidence retrieved','records_retrieved'),('Evidence disclosed','records_disclosed'),

@@ -25,7 +25,7 @@ def test_canonical_endpoint_and_context():
     assert local.checked(value)==value
     with pytest.raises(ValueError):local.checked({**value,'context_tokens':float('nan')})
     from forensic_assistant.conversational_ai.contracts import DEFAULTS
-    assert request_capacity('synthetic',{**DEFAULTS,'output_tokens':2048},value)[0]==28672-local.wire_overhead(value,2048)
+    assert request_capacity('synthetic',{**DEFAULTS,'output_tokens':2048},value)[0]==DEFAULTS['request_bytes']-local.wire_overhead(value,2048)
 
 @pytest.mark.parametrize('kind',['duplicate','arguments','length','legacy','unknown_finish','usage','object_calls'])
 def test_invalid_native_responses(kind):

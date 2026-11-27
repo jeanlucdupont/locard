@@ -21,14 +21,12 @@ def request_capacity(model,limits,local=None):
     if local:
         from .local import checked
         incoming=checked(local)['context_tokens'];outgoing=incoming
-        basis='configured local tokens; UTF-8 byte proxy plus 2048 template reserve, not tokenizer proof'
+        output=min(limits['output_tokens'],outgoing)
+        from .local import wire_overhead
+        return max(0,min(limits['request_bytes'],512*1024)-wire_overhead(local,output)),output,'independent HTTP byte ceiling; token measurement or explicit conservative fallback separately'
     else:incoming,outgoing,basis=model_capacity(model)
     output=min(limits['output_tokens'],outgoing)
     # UTF-8 byte count as a conservative token upper estimate, not a tokenizer.
     # Reserve output and 2K framing tokens even for separate input/output limits.
-    overhead=0
-    if local:
-        from .local import wire_overhead
-        overhead=wire_overhead(local,output)
-    size=min(limits['request_bytes'],max(0 if local else 1024,incoming-output-2048-overhead))
+    size=min(limits['request_bytes'],max(1024,incoming-output-2048))
     return size,output,basis

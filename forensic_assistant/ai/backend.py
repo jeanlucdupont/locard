@@ -277,7 +277,7 @@ class ModelBackend:
                 metadata['conversation']['transport']='loopback_openai_native'
                 binding=self.conversation_binding()
                 location='dispatch'
-                result=dispatch(binding,messages,tools,timeout,output_tokens,tool_choice)
+                result=dispatch(binding,messages,tools,timeout,output_tokens,tool_choice,measurement=getattr(self,'_context_meter',None))
                 validate(result)
                 record('local',self.model_name,'response_parse','response_validated',time.monotonic()-started,
                        operation='conversation',metadata=metadata,usage=result['usage'])

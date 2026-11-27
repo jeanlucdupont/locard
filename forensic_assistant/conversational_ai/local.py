@@ -102,6 +102,10 @@ def wire_overhead(config,output_tokens):
 
 def generate(request):
     config=checked(request['local'])
+    if 'auxiliary' in request:
+        path=request['auxiliary']
+        if path not in ('/props','/apply-template','/tokenize'):raise ValueError('Invalid auxiliary route')
+        return http_json(config,path,request.get('body'),request['timeout'])
     if request.get('metadata') is True:
         value=http_json(config,'/v1/models',timeout=request['timeout'])
         return {'data':[{'id':m['id']} for m in value.get('data',[])[:128] if isinstance(m,dict) and type(m.get('id')) is str and len(m['id'].encode())<=256]}
@@ -109,14 +113,17 @@ def generate(request):
     return parse(http_json(config,'/v1/chat/completions',body,request['timeout']))
 
 
-def dispatch(config,messages,tools,timeout,output_tokens,tool_choice='auto'):
+def dispatch(config,messages,tools,timeout,output_tokens,tool_choice='auto',*,measurement=None):
     from forensic_assistant.session_recording import require,record
     checked(config)
     if not 0<timeout<=600:raise ValueError('Local timeout must be greater than zero and at most 600 seconds')
     if tool_choice not in ('auto','required','none'):raise ValueError('Invalid tool mode')
     if type(output_tokens) is not int or not 1<=output_tokens<=32768:raise ValueError('Invalid local output capacity')
     measured=len(encoded(body_for(config,messages,tools,output_tokens,tool_choice)))
-    if measured>config['context_tokens']-output_tokens-2048:raise ProviderFailure('local_context_exhausted','configuration')
+    if measured>512*1024:raise ProviderFailure('local_context_exhausted','configuration')
+    receipt=measurement.receipt(config,messages,tools,output_tokens,tool_choice) if measurement is not None else None
+    if receipt is None and measured>config['context_tokens']-output_tokens-2048:raise ProviderFailure('local_context_exhausted','configuration')
+    if measurement is not None:measurement.last=None  # Single dispatch; never a reusable authorization/capacity ticket.
     require();record('provider_dispatch_boundary',dict(provider='local',model=config['model'],exposure='loopback attempt may follow'),required=True)
     request=dict(local=config,messages=messages,tools=tools,timeout=timeout,output_tokens=output_tokens,tool_choice=tool_choice)
     try:return run_client(request,timeout)
@@ -124,6 +131,15 @@ def dispatch(config,messages,tools,timeout,output_tokens,tool_choice='auto'):
         exc.metadata['local_transport']={**exc.metadata.get('local_transport',{}),'request_bytes':measured,
             'timed_out':exc.category=='timeout','client_cleanup':'confirmed','server_cleanup':'unconfirmed','usage':'available' if any(k in exc.metadata.get('conversation',{}) for k in ('prompt_tokens','completion_tokens','total_tokens')) else 'unknown','inference_began':'unknown'}
         raise
+
+
+def auxiliary(config,path,body,timeout=30):
+    from forensic_assistant.session_recording import require,record
+    checked(config)
+    if path not in ('/props','/apply-template','/tokenize') or not 0<timeout<=30:raise ValueError('Invalid auxiliary request')
+    if body is not None and len(encoded(body))>512*1024:raise ValueError('Auxiliary byte capacity')
+    require();record('provider_auxiliary_boundary',dict(provider='local',route=path,exposure='local context measurement may follow'),required=True)
+    return run_client(dict(local=config,auxiliary=path,body=body,timeout=timeout),timeout)
 
 
 def models(config,timeout=30):
@@ -146,7 +162,7 @@ def run_client(request,timeout):
         if process.returncode or len(output)>1024*1024:raise ProviderFailure('conversation_envelope','response_parse')
         result=loads(output.decode(),max_bytes=1024*1024)
         if 'error' in result:raise ProviderFailure(result['error'],result['stage'],metadata=result.get('metadata'))
-        return result if request.get('metadata') is True else validate(result)
+        return result if request.get('metadata') is True or 'auxiliary' in request else validate(result)
     except subprocess.TimeoutExpired:raise ProviderFailure('timeout','timeout') from None
     finally:
         try:

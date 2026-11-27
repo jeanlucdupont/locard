@@ -17,22 +17,36 @@ def wire(value):
     return dict(choices=[dict(index=0,message=msg,finish_reason=value['finish_reason'])],usage=value['usage'])
 
 
+def fixture_prompt(body):
+    # Mock-only rendering/counting, deliberately not a real tokenizer claim.
+    return json.dumps({k:body.get(k) for k in ('messages','tools','tool_choice','chat_template_kwargs')},ensure_ascii=False)
+
+
+def fixture_tokens(prompt):return max(1,(len(prompt.encode())+3)//4)
+
+
 class MockEndpoint:
     """Protocol fixture, not a real local model or reasoning-quality evaluation."""
-    def __init__(self,respond):
-        self.calls=[];self.respond=respond
+    def __init__(self,respond,*,tokenizer=False):
+        self.calls=[];self.auxiliary=[];self.respond=respond;self.tokenizer=tokenizer
         owner=self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_GET(self):
-                raw=json.dumps({'data':[{'id':'synthetic'},{'id':'synthetic-local'}]}).encode()
+                value={'data':[{'id':'synthetic'},{'id':'synthetic-local'}]}
+                if self.path=='/props' and owner.tokenizer:value={'chat_template':'fixture-not-real-llama','default_generation_settings':{'n_ctx':32768}}
+                raw=json.dumps(value).encode()
                 self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
             def do_POST(self):
                 try:
                     size=int(self.headers.get('Content-Length','0'))
                     if size>600*1024:raise ValueError()
-                    body=json.loads(self.rfile.read(size));owner.calls.append(body)
-                    result=owner.respond(body)
+                    body=json.loads(self.rfile.read(size))
+                    if owner.tokenizer and self.path in ('/apply-template','/tokenize'):
+                        owner.auxiliary.append((self.path,body))
+                        result={'prompt':fixture_prompt(body)} if self.path=='/apply-template' else {'tokens':list(range(fixture_tokens(body['content'])))}
+                    else:
+                        owner.calls.append(body);result=owner.respond(body)
                     raw=json.dumps(result).encode()
                     self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
                 except (OSError,ValueError,StopIteration):self.close_connection=True
@@ -46,8 +60,12 @@ class MockEndpoint:
 def simulated(directory,capacity=28000):
     from scripts.diagnose_investigative_memory import diagnostic
     scripted=[None]
-    def respond(body):return wire(scripted[0].converse(body['messages'],body['tools'],timeout=30,output_tokens=2048))
-    with MockEndpoint(respond) as server:
+    def respond(body):
+        result=wire(scripted[0].converse(body['messages'],body['tools'],timeout=30,output_tokens=2048))
+        count=fixture_tokens(fixture_prompt(body))
+        result['usage']={'prompt_tokens':count,'completion_tokens':5,'total_tokens':count+5}
+        return result
+    with MockEndpoint(respond,tokenizer=True) as server:
         def factory(steps):
             scripted[0]=ScriptedProvider(steps)
             client=ModelBackend.local_conversation(server.endpoint,'synthetic-local',capacity+4096)
@@ -56,6 +74,9 @@ def simulated(directory,capacity=28000):
         result=diagnostic(directory,capacity,provider_factory=factory)
         result['provider']='Simulated loopback HTTP endpoint through production ModelBackend and supervised transport; no real model'
         result['protocol_requests']=len(server.calls)
+        result['auxiliary_http_requests']=len(server.auxiliary)
+        result['tokenizer']='Synthetic fixture counts; not real llama.cpp parity'
+        result['checks']['auxiliary_measurement_exercised']=len(server.auxiliary)>0
         result['sequential_mode']=all(c['parallel_tool_calls'] is False for c in server.calls)
         from forensic_assistant.conversational_ai.local import encoded
         result['wire_body_sizes']=[len(encoded(c)) for c in server.calls]
@@ -132,6 +153,33 @@ def full_catalog(client,timeout=180,output_tokens=512):
     return result
 
 
+def tokenization_probe(client,timeout=180,output_tokens=512):
+    """Two explicitly requested harmless completions, never hidden in measurement."""
+    import time,uuid
+    from forensic_assistant.conversational_ai.local_context import ContextMeter
+    from forensic_assistant.conversational_ai.contracts import catalog,arguments
+    meter=ContextMeter(client.conversation_binding(),uuid.uuid4().hex);client._context_meter=meter
+    tools=catalog();aux=[];rows=[]
+    messages=[dict(role='system',content='Harmless synthetic parity test. Reply briefly. No forensic tool executes.'),
+        dict(role='user',content='Synthetic café 日本語; C:\\Windows\\Temp\\sample.txt; EID:MFT:'+'a'*64+'; Registry HKLM\\Software\\Example; JSON "quoted"; memory: unverified reference only.')]
+    histories=[messages,messages+[dict(role='assistant',content=None,tool_calls=[dict(id='synthetic-memory-1',type='function',function=dict(name='memory',arguments='{"kind":"state"}'))]),
+        dict(role='tool',tool_call_id='synthetic-memory-1',content='{"synthetic":true,"items":[],"coverage":"incomplete"}'),dict(role='user',content='Acknowledge the synthetic incomplete memory result briefly.')]]
+    for candidate in histories:
+        measured=meter.measure(candidate,tools,output_tokens,256*1024,min(timeout,30),lambda path,body:aux.append(dict(route=path,bytes=0 if body is None else len(json.dumps(body).encode()))))
+        row={'measurement':measured};rows.append(row)
+        if measured['input_tokens'] is None or not measured['fits']:break
+        started=time.monotonic()
+        try:
+            response=client.converse(candidate,tools,timeout=timeout,output_tokens=output_tokens)
+            for call in response['tool_calls']:arguments(call['name'],call['arguments'])
+            row.update(parity=meter.observe(measured,response['usage']),usage=response['usage'],inference_seconds=time.monotonic()-started)
+        except Exception as exc:
+            row.update(error=getattr(exc,'category','invalid_arguments'),stage=getattr(exc,'stage','response_validation'),diagnostic=getattr(exc,'metadata',{}));break
+    return dict(mode='tokenization',endpoint=client.conversation_binding()['endpoint'],model=client.model_name,
+        rows=rows,auxiliary=aux,checks={'initial_and_tool_parity':len(rows)==2 and all(r.get('parity',{}).get('difference')==0 for r in rows)},
+        limitation='Two explicit harmless inference attempts at most. Mock token counts are fixtures. Parity is observed for these requests, not proof for every template or future server configuration.')
+
+
 def successful(result):
     return ('error' not in result and all(result.get('checks',{}).values()) and
         result.get('outcome','COMPLETED')=='COMPLETED' and
@@ -158,7 +206,7 @@ def synthetic_investigation(directory,client,timeout=180,output_tokens=2048):
     finally:session.close(reason)
     rebuilt=reconstruct(session.journal.path,Path(directory)/'reconstructed')
     return dict(provider='Actual configured local model; disposable synthetic case',diagnostic_request_ceiling=12,
-        outcome=reason,failure=failure,endpoint=client.conversation_binding()['endpoint'],model=client.model_name,usage=session.used,workspace=rebuilt,interpretation=answer.get('interpretation'),
+        outcome=reason,failure=failure,capacity=session.last_capacity,endpoint=client.conversation_binding()['endpoint'],model=client.model_name,usage=session.used,workspace=rebuilt,interpretation=answer.get('interpretation'),
         checks=dict(case_unchanged=hashlib.sha256(path.read_bytes()).hexdigest()==before,worker_closed=session.worker.process.poll() is not None),
         observations=dict(original_inspection=session.used['original_rehydrations']>0,verification=rebuilt['counts']['verifications']>0,
             memory_retrieval=session.used['memory_operations']>0,context_consolidation=session.used['context_consolidations']>0,
@@ -171,6 +219,7 @@ def main():
     p.add_argument('--mock',action='store_true');p.add_argument('--endpoint');p.add_argument('--model')
     p.add_argument('--context',type=int,default=32768);p.add_argument('--timeout',type=int,default=180)
     p.add_argument('--output-tokens',type=int,default=512);p.add_argument('--context-bytes',type=int,default=28000)
+    p.add_argument('--tokenization',action='store_true',help='Harmless template/tokenizer diagnostic with two explicit inference parity requests')
     p.add_argument('--full-catalog',action='store_true',help='Production tool grammar; no evidence access or tool execution')
     p.add_argument('--synthetic-investigation',action='store_true',help='Use the real local model on a disposable synthetic case (12-request diagnostic budget)')
     args=p.parse_args()
@@ -181,7 +230,8 @@ def main():
             result['journal']='Temporary synthetic journal removed after validation'
         else:
             client=ModelBackend.local_conversation(args.endpoint,args.model,args.context)
-            if args.full_catalog:result=full_catalog(client,args.timeout,args.output_tokens)
+            if args.tokenization:result=tokenization_probe(client,args.timeout,args.output_tokens)
+            elif args.full_catalog:result=full_catalog(client,args.timeout,args.output_tokens)
             elif args.synthetic_investigation:
                 with tempfile.TemporaryDirectory(prefix='locard-local-synthetic-') as tmp:result=synthetic_investigation(tmp,client,args.timeout,args.output_tokens)
             else:result=probe(client,args.timeout,args.output_tokens)

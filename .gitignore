@@ -319,3 +319,4 @@ report-bundles/
 !/scripts/diagnose_local_provider.py
 !/docs/LOCARD_6_185_LOCAL_INFERENCE.md
 !/docs/LOCARD_6_186_LOCAL_GRAMMAR_COMPATIBILITY.md
+!/docs/LOCARD_6_187_TOKEN_AWARE_CONTEXT.md
