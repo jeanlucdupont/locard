@@ -50,7 +50,7 @@ def _run(args,read=None,write=None,provider=None):
             state=event['status'];elapsed=event['elapsed_seconds'];operation=safe_span_text(event['operation'])
             if state=='started':write(operation+'...')
             else:
-                write(operation+': '+state+f' ({elapsed:.1f} seconds).')
+                write(operation+': '+state+f' ({elapsed:.1f} seconds).'+(f" {event['processed']} records; {event['groups']} groups." if 'processed' in event else ''))
                 if state in ('slow','waiting'):write('Computational progress unavailable. Continue waiting or press Ctrl+C to interrupt.')
         elif event['kind']=='tool_failure':write('Operation unsuccessful: '+safe_span_text(event['code'])+'. No evidence result accepted.')
         elif event['kind']=='verified_observation':

@@ -31,9 +31,12 @@ def meaning(record,pointer):
 
 
 class Tools:
-    def __init__(self,db,scope,*,profile=None):
+    def __init__(self,db,scope,*,profile=None,read_view=None):
         self.db,self.scope=db,scope;self.profile=profile
         self.known=set();self.disclosed={}
+        from forensic_assistant.detections.execution_cache import PopulationCache
+        self.population_cache=PopulationCache(read_view,scope) if read_view is not None else None
+        self.computation=None
         self.cancel_check=lambda:None
         self.progress=lambda value:None
 
@@ -100,6 +103,13 @@ class Tools:
 
     @measured('operation_total')
     def execute(self,name,args):
+        self.computation=None
+        try:return self._execute(name,args)
+        except BaseException:
+            if self.population_cache is not None:self.population_cache.clear()
+            raise
+
+    def _execute(self,name,args):
         arguments(name,args);check(self.scope,self.scope['case'])
         if name=='discover_execution_behaviors':
             from forensic_assistant.detections.execution import discover
@@ -108,12 +118,13 @@ class Tools:
             if not self.scope['start']<=start<end<=self.scope['end']:raise ValueError('Discovery cannot expand approval')
             family=query.pop('artifact',None)
             if family is not None and family not in self.scope['families']:raise ValueError('Artifact outside approval')
-            result=discover(self.db,sid,start,end,families=[family] if family else self.scope['families'],
+            query.setdefault('presentation','compact');query.setdefault('limit',10 if query['presentation']=='compact' else 5)
+            result=discover(self.db,sid,start,end,cache=self.population_cache,authorization=self.scope,diagnostics_sink=lambda d:setattr(self,'computation',d),families=[family] if family else self.scope['families'],
                 hydrate=lambda eid:self.original(eid,known=False,_scoped=True),byte_limit=min(12000,self.scope['limits']['result_bytes']),
                 check=self.cancel_check,progress=self.progress,**query)
-            for item in result['records']:
+            for item in [*result['records'],*result.get('omitted_candidates',[])]:
                 eid=item['evidence_id'];self.known.add(eid)
-                for f in item['original_fields']:
+                for f in item.get('original_fields',[]):
                     if not f['truncated'] and not f['redacted']:self.disclosed.setdefault(eid,{})[f['field']]=f['value']
             return result
         if name in ('discover_security_signals','activity_overview'):

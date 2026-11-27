@@ -69,7 +69,7 @@ class ChatWorker(ForensicWorker):
                         if (set(result)!={'operation_id','progress'} or not isinstance(value,dict) or
                             set(value)!={'processed','groups','phase','elapsed_seconds'} or
                             any(type(value[k]) is not int or value[k]<0 for k in ('processed','groups')) or
-                            value['phase'] not in ('analyzing','completed') or type(value['elapsed_seconds']) not in (int,float) or not 0<=value['elapsed_seconds']<1e9):lost('WORKER_PROTOCOL')
+                            value['phase'] not in ('analyzing','completed','reused') or type(value['elapsed_seconds']) not in (int,float) or not 0<=value['elapsed_seconds']<1e9):lost('WORKER_PROTOCOL')
                         self.progress(dict(kind='progress',operation='Execution discovery',status=value['phase'],
                             elapsed_seconds=value['elapsed_seconds'],computational_progress=f"{value['processed']} records; {value['groups']} groups",**{k:value[k] for k in ('processed','groups')}))
                         continue  # Never extend the operation deadline.

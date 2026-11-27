@@ -311,3 +311,5 @@ report-bundles/
 
 !/scripts/benchmark_forensic_retrieval.py
 !/docs/LOCARD_6_182_RETRIEVAL_PERFORMANCE.md
+
+!/docs/LOCARD_6_183_POPULATION_REUSE.md

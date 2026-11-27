@@ -52,7 +52,7 @@ def populate(tmp_path,n=1500):
 def test_full_population_diversity_members_and_verification(tmp_path):
  path,sid,scope,rare,remote,missing=populate(tmp_path)
  with readonly(path) as db:
-  tools=Tools(db,scope);r=tools.execute('discover_execution_behaviors',{'artifact':'evtx','limit':10})
+  tools=Tools(db,scope);r=tools.execute('discover_execution_behaviors',{'artifact':'evtx','limit':10,'presentation':'detailed'})
   assert r['coverage']['records_processed']==1503
   assert r['coverage']['records_with_commands']==1502
   assert r['coverage']['analysis_complete'] and r['coverage']['counts_complete']
@@ -61,8 +61,8 @@ def test_full_population_diversity_members_and_verification(tmp_path):
   chosen=next(x for x in r['records'] if x['evidence_id']==rare)
   f=next(x for x in chosen['original_fields'] if x['name']=='command')
   assert tools.execute('verify_observation',dict(evidence_id=rare,field=f['field'],value_json=json.dumps(f['value'])))['verified']
-  assert tools.execute('discover_execution_behaviors',chosen['members'])['records'][0]['evidence_id']==rare
-  assert r==tools.execute('discover_execution_behaviors',{'artifact':'evtx','limit':10})
+  assert tools.execute('discover_execution_behaviors',dict(chosen['members'],presentation='detailed'))['records'][0]['evidence_id']==rare
+  assert r==tools.execute('discover_execution_behaviors',{'artifact':'evtx','limit':10,'presentation':'detailed'})
 
 
 def test_authorization_and_unknown_time(tmp_path):
@@ -113,7 +113,7 @@ def test_cross_artifact_original_semantics(tmp_path):
   tools=Tools(db,scope)
   meanings={'registry':'configured_execution','prefetch':'historical_execution_indicator','defender':'command_line_observation'}
   for family,meaning in meanings.items():
-   r=tools.execute('discover_execution_behaviors',{'artifact':family,'limit':10})
+   r=tools.execute('discover_execution_behaviors',{'artifact':family,'limit':10,'presentation':'detailed'})
    assert meaning in {x['kind'] for x in r['records']},r
    for row in r['records']:
     for f in row['original_fields']:
@@ -129,7 +129,7 @@ def test_worker_cancel_progress_and_recovery(tmp_path):
  from test_retrieval_resilience import shim
  from forensic_assistant.conversational_ai.supervision import ConversationWorkerError
  path,sid,scope,*_=populate(tmp_path,1)
- worker_type=shim(tmp_path,"from forensic_assistant.detections.execution_observations import Population\nimport time\noriginal=Population.rows\ndef slow(self,family):\n if self.hostname=='slow':\n  while True:self.check();time.sleep(.01)\n yield from original(self,family)\nPopulation.rows=slow")
+ worker_type=shim(tmp_path,"from forensic_assistant.detections.execution_observations import Population\nimport time\noriginal=Population.rows\ndef slow(self,family,**kwargs):\n if self.hostname=='slow':\n  while True:self.check();time.sleep(.01)\n yield from original(self,family,**kwargs)\nPopulation.rows=slow")
  before=path.read_bytes();progress=[]
  with worker_type(dict(case_path=str(path),scope=scope,_transaction_view=True)) as worker:
   worker.progress=progress.append;view=worker.call('chat_init',seconds=5)['evidence_state']
@@ -142,6 +142,7 @@ def test_worker_cancel_progress_and_recovery(tmp_path):
   assert error.value.code=='OPERATION_DEADLINE'
   assert worker.call('discover_execution_behaviors',{},seconds=5)['result']['records']
   assert progress[-1]['processed']==4
+  assert 'computation' not in worker.call('check',seconds=5)
  assert path.read_bytes()==before
 
 
@@ -168,7 +169,7 @@ def test_discover_inspect_verify_pivot_and_challenge(tmp_path):
  from test_conversational_ai import reply,call,last
  path,sid,scope,*_=populate(tmp_path,10);seen={}
  def inspect(messages):
-  row=last(messages)['records'][0];seen['eid']=row['evidence_id'];seen['field']=next(f for f in row['original_fields'] if f['name']=='command')
+  row=last(messages)['records'][0];seen['eid']=row['evidence_id'];seen['field']=next(f for f in row['previews'] if f['name']=='command')
   return reply(calls=[call('show_evidence',{'evidence_id':seen['eid']})])
  def verify(messages):
   f=seen['field'];return reply(calls=[call('verify_observation',dict(evidence_id=seen['eid'],field=f['field'],value_json=json.dumps(f['value'])))])
@@ -193,7 +194,7 @@ def test_powershell_sysmon_provider_qualification_and_large_fields(tmp_path):
  wrong=event(db,92,4688,'NotSecurity','Application',{'CommandLine':'wrong.exe'})
  db.commit();db.close()
  with readonly(path) as db:
-  tools=Tools(db,scope);r=tools.execute('discover_execution_behaviors',{'artifact':'evtx','limit':10})
+  tools=Tools(db,scope);r=tools.execute('discover_execution_behaviors',{'artifact':'evtx','limit':10,'presentation':'detailed'})
   assert r['coverage']['feature_analysis_truncated_records']==1
   assert wrong not in {x['evidence_id'] for x in r['records']}
   assert any(x['kind']=='script_content' and x['analysis_truncated'] for x in r['records'])

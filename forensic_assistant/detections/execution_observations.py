@@ -32,11 +32,16 @@ class Population:
         self.coverage={}
         self.context=lru_cache(maxsize=512)(lambda sha,host,user:effective_context(db,dict(file_sha256=sha,hostname=host,username=user)))
 
-    def rows(self,family):
+    def rows(self,family,*,evidence_ids=None):
         db=self.db;self.check()
         where,params=EvidenceQueries(db)._where(artifact=family,source_scope=self.source)
+        if evidence_ids is not None:
+            if not evidence_ids:return
+            where.append('e.evidence_id IN ('+','.join('?' for _ in evidence_ids)+')');params.extend(evidence_ids)
         scoped=' AND '.join(where)
         allwhere,allparams=EvidenceQueries(db)._where(artifact=family,source_id=self.source)
+        if evidence_ids is not None:
+            allwhere.append('e.evidence_id IN ('+','.join('?' for _ in evidence_ids)+')');allparams.extend(evidence_ids)
         allcount=db.execute('SELECT count(*) FROM evidence_records e WHERE '+' AND '.join(allwhere),allparams).fetchone()[0]
         strictcount=db.execute('SELECT count(*) FROM evidence_records e WHERE '+scoped,params).fetchone()[0]
         extra=[];supported='1';timekey='e.evidence_id'

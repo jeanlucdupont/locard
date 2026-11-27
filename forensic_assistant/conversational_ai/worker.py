@@ -49,14 +49,14 @@ def serve():
                     if request['operation']=='chat_init':
                         stage='read_view'
                         if view is not None:raise ValueError('View already initialized')
-                        view=ReadView(config['case_path'],deadline or float('inf'));adapter=Tools(view.db,scope,profile=[] if config.get('_profile') is True else None)
+                        view=ReadView(config['case_path'],deadline or float('inf'));adapter=Tools(view.db,scope,profile=[] if config.get('_profile') is True else None,read_view=view)
                         result=dict(result={'ready':True},evidence_state=view.state)
                     else:
                         stage='integrity'
                         if view is None:raise ValueError('View unavailable')
                         view.check_identity();view.db.set_progress_handler(lambda:int(interrupted()),1000)
                         if interrupted():raise sqlite3.OperationalError('interrupted')
-                        if request['operation']=='check':value={'checked':True}
+                        if request['operation']=='check':adapter.computation=None;value={'checked':True}
                         else:
                             calls+=1
                             if scope['limits']['operations'] is not None and calls>scope['limits']['operations']:
@@ -66,6 +66,7 @@ def serve():
                             adapter.known=set(adapter.known)
                             adapter.disclosed={k:dict(v) for k,v in adapter.disclosed.items()}
                             if adapter.profile is not None:adapter.profile.clear()
+                            adapter.computation=None
                             def check_processing():
                                 if interrupted():raise sqlite3.OperationalError('interrupted')
                             def progress_processing(value):
@@ -79,11 +80,13 @@ def serve():
                         stage='integrity';view.check_identity()
                         result=dict(result=value,evidence_state=view.state)
                         if adapter.profile is not None:result['profile']=adapter.profile
+                        if adapter.computation is not None:result['computation']=adapter.computation
                     result['operation_id']=identity
                 stage='projection'
                 raw=json.dumps(result,ensure_ascii=True,allow_nan=False).encode()
                 if len(raw)>scope['limits']['result_bytes']+1024:raise ValueError('Result byte limit')
             except Exception as exc:
+                if adapter and adapter.population_cache:adapter.population_cache.clear(invalid=stage in ('integrity','read_view','authorization'))
                 if previous:adapter.known,adapter.disclosed=previous
                 code=('ANALYST_CANCELLED' if cancel.is_set() else
                       'OPERATION_DEADLINE' if deadline is not None and time.monotonic()>=deadline else
@@ -105,6 +108,7 @@ def serve():
                 with lock:current['id']=None
             sys.stdout.buffer.write(raw+b'\n');sys.stdout.buffer.flush()
     finally:
+        if adapter and adapter.population_cache:adapter.population_cache.clear()
         if view:view.close()
 
 if __name__=='__main__':serve()

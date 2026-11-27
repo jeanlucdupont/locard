@@ -27,7 +27,7 @@ class Session:
         self.worker=None;self.journal=None;self.closed=False;self.cancelled=False;self.suspended=False
         self.progress_interval=progress_interval
         self.turns=[];self.notes=[];self.observations=[];self.known=set();self.disclosed=set();self.tool_payloads={};self.paused=None;self.compacted=0
-        self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,input_tokens=0,output_tokens=0,unknown_input_usage=0,unknown_output_usage=0,uncertain_requests=0,note_operations=0,successful_forensic_operations=0,successful_operations=0,failed_operations=0,request_bytes=0,evidence_bytes=0,active_seconds=0.0)
+        self.used=dict(requests=0,operations=0,disclosure_bytes=0,tokens=0,unknown_usage=0,input_tokens=0,output_tokens=0,unknown_input_usage=0,unknown_output_usage=0,uncertain_requests=0,note_operations=0,successful_forensic_operations=0,successful_operations=0,failed_operations=0,request_bytes=0,evidence_bytes=0,active_seconds=0.0,behavioral_populations_constructed=0,behavioral_populations_reused=0)
         self.started=None;self.created=time.monotonic()
         if provider.provider_name!=scope['provider'] or provider.model_name!=scope['model']:raise ValueError('Provider/model mismatch')
         check(scope,scope['case'])
@@ -210,12 +210,16 @@ class Session:
                                 response_tool=self.worker.call(call['name'],effective_args,seconds=seconds)
                             if response_tool['evidence_state']!=self.view:raise RuntimeError('READ_VIEW_CHANGED')
                             value=response_tool['result']
-                            incoming={r['evidence_id'] for r in value.get('records',[])}
+                            if response_tool.get('computation'):
+                                computation=response_tool['computation']
+                                self.event('behavioral_computation',computation)
+                                self.used['behavioral_populations_reused' if computation['cache_hit'] else 'behavioral_populations_constructed']+=1
+                            incoming={r['evidence_id'] for r in [*value.get('records',[]),*value.get('omitted_candidates',[])]}
                             new_information=bool(incoming-self.known)
                             if self.scope['limits']['records'] is not None and len(self.known|incoming)>self.scope['limits']['records']:
                                 pause_reason='RECORD_BUDGET';raise ValueError('Record ceiling reached; narrow the search')
                             self.event('tool_result',dict(name=call['name'],arguments=call['arguments'],effective_arguments=effective_args,result=value))
-                            self.known.update(r['evidence_id'] for r in value.get('records',[]))
+                            self.known.update(r['evidence_id'] for r in [*value.get('records',[]),*value.get('omitted_candidates',[])])
                             if 'records' in value:
                                 self.emit(dict(kind='activity',text=str(len(value['records']))+' records returned; coverage '+('incomplete' if value.get('truncated') else 'limited to the requested scope')+'.'))
                             if value.get('verified'):
@@ -246,7 +250,7 @@ class Session:
                         if failures>=3 and not pause_reason:pause_reason='REPEATED_TOOL_FAILURE'
                     content=encoded(value)
                     if call['name']!='note' and 'error' not in value:
-                        ids={r['evidence_id'] for r in value.get('records',[])}
+                        ids={r['evidence_id'] for r in [*value.get('records',[]),*value.get('omitted_candidates',[])]}
                         if value.get('evidence_id'):ids.add(value['evidence_id'])
                         self.tool_payloads[(call['id'],content)]=(len(content.encode()),ids)
                     block.append(dict(role='tool',tool_call_id=call['id'],content=content))
