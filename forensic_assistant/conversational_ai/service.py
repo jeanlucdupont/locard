@@ -3,6 +3,7 @@ from copy import deepcopy
 import json,time
 from .contracts import catalog,arguments,check
 from .operation_diagnostics import failure_detail
+from .tool_feedback import tool_feedback
 from .provider import validate,assistant_message,restore,ValidationError
 from forensic_assistant.investigation_ai.runner import WorkerError
 from forensic_assistant.investigation_ai.transcript import Transcript,load
@@ -413,7 +414,7 @@ class Session:
                         self.event('tool_failure',diagnostic)
                         record('diagnostic',dict(component='conversation',**{k:v for k,v in diagnostic.items() if k!='attempted_arguments'}),required=True)
                         self.emit(dict(kind='tool_failure',**{k:v for k,v in diagnostic.items() if k!='attempted_arguments'}))
-                        value=dict(error=code,limitation='No result accepted; this is not evidence absence. Narrow the query or choose another authorized approach.',read_view_available=not self.suspended)
+                        value=tool_feedback(call['name'],call['arguments'],diagnostic,worker_reached,not self.suspended)
                         if call['name']=='memory':value['argument_guidance']='evidence_id: evidence/fields/verified only. query: notes literal text or actions exact tool name only. status: notes/actions only. Other views use limit/offset, without query.'
                         if failures>=3 and not pause_reason:pause_reason='REPEATED_TOOL_FAILURE'
                     self.event('operation_diagnostic',dict(provider_request_sequence=self.used['requests'],tool_call_id=call['id'],

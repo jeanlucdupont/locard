@@ -3,7 +3,7 @@ import hashlib
 import json
 
 # Static application messages only: never serialize arbitrary exception text.
-REASONS = frozenset(['AUTHORIZATION_EXPIRED',
+REASONS = frozenset(['Invalid pagination bounds','Invalid EVTX continuation for this search scope','Invalid object continuation for this scope','EVTX match/continuation requires --evtx-text','Malformed structured response','Duplicate JSON key','Nonfinite JSON value','AUTHORIZATION_EXPIRED',
  'Ambiguous source attribution',
  'Analyst message must be 1..8192 bytes',
  'Anchor outside approved time scope',
@@ -109,6 +109,16 @@ def operation_trace(path):
             seen.add(signature);rows.append(row)
         elif kind in ('local_inference_metrics','context_candidate','context_capacity','provider_timing','paused'):
             metrics.append(dict(kind=kind,data=data))
+    # Correlate normal subsequent operations, not retries or inferred comprehension.
+    violations=set()
+    for row in rows:
+        error=row.get('error') or {};detail=error.get('validation_detail') or {}
+        key=(row['tool'],error.get('code'),error.get('stage'),detail.get('rule'),detail.get('validation_path'),detail.get('constraint'))
+        row['same_validation_error_recurred']=bool(detail.get('rule') or detail.get('constraint')) and key in violations
+        row['validation_rule']=detail.get('rule') or detail.get('constraint')
+        if error:violations.add(key)
+        following=[dict(provider_request_sequence=r['provider_request_sequence'],tool_call_id=r['tool_call_id'],tool=r['tool'],arguments=r['arguments'],execution_outcome=r['execution_outcome']) for r in rows if r['provider_request_sequence']==row['feedback_sent_request']]
+        row['subsequent_operations']=following
     consecutive=[]
     for row in rows:
         if row['turn']!=turn:continue
