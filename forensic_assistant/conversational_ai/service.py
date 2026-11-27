@@ -57,6 +57,13 @@ class Session:
             self.close('STARTUP_FAILED');raise
         finally:self.charge()
 
+    def catalog(self):
+        tools=catalog()
+        if self.scope.get('local'):
+            from .local_schema import generation_catalog
+            return generation_catalog(tools)
+        return tools
+
     @property
     def scope(self):return json.loads(self._scope)
 
@@ -133,26 +140,26 @@ class Session:
         self._context_item_count=sum(len(v.get('items',[])) for v in context.values() if isinstance(v,dict))
         prefix=[system,dict(role='user',content='LOCAL NOTEBOOK CONTEXT (UNTRUSTED DATA): '+encoded(context))]
         if scope.get('local'):
-            mandatory=len(encoded({'messages':[system],'tools':catalog()}).encode())
+            mandatory=len(encoded({'messages':[system],'tools':self.catalog()}).encode())
             if mandatory>capacity:
                 self.event('context_capacity',dict(reason='MANDATORY_ENVELOPE_EXCEEDS_LOCAL_CONTEXT',mandatory_bytes=mandatory,usable_bytes=capacity,context_tokens=scope['local']['context_tokens']))
                 self.emit(dict(kind='activity',text=f'Local context insufficient: mandatory instructions/tools {mandatory} bytes exceed usable {capacity} bytes. No authorization instructions removed.'))
                 raise Paused('CONTEXT_CAPACITY')
-        untrimmed_bytes=len(encoded({'messages':[*prefix,*[m for b in self.turns for m in b]],'tools':catalog()}).encode())
+        untrimmed_bytes=len(encoded({'messages':[*prefix,*[m for b in self.turns for m in b]],'tools':self.catalog()}).encode())
         selected=[]
         first=self.turns[0] if self.turns else []
         for block in reversed(self.turns[1:]):
             candidate=[*prefix,*first,*block,*[m for b in selected for m in b]]
-            if len(encoded({'messages':candidate,'tools':catalog()}).encode())>capacity:break
+            if len(encoded({'messages':candidate,'tools':self.catalog()}).encode())>capacity:break
             selected.insert(0,block)
         messages=[*prefix,*first,*[m for b in selected for m in b]]
         if len(self.turns)>1 and (not selected or selected[-1]!=self.turns[-1]):raise Paused('CONTEXT_CAPACITY')
-        if len(encoded({'messages':messages,'tools':catalog()}).encode())>capacity:raise Paused('CONTEXT_CAPACITY')
+        if len(encoded({'messages':messages,'tools':self.catalog()}).encode())>capacity:raise Paused('CONTEXT_CAPACITY')
         omitted=len(self.turns)-len(selected)-bool(first)
         self.compacted+=omitted
         if omitted:
             self.used['context_consolidations']+=1
-            self.event('context_consolidation',dict(omitted_blocks=omitted,history_blocks_omitted=self.compacted,workspace_frontier=int(self.workspace.meta('next')),context_bytes=len(encoded(context).encode()),untrimmed_request_bytes=untrimmed_bytes,selected_request_bytes=len(encoded({'messages':messages,'tools':catalog()}).encode()),limitation='Bounded reference projection; original values remain recoverable, not automatically represented.'))
+            self.event('context_consolidation',dict(omitted_blocks=omitted,history_blocks_omitted=self.compacted,workspace_frontier=int(self.workspace.meta('next')),context_bytes=len(encoded(context).encode()),untrimmed_request_bytes=untrimmed_bytes,selected_request_bytes=len(encoded({'messages':messages,'tools':self.catalog()}).encode()),limitation='Bounded reference projection; original values remain recoverable, not automatically represented.'))
         self.turns=([first] if first else [])+selected
         # Durable notebook retains omitted exchanges and evidence identities.
         retained={(m.get('tool_call_id'),m.get('content')) for m in messages if m.get('role')=='tool'}
@@ -194,7 +201,7 @@ class Session:
                 if limits['disclosure_bytes'] is not None and self.used['disclosure_bytes']+size>limits['disclosure_bytes']:raise Paused('DISCLOSURE_LIMIT')
                 from .resources import request_capacity
                 _,output_tokens,_=request_capacity(self.scope['model'],limits,self.scope.get('local'))
-                request_size=len(encoded(dict(messages=wire_messages,tools=catalog())).encode())
+                request_size=len(encoded(dict(messages=wire_messages,tools=self.catalog())).encode())
                 if limits['tokens'] is not None and self.used['tokens']+request_size+output_tokens>limits['tokens']:raise Paused('TOKEN_RESERVATION')
                 # Charge and persist BEFORE entry: exposure may occur even if no reply.
                 self.used['requests']+=1;self.used['disclosure_bytes']+=size
@@ -208,7 +215,7 @@ class Session:
                 self.event('provider_attempt',dict(messages=messages,history_blocks_omitted=omitted,usage=self.usage()))
                 provider_started=time.monotonic()
                 with Activity(self.emit,'Waiting for the AI investigator',interval=self.progress_interval):
-                    response=validate(self.provider.converse(messages,catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=output_tokens))
+                    response=validate(self.provider.converse(messages,self.catalog(),timeout=min(self.remaining(),self.scope['limits']['provider_seconds']),output_tokens=output_tokens))
                 sanitized=json.loads(redact(encoded(response)))
                 if 'continuation' in response and sanitized.get('continuation')!=response['continuation']:
                     raise ValueError('PROVIDER_CONTINUATION_REDACTED')
@@ -339,7 +346,7 @@ class Session:
             if isinstance(exc,(ProviderFailure,ValidationError)):
                 self.used['uncertain_requests']+=1
                 self.account_usage(getattr(exc,'metadata',{}).get('conversation',{}))
-                self.pause('PROVIDER_FAILURE',category=getattr(exc,'category','conversation_envelope'),stage=getattr(exc,'stage','response_parse'),failed_rule=getattr(exc,'code',None))
+                self.pause('PROVIDER_FAILURE',category=getattr(exc,'category','conversation_envelope'),stage=getattr(exc,'stage','response_parse'),failed_rule=getattr(exc,'code',None),diagnostic=getattr(exc,'metadata',{}))
                 raise Paused(self.paused) from exc
             safe={'RESOURCE_LIMIT','DISCLOSURE_LIMIT','NOTEBOOK_CAPACITY','CONTEXT_CAPACITY','REPEATED_TOOL_FAILURE','PROVIDER_CHANGED','AUTHORIZATION_EXPIRED','CASE_IDENTITY_CHANGED','PROVIDER_CONTINUATION_REDACTED'}
             reason=str(exc) if type(exc) is ValueError and str(exc) in safe else 'PROVIDER_OR_WORKER_FAILURE'

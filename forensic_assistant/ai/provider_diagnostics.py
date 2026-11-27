@@ -9,6 +9,7 @@ from forensic_assistant.llm.client import LLMError
 
 REASONS = {
     'local_tool_protocol': 'Local model/server does not provide the required native tool protocol; check the tool-capable model and chat template',
+    'local_grammar_rejected': 'Local server rejected native tool grammar; run the full catalog diagnostic',
     'local_context_exhausted': 'Local model context exhausted; inspect configured capacity, template overhead and output reservation',
     'conversation_envelope': 'Invalid native conversational tool-call envelope',
     'conversation_finish': 'Unsupported conversational completion reason',
@@ -121,6 +122,9 @@ def safe_metadata(value):
     """Revalidate at worker IPC, storage and human-rendering boundaries."""
     if type(value) is not dict: return {}
     result = {}
+    from forensic_assistant.conversational_ai.local_diagnostics import safe as safe_local
+    local = safe_local(value.get("local_transport"))
+    if local: result["local_transport"] = local
     from forensic_assistant.conversational_ai.diagnostics import safe
     conversation = safe(value.get('conversation'))
     if conversation: result['conversation'] = conversation
@@ -309,6 +313,9 @@ def render(text):
         for key, item in safe_metadata(value).items():
             if key == 'conversation':
                 rows.append('  Conversation:')
+                for field, state in item.items(): rows.append('    '+field+': '+str(state))
+            elif key == 'local_transport':
+                rows.append('  Local transport:')
                 for field, state in item.items(): rows.append('    '+field+': '+str(state))
             elif key == 'anthropic_strategy':
                 rows.append('  Anthropic strategy:')

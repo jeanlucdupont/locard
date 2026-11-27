@@ -79,7 +79,7 @@ def diagnostic(directory,capacity=32000,checkpoint_seconds=.01,provider_factory=
     one=reconstruct(session.journal.path,root/'reconstructed-one');two=reconstruct(session.journal.path,root/'reconstructed-two')
     checks.update(reconstruction_equal=one==two,case_unchanged=hashlib.sha256(path.read_bytes()).hexdigest()==before,
         history_omitted=session.compacted>0,automatic_checkpoints=session.used['automatic_checkpoints']>0,worker_closed=session.worker.process.poll() is not None)
-    sizes=[len(encoded(dict(messages=m,tools=__import__('forensic_assistant.conversational_ai.contracts',fromlist=['catalog']).catalog())).encode()) for m in provider.calls]
+    sizes=[len(encoded(dict(messages=m,tools=session.catalog())).encode()) for m in provider.calls]
     checks['request_budget_preserved']=max(sizes)<=capacity
     if not all(checks.values()):raise AssertionError(checks)
     return dict(checks=checks,workspace_bytes=workspace_bytes,python_current_bytes=python_current,python_peak_bytes=python_peak,elapsed_seconds=time.monotonic()-start,request_sizes=sizes,usage=session.used,workspace=one,

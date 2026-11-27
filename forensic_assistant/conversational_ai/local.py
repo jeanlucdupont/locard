@@ -10,6 +10,7 @@ from forensic_assistant.llm.client import endpoint_parts
 from forensic_assistant.ai.provider_diagnostics import ProviderFailure
 from forensic_assistant.investigation_ai.contracts import loads
 from .provider import validate, restore, ValidationError
+from .local_schema import generation_catalog
 
 
 def configuration(endpoint,model,context=32768,temperature=0.2,parallel=False):
@@ -39,11 +40,16 @@ def http_json(config,path,body=None,timeout=30):
         if len(raw)>1024*1024:raise ProviderFailure('conversation_envelope','response_parse')
         if response.status!=200:
             category='provider_server_error' if response.status>=500 else 'model_rejected' if response.status==404 else 'request_rejected'
+            detail={}
             try:
-                error=loads(raw.decode(),max_bytes=1024*1024).get('error',{})
-                if isinstance(error,dict) and error.get('type')=='exceed_context_size_error':category='local_context_exhausted'
+                envelope=loads(raw.decode(),max_bytes=1024*1024)
+                error=envelope.get('error',{}) if isinstance(envelope,dict) else {}
+                from .local_diagnostics import server_detail
+                detail=server_detail(error)
+                if detail['server_code'].startswith('grammar_'):category='local_grammar_rejected'
+                elif detail['server_code']=='context_exhausted':category='local_context_exhausted'
             except (ValueError,TypeError,UnicodeError):pass
-            raise ProviderFailure(category,'provider_request',metadata={'http_status':response.status})
+            raise ProviderFailure(category,'provider_request',metadata={'http_status':response.status,'local_transport':detail})
         return loads(raw.decode('utf-8'),max_bytes=1024*1024)
     except TimeoutError:raise ProviderFailure('timeout','timeout') from None
     except (OSError,http.client.HTTPException):raise ProviderFailure('network_error','provider_request') from None
@@ -51,11 +57,14 @@ def http_json(config,path,body=None,timeout=30):
 
 
 def parse(value):
+    supplied=value.get('usage') if type(value) is dict else None
+    usage={k:v for k,v in supplied.items() if k in ('prompt_tokens','completion_tokens','total_tokens') and type(v) is int and 0<=v<=10000000} if type(supplied) is dict else {}
+    metadata={'conversation':usage}
     try:
         if type(value) is not dict or type(value.get('choices')) is not list or len(value['choices'])!=1:raise ValueError()
         choice=value['choices'][0];message=choice['message'];finish=choice['finish_reason']
-        if message.get('refusal') or finish=='content_filter':raise ProviderFailure('provider_refusal','provider_generation')
-        if finish=='length':raise ProviderFailure('output_truncated','provider_generation')
+        if message.get('refusal') or finish=='content_filter':raise ProviderFailure('provider_refusal','provider_generation',metadata=metadata)
+        if finish=='length':raise ProviderFailure('output_truncated','provider_generation',metadata=metadata)
         # Prose resembling a tool call never becomes an invocation.
         if type(message.get('content')) not in (str,type(None)):raise ValueError()
         if message.get('function_call') is not None:raise ProviderFailure('local_tool_protocol','response_parse')
@@ -81,7 +90,7 @@ def encoded(value):return json.dumps(value,ensure_ascii=True,allow_nan=False,sep
 
 
 def body_for(config,messages,tools,output_tokens,tool_choice='auto'):
-    return dict(model=config['model'],messages=[restore(m) for m in messages],tools=tools,
+    return dict(model=config['model'],messages=[restore(m) for m in messages],tools=generation_catalog(tools),
         tool_choice=tool_choice,parallel_tool_calls=config['parallel_tools'],
         max_tokens=output_tokens,temperature=config['temperature'],stream=False,
         chat_template_kwargs={'enable_thinking':False})
@@ -110,7 +119,11 @@ def dispatch(config,messages,tools,timeout,output_tokens,tool_choice='auto'):
     if measured>config['context_tokens']-output_tokens-2048:raise ProviderFailure('local_context_exhausted','configuration')
     require();record('provider_dispatch_boundary',dict(provider='local',model=config['model'],exposure='loopback attempt may follow'),required=True)
     request=dict(local=config,messages=messages,tools=tools,timeout=timeout,output_tokens=output_tokens,tool_choice=tool_choice)
-    return run_client(request,timeout)
+    try:return run_client(request,timeout)
+    except ProviderFailure as exc:
+        exc.metadata['local_transport']={**exc.metadata.get('local_transport',{}),'request_bytes':measured,
+            'timed_out':exc.category=='timeout','client_cleanup':'confirmed','server_cleanup':'unconfirmed','usage':'available' if any(k in exc.metadata.get('conversation',{}) for k in ('prompt_tokens','completion_tokens','total_tokens')) else 'unknown','inference_began':'unknown'}
+        raise
 
 
 def models(config,timeout=30):
