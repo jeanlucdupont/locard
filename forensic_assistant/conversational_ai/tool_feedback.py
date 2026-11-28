@@ -8,6 +8,7 @@ STAGES=frozenset(('argument_validation','scope_validation','workspace','worker_e
     'operation','authorization','read_view','integrity','query','projection'))
 SCALAR='value_json must encode one exact original scalar, not its field descriptor. Examples: "\\\"example.txt\\\"", "42", "true". Inspect the original field first; truncated/redacted values are ineligible. Use timestamp_meaning only when the original timestamp semantics require it; copy that meaning exactly.'
 RULE_GUIDANCE={
+ 'Use a full ISO timestamp with Z or an explicit UTC offset':'Use YYYY-MM-DDTHH:MM:SS[.fraction]Z or an explicit +/-HH:MM offset; a space may replace T. Fractional seconds use a dot and 1..9 digits, not a colon. Example: 2020-01-01T12:00:00.000000000Z. Preserve the approved time window; no automatic repair is performed.',
  'Invalid pagination bounds':'Use the tool schema bounds and returned next_offset; do not invent pagination values.',
  'Invalid EVTX continuation for this search scope':'Use the exact evtx_after cursor returned for the same authorized search and filters. Do not forge or reuse a cursor from another scope.',
  'Invalid object continuation for this scope':'Use the exact object_after cursor returned for the same authorized search. Do not forge or reuse cross-scope cursors.',
@@ -81,6 +82,8 @@ def tool_feedback(tool,args,diagnostic,worker_reached,read_view_available):
             if tool=='note' and field=='supersedes':guidance='Omit supersedes when creating a new note. To supersede a note, supply an existing valid note_id. An empty string is invalid.'
     elif rule in SCOPE_RULES:guidance='Stay within the existing approved sources, artifact families and time window. Do not broaden authorization; unavailable evidence is not evidence absence.'
     elif rule in RULE_GUIDANCE:guidance=RULE_GUIDANCE[rule]
+    if rule=='Use a full ISO timestamp with Z or an explicit UTC offset' and node is not None:
+        safe.update(parameter=path,expected_type='string',constraint='invalid timestamp format')
     if guidance is None:return value
     value.update(tool=tool,stage=diagnostic['stage'] if diagnostic.get('stage') in STAGES else 'operation',
         worker_reached=worker_reached,result_accepted=False,correction=guidance,**safe)

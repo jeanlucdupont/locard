@@ -3,7 +3,7 @@ import hashlib
 import json
 
 # Static application messages only: never serialize arbitrary exception text.
-REASONS = frozenset(['Invalid pagination bounds','Invalid EVTX continuation for this search scope','Invalid object continuation for this scope','EVTX match/continuation requires --evtx-text','Malformed structured response','Duplicate JSON key','Nonfinite JSON value','AUTHORIZATION_EXPIRED',
+REASONS = frozenset(['Use a full ISO timestamp with Z or an explicit UTC offset','Invalid pagination bounds','Invalid EVTX continuation for this search scope','Invalid object continuation for this scope','EVTX match/continuation requires --evtx-text','Malformed structured response','Duplicate JSON key','Nonfinite JSON value','AUTHORIZATION_EXPIRED',
  'Ambiguous source attribution',
  'Analyst message must be 1..8192 bytes',
  'Anchor outside approved time scope',

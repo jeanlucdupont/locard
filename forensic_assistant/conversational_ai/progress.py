@@ -76,7 +76,8 @@ class Progress:
                     'SELECT 1 FROM fields WHERE eid=? AND pointer=? AND event<? AND preview=0 LIMIT 1',
                     (eid,field['field'],frontier)).fetchone():new_fields+=1
         state='unknown';reason='productivity_not_established'
-        if new_ids or new_fields:state='productive';reason='new_original_references'
+        if new_fields:state='productive';reason='new_original_fields'
+        elif new_ids:state='productive';reason='new_evidence_references_not_examination'
         elif previous and previous.get('turn')!=self.turn:state='unknown';reason='analyst_turn_reconsideration'
         elif tool=='show_evidence':state='productive';reason='original_rehydration_available_for_current_context'
         elif tool=='verify_observation' and result.get('verified'):
@@ -91,18 +92,25 @@ class Progress:
                 state='nonproductive_repeat';reason='completed_search_unchanged_scope'
             elif not previous and (complete is not None or continuation is not None):state='productive';reason='new_query_or_page_coverage'
         family=args.get('artifact',result.get('scope',{}).get('artifact'))
-        if tool in ('discover_security_signals','discover_execution_behaviors') and family is None:family='evtx'
+        if tool=='discover_security_signals' and family is None:family='evtx'
         if tool=='activity_overview':family={'browser_downloads':'browser','prefetch_executables':'prefetch','defender_groups':'defender'}.get(args.get('kind'),'evtx')
+        unavailable=tool in SEARCHES and self.available.get(family)=='unavailable' and not new_ids and not new_fields
+        repeated_query=bool(previous and previous.get('turn')==self.turn and previous['result_digest']==result_digest and exhausted and tool in SEARCHES and not new_ids and not new_fields)
+        if unavailable:state='nonproductive_repeat' if repeated_query else 'known_unavailable';reason='known_unavailable_family'
         frontier_key=signature(dict(binding=self.binding,tool=tool,arguments={k:v for k,v in args.items() if k not in ('offset','evtx_after','object_after')},population=population))
         value=dict(contract=CONTRACT,turn=self.turn,artifact=family,frontier_key=frontier_key,operation=operation,key=key,binding=self.binding,tool=tool,state=state,reason=reason,
             previous_operation=previous['operation'] if previous else None,result_digest=result_digest,
-            new_evidence_ids=sorted(new_ids),new_fields=new_fields,new_coverage=tool in SEARCHES and previous is None and complete is not None,
+            repeated_completed_query=repeated_query,new_evidence_ids=sorted(new_ids),new_fields=new_fields,new_information=None if state=='unknown' else state=='productive' and reason not in ('new_query_or_page_coverage','original_rehydration_available_for_current_context'),new_coverage=tool in SEARCHES and previous is None and complete is not None,
             search_complete=complete,continuation_available=continuation is not None,exhausted=exhausted,
             read_view_unchanged=True,artifact_signal_state=coverage.get('state'),
             artifact_availability=self.available,
             limitation='Coverage belongs to this query, not the entire artifact family. Operational progress is not forensic verification.')
+        if tool=='activity_overview':
+            value['aggregate_summary']=dict(kind=args.get('kind'),groups_returned=coverage.get('groups_returned'),reported_group_counts=[r['count'] for r in result.get('records',[])[:3] if type(r.get('count')) is int],counts_exact=coverage.get('group_counts_exact'),limitation='At most three returned group counts, not individually examined records.')
         if state=='nonproductive_repeat':
             value.update(guidance='This unchanged operation returned no new evidence or coverage. Choose a relevant authorized alternative; do not infer absence of suspicious activity.',alternatives=self.alternatives(tool))
+        if unavailable:
+            value.update(guidance='This family is already unavailable within the approved read view. Query coverage may be new, but no new investigative information was obtained. Prefer relevant available evidence; unavailable is not a negative forensic finding.',alternatives=self.alternatives(tool))
         return value
 
     def completion(self,*,retrieved,inspected,verified,repetitions,intent,challenge_used):
@@ -111,10 +119,14 @@ class Progress:
         questions=db.execute("SELECT count(*) FROM notes n WHERE kind='open_question' AND status IN ('active','unresolved') AND NOT EXISTS(SELECT 1 FROM notes x WHERE x.supersedes=n.id)").fetchone()[0]
         alternatives=self.alternatives('discover_security_signals')
         family_coverage={f:('available_query_scope_only' if self.workspace.meta('progress-family:'+f) else 'available_not_queried') if state=='available' else state for f,state in self.available.items()}
-        possible=intent=='broad' and not retrieved and repetitions>0 and bool(alternatives)
+        engagement=self.workspace.engagement()
+        aggregate_only=bool(engagement['unexamined_ids']) and not engagement['counts']['original_fields']
+        possible=intent=='broad' and bool(alternatives) and (aggregate_only or (not retrieved and repetitions>0))
         return dict(contract='investigative-completion-v1',provider_final=True,objective_assessed='not_deterministically_established',
             coverage='authorized_scope_empty' if self.available and not retrieved and not pending and all(v=='unavailable' for v in self.available.values()) else 'partial_or_unknown',
-            records_retrieved=retrieved,original_inspections=inspected,verifications=verified,nonproductive_repetitions=repetitions,
+            examination_state='original_fields_retrieved_partial_coverage' if engagement['counts']['original_fields'] else 'registered_references_unexamined' if engagement['counts']['registered_ids'] else 'available_not_examined' if any(v=='available' for v in self.available.values()) else 'unavailable_or_unknown',
+            engagement=engagement,recovery_reason='original_evidence_not_examined' if aggregate_only else 'repeated_searches_without_retrieval',
+            records_retrieved=engagement['counts']['original_records'],original_inspections=inspected,verifications=verified,nonproductive_repetitions=repetitions,
             continuation_frontiers=pending,unresolved_questions=questions,artifact_availability=self.available,family_coverage=family_coverage,
             alternatives=alternatives,recovery_eligible=possible and not challenge_used,recovery_unresolved=possible and challenge_used,
             limitation='A final response is conversational termination, not proof of objective completion or forensic coverage.')

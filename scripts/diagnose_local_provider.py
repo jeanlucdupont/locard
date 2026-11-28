@@ -209,14 +209,16 @@ def synthetic_investigation(directory,client,timeout=180,output_tokens=2048,requ
     except BaseException:
         if display:display.close()
         raise
-    reason='COMPLETED';answer={};failure={}
+    reason='COMPLETED';answer={};failure={};engagement={}
     try:
         answer=session.submit('Investigate this synthetic recorded activity without assuming compromise. Inspect originals and independently verify important fields. Use investigative memory to review search coverage and verification history. Distinguish observations, hypotheses and incomplete coverage in your final assessment.',intent='broad')
     except Paused as exc:
         reason=str(exc);cause=exc.__cause__
         failure=dict(category=getattr(cause,'category',None),stage=getattr(cause,'stage',None),diagnostic=getattr(cause,'metadata',{}))
     finally:
-        try:session.close(reason)
+        try:
+            try:engagement=session.workspace.engagement()
+            finally:session.close(reason)
         finally:
             if display:display.close()
     rebuilt=reconstruct(session.journal.path,Path(directory)/'reconstructed')
@@ -230,7 +232,7 @@ def synthetic_investigation(directory,client,timeout=180,output_tokens=2048,requ
             inference_seconds=session.inference_seconds,measurement_seconds=session.used['measurement_seconds'],progress_assessment_seconds=session.used['progress_assessment_seconds'],
             other_active_seconds=max(0,session.used['active_seconds']-session.inference_seconds-session.worker_seconds-session.used['measurement_seconds']-session.persistence_seconds)),
         timing_limitation='Operation durations include validation and bookkeeping; inference includes transport, not pure generation. No generation throughput inferred.',
-        outcome=reason,normal_termination=reason=='COMPLETED',provider_final_response=session.completion_assessment is not None,completion_assessment=session.completion_assessment,failure=failure,capacity=session.last_capacity,endpoint=client.conversation_binding()['endpoint'],model=client.model_name,usage=session.used,workspace=rebuilt,interpretation=answer.get('interpretation'),
+        engagement=engagement,outcome=reason,normal_termination=reason=='COMPLETED',provider_final_response=session.completion_assessment is not None,completion_assessment=session.completion_assessment,failure=failure,capacity=session.last_capacity,endpoint=client.conversation_binding()['endpoint'],model=client.model_name,usage=session.used,workspace=rebuilt,interpretation=answer.get('interpretation'),
         checks=dict(case_unchanged=hashlib.sha256(path.read_bytes()).hexdigest()==before,worker_closed=session.worker.process.poll() is not None),
         observations=dict(original_inspection=session.used['original_rehydrations']>0,verification=rebuilt['counts']['verifications']>0,
             memory_retrieval=session.used['memory_operations']>0,context_consolidation=session.used['context_consolidations']>0,

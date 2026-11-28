@@ -144,10 +144,14 @@ class Workspace:
         elif kind=='artifact_availability':
             db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('artifact_availability',encoded(d)))
         elif kind=='operation_progress':
+            if d.get('reason')=='known_unavailable_family':
+                db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('unavailable_operations',str(int(self.meta('unavailable_operations') or '0')+1)))
             db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('progress:'+d['key'],encoded(d)))
             if d['tool'] in ('search_evidence','timeline','around','discover_security_signals','discover_execution_behaviors','activity_overview'):
                 db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('progress-frontier:'+d['frontier_key'],encoded(d)))
                 if d.get('artifact'):db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('progress-family:'+d['artifact'],encoded(d)))
+            if d.get('aggregate_summary'):
+                db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('latest_aggregate',encoded(d['aggregate_summary'])))
             compact={k:d[k] for k in ('operation','tool','state','reason','previous_operation','search_complete','continuation_available','artifact_signal_state')}
             db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('latest_progress',encoded(compact)))
             if d['tool'] in ('search_evidence','timeline','around','discover_security_signals','discover_execution_behaviors','activity_overview'):
@@ -266,9 +270,29 @@ class Workspace:
         if not rows and result['next_offset']==offset:raise ValueError('MEMORY_ITEM_CAPACITY')
         return result
 
+    def engagement(self):
+        """Counts of journaled exposure stages, never claims of model comprehension."""
+        db=self.db
+        scalar=lambda sql:db.execute(sql).fetchone()[0]
+        originals="preview=0 AND truncated=0 AND redacted=0"
+        counts=dict(registered_ids=scalar('SELECT count(*) FROM evidence'),
+            representative_ids=scalar("SELECT count(DISTINCT ae.eid) FROM action_evidence ae JOIN actions a ON a.id=ae.action WHERE a.tool='activity_overview' AND a.status IN ('completed','partial')"),
+            aggregate_operations=scalar("SELECT count(*) FROM actions WHERE tool='activity_overview' AND status IN ('completed','partial')"),
+            original_records=scalar('SELECT count(DISTINCT eid) FROM fields WHERE '+originals),
+            original_fields=scalar('SELECT count(*) FROM (SELECT DISTINCT eid,pointer FROM fields WHERE '+originals+')'),
+            fields_possibly_disclosed=scalar('SELECT count(*) FROM (SELECT DISTINCT x.eid,x.pointer FROM field_exposures x JOIN fields f ON f.eid=x.eid AND f.pointer=x.pointer AND f.event=x.origin WHERE f.preview=0 AND f.truncated=0 AND f.redacted=0)'),
+            inspection_operations=scalar("SELECT count(*) FROM actions WHERE tool='show_evidence' AND status IN ('completed','partial')"),
+            verifications=scalar('SELECT count(*) FROM verifications'),
+            unavailable_operations=int(self.meta('unavailable_operations') or '0'))
+        ids=[r[0] for r in db.execute('SELECT eid FROM evidence e WHERE NOT EXISTS (SELECT 1 FROM fields f WHERE f.eid=e.eid AND f.preview=0 AND f.truncated=0 AND f.redacted=0) ORDER BY eid LIMIT 3')]
+        return dict(counts=counts,latest_aggregate=json.loads(self.meta('latest_aggregate') or 'null'),unexamined_ids=ids,unexamined_ids_limit=3,
+            next_tools=['show_evidence'] if ids else [],
+            limitation='IDs and aggregates are not examination. Original fields are retrieved/disclosed, not proof of comprehension or causality.')
+
     def context(self):
         # Indexed bounded selections, not a full workspace load. All pages remain queryable.
-        result=dict(state=self.query(),previous_repeated_action=json.loads(self.meta('latest_repeat') or 'null'),operational_progress=json.loads(self.meta('latest_progress') or 'null'),artifact_availability=json.loads(self.meta('artifact_availability') or '{}'),recent_query_coverage=json.loads(self.meta('recent_coverage') or '[]'))
+        result=dict(state=self.query(),previous_repeated_action=json.loads(self.meta('latest_repeat') or 'null'),operational_progress=json.loads(self.meta('latest_progress') or 'null'),artifact_availability=json.loads(self.meta('artifact_availability') or '{}'),engagement=self.engagement(),recent_query_coverage=[{k:v for k,v in r.items() if k not in ('frontier_key','previous_operation','artifact_signal_state')} for r in json.loads(self.meta('recent_coverage') or '[]')])
+        for key in ('evidence','fields','verifications'):result['state']['counts'].pop(key,None)
         for label,kind,kwargs in [('active_notes','notes',{'status':'active','limit':2}),('unresolved_questions','notes',{'status':'unresolved','limit':2}),('verified','verified',{'limit':3}),('pending_searches','actions',{'status':'partial','limit':2})]:
             try:result[label]=self.query(kind,**kwargs)
             except ValueError as exc:

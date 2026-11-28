@@ -7,6 +7,14 @@ from forensic_assistant.retrieval.evidence import EvidenceQueries,get_evidence,s
 from forensic_assistant.retrieval.queries import required_time
 
 
+def time_argument(query,key,default):
+    # Add schema-owned location only; preserve the parser and its rejection.
+    try:return required_time(query.pop(key,default))
+    except ValueError as exc:
+        exc.validation_detail=dict(validation_path='request.'+key,rule='Use a full ISO timestamp with Z or an explicit UTC offset')
+        raise
+
+
 def exclusive_end(value):
     value=required_time(value);n=int(value[20:29])
     if n:return value[:20]+str(n-1).zfill(9)+'Z'
@@ -114,7 +122,7 @@ class Tools:
         if name=='discover_execution_behaviors':
             from forensic_assistant.detections.execution import discover
             query=dict(args);sid=self.source(query);query.pop('source_id',None)
-            start=required_time(query.pop('start',self.scope['start']));end=required_time(query.pop('end',self.scope['end']))
+            start=time_argument(query,'start',self.scope['start']);end=time_argument(query,'end',self.scope['end'])
             if not self.scope['start']<=start<end<=self.scope['end']:raise ValueError('Discovery cannot expand approval')
             family=query.pop('artifact',None)
             if family is not None and family not in self.scope['families']:raise ValueError('Artifact outside approval')
@@ -130,7 +138,7 @@ class Tools:
         if name in ('discover_security_signals','activity_overview'):
             from forensic_assistant.detections.discovery import Discovery,OVERVIEWS
             query=dict(args);sid=self.source(query);query.pop('source_id',None)
-            start=required_time(query.pop('start',self.scope['start']));end=required_time(query.pop('end',self.scope['end']))
+            start=time_argument(query,'start',self.scope['start']);end=time_argument(query,'end',self.scope['end'])
             if not self.scope['start']<=start<end<=self.scope['end']:raise ValueError('Discovery cannot expand approved time interval')
             family=query.pop('artifact','evtx') if name=='discover_security_signals' else OVERVIEWS[query['kind']]
             if family=='defender' and name=='discover_security_signals':
@@ -173,7 +181,7 @@ class Tools:
             window=same_host_window(record,stamp,query.pop('seconds',300))
             query.update(window,source_id=record['context']['source_ids'][0])
         sid=self.source(query);query.pop('source_id',None)
-        start=required_time(query.pop('start',self.scope['start']));end=required_time(query.pop('end',self.scope['end']))
+        start=time_argument(query,'start',self.scope['start']);end=time_argument(query,'end',self.scope['end'])
         if name=='around':start=max(start,self.scope['start']);end=min(end,self.scope['end'])
         if not self.scope['start']<=start<end<=self.scope['end']:raise ValueError('Search cannot expand approved time interval')
         if query.get('artifact') not in self.scope['families']:raise ValueError('Artifact outside scope')

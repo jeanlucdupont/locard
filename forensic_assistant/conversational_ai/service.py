@@ -256,7 +256,7 @@ class Session:
         self.emit(dict(kind='activity',text='Investigation checkpoint saved; continuing within approval. Ctrl+C interrupts.'))
 
     def submit(self,text,*,intent="unspecified"):
-        if intent not in ("unspecified","narrow","broad"):raise ValueError("Unknown investigative intent")
+        if intent not in ("unspecified","narrow","broad","inventory"):raise ValueError("Unknown investigative intent")
         if self.closed:raise ValueError('Session closed; start a newly authorized session')
         if self.suspended:
             self.pause('READ_VIEW_UNAVAILABLE');raise Paused('READ_VIEW_UNAVAILABLE')
@@ -337,7 +337,7 @@ class Session:
                     if assessment['recovery_eligible']:
                         self.admit('requests');self.admit('operations')
                         challenge_used=True;self.used['completion_challenges']+=1
-                        challenge=dict(contract='completion-recovery-v1',reason='No evidence inspected after repeated completed searches; authorized alternatives remain.',alternatives=assessment['alternatives'],instruction='Choose a relevant authorized operation if useful. This is not a new grant; do not expand scope. Explain remaining limitations if unable to proceed.')
+                        challenge=dict(contract='completion-recovery-v1',reason=assessment['recovery_reason'],engagement=assessment['engagement'],alternatives=assessment['alternatives'],instruction='Choose a relevant authorized operation if useful. This is not a new grant; do not expand scope. Explain remaining limitations if unable to proceed.')
                         self.event('completion_challenge',challenge)
                         self.turns.append([dict(role='user',content=progress_message(challenge))])
                         continue
@@ -455,7 +455,7 @@ class Session:
                         if progress_value['state']=='nonproductive_repeat':
                             self.used['nonproductive_repetitions']+=1;turn_repeats+=1
                         # Only proven exhausted-search loops count toward this guard.
-                        if call['name'] in SEARCHES and progress_value['reason']=='completed_search_unchanged_scope':
+                        if call['name'] in SEARCHES and progress_value.get('repeated_completed_query',progress_value['reason']=='completed_search_unchanged_scope'):
                             key=progress_value['key']
                             if key!=repeat_key:repeat_run=0;repeat_key=key;strike_request=None
                             if key in delivered and strike_request!=self.used['requests']:
@@ -479,7 +479,7 @@ class Session:
                         if value.get('evidence_id'):ids.add(value['evidence_id'])
                         self.tool_payloads[(call['id'],content)]=(len(content.encode()),ids,call['name'])
                     block.append(dict(role='tool',tool_call_id=call['id'],content=content))
-                    if progress_value and progress_value['state']=='nonproductive_repeat':
+                    if progress_value and progress_value['state'] in ('nonproductive_repeat','known_unavailable'):
                         feedback=progress_message(progress_value)
                         progress_feedback[feedback]=(progress_value['key'],operation_id)
                         # Preserve exact original tool result bytes and exposure hashes.
