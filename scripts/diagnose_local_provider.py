@@ -193,7 +193,7 @@ def successful(result):
         (not result.get('observations') or all(result['observations'].get(k,False) for k in ('original_inspection','verification','memory_retrieval','final_response'))))
 
 
-def synthetic_investigation(directory,client,timeout=180,output_tokens=2048,request_budget=12):
+def synthetic_investigation(directory,client,timeout=180,output_tokens=2048,request_budget=12,live_progress=False):
     """Real model, disposable evidence only. Explicit diagnostic request budget."""
     import hashlib
     from scripts.diagnose_investigative_memory import synthetic_case
@@ -203,14 +203,22 @@ def synthetic_investigation(directory,client,timeout=180,output_tokens=2048,requ
     path,sid,before=synthetic_case(directory)
     scope=authorize(path,[sid],'2020-01-01T00:00:00Z','2020-01-02T00:00:00Z',FAMILIES,'local',client.model_name,
         {'requests':request_budget,'provider_seconds':timeout,'output_tokens':output_tokens},local=client.conversation_binding())
-    session=Session(scope,client,lambda _:True,checkpoint_seconds=.01)
+    from forensic_assistant.conversational_ai.progress_display import ProgressDisplay
+    display=ProgressDisplay(sys.stderr,log_path=Path(directory)/'progress.txt') if live_progress else None
+    try:session=Session(scope,client,lambda _:True,checkpoint_seconds=.01,emit=display)
+    except BaseException:
+        if display:display.close()
+        raise
     reason='COMPLETED';answer={};failure={}
     try:
-        answer=session.submit('Investigate this synthetic recorded activity without assuming compromise. Inspect originals and independently verify important fields. Use investigative memory to review search coverage and verification history. Distinguish observations, hypotheses and incomplete coverage in your final assessment.')
+        answer=session.submit('Investigate this synthetic recorded activity without assuming compromise. Inspect originals and independently verify important fields. Use investigative memory to review search coverage and verification history. Distinguish observations, hypotheses and incomplete coverage in your final assessment.',intent='broad')
     except Paused as exc:
         reason=str(exc);cause=exc.__cause__
         failure=dict(category=getattr(cause,'category',None),stage=getattr(cause,'stage',None),diagnostic=getattr(cause,'metadata',{}))
-    finally:session.close(reason)
+    finally:
+        try:session.close(reason)
+        finally:
+            if display:display.close()
     rebuilt=reconstruct(session.journal.path,Path(directory)/'reconstructed')
     from forensic_assistant.conversational_ai.operation_diagnostics import operation_trace
     trace=operation_trace(session.journal.path)
@@ -219,10 +227,10 @@ def synthetic_investigation(directory,client,timeout=180,output_tokens=2048,requ
     return dict(provider='Configured local provider on synthetic evidence',diagnostic_request_ceiling=request_budget,
         journal=str(session.journal.path),operation_trace=trace['operations'],provider_diagnostics=trace['provider_diagnostics'],
         timing=dict(workspace_persistence_seconds=session.persistence_seconds,forensic_worker_seconds=session.worker_seconds,
-            inference_seconds=session.inference_seconds,measurement_seconds=session.used['measurement_seconds'],
+            inference_seconds=session.inference_seconds,measurement_seconds=session.used['measurement_seconds'],progress_assessment_seconds=session.used['progress_assessment_seconds'],
             other_active_seconds=max(0,session.used['active_seconds']-session.inference_seconds-session.worker_seconds-session.used['measurement_seconds']-session.persistence_seconds)),
         timing_limitation='Operation durations include validation and bookkeeping; inference includes transport, not pure generation. No generation throughput inferred.',
-        outcome=reason,failure=failure,capacity=session.last_capacity,endpoint=client.conversation_binding()['endpoint'],model=client.model_name,usage=session.used,workspace=rebuilt,interpretation=answer.get('interpretation'),
+        outcome=reason,normal_termination=reason=='COMPLETED',provider_final_response=session.completion_assessment is not None,completion_assessment=session.completion_assessment,failure=failure,capacity=session.last_capacity,endpoint=client.conversation_binding()['endpoint'],model=client.model_name,usage=session.used,workspace=rebuilt,interpretation=answer.get('interpretation'),
         checks=dict(case_unchanged=hashlib.sha256(path.read_bytes()).hexdigest()==before,worker_closed=session.worker.process.poll() is not None),
         observations=dict(original_inspection=session.used['original_rehydrations']>0,verification=rebuilt['counts']['verifications']>0,
             memory_retrieval=session.used['memory_operations']>0,context_consolidation=session.used['context_consolidations']>0,
@@ -257,7 +265,9 @@ def main():
     p.add_argument('--synthetic-investigation',action='store_true',help='Use the real local model on a disposable synthetic case (12-request diagnostic budget)')
     p.add_argument('--output-dir',help='Fresh private retained synthetic output directory; never overwritten')
     p.add_argument('--diagnostic-requests',type=int,default=12,help='Synthetic investigation request budget only (default 12)')
+    p.add_argument('--progress',action='store_true',help='Synthetic diagnostic liveness and counters on stderr; stdout remains JSON')
     args=p.parse_args()
+    if args.progress and (not args.synthetic_investigation or args.mock):p.error('--progress requires --synthetic-investigation')
     if args.diagnostic_requests<1:p.error('Diagnostic request budget must be positive')
     if args.output_dir and (not args.synthetic_investigation or args.mock or args.tokenization or args.full_catalog):p.error('--output-dir requires --synthetic-investigation')
     if not args.mock and not (args.endpoint and args.model):p.error('Use --mock or --endpoint and --model')
@@ -270,7 +280,7 @@ def main():
             if args.tokenization:result=tokenization_probe(client,args.timeout,args.output_tokens)
             elif args.full_catalog:result=full_catalog(client,args.timeout,args.output_tokens)
             elif args.synthetic_investigation:
-                run=lambda tmp:synthetic_investigation(tmp,client,args.timeout,args.output_tokens,args.diagnostic_requests)
+                run=lambda tmp:synthetic_investigation(tmp,client,args.timeout,args.output_tokens,args.diagnostic_requests,args.progress)
                 if args.output_dir:result=retained(args.output_dir,run)
                 else:
                     with tempfile.TemporaryDirectory(prefix='locard-local-synthetic-') as tmp:result=run(tmp)

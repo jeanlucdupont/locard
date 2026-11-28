@@ -99,15 +99,19 @@ def operation_trace(path):
                             try:matches=json.loads(message['content'])==row['feedback']
                             except (ValueError,KeyError):matches=False
                             if matches:row['feedback_sent_request']=request;pending.append(row);break
+        elif kind=='progress_feedback_sent':
+            for row in rows:
+                if row.get('operation_id')==data['operation']:
+                    row['progress_feedback_sent_request']=data['request_sequence'];pending.append(row)
         elif kind=='provider_response':
             for row in pending:row['subsequent_response_identity']=event['hash']
             pending=[]
         elif kind=='operation_diagnostic':
             row=dict(data,turn=turn)
             signature=hashlib.sha256(json.dumps({'name':row['tool'],'arguments':row['arguments']},sort_keys=True,separators=(',',':')).encode()).hexdigest()
-            row.update(argument_signature=signature,exact_repeat=signature in seen,feedback_sent_request=None,subsequent_response_identity=None)
+            row.update(progress_feedback_sent_request=None,argument_signature=signature,exact_repeat=signature in seen,feedback_sent_request=None,subsequent_response_identity=None)
             seen.add(signature);rows.append(row)
-        elif kind in ('local_inference_metrics','context_candidate','context_capacity','provider_timing','paused'):
+        elif kind in ('local_inference_metrics','context_candidate','context_capacity','provider_timing','paused','completion_assessment','completion_challenge'):
             metrics.append(dict(kind=kind,data=data))
     # Correlate normal subsequent operations, not retries or inferred comprehension.
     violations=set()
@@ -119,6 +123,7 @@ def operation_trace(path):
         if error:violations.add(key)
         following=[dict(provider_request_sequence=r['provider_request_sequence'],tool_call_id=r['tool_call_id'],tool=r['tool'],arguments=r['arguments'],execution_outcome=r['execution_outcome']) for r in rows if r['provider_request_sequence']==row['feedback_sent_request']]
         row['subsequent_operations']=following
+        row['progress_subsequent_operations']=[dict(tool=r['tool'],execution_outcome=r['execution_outcome'],progress=r.get('progress')) for r in rows if r['provider_request_sequence']==row.get('progress_feedback_sent_request')]
     consecutive=[]
     for row in rows:
         if row['turn']!=turn:continue

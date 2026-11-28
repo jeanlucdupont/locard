@@ -50,7 +50,11 @@ def serve():
                         stage='read_view'
                         if view is not None:raise ValueError('View already initialized')
                         view=ReadView(config['case_path'],deadline or float('inf'));adapter=Tools(view.db,scope,profile=[] if config.get('_profile') is True else None,read_view=view)
-                        result=dict(result={'ready':True},evidence_state=view.state)
+                        from forensic_assistant.conversational_ai.progress import availability
+                        inventory=availability(adapter,min(deadline or float('inf'),time.monotonic()+2),cancel)
+                        if cancel.is_set() or (deadline is not None and time.monotonic()>=deadline):raise sqlite3.OperationalError('interrupted')
+                        view.check_identity()
+                        result=dict(result={'ready':True,'artifact_availability':inventory},evidence_state=view.state)
                     else:
                         stage='integrity'
                         if view is None:raise ValueError('View unavailable')

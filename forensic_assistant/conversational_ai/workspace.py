@@ -141,6 +141,22 @@ class Workspace:
             previous=self.meta(kind)
             if previous is not None and previous!=encoded(d):raise ValueError('WORKSPACE_BINDING_CONFLICT')
             db.execute('INSERT OR IGNORE INTO meta VALUES (?,?)',(kind,encoded(d)))
+        elif kind=='artifact_availability':
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('artifact_availability',encoded(d)))
+        elif kind=='operation_progress':
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('progress:'+d['key'],encoded(d)))
+            if d['tool'] in ('search_evidence','timeline','around','discover_security_signals','discover_execution_behaviors','activity_overview'):
+                db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('progress-frontier:'+d['frontier_key'],encoded(d)))
+                if d.get('artifact'):db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('progress-family:'+d['artifact'],encoded(d)))
+            compact={k:d[k] for k in ('operation','tool','state','reason','previous_operation','search_complete','continuation_available','artifact_signal_state')}
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('latest_progress',encoded(compact)))
+            if d['tool'] in ('search_evidence','timeline','around','discover_security_signals','discover_execution_behaviors','activity_overview'):
+                recent=json.loads(self.meta('recent_coverage') or '[]')
+                recent=[r for r in recent if r['frontier_key']!=d['frontier_key']]
+                recent.append(dict(compact,frontier_key=d['frontier_key']))
+                db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('recent_coverage',encoded(recent[-2:])))
+        elif kind=='completion_assessment':
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('completion_assessment',encoded(d)))
         elif kind=='tool_attempt':
             aid=d.get('operation_id','A'+str(seq))
             db.execute('INSERT INTO actions VALUES (?,?,?,?,?,?,NULL,NULL,NULL,NULL,?,NULL)',
@@ -252,7 +268,7 @@ class Workspace:
 
     def context(self):
         # Indexed bounded selections, not a full workspace load. All pages remain queryable.
-        result=dict(state=self.query(),previous_repeated_action=json.loads(self.meta('latest_repeat') or 'null'))
+        result=dict(state=self.query(),previous_repeated_action=json.loads(self.meta('latest_repeat') or 'null'),operational_progress=json.loads(self.meta('latest_progress') or 'null'),artifact_availability=json.loads(self.meta('artifact_availability') or '{}'),recent_query_coverage=json.loads(self.meta('recent_coverage') or '[]'))
         for label,kind,kwargs in [('active_notes','notes',{'status':'active','limit':2}),('unresolved_questions','notes',{'status':'unresolved','limit':2}),('verified','verified',{'limit':3}),('pending_searches','actions',{'status':'partial','limit':2})]:
             try:result[label]=self.query(kind,**kwargs)
             except ValueError as exc:
